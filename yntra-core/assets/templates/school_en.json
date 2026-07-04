@@ -1,0 +1,82 @@
+[
+  {
+    "id": "role-school-principal",
+    "name": "Principal",
+    "permissions": {
+      "can_manage_schedule": true,
+      "can_manage_notes": true,
+      "can_approve_time_reports": true,
+      "can_manage_students": true,
+      "can_manage_grades": true,
+      "can_publish_report_cards": true,
+      "can_access_health_records": false,
+      "can_manage_billing": true,
+      "can_manage_library": true,
+      "can_manage_workspace": true,
+      "can_manage_users": true,
+      "can_view_audit_logs": true,
+      "can_submit_reports": true,
+      "can_manage_reports": true
+    }
+  },
+  {
+    "id": "role-school-teacher",
+    "name": "Teacher",
+    "permissions": {
+      "can_manage_schedule": true,
+      "can_manage_notes": true,
+      "can_approve_time_reports": true,
+      "can_manage_students": true,
+      "can_manage_grades": true,
+      "can_publish_report_cards": false,
+      "can_access_health_records": false,
+      "can_manage_billing": false,
+      "can_manage_library": true,
+      "can_manage_workspace": false,
+      "can_manage_users": false,
+      "can_view_audit_logs": false,
+      "can_submit_reports": true,
+      "can_manage_reports": false
+    }
+  },
+  {
+    "id": "role-school-counselor",
+    "name": "School Counselor",
+    "permissions": {
+      "can_manage_schedule": false,
+      "can_manage_notes": true,
+      "can_approve_time_reports": false,
+      "can_manage_students": true,
+      "can_manage_grades": false,
+      "can_publish_report_cards": false,
+      "can_access_health_records": false,
+      "can_manage_billing": false,
+      "can_manage_library": false,
+      "can_manage_workspace": false,
+      "can_manage_users": false,
+      "can_view_audit_logs": false,
+      "can_submit_reports": true,
+      "can_manage_reports": false
+    }
+  },
+  {
+    "id": "role-school-nurse",
+    "name": "School Nurse",
+    "permissions": {
+      "can_manage_schedule": false,
+      "can_manage_notes": true,
+      "can_approve_time_reports": false,
+      "can_manage_students": false,
+      "can_manage_grades": false,
+      "can_publish_report_cards": false,
+      "can_access_health_records": true,
+      "can_manage_billing": false,
+      "can_manage_library": false,
+      "can_manage_workspace": false,
+      "can_manage_users": false,
+      "can_view_audit_logs": false,
+      "can_submit_reports": true,
+      "can_manage_reports": false
+    }
+  }
+]

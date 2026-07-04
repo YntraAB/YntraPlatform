@@ -1,0 +1,32 @@
+pub mod assistance;
+pub mod client_portal;
+pub mod dashboard;
+pub mod directory;
+pub mod login;
+pub mod messaging;
+pub mod notes;
+pub mod reporting;
+pub mod scheduling;
+pub mod settings;
+pub mod setup;
+pub mod time;
+pub mod jobs;
+pub mod todos;
+pub mod school;
+
+pub use assistance::AssistanceView;
+pub use client_portal::ClientPortalView;
+pub use dashboard::DashboardView;
+pub use directory::DirectoryView;
+pub use login::LoginView;
+pub use messaging::MessagingView;
+pub use notes::NotesView;
+pub use reporting::ReportingView;
+pub use scheduling::SchedulingView;
+pub use settings::SettingsView;
+pub use setup::SetupView;
+pub use time::TimeView;
+pub use jobs::JobsView;
+pub use todos::TodosView;
+pub use school::SchoolView;
+

@@ -1,0 +1,70 @@
+[
+  {
+    "id": "role-move-coordinator",
+    "name": "Move Coordinator (Team Lead)",
+    "permissions": {
+      "can_manage_schedule": true,
+      "can_manage_notes": true,
+      "can_approve_time_reports": true,
+      "can_manage_jobs": true,
+      "can_manage_quotes": true,
+      "can_complete_jobs": true,
+      "can_manage_workspace": true,
+      "can_manage_users": true,
+      "can_view_audit_logs": true,
+      "can_submit_reports": true,
+      "can_manage_reports": true
+    }
+  },
+  {
+    "id": "role-move-driver",
+    "name": "Driver (Heavy Mover)",
+    "permissions": {
+      "can_manage_schedule": false,
+      "can_manage_notes": true,
+      "can_approve_time_reports": false,
+      "can_manage_jobs": false,
+      "can_manage_quotes": false,
+      "can_complete_jobs": true,
+      "can_manage_workspace": false,
+      "can_manage_users": false,
+      "can_view_audit_logs": false,
+      "can_submit_reports": true,
+      "can_manage_reports": false
+    }
+  },
+  {
+    "id": "role-move-mover",
+    "name": "Mover / Packer",
+    "permissions": {
+      "can_manage_schedule": false,
+      "can_manage_notes": true,
+      "can_approve_time_reports": false,
+      "can_manage_jobs": false,
+      "can_manage_quotes": false,
+      "can_complete_jobs": false,
+      "can_manage_workspace": false,
+      "can_manage_users": false,
+      "can_view_audit_logs": false,
+      "can_submit_reports": true,
+      "can_manage_reports": false
+    }
+  },
+  {
+    "id": "role-move-admin",
+    "name": "Office Administrator",
+    "permissions": {
+      "can_manage_schedule": true,
+      "can_manage_notes": true,
+      "can_approve_time_reports": false,
+      "can_manage_jobs": true,
+      "can_manage_quotes": true,
+      "can_complete_jobs": true,
+      "can_manage_workspace": true,
+      "can_manage_users": true,
+      "can_view_audit_logs": true,
+      "can_submit_reports": true,
+      "can_manage_reports": true
+    }
+  }
+]

@@ -1,0 +1,78 @@
+[
+  {
+    "id": "role-lss-ansvarig",
+    "name": "Verksamhetsansvarig",
+    "permissions": {
+      "can_manage_schedule": true,
+      "can_manage_notes": true,
+      "can_approve_time_reports": true,
+      "can_manage_clients": true,
+      "can_view_journals": true,
+      "can_write_journals": true,
+      "can_view_medications": true,
+      "can_manage_medications": true,
+      "can_manage_workspace": true,
+      "can_manage_users": true,
+      "can_view_audit_logs": true,
+      "can_submit_reports": true,
+      "can_manage_reports": true
+    }
+  },
+  {
+    "id": "role-lss-pedagog",
+    "name": "Stödpedagog",
+    "permissions": {
+      "can_manage_schedule": true,
+      "can_manage_notes": true,
+      "can_approve_time_reports": false,
+      "can_manage_clients": false,
+      "can_view_journals": true,
+      "can_write_journals": true,
+      "can_view_medications": true,
+      "can_manage_medications": false,
+      "can_manage_workspace": false,
+      "can_manage_users": false,
+      "can_view_audit_logs": false,
+      "can_submit_reports": true,
+      "can_manage_reports": false
+    }
+  },
+  {
+    "id": "role-lss-assistent",
+    "name": "Stödassistent",
+    "permissions": {
+      "can_manage_schedule": false,
+      "can_manage_notes": true,
+      "can_approve_time_reports": false,
+      "can_manage_clients": false,
+      "can_view_journals": true,
+      "can_write_journals": true,
+      "can_view_medications": true,
+      "can_manage_medications": false,
+      "can_manage_workspace": false,
+      "can_manage_users": false,
+      "can_view_audit_logs": false,
+      "can_submit_reports": true,
+      "can_manage_reports": false
+    }
+  },
+  {
+    "id": "role-lss-pers-ass",
+    "name": "Personlig assistent",
+    "permissions": {
+      "can_manage_schedule": false,
+      "can_manage_notes": true,
+      "can_approve_time_reports": false,
+      "can_manage_clients": false,
+      "can_view_journals": true,
+      "can_write_journals": true,
+      "can_view_medications": true,
+      "can_manage_medications": false,
+      "can_manage_workspace": false,
+      "can_manage_users": false,
+      "can_view_audit_logs": false,
+      "can_submit_reports": true,
+      "can_manage_reports": false
+    }
+  }
+]

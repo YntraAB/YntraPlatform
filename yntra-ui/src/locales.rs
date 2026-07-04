@@ -1,0 +1,90 @@
+const LOCALE_SE: &str = include_str!("../locales/se.ftl");
+const LOCALE_NO: &str = include_str!("../locales/no.ftl");
+const LOCALE_DK: &str = include_str!("../locales/dk.ftl");
+const LOCALE_EN: &str = include_str!("../locales/en.ftl");
+
+thread_local! {
+    static TRANSLATION_BUNDLES: std::cell::RefCell<std::collections::HashMap<String, fluent_bundle::FluentBundle<fluent_bundle::FluentResource>>> = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+pub fn get_system_locale() -> String {
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(window) = web_sys::window() {
+            if let Some(lang) = window.navigator().language() {
+                let lang = lang.to_lowercase();
+                if lang.starts_with("sv") {
+                    return "SE".to_string();
+                } else if lang.starts_with("nb") || lang.starts_with("nn") || lang.starts_with("no")
+                {
+                    return "NO".to_string();
+                } else if lang.starts_with("da") {
+                    return "DK".to_string();
+                }
+            }
+        }
+    }
+    "US".to_string()
+}
+
+pub fn t(key: &str, locale: &str) -> String {
+    t_with_args(key, locale, &[])
+}
+
+pub fn t_with_args(key: &str, locale: &str, args: &[(&str, &str)]) -> String {
+    TRANSLATION_BUNDLES.with(|bundles| {
+        let mut bundles_borrow = bundles.borrow_mut();
+        if bundles_borrow.is_empty() {
+            for (lang, source) in [
+                ("SE", LOCALE_SE),
+                ("NO", LOCALE_NO),
+                ("DK", LOCALE_DK),
+                ("US", LOCALE_EN),
+            ] {
+                let res = fluent_bundle::FluentResource::try_new(source.to_string())
+                    .expect("Failed to parse an FTL resource.");
+
+                let lid: unic_langid::LanguageIdentifier = lang.to_lowercase().parse().unwrap();
+                let mut bundle = fluent_bundle::FluentBundle::new(vec![lid]);
+                bundle
+                    .add_resource(res)
+                    .expect("Failed to add resource to bundle.");
+                bundles_borrow.insert(lang.to_string(), bundle);
+            }
+        }
+
+        // Find bundle for target locale, fallback to US
+        let bundle = bundles_borrow
+            .get(locale)
+            .unwrap_or_else(|| bundles_borrow.get("US").expect("US bundle must exist"));
+
+        // Try looking up the message in target locale
+        if let Some(msg) = bundle.get_message(key)
+            && let Some(pattern) = msg.value() {
+                let mut fluent_args = fluent_bundle::FluentArgs::new();
+                for &(k, v) in args {
+                    fluent_args.set(k, v);
+                }
+                let mut errors = vec![];
+                let formatted = bundle.format_pattern(pattern, Some(&fluent_args), &mut errors);
+                return formatted.to_string();
+            }
+
+        // Key-by-key fallback chain: if missing from target locale, try "US"
+        if locale != "US"
+            && let Some(us_bundle) = bundles_borrow.get("US")
+                && let Some(msg) = us_bundle.get_message(key)
+                    && let Some(pattern) = msg.value() {
+                        let mut fluent_args = fluent_bundle::FluentArgs::new();
+                        for &(k, v) in args {
+                            fluent_args.set(k, v);
+                        }
+                        let mut errors = vec![];
+                        let formatted =
+                            us_bundle.format_pattern(pattern, Some(&fluent_args), &mut errors);
+                        return formatted.to_string();
+                    }
+
+        key.to_string()
+    })
+}

@@ -1,0 +1,9 @@
+[application]
+name = "yntra-ui"
+default_platform = "web"
+public_dir = "public"
+tailwind_input = "src/tailwind.css"
+tailwind_output = "public/tailwind.css"
+
+[web.app]
+title = "Yntra Platform"

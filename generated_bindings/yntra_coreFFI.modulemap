@@ -1,0 +1,4 @@
+module yntra_coreFFI {
+    header "yntra_coreFFI.h"
+    export *
+}

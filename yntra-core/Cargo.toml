@@ -1,0 +1,35 @@
+[package]
+name = "yntra-core"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["rlib", "cdylib", "staticlib"]
+
+[dependencies]
+uniffi = { workspace = true }
+rkyv = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+getrandom = { workspace = true }
+sha2 = "0.10"
+pbkdf2 = "0.12"
+aes = "0.8"
+cbc = "0.1"
+reqwest = { workspace = true }
+totp-rs = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+libsql = { version = "0.6.0", features = ["replication"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync"] }
+pcsc = "2.8"
+
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { workspace = true }
+web-sys = { workspace = true, features = ["Storage", "Window"] }
+js-sys = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+

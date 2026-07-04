@@ -1,0 +1,429 @@
+use dioxus::prelude::*;
+use yntra_core::MessageItem;
+use yntra_core::WorkspaceUser;
+use yntra_core::{mark_message_read, send_message};
+use crate::components;
+use crate::locales::t;
+
+#[derive(Props, Clone)]
+pub struct MessagingViewProps {
+    pub active_user: WorkspaceUser,
+    pub users: Vec<WorkspaceUser>,
+    pub messages: Vec<MessageItem>,
+    pub unread_messages_count: usize,
+    pub messaging_view_tab: Signal<String>,
+    pub active_message_id: Signal<Option<String>>,
+    pub compose_recipient_id: Signal<Option<String>>,
+    pub compose_subject: Signal<String>,
+    pub compose_body: Signal<String>,
+    pub compose_status: Signal<String>,
+    pub db_trigger: Signal<u32>,
+    pub is_client: bool,
+}
+
+impl PartialEq for MessagingViewProps {
+    fn eq(&self, _other: &Self) -> bool {
+        false
+    }
+}
+
+#[component]
+pub fn MessagingView(props: MessagingViewProps) -> Element {
+    let active_user = props.active_user;
+    let users = props.users.clone();
+    let messages = props.messages.clone();
+    let _unread_messages_count = props.unread_messages_count;
+    let _is_client = props.is_client;
+
+    let mut messaging_view_tab = props.messaging_view_tab;
+    let mut active_message_id = props.active_message_id;
+    let mut compose_recipient_id = props.compose_recipient_id;
+    let mut compose_subject = props.compose_subject;
+    let mut compose_body = props.compose_body;
+    let mut compose_status = props.compose_status;
+    let mut db_trigger = props.db_trigger;
+
+    let current_tab = messaging_view_tab.read().clone();
+    let mut filtered_messages: Vec<MessageItem> = messages // Newest first
+        .iter()
+        .filter(|m| {
+            if current_tab == "inbox" {
+                m.receiver_id == Some(active_user.id.clone()) || m.target_team_id.is_some()
+            } else if current_tab == "sent" {
+                m.sender_id == Some(active_user.id.clone())
+            } else {
+                false
+            }
+        })
+        .cloned()
+        .collect();
+    filtered_messages.reverse(); // Left folders & message list pane
+
+    let active_msg = active_message_id
+        .read()
+        .clone()
+        .and_then(|id| messages.iter().find(|m| m.id == id).cloned());
+
+    let eligible_recipients: Vec<WorkspaceUser> = users
+        .iter()
+        .filter(|u| u.id != active_user.id)
+        .cloned()
+        .collect();
+
+    let user_prefs: serde_json::Value = serde_json::from_str(&active_user.preferences).unwrap_or_default();
+    let region = user_prefs.get("language").and_then(|l| l.as_str()).unwrap_or("US").to_string();
+    let mut compose_recipient_open = use_signal(|| false);
+
+    let users_for_messaging = users.clone();
+    let users_for_detail = users.clone();
+
+    let mut active_msg_sender_id = String::new();
+    let mut active_msg_sender_name = String::new();
+    let mut active_msg_receiver_name = String::new();
+    let mut active_msg_subject = String::new();
+    let mut active_msg_body = String::new();
+    let mut active_msg_created_at = String::new();
+
+    if let Some(ref msg) = active_msg {
+        active_msg_sender_id = msg.sender_id.clone().unwrap_or_default();
+        active_msg_sender_name = users_for_detail
+            .iter()
+            .find(|u| u.id == active_msg_sender_id)
+            .and_then(|u| u.full_name.clone())
+            .unwrap_or_else(|| "Workspace System".to_string());
+        let receiver_id = msg.receiver_id.clone().unwrap_or_default();
+        active_msg_receiver_name = users_for_detail
+            .iter()
+            .find(|u| u.id == receiver_id)
+            .and_then(|u| u.full_name.clone())
+            .unwrap_or_else(|| "Workspace Colleague".to_string());
+        active_msg_subject = msg
+            .subject
+            .clone()
+            .unwrap_or_else(|| "No Subject".to_string());
+        active_msg_body = msg.body.clone().unwrap_or_default();
+        active_msg_created_at = msg.created_at.clone();
+    }
+
+    rsx! {
+        if current_tab == "compose" {
+            // Compose View Full Width
+            div { class: "relative flex h-full flex-1 flex-col bg-background duration-300 animate-in fade-in",
+                div { class: "flex h-16 shrink-0 items-center justify-between border-b border-border px-8 bg-sidebar",
+                    h2 { class: "flex items-center gap-2.5 text-base font-semibold text-foreground m-0",
+                        div { class: "rounded-md bg-primary/10 p-1.5",
+                            components::LucideIcon { name: "mail", class: "h-4 w-4 text-primary" }
+                        }
+                        "{t(\"messages-compose-title\", &region)}"
+                    }
+                    button {
+                        class: "yntra-btn secondary text-xs flex items-center gap-1.5 h-8 px-3 rounded-lg font-semibold border border-border bg-transparent text-foreground hover:bg-white/[0.04] cursor-pointer transition-all",
+                        onclick: move |_| {
+                            messaging_view_tab.set("inbox".to_string());
+                        },
+                        components::LucideIcon { name: "arrow-left", class: "h-3.5 w-3.5" }
+                        "{t(\"messages-cancel\", &region)}"
+                    }
+                }
+                
+                div { class: "flex-1 overflow-y-auto px-8 py-6 max-w-2xl flex flex-col gap-5",
+                    div { class: "flex flex-col gap-1.5",
+                        label { class: "text-xs font-bold text-muted-foreground", "{t(\"messages-to\", &region)}" }
+                        {
+                            let compose_recipient_label = if let Some(rec_id) = compose_recipient_id.read().clone() {
+                                if let Some(recipient) = eligible_recipients.iter().find(|r| r.id == rec_id) {
+                                    format!("{} ({})", recipient.full_name.clone().unwrap_or_default(), recipient.role)
+                                } else {
+                                    t("messages-recipient-placeholder", &region)
+                                }
+                            } else {
+                                t("messages-recipient-placeholder", &region)
+                            };
+
+                            rsx! {
+                                components::Dropdown {
+                                    label: compose_recipient_label,
+                                    open: *compose_recipient_open.read(),
+                                    ontoggle: move |_| {
+                                        let cur = *compose_recipient_open.read();
+                                        compose_recipient_open.set(!cur);
+                                    },
+                                    for recipient in eligible_recipients.iter() {
+                                        {
+                                            let r_id = recipient.id.clone();
+                                            let r_name = recipient.full_name.clone().unwrap_or_default();
+                                            let r_role = recipient.role.clone();
+                                            let label = format!("{} ({})", r_name, r_role);
+                                            rsx! {
+                                                components::DropdownItem {
+                                                    label: label,
+                                                    onclick: move |_| {
+                                                        compose_recipient_id.set(Some(r_id.clone()));
+                                                        compose_recipient_open.set(false);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    div { class: "flex flex-col gap-1.5",
+                        label { class: "text-xs font-bold text-muted-foreground", "{t(\"messages-subject\", &region)}" }
+                        input {
+                            class: "yntra-input text-sm h-9 px-3 bg-background border border-border rounded-lg text-foreground",
+                            value: "{compose_subject}",
+                            placeholder: t("messages-subject-placeholder", &region),
+                            oninput: move |e| compose_subject.set(e.value()),
+                        }
+                    }
+                    div { class: "flex flex-col gap-1.5",
+                        label { class: "text-xs font-bold text-muted-foreground", "{t(\"notes-compose-content-label\", &region)}" }
+                        textarea {
+                            class: "w-full p-3 border border-border rounded-lg text-foreground text-sm",
+                            style: "height:180px; background:rgba(0,0,0,0.2); resize:vertical; line-height:1.5;",
+                            value: "{compose_body}",
+                            placeholder: t("messages-content-placeholder", &region),
+                            oninput: move |e| compose_body.set(e.value()),
+                        }
+                    }
+                    button {
+                        class: "yntra-btn h-9 text-xs font-bold rounded-lg cursor-pointer px-4 self-start mt-2",
+                        onclick: move |_| {
+                            let rec_opt = compose_recipient_id.read().clone();
+                            let sub = compose_subject.read().trim().to_string();
+                            let body = compose_body.read().trim().to_string();
+
+                            if let Some(recipient_id) = rec_opt
+                                && !sub.is_empty() && !body.is_empty() {
+                                    compose_status.set("sending".to_string());
+                                    let workspace_id = active_user.workspace_id.clone().unwrap_or_else(|| "workspace-1".to_string());
+                                    let sender_id = active_user.id.clone();
+                                    let recipient = Some(recipient_id);
+                                    spawn(async move {
+                                        let _ = send_message(
+                                            workspace_id,
+                                            sender_id,
+                                            recipient,
+                                            None,
+                                            sub,
+                                            body,
+                                        ).await;
+                                    });
+                                    let current_trig = *db_trigger.read();
+                                    db_trigger.set(current_trig + 1);
+                                    compose_subject.set(String::new());
+                                    compose_body.set(String::new());
+                                    compose_status.set("success".to_string());
+                                    messaging_view_tab.set("sent".to_string());
+                                }
+                        },
+                        if *compose_status.read() == "sending" {
+                            "{t(\"messages-sending\", &region)}"
+                        } else {
+                            "{t(\"messages-send\", &region)}"
+                        }
+                    }
+                }
+            }
+        } else if let Some(_msg) = active_msg {
+            // Read View Full Width
+            div { class: "relative flex h-full flex-1 flex-col bg-background duration-300 animate-in fade-in",
+                div { class: "flex h-16 shrink-0 items-center justify-between border-b border-border px-8 bg-sidebar",
+                    div { class: "flex items-center gap-4",
+                        button {
+                            class: "yntra-btn secondary text-xs flex items-center gap-1.5 h-8 px-3 rounded-lg font-semibold border border-border bg-transparent text-foreground hover:bg-white/[0.04] cursor-pointer transition-all",
+                            onclick: move |_| {
+                                active_message_id.set(None);
+                            },
+                            components::LucideIcon { name: "arrow-left", class: "h-3.5 w-3.5" }
+                            "{t(\"common-back\", &region)}"
+                        }
+                        h2 { class: "text-base font-semibold text-foreground m-0", "{t(\"messages-title\", &region)}" }
+                    }
+                    if active_msg_sender_id != active_user.id {
+                        button {
+                            class: "yntra-btn h-8 text-xs flex items-center gap-1.5 font-bold shadow-md cursor-pointer px-4 rounded-lg",
+                            onclick: {
+                                let active_msg_sender_id = active_msg_sender_id.clone();
+                                let active_msg_subject = active_msg_subject.clone();
+                                move |_| {
+                                    compose_recipient_id.set(Some(active_msg_sender_id.clone()));
+                                    compose_subject.set(format!("Re: {}", active_msg_subject));
+                                    compose_body.set(String::new());
+                                    messaging_view_tab.set("compose".to_string());
+                                    active_message_id.set(None);
+                                }
+                            },
+                            components::LucideIcon { name: "reply", class: "h-3.5 w-3.5" }
+                            "{t(\"messages-reply\", &region)}"
+                        }
+                    }
+                }
+                
+                div { class: "flex-1 overflow-y-auto px-8 py-6 max-w-3xl flex flex-col gap-6",
+                    div { class: "flex flex-col gap-1 border-b border-border pb-4",
+                        div { class: "text-sm text-muted-foreground",
+                            span { class: "font-bold", "{t(\"messages-from\", &region)}: " }
+                            span { "{active_msg_sender_name}" }
+                        }
+                        div { class: "text-sm text-muted-foreground",
+                            span { class: "font-bold", "{t(\"messages-to\", &region)}: " }
+                            span { "{active_msg_receiver_name}" }
+                        }
+                        div { class: "text-xs text-muted-foreground/60 mt-1",
+                            "{t(\"messages-date\", &region)}: {active_msg_created_at}"
+                        }
+                    }
+                    h3 { class: "text-lg font-bold text-foreground m-0", "{active_msg_subject}" }
+                    div { class: "bg-white/[0.015] border border-border/40 p-6 rounded-xl text-sm text-foreground",
+                        style: "line-height:1.6; white-space:pre-wrap;",
+                        "{active_msg_body}"
+                    }
+                }
+            }
+        } else {
+            // Messages List View Full Width
+            div { class: "relative flex h-full flex-1 flex-col bg-background duration-300 animate-in fade-in",
+                div { class: "flex h-16 shrink-0 items-center justify-between border-b border-border px-8 bg-sidebar",
+                    h2 { class: "flex items-center gap-2.5 text-base font-semibold text-foreground m-0",
+                        div { class: "rounded-md bg-primary/10 p-1.5",
+                            components::LucideIcon { name: "mail", class: "h-4 w-4 text-primary" }
+                        }
+                        {
+                            if current_tab == "inbox" {
+                                t("messages-inbox", &region)
+                            } else {
+                                t("messages-sent", &region)
+                            }
+                        }
+                    }
+                    
+                    div { class: "flex items-center gap-4",
+                        components::Tabs {
+                            tabs: vec![
+                                components::tabs::TabItem {
+                                    value: "inbox".to_string(),
+                                    label: t("messages-inbox", &region),
+                                    icon: Some("inbox".to_string()),
+                                },
+                                components::tabs::TabItem {
+                                    value: "sent".to_string(),
+                                    label: t("messages-sent", &region),
+                                    icon: Some("send".to_string()),
+                                },
+                            ],
+                            active_tab: current_tab.clone(),
+                            onchange: move |val| {
+                                messaging_view_tab.set(val);
+                                active_message_id.set(None);
+                            },
+                        }
+                    }
+                }
+                
+                div { class: "scrollbar-dark w-full flex-1 overflow-y-auto flex flex-col",
+                    if filtered_messages.is_empty() {
+                        div { class: "text-center text-muted-foreground/60 py-16",
+                            components::LucideIcon { name: "mail", class: "h-12 w-12 mx-auto mb-3 opacity-20" }
+                            p { class: "text-sm m-0", "{t(\"messages-empty-state\", &region)}" }
+                        }
+                    }
+                    for msg in filtered_messages.iter() {
+                        {
+                            let msg_id = msg.id.clone();
+                            let is_unread = !msg.is_read && msg.receiver_id == Some(active_user.id.clone());
+
+                            let display_name = if current_tab == "inbox" {
+                                let sender_id = msg.sender_id.clone().unwrap_or_default();
+                                users_for_messaging
+                                    .iter()
+                                    .find(|u| u.id == sender_id)
+                                    .and_then(|u| u.full_name.clone())
+                                    .unwrap_or_else(|| t("messages-system", &region))
+                            } else {
+                                let receiver_id = msg.receiver_id.clone().unwrap_or_default();
+                                users_for_messaging
+                                    .iter()
+                                    .find(|u| u.id == receiver_id)
+                                    .and_then(|u| u.full_name.clone())
+                                    .unwrap_or_else(|| t("messages-person", &region))
+                            };
+                            let subject_str = msg
+                                .subject
+                                .clone()
+                                .unwrap_or_else(|| t("messages-no-header", &region));
+                            let snippet = msg.body.clone().unwrap_or_default();
+                            let snippet_truncated = if snippet.len() > 80 {
+                                format!("{}...", &snippet[0..80])
+                            } else {
+                                snippet
+                            };
+                            
+                            let icon_name = if is_unread { "mail" } else { "mail-open" };
+                            let class_sender = if is_unread { "font-bold text-foreground" } else { "font-semibold text-foreground/80" };
+                            let class_subject = if is_unread { "font-bold text-foreground" } else { "text-foreground/90" };
+
+                            rsx! {
+                                div {
+                                    key: "{msg_id}",
+                                    onclick: move |_| {
+                                        active_message_id.set(Some(msg_id.clone()));
+                                        if is_unread {
+                                            let m_id = msg_id.clone();
+                                            spawn(async move {
+                                                let _ = mark_message_read(m_id).await;
+                                            });
+                                            let current_trig = *db_trigger.read();
+                                            db_trigger.set(current_trig + 1);
+                                        }
+                                    },
+                                    class: "group flex items-center border-b border-border/30 px-8 py-4 transition-colors hover:bg-white/[0.015] list-item-hover cursor-pointer",
+                                    
+                                    div { class: "mr-4 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.04] text-primary transition-colors group-hover:bg-primary/10",
+                                        components::LucideIcon { name: icon_name, class: "h-4 w-4 text-primary" }
+                                    }
+                                    
+                                    div { class: "w-48 shrink-0 truncate pr-4 text-sm font-semibold text-foreground md:w-64",
+                                        span { class: "{class_sender}",
+                                            "{display_name}"
+                                        }
+                                        if is_unread {
+                                            span { class: "ml-2 h-1.5 w-1.5 rounded-full bg-primary inline-block" }
+                                        }
+                                    }
+                                    
+                                    div { class: "flex min-w-0 flex-1 items-center gap-2 truncate pr-4 text-sm",
+                                        span { class: "{class_subject}", "{subject_str}" }
+                                        span { class: "truncate text-muted-foreground/60 font-light", "- {snippet_truncated}" }
+                                    }
+                                    
+                                    div { class: "w-32 shrink-0 text-right text-xs font-mono text-muted-foreground/60 pr-2",
+                                        "{msg.created_at}"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Floating Action Button
+                div { class: "absolute bottom-10 right-10 z-20",
+                    button {
+                        class: "yntra-btn flex h-14 pl-5 pr-7 bg-foreground text-background hover:bg-foreground/90 shadow-[0_20px_50px_rgba(0,0,0,0.3)] font-bold items-center gap-2.5 transition-all hover:scale-105 active:scale-95 rounded-full cursor-pointer border-0",
+                        onclick: move |_| {
+                            messaging_view_tab.set("compose".to_string());
+                            active_message_id.set(None);
+                            compose_status.set("idle".to_string());
+                            compose_subject.set(String::new());
+                            compose_body.set(String::new());
+                        },
+                        components::LucideIcon { name: "plus", class: "h-5 w-5 text-background" }
+                        span { "{t(\"messages-new-message\", &region)}" }
+                    }
+                }
+            }
+        }
+    }
+}
