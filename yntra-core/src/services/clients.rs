@@ -5,14 +5,14 @@ use crate::{ClientProfile, JournalEntry, MedicationItem, YntraError};
 #[uniffi::export]
 pub async fn get_clients(requester_user_id: String) -> Result<Vec<ClientProfile>, YntraError> {
     let conn = database::acquire_connection().await?;
-    let user_row: Option<(String, Option<String>, Option<String>)> = conn.query_row(
-        "SELECT role, full_name, workspace_id FROM users WHERE id = ?1",
+    let user_row: Option<(String, Option<String>, Option<String>, Option<String>)> = conn.query_row(
+        "SELECT role, full_name, personal_number, workspace_id FROM users WHERE id = ?1",
         crate::params![&requester_user_id],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
     ).await.ok();
 
-    let (role, full_name, ws_id) = match user_row {
-        Some((r, f, w)) => (r, f, w.unwrap_or_else(|| "workspace-1".to_string())),
+    let (role, _full_name, personal_number, ws_id) = match user_row {
+        Some((r, f, p, w)) => (r, f, p, w.unwrap_or_else(|| "workspace-1".to_string())),
         None => return Err(YntraError::AuthError("User not found".to_string())),
     };
 
@@ -27,19 +27,11 @@ pub async fn get_clients(requester_user_id: String) -> Result<Vec<ClientProfile>
             vec![ws_id],
         )
     } else if role == "client" {
-        if let Some(name) = full_name {
-            let parts: Vec<&str> = name.split_whitespace().collect();
-            if parts.len() >= 2 {
-                (
-                    "SELECT id, workspace_id, team_id, first_name, last_name, personal_number, care_level, message_settings, created_at, updated_at, sync_status FROM clients WHERE first_name = ?1 AND last_name = ?2 AND workspace_id = ?3".to_string(),
-                    vec![parts[0].to_string(), parts[1].to_string(), ws_id],
-                )
-            } else {
-                (
-                    "SELECT id, workspace_id, team_id, first_name, last_name, personal_number, care_level, message_settings, created_at, updated_at, sync_status FROM clients WHERE 1 = 0".to_string(),
-                    vec![],
-                )
-            }
+        if let Some(pn) = personal_number {
+            (
+                "SELECT id, workspace_id, team_id, first_name, last_name, personal_number, care_level, message_settings, created_at, updated_at, sync_status FROM clients WHERE personal_number = ?1 AND workspace_id = ?2".to_string(),
+                vec![pn, ws_id],
+            )
         } else {
             (
                 "SELECT id, workspace_id, team_id, first_name, last_name, personal_number, care_level, message_settings, created_at, updated_at, sync_status FROM clients WHERE 1 = 0".to_string(),
@@ -226,18 +218,9 @@ pub async fn add_journal_entry(
     content: String,
 ) -> Result<JournalEntry, YntraError> {
     let conn = database::acquire_connection().await?;
-    let author_row: Option<(String, String)> = conn.query_row(
-        "SELECT role, workspace_id FROM users WHERE id = ?1",
-        crate::params![&author_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
-    ).await.ok();
+    let auth = crate::AuthContext::authorize(&conn, &author_id).await?;
 
-    let (author_role, author_ws) = match author_row {
-        Some((role, ws)) => (role, ws),
-        None => return Err(YntraError::AuthError("Author not found".to_string())),
-    };
-
-    if author_ws != workspace_id {
+    if auth.workspace_id != workspace_id {
         return Err(YntraError::AuthError("Access denied: author belongs to a different workspace".to_string()));
     }
 
@@ -256,7 +239,7 @@ pub async fn add_journal_entry(
         return Err(YntraError::AuthError("Access denied: client belongs to a different workspace".to_string()));
     }
 
-    let is_authorized = if author_role == "platform_admin" || author_role == "admin" {
+    let is_authorized = if auth.role == "platform_admin" || auth.role == "admin" {
         true
     } else if let Some(tid) = &client_team {
         let mut member_stmt = conn.prepare("SELECT 1 FROM team_members WHERE team_id = ?1 AND user_id = ?2").await?;
@@ -316,18 +299,9 @@ pub async fn add_medication(
     instructions: String,
 ) -> Result<MedicationItem, YntraError> {
     let conn = database::acquire_connection().await?;
-    let actor_row: Option<(String, String)> = conn.query_row(
-        "SELECT role, workspace_id FROM users WHERE id = ?1",
-        crate::params![&actor_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
-    ).await.ok();
+    let auth = crate::AuthContext::authorize(&conn, &actor_id).await?;
 
-    let (actor_role, actor_ws) = match actor_row {
-        Some((role, ws)) => (role, ws),
-        None => return Err(YntraError::AuthError("Actor not found".to_string())),
-    };
-
-    if actor_ws != workspace_id {
+    if auth.workspace_id != workspace_id {
         return Err(YntraError::AuthError("Access denied: actor belongs to a different workspace".to_string()));
     }
 
@@ -346,7 +320,7 @@ pub async fn add_medication(
         return Err(YntraError::AuthError("Access denied: client belongs to a different workspace".to_string()));
     }
 
-    let is_authorized = if actor_role == "platform_admin" || actor_role == "admin" {
+    let is_authorized = if auth.role == "platform_admin" || auth.role == "admin" {
         true
     } else if let Some(tid) = &client_team {
         let mut member_stmt = conn.prepare("SELECT 1 FROM team_members WHERE team_id = ?1 AND user_id = ?2").await?;
@@ -404,6 +378,7 @@ pub async fn add_medication(
 
 #[uniffi::export]
 pub async fn add_client_via_directory(
+    requester_user_id: String,
     workspace_id: String,
     team_id: Option<String>,
     first_name: String,
@@ -411,6 +386,15 @@ pub async fn add_client_via_directory(
     personal_number: String,
     care_level: String,
 ) -> Result<ClientProfile, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if !auth.is_admin {
+        return Err(YntraError::AuthError("Access denied: administrator privileges required".to_string()));
+    }
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
     let id = uuid::Uuid::new_v4().to_string();
     let created_at = crate::infra::time::get_current_datetime_str();
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -428,7 +412,6 @@ pub async fn add_client_via_directory(
         sync_status: "pending".to_string(),
     };
 
-    let conn = database::acquire_connection().await?;
     let encrypted_pnum = crate::infra::crypto::encrypt_opt_field(item.personal_number.clone(), &workspace_id)?;
 
     conn.execute(
@@ -454,6 +437,7 @@ pub async fn add_client_via_directory(
 
 #[uniffi::export]
 pub async fn update_client_profile(
+    requester_user_id: String,
     client_id: String,
     first_name: String,
     last_name: String,
@@ -462,6 +446,7 @@ pub async fn update_client_profile(
 ) -> Result<(), YntraError> {
     let now_ms = crate::infra::time::get_current_time_ms();
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     let ws_id: String = {
         let mut stmt = conn.prepare("SELECT workspace_id FROM clients WHERE id = ?1").await?;
         let mut rows = stmt.query(crate::params![&client_id]).await?;
@@ -471,6 +456,12 @@ pub async fn update_client_profile(
             return Err(YntraError::NotFoundError("Client not found".to_string()));
         }
     };
+    if !auth.is_admin {
+        return Err(YntraError::AuthError("Access denied: administrator privileges required".to_string()));
+    }
+    if auth.role != "platform_admin" && auth.workspace_id != ws_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
     let encrypted_pnum = crate::infra::crypto::encrypt_opt_field(personal_number, &ws_id)?;
 
     conn.execute(
@@ -483,8 +474,24 @@ pub async fn update_client_profile(
 }
 
 #[uniffi::export]
-pub async fn delete_client(client_id: String) -> Result<(), YntraError> {
+pub async fn delete_client(requester_user_id: String, client_id: String) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    let ws_id: String = {
+        let mut stmt = conn.prepare("SELECT workspace_id FROM clients WHERE id = ?1").await?;
+        let mut rows = stmt.query(crate::params![&client_id]).await?;
+        if let Some(row) = rows.next().await? {
+            row.get(0)?
+        } else {
+            return Err(YntraError::NotFoundError("Client not found".to_string()));
+        }
+    };
+    if !auth.is_admin {
+        return Err(YntraError::AuthError("Access denied: administrator privileges required".to_string()));
+    }
+    if auth.role != "platform_admin" && auth.workspace_id != ws_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
 
     conn.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
 

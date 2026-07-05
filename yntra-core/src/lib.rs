@@ -6,6 +6,7 @@ pub mod services;
 // Re-export error type and observer callback
 pub use infra::errors::*;
 pub use infra::observer::*;
+pub use infra::auth::AuthContext;
 pub use models::*;
 
 // Re-export all FFI service functions at the crate root
@@ -92,48 +93,9 @@ pub mod rusqlite {
         }
     }
 
-    impl ToLibsqlValue for &str {
+    impl<T: ToLibsqlValue + ?Sized> ToLibsqlValue for &T {
         fn to_value(&self) -> libsql::Value {
-            libsql::Value::Text(self.to_string())
-        }
-    }
-
-    impl ToLibsqlValue for &String {
-        fn to_value(&self) -> libsql::Value {
-            libsql::Value::Text((*self).clone())
-        }
-    }
-
-    impl ToLibsqlValue for &i64 {
-        fn to_value(&self) -> libsql::Value {
-            libsql::Value::Integer(**self)
-        }
-    }
-
-    impl ToLibsqlValue for &i32 {
-        fn to_value(&self) -> libsql::Value {
-            libsql::Value::Integer(**self as i64)
-        }
-    }
-
-    impl ToLibsqlValue for &f64 {
-        fn to_value(&self) -> libsql::Value {
-            libsql::Value::Real(**self)
-        }
-    }
-
-    impl ToLibsqlValue for &bool {
-        fn to_value(&self) -> libsql::Value {
-            libsql::Value::Integer(if **self { 1 } else { 0 })
-        }
-    }
-
-    impl<T: ToLibsqlValue> ToLibsqlValue for &Option<T> {
-        fn to_value(&self) -> libsql::Value {
-            match self.as_ref() {
-                Some(v) => v.to_value(),
-                None => libsql::Value::Null,
-            }
+            T::to_value(self)
         }
     }
 
@@ -208,52 +170,9 @@ pub mod rusqlite {
         }
     }
 
-    impl ToWasmValue for &str {
+    impl<T: ToWasmValue + ?Sized> ToWasmValue for &T {
         fn to_value(&self) -> serde_json::Value {
-            serde_json::Value::String(self.to_string())
-        }
-    }
-
-    impl ToWasmValue for &String {
-        fn to_value(&self) -> serde_json::Value {
-            serde_json::Value::String((*self).clone())
-        }
-    }
-
-    impl ToWasmValue for &i64 {
-        fn to_value(&self) -> serde_json::Value {
-            serde_json::Value::Number(serde_json::value::Number::from(**self))
-        }
-    }
-
-    impl ToWasmValue for &i32 {
-        fn to_value(&self) -> serde_json::Value {
-            serde_json::Value::Number(serde_json::value::Number::from(**self))
-        }
-    }
-
-    impl ToWasmValue for &f64 {
-        fn to_value(&self) -> serde_json::Value {
-            if let Some(n) = serde_json::value::Number::from_f64(**self) {
-                serde_json::Value::Number(n)
-            } else {
-                serde_json::Value::Null
-            }
-        }
-    }
-
-    impl ToWasmValue for &bool {
-        fn to_value(&self) -> serde_json::Value {
-            serde_json::Value::Bool(**self)
-        }
-    }
-
-    impl<T: ToWasmValue> ToWasmValue for &Option<T> {
-        fn to_value(&self) -> serde_json::Value {
-            match self.as_ref() {
-                Some(v) => v.to_value(),
-                None => serde_json::Value::Null,
-            }
+            T::to_value(self)
         }
     }
 

@@ -26,7 +26,7 @@ pub async fn authenticate_with_siths(card_id: String) -> Result<WorkspaceUser, Y
             nfc_badge_uid: row.get(8)?,
             updated_at: row.get(9)?,
             sync_status: row.get(10)?,
-            personal_number: crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id.as_deref().unwrap_or("workspace-1")),
+            personal_number: crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id.as_deref().unwrap_or("")),
         })
     } else {
         Err(YntraError::NotFoundError("No user registered with this SITHS card".to_string()))
@@ -57,7 +57,7 @@ pub async fn authenticate_with_nfc(badge_uid: String) -> Result<WorkspaceUser, Y
             nfc_badge_uid: row.get(8)?,
             updated_at: row.get(9)?,
             sync_status: row.get(10)?,
-            personal_number: crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id.as_deref().unwrap_or("workspace-1")),
+            personal_number: crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id.as_deref().unwrap_or("")),
         })
     } else {
         Err(YntraError::NotFoundError("No user registered with this NFC badge".to_string()))
@@ -351,7 +351,7 @@ async fn run_real_hardware_auth_native(ctx: pcsc::Context, session_id: String, _
 
                         let siths_auth_result = authenticate_with_siths(unique_id.clone()).await;
                         match siths_auth_result {
-                            Ok(user) => {
+                            Ok(_user) => {
                                 if let (Some(challenge_hex), Some(pubkey_hex)) = (challenge_opt, user_pubkey) {
                                     #[cfg(debug_assertions)]
                                     {

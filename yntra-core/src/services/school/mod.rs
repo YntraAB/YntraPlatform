@@ -21,18 +21,14 @@ pub(crate) async fn check_permission(
     user_id: &str,
     permission: &str,
 ) -> Result<bool, YntraError> {
-    let row: Option<(String, Option<String>)> = conn.query_row(
-        "SELECT role, workspace_id FROM users WHERE id = ?1",
-        crate::params![user_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
-    ).await.ok();
-
-    let (role, ws_id) = match row {
-        Some((r, Some(w))) => (r, w),
-        _ => return Ok(false),
+    let auth = match crate::AuthContext::authorize(conn, user_id).await {
+        Ok(a) => a,
+        Err(_) => return Ok(false),
     };
 
-    if role == "platform_admin" || role == "admin" {
+    let ws_id = auth.workspace_id;
+
+    if auth.role == "platform_admin" || auth.role == "admin" {
         return Ok(true);
     }
 
@@ -45,7 +41,7 @@ pub(crate) async fn check_permission(
     let settings_val: serde_json::Value = serde_json::from_str(&ws_settings).unwrap_or_default();
     if let Some(roles) = settings_val.get("roles").and_then(|r| r.as_array()) {
         for role_val in roles {
-            if role_val.get("id").and_then(|i| i.as_str()) == Some(&role) {
+            if role_val.get("id").and_then(|i| i.as_str()) == Some(&auth.role) {
                 if let Some(perms) = role_val.get("permissions") {
                     return Ok(perms.get(permission).and_then(|p| p.as_bool()).unwrap_or(false));
                 }
@@ -53,10 +49,10 @@ pub(crate) async fn check_permission(
         }
     }
 
-    if role.contains("rektor") || role.contains("principal") {
+    if auth.role.contains("rektor") || auth.role.contains("principal") {
         return Ok(true);
     }
-    if role.contains("skoterska") || role.contains("nurse") {
+    if auth.role.contains("skoterska") || auth.role.contains("nurse") {
         return Ok(permission == "can_access_health_records" || permission == "can_submit_reports");
     }
 

@@ -25,11 +25,18 @@ pub async fn get_workspace() -> Result<Workspace, YntraError> {
 }
 
 #[uniffi::export]
-pub async fn update_workspace_modules(workspace_id: String, modules_json: String) -> Result<(), YntraError> {
+pub async fn update_workspace_modules(requester_user_id: String, workspace_id: String, modules_json: String) -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if !auth.is_admin {
+        return Err(YntraError::AuthError("Access denied: administrator privileges required".to_string()));
+    }
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
     let modules_val: serde_json::Value = serde_json::from_str(&modules_json).unwrap_or_default();
     let reset_roles = modules_val.get("reset_roles").and_then(|v| v.as_bool()).unwrap_or(false);
-
-    let conn = database::acquire_connection().await?;
 
     conn.execute(
         "UPDATE workspaces SET modules_active = ?1 WHERE id = ?2",
@@ -188,12 +195,58 @@ pub async fn create_workspace_via_hub(
 }
 
 #[uniffi::export]
-pub async fn delete_workspace_via_hub(workspace_id: String) -> Result<(), YntraError> {
+pub async fn delete_workspace_via_hub(requester_user_id: String, workspace_id: String) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" {
+        return Err(YntraError::AuthError("Access denied: platform administrator privileges required".to_string()));
+    }
 
     conn.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
 
     let res = async {
+        // Delete invitations
+        conn.execute("DELETE FROM invitations WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+
+        // Delete move inventory & move quotes (joined via job_tickets)
+        conn.execute("DELETE FROM move_inventory WHERE job_ticket_id IN (SELECT id FROM job_tickets WHERE workspace_id = ?1)", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM move_quotes WHERE job_ticket_id IN (SELECT id FROM job_tickets WHERE workspace_id = ?1)", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM job_tickets WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+
+        // Delete client medications & client journals (joined via clients)
+        conn.execute("DELETE FROM client_medications WHERE client_id IN (SELECT id FROM clients WHERE workspace_id = ?1)", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM client_journals WHERE client_id IN (SELECT id FROM clients WHERE workspace_id = ?1)", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM clients WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+
+        // Delete team members & events & notes (joined via teams or workspace_id)
+        conn.execute("DELETE FROM team_members WHERE team_id IN (SELECT id FROM teams WHERE workspace_id = ?1) OR workspace_id = ?1", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM events WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM notes WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM teams WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+
+        // Delete messages & time reports & reports & todos
+        conn.execute("DELETE FROM messages WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM time_reports WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM reports WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM todos WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+
+        // Delete school child tables first
+        conn.execute("DELETE FROM student_parents WHERE student_id IN (SELECT id FROM student_profiles WHERE workspace_id = ?1)", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM submissions WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM attendance_records WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM term_grades WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM report_cards WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM health_records WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM health_incidents WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM school_payments WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM school_invoices WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM library_lending_logs WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM library_books WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM timetable_slots WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM assignments WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM courses WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM student_profiles WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+
         // Delete all users in that workspace
         conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
 
@@ -217,12 +270,20 @@ pub async fn delete_workspace_via_hub(workspace_id: String) -> Result<(), YntraE
 
 #[uniffi::export]
 pub async fn update_workspace_general(
+    requester_user_id: String,
     workspace_id: String,
     name: String,
     brand_color: String,
     logo_url: Option<String>,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if !auth.is_admin {
+        return Err(YntraError::AuthError("Access denied: administrator privileges required".to_string()));
+    }
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
 
     conn.execute(
         "UPDATE workspaces SET name = ?1, brand_color = ?2, logo_url = ?3 WHERE id = ?4",
@@ -234,8 +295,15 @@ pub async fn update_workspace_general(
 }
 
 #[uniffi::export]
-pub async fn update_workspace_settings(workspace_id: String, settings_json: String) -> Result<(), YntraError> {
+pub async fn update_workspace_settings(requester_user_id: String, workspace_id: String, settings_json: String) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if !auth.is_admin {
+        return Err(YntraError::AuthError("Access denied: administrator privileges required".to_string()));
+    }
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
 
     conn.execute(
         "UPDATE workspaces SET settings = ?1 WHERE id = ?2",
@@ -247,8 +315,15 @@ pub async fn update_workspace_settings(workspace_id: String, settings_json: Stri
 }
 
 #[uniffi::export]
-pub async fn update_workspace_block_settings(workspace_id: String, block_settings_json: String) -> Result<(), YntraError> {
+pub async fn update_workspace_block_settings(requester_user_id: String, workspace_id: String, block_settings_json: String) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if !auth.is_admin {
+        return Err(YntraError::AuthError("Access denied: administrator privileges required".to_string()));
+    }
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
 
     conn.execute(
         "UPDATE workspaces SET block_settings = ?1 WHERE id = ?2",

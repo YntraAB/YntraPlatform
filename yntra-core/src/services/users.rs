@@ -34,7 +34,7 @@ pub async fn get_user_by_email(email: String) -> Result<Option<WorkspaceUser>, Y
             nfc_badge_uid: row.get(8)?,
             updated_at: row.get(9)?,
             sync_status: row.get(10)?,
-            personal_number: crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id.as_deref().unwrap_or("workspace-1")),
+            personal_number: crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id.as_deref().unwrap_or("")),
         }))
     } else {
         Ok(None)
@@ -45,35 +45,24 @@ pub async fn get_user_by_email(email: String) -> Result<Option<WorkspaceUser>, Y
 pub async fn get_users(requester_user_id: String) -> Result<Vec<WorkspaceUser>, YntraError> {
     let conn = database::acquire_connection().await?;
     
-    let requester_row: Option<(String, Option<String>)> = conn.query_row(
-        "SELECT role, workspace_id FROM users WHERE id = ?1",
-        crate::params![&requester_user_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
-    ).await.ok();
-
-    let (req_role, req_ws_id) = match requester_row {
-        Some((role, Some(ws_id))) => (role, ws_id),
-        _ => return Err(YntraError::AuthError("Requester user not found or invalid workspace".to_string())),
-    };
-
-    let is_admin = req_role == "admin" || req_role == "platform_admin";
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     let mut stmt = conn.prepare(
         "SELECT id, workspace_id, email, full_name, phone, role, preferences, siths_card_id, nfc_badge_uid, updated_at, sync_status, personal_number FROM users WHERE workspace_id = ?1",
     ).await?;
 
-    let list = stmt.query_map(crate::params![&req_ws_id], |row| {
+    let list = stmt.query_map(crate::params![&auth.workspace_id], |row| {
         let ws_id: Option<String> = row.get(1)?;
         let raw_pnum: Option<String> = row.get(11)?;
         
-        let personal_number = if is_admin {
-            crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id.as_deref().unwrap_or("workspace-1"))
+        let personal_number = if auth.is_admin {
+            crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id.as_deref().unwrap_or(""))
         } else {
             None
         };
         
-        let siths_card_id = if is_admin { row.get(7)? } else { None };
-        let nfc_badge_uid = if is_admin { row.get(8)? } else { None };
+        let siths_card_id = if auth.is_admin { row.get(7)? } else { None };
+        let nfc_badge_uid = if auth.is_admin { row.get(8)? } else { None };
 
         Ok(WorkspaceUser {
             id: row.get(0)?,
@@ -97,32 +86,9 @@ pub async fn get_users(requester_user_id: String) -> Result<Vec<WorkspaceUser>, 
 #[uniffi::export]
 pub async fn update_user_role(requester_user_id: String, user_id: String, role: String) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
-    let requester_row: Option<(String, Option<String>)> = conn.query_row(
-        "SELECT role, workspace_id FROM users WHERE id = ?1",
-        crate::params![&requester_user_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
-    ).await.ok();
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    let (req_role, req_ws_id) = match requester_row {
-        Some((role, Some(ws_id))) => (role, ws_id),
-        _ => return Err(YntraError::AuthError("Requester user not found or invalid workspace".to_string())),
-    };
-
-    let mut is_dev_or_admin_bypass = requester_user_id == "user-env-admin" || requester_user_id == "user-1";
-    if !is_dev_or_admin_bypass {
-        let email: Option<String> = conn.query_row(
-            "SELECT email FROM users WHERE id = ?1",
-            crate::params![&requester_user_id],
-            |r| r.get(0)
-        ).await.ok();
-        if let Some(ref email_str) = email {
-            if email_str == "dev.user@yntra.se" || email_str == "admin@yntra.se" {
-                is_dev_or_admin_bypass = true;
-            }
-        }
-    }
-
-    if req_role != "admin" && req_role != "platform_admin" && !is_dev_or_admin_bypass {
+    if auth.role != "admin" && auth.role != "platform_admin" {
         return Err(YntraError::AuthError("Access denied: only administrators can change roles".to_string()));
     }
 
@@ -132,7 +98,7 @@ pub async fn update_user_role(requester_user_id: String, user_id: String, role: 
         |r| r.get(0)
     ).await.ok().flatten();
 
-    if target_ws_id != Some(req_ws_id) {
+    if auth.role != "platform_admin" && target_ws_id.as_ref() != Some(&auth.workspace_id) {
         return Err(YntraError::AuthError("Access denied: target user is in a different workspace".to_string()));
     }
 
@@ -152,21 +118,11 @@ pub async fn update_user_profile(
     preferences: String,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
-    let requester_row: Option<(String, Option<String>)> = conn.query_row(
-        "SELECT role, workspace_id FROM users WHERE id = ?1",
-        crate::params![&requester_user_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
-    ).await.ok();
-
-    let (req_role, req_ws_id) = match requester_row {
-        Some((role, Some(ws_id))) => (role, ws_id),
-        _ => return Err(YntraError::AuthError("Requester user not found or invalid workspace".to_string())),
-    };
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     let is_self = requester_user_id == user_id;
-    let is_admin = req_role == "admin" || req_role == "platform_admin";
 
-    if !is_self && !is_admin {
+    if !is_self && !auth.is_admin {
         return Err(YntraError::AuthError("Access denied: you can only update your own profile or require administrator privileges".to_string()));
     }
 
@@ -176,7 +132,7 @@ pub async fn update_user_profile(
         |r| r.get(0)
     ).await.ok().flatten();
 
-    if target_ws_id != Some(req_ws_id) {
+    if target_ws_id.is_some() && target_ws_id != Some(auth.workspace_id) {
         return Err(YntraError::AuthError("Access denied: target user is in a different workspace".to_string()));
     }
 
@@ -199,18 +155,9 @@ pub async fn update_user_via_directory(
     role: String,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
-    let requester_row: Option<(String, Option<String>)> = conn.query_row(
-        "SELECT role, workspace_id FROM users WHERE id = ?1",
-        crate::params![&requester_user_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
-    ).await.ok();
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    let (req_role, req_ws_id) = match requester_row {
-        Some((role, Some(ws_id))) => (role, ws_id),
-        _ => return Err(YntraError::AuthError("Requester user not found".to_string())),
-    };
-
-    if req_role != "admin" && req_role != "platform_admin" {
+    if !auth.is_admin {
         return Err(YntraError::AuthError("Access denied: only administrators can edit users via directory".to_string()));
     }
 
@@ -220,7 +167,7 @@ pub async fn update_user_via_directory(
         |r| r.get(0)
     ).await.ok().flatten();
 
-    if target_ws_id != Some(req_ws_id) {
+    if target_ws_id.is_some() && target_ws_id != Some(auth.workspace_id) {
         return Err(YntraError::AuthError("Access denied: target user is in a different workspace".to_string()));
     }
 
@@ -346,7 +293,7 @@ pub async fn verify_email_password(email: String, password: String) -> Result<Op
             nfc_badge_uid: row.get(9)?,
             updated_at: row.get(10)?,
             sync_status: row.get(11)?,
-            personal_number: crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id.as_deref().unwrap_or("workspace-1")),
+            personal_number: crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id.as_deref().unwrap_or("")),
         }))
     } else {
         Ok(None)
@@ -357,21 +304,11 @@ pub async fn verify_email_password(email: String, password: String) -> Result<Op
 pub async fn set_user_password(requester_user_id: String, user_id: String, password: String) -> Result<(), YntraError> {
     let zeroizing_password = zeroize::Zeroizing::new(password);
     let conn = database::acquire_connection().await?;
-    let requester_row: Option<(String, Option<String>)> = conn.query_row(
-        "SELECT role, workspace_id FROM users WHERE id = ?1",
-        crate::params![&requester_user_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
-    ).await.ok();
-
-    let (req_role, req_ws_id) = match requester_row {
-        Some((role, Some(ws_id))) => (role, ws_id),
-        _ => return Err(YntraError::AuthError("Requester user not found".to_string())),
-    };
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     let is_self = requester_user_id == user_id;
-    let is_admin = req_role == "admin" || req_role == "platform_admin";
 
-    if !is_self && !is_admin {
+    if !is_self && !auth.is_admin {
         return Err(YntraError::AuthError("Access denied: you can only change your own password or require administrator privileges".to_string()));
     }
 
@@ -381,7 +318,7 @@ pub async fn set_user_password(requester_user_id: String, user_id: String, passw
         |r| r.get(0)
     ).await.ok().flatten();
 
-    if target_ws_id != Some(req_ws_id) {
+    if target_ws_id.is_some() && target_ws_id != Some(auth.workspace_id) {
         return Err(YntraError::AuthError("Access denied: target user is in a different workspace".to_string()));
     }
 
@@ -401,18 +338,9 @@ pub async fn set_user_password(requester_user_id: String, user_id: String, passw
 #[uniffi::export]
 pub async fn delete_user(requester_user_id: String, user_id: String) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
-    let requester_row: Option<(String, Option<String>)> = conn.query_row(
-        "SELECT role, workspace_id FROM users WHERE id = ?1",
-        crate::params![&requester_user_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
-    ).await.ok();
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    let (req_role, req_ws_id) = match requester_row {
-        Some((role, Some(ws_id))) => (role, ws_id),
-        _ => return Err(YntraError::AuthError("Requester user not found".to_string())),
-    };
-
-    if req_role != "admin" && req_role != "platform_admin" {
+    if auth.role != "admin" && auth.role != "platform_admin" {
         return Err(YntraError::AuthError("Access denied: only administrators can delete users".to_string()));
     }
 
@@ -422,24 +350,38 @@ pub async fn delete_user(requester_user_id: String, user_id: String) -> Result<(
         |r| r.get(0)
     ).await.ok().flatten();
 
-    if target_ws_id != Some(req_ws_id) {
+    if auth.role != "platform_admin" && target_ws_id.as_ref() != Some(&auth.workspace_id) {
         return Err(YntraError::AuthError("Access denied: target user is in a different workspace".to_string()));
     }
 
-    // 1. Delete associated child relationships
-    conn.execute("DELETE FROM team_members WHERE user_id = ?1", crate::params![&user_id]).await?;
-    conn.execute("DELETE FROM time_reports WHERE user_id = ?1", crate::params![&user_id]).await?;
-    
-    // 2. Anonymize/Nullify references in other tables to preserve integrity
-    conn.execute("UPDATE messages SET sender_id = NULL WHERE sender_id = ?1", crate::params![&user_id]).await?;
-    conn.execute("UPDATE messages SET receiver_id = NULL WHERE receiver_id = ?1", crate::params![&user_id]).await?;
-    conn.execute("UPDATE reports SET user_id = NULL WHERE user_id = ?1", crate::params![&user_id]).await?;
+    conn.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
 
-    // 3. Delete user profile record
-    conn.execute("DELETE FROM users WHERE id = ?1", crate::params![&user_id]).await?;
+    let res = async {
+        // 1. Delete associated child relationships
+        conn.execute("DELETE FROM team_members WHERE user_id = ?1", crate::params![&user_id]).await?;
+        conn.execute("DELETE FROM time_reports WHERE user_id = ?1", crate::params![&user_id]).await?;
+        
+        // 2. Anonymize/Nullify references in other tables to preserve integrity
+        conn.execute("UPDATE messages SET sender_id = NULL WHERE sender_id = ?1", crate::params![&user_id]).await?;
+        conn.execute("UPDATE messages SET receiver_id = NULL WHERE receiver_id = ?1", crate::params![&user_id]).await?;
+        conn.execute("UPDATE reports SET user_id = NULL WHERE user_id = ?1", crate::params![&user_id]).await?;
 
-    notify_observers();
-    Ok(())
+        // 3. Delete user profile record
+        conn.execute("DELETE FROM users WHERE id = ?1", crate::params![&user_id]).await?;
+        Ok(())
+    }.await;
+
+    match res {
+        Ok(_) => {
+            conn.execute("COMMIT", ()).await?;
+            notify_observers();
+            Ok(())
+        }
+        Err(e) => {
+            let _ = conn.execute("ROLLBACK", ()).await;
+            Err(e)
+        }
+    }
 }
 
 #[cfg(test)]

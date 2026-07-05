@@ -5,15 +5,10 @@ use crate::{TimeReport, YntraError};
 #[uniffi::export]
 pub async fn get_time_reports(requester_user_id: String, user_id: Option<String>) -> Result<Vec<TimeReport>, YntraError> {
     let conn = database::acquire_connection().await?;
-    let (requester_role, requester_ws): (String, Option<String>) = conn.query_row(
-        "SELECT role, workspace_id FROM users WHERE id = ?1",
-        crate::params![&requester_user_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
-    ).await.map_err(|e| YntraError::DbError(format!("Failed to retrieve user info: {}", e)))?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    let ws_id = auth.workspace_id.clone();
 
-    let ws_id = requester_ws.unwrap_or_else(|| "workspace-1".to_string());
-
-    let (query, params) = if requester_role == "platform_admin" {
+    let (query, params) = if auth.role == "platform_admin" {
         match user_id {
             Some(uid) => (
                 "SELECT id, workspace_id, user_id, team_id, date, start_time, end_time, hours, note, status, created_at, updated_at, sync_status FROM time_reports WHERE user_id = ?1 ORDER BY date DESC".to_string(),
@@ -24,7 +19,7 @@ pub async fn get_time_reports(requester_user_id: String, user_id: Option<String>
                 vec![],
             ),
         }
-    } else if requester_role == "admin" {
+    } else if auth.role == "admin" {
         match user_id {
             Some(uid) => (
                 "SELECT id, workspace_id, user_id, team_id, date, start_time, end_time, hours, note, status, created_at, updated_at, sync_status FROM time_reports WHERE user_id = ?1 AND workspace_id = ?2 ORDER BY date DESC".to_string(),
@@ -216,9 +211,25 @@ pub async fn add_time_report(
 }
 
 #[uniffi::export]
-pub async fn update_time_report_status(id: String, status: String) -> Result<(), YntraError> {
+pub async fn update_time_report_status(requester_user_id: String, id: String, status: String) -> Result<(), YntraError> {
     let now_ms = crate::infra::time::get_current_time_ms();
     let conn = database::acquire_connection().await?;
+
+    let report_ws: String = conn.query_row(
+        "SELECT workspace_id FROM time_reports WHERE id = ?1",
+        crate::params![&id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Time report not found".to_string()))?;
+
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if !auth.is_admin {
+        return Err(YntraError::AuthError("Access denied: administrator privileges required".to_string()));
+    }
+
+    if auth.role != "platform_admin" && auth.workspace_id != report_ws {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
 
     conn.execute(
         "UPDATE time_reports SET status = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
@@ -230,8 +241,24 @@ pub async fn update_time_report_status(id: String, status: String) -> Result<(),
 }
 
 #[uniffi::export]
-pub async fn delete_time_report(id: String) -> Result<(), YntraError> {
+pub async fn delete_time_report(requester_user_id: String, id: String) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
+
+    let (report_ws, report_user): (String, String) = conn.query_row(
+        "SELECT workspace_id, user_id FROM time_reports WHERE id = ?1",
+        crate::params![&id],
+        |r| Ok((r.get(0)?, r.get(1)?))
+    ).await.map_err(|_| YntraError::NotFoundError("Time report not found".to_string()))?;
+
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if auth.role != "platform_admin" && auth.workspace_id != report_ws {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    if !auth.is_admin && report_user != requester_user_id {
+        return Err(YntraError::AuthError("Access denied: you can only delete your own time reports".to_string()));
+    }
 
     conn.execute(
         "DELETE FROM time_reports WHERE id = ?1",

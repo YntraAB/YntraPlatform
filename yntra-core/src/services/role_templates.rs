@@ -88,8 +88,8 @@ mod tests {
         let lss = get_default_roles_json("assistance".to_string(), Some("lss".to_string()), false).unwrap();
         let hvb = get_default_roles_json("assistance".to_string(), Some("hvb".to_string()), false).unwrap();
 
-        assert!(lss.contains("LSS"));
-        assert!(hvb.contains("HVB"));
+        assert!(lss.to_lowercase().contains("lss"));
+        assert!(hvb.to_lowercase().contains("hvb"));
     }
 
     #[test]

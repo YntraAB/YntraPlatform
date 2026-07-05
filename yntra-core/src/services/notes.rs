@@ -63,15 +63,10 @@ fn apply_diff_to_loro(text: &loro::LoroText, old_str: &str, new_str: &str) -> Re
 #[uniffi::export]
 pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Result<Vec<DailyNote>, YntraError> {
     let conn = database::acquire_connection().await?;
-    let (user_role, user_ws): (String, Option<String>) = conn.query_row(
-        "SELECT role, workspace_id FROM users WHERE id = ?1",
-        crate::params![&requester_user_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
-    ).await.map_err(|e| YntraError::DbError(format!("Failed to retrieve user info: {}", e)))?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    let ws_id = auth.workspace_id.clone();
 
-    let ws_id = user_ws.unwrap_or_else(|| "workspace-1".to_string());
-
-    let (query, params) = if user_role == "platform_admin" {
+    let (query, params) = if auth.role == "platform_admin" {
         match team_id {
             Some(tid) => (
                 "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status FROM notes WHERE team_id = ?1 ORDER BY created_at DESC".to_string(),
@@ -82,7 +77,7 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
                 crate::params![],
             ),
         }
-    } else if user_role == "admin" {
+    } else if auth.role == "admin" {
         match team_id {
             Some(tid) => (
                 "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status FROM notes WHERE team_id = ?1 AND workspace_id = ?2 ORDER BY created_at DESC".to_string(),
@@ -148,6 +143,23 @@ pub async fn add_note(
     subject: String,
     content: String,
 ) -> Result<DailyNote, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &author_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    if auth.role != "admin" && auth.role != "platform_admin" {
+        let is_member: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM team_members WHERE team_id = ?1 AND user_id = ?2",
+            crate::params![&team_id, &author_id],
+            |r| r.get(0)
+        ).await.unwrap_or(0);
+        if is_member == 0 {
+            return Err(YntraError::AuthError("Access denied: you are not a member of this team".to_string()));
+        }
+    }
+
     let id = uuid::Uuid::new_v4().to_string();
     let created_at = crate::infra::time::get_current_datetime_str();
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -172,21 +184,19 @@ pub async fn add_note(
         sync_status: "pending".to_string(),
     };
 
-    let conn = database::acquire_connection().await?;
-
     conn.execute(
         "INSERT INTO notes (id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, '[]', ?7, ?8, 'pending')",
-        crate::params![
-            &item.id,
-            &item.workspace_id,
-            &item.team_id,
-            &item.author_id,
-            &item.subject,
-            &item.content,
-            &item.created_at,
-            &item.updated_at
-        ],
+         crate::params![
+             &item.id,
+             &item.workspace_id,
+             &item.team_id,
+             &item.author_id,
+             &item.subject,
+             &item.content,
+             &item.created_at,
+             &item.updated_at
+         ],
     ).await?;
 
     notify_observers();
@@ -198,6 +208,7 @@ pub async fn add_note(
 
 #[uniffi::export]
 pub async fn update_note(
+    requester_user_id: String,
     note_id: String,
     edited_by_name: String,
     subject: String,
@@ -228,6 +239,22 @@ pub async fn update_note(
         return Err(YntraError::NotFoundError(format!("Note not found: {}", note_id)));
     };
 
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != old_note.workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    if auth.role != "admin" && auth.role != "platform_admin" && old_note.author_id.as_deref() != Some(&requester_user_id) {
+        let is_member: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM team_members WHERE team_id = ?1 AND user_id = ?2",
+            crate::params![&old_note.team_id, &requester_user_id],
+            |r| r.get(0)
+        ).await.unwrap_or(0);
+        if is_member == 0 {
+            return Err(YntraError::AuthError("Access denied: you do not have permission to edit this note".to_string()));
+        }
+    }
+
     let old_content_plain = decode_content(&old_note.content);
 
     // 2. Compute history entry using plain content
@@ -236,22 +263,22 @@ pub async fn update_note(
     
     let mut changed = false;
     let mut entry = EditHistoryEntry {
-        editedBy: edited_by_name,
-        editedAt: crate::infra::time::get_current_time_str_hm(),
-        oldSubject: None,
-        newSubject: None,
-        oldContent: None,
-        newContent: None,
+        edited_by: edited_by_name,
+        edited_at: crate::infra::time::get_current_time_str_hm(),
+        old_subject: None,
+        new_subject: None,
+        old_content: None,
+        new_content: None,
     };
 
     if old_note.subject != subject {
-        entry.oldSubject = Some(old_note.subject.clone());
-        entry.newSubject = Some(subject.clone());
+        entry.old_subject = Some(old_note.subject.clone());
+        entry.new_subject = Some(subject.clone());
         changed = true;
     }
     if old_content_plain != content {
-        entry.oldContent = Some(old_content_plain.clone());
-        entry.newContent = Some(content.clone());
+        entry.old_content = Some(old_content_plain.clone());
+        entry.new_content = Some(content.clone());
         changed = true;
     }
     if changed {
@@ -311,25 +338,14 @@ pub async fn delete_note(requester_user_id: String, note_id: String) -> Result<(
     ).await.ok();
 
     if let Some((note_ws_id, author_id)) = note_row {
-        let requester_row: Option<(String, Option<String>)> = conn.query_row(
-            "SELECT role, workspace_id FROM users WHERE id = ?1",
-            crate::params![&requester_user_id],
-            |r| Ok((r.get(0)?, r.get(1)?))
-        ).await.ok();
+        let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-        let (req_role, req_ws_id) = match requester_row {
-            Some((role, Some(ws_id))) => (role, ws_id),
-            _ => return Err(YntraError::AuthError("Requester user not found or invalid workspace".to_string())),
-        };
-
-        if note_ws_id != req_ws_id {
+        if auth.role != "platform_admin" && note_ws_id != auth.workspace_id {
             return Err(YntraError::AuthError("Access denied: note is in a different workspace".to_string()));
         }
 
         let is_author = author_id.as_deref() == Some(&requester_user_id);
-        let is_admin = req_role == "admin" || req_role == "platform_admin";
-
-        if !is_author && !is_admin {
+        if !is_author && !auth.is_admin {
             return Err(YntraError::AuthError("Access denied: only the author or an administrator can delete this note".to_string()));
         }
     } else {

@@ -55,7 +55,7 @@ async fn get_supabase_config() -> (String, String) {
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
-pub async fn get_supabase_user_email(token: String) -> Result<String, YntraError> {
+pub async fn get_supabase_user_email(mut token: String) -> Result<String, YntraError> {
     let (base_url, apikey) = get_supabase_config().await;
     let url = format!("{}/auth/v1/user", base_url.trim_end_matches('/'));
 
@@ -65,8 +65,12 @@ pub async fn get_supabase_user_email(token: String) -> Result<String, YntraError
         .header("apikey", apikey)
         .header("Authorization", format!("Bearer {}", token))
         .send()
-        .await
-        .map_err(|e| YntraError::NetworkError(e.to_string()))?;
+        .await;
+
+    use zeroize::Zeroize;
+    token.zeroize();
+
+    let res = res.map_err(|e| YntraError::NetworkError(e.to_string()))?;
 
     if !res.status().is_success() {
         return Err(YntraError::NetworkError(format!("Supabase HTTP error: {}", res.status())));

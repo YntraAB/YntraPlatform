@@ -11,22 +11,13 @@ pub async fn invite_user_via_directory(
     role: String,
 ) -> Result<WorkspaceUser, YntraError> {
     let conn = database::acquire_connection().await?;
-    let requester_row: Option<(String, Option<String>)> = conn.query_row(
-        "SELECT role, workspace_id FROM users WHERE id = ?1",
-        crate::params![&requester_user_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
-    ).await.ok();
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    let (req_role, req_ws_id) = match requester_row {
-        Some((role, Some(ws_id))) => (role, ws_id),
-        _ => return Err(YntraError::AuthError("Requester user not found".to_string())),
-    };
-
-    if req_role != "admin" && req_role != "platform_admin" {
+    if !auth.is_admin {
         return Err(YntraError::AuthError("Access denied: only administrators can invite users".to_string()));
     }
 
-    if req_ws_id != workspace_id {
+    if auth.workspace_id != workspace_id {
         return Err(YntraError::AuthError("Access denied: cannot invite user to another workspace".to_string()));
     }
 

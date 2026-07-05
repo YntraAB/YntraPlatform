@@ -180,15 +180,15 @@ pub struct ReportItem {
     pub sync_status: String,
 }
 
-#[allow(non_snake_case)]
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct EditHistoryEntry {
-    pub editedBy: String,
-    pub editedAt: String,
-    pub oldSubject: Option<String>,
-    pub newSubject: Option<String>,
-    pub oldContent: Option<String>,
-    pub newContent: Option<String>,
+    pub edited_by: String,
+    pub edited_at: String,
+    pub old_subject: Option<String>,
+    pub new_subject: Option<String>,
+    pub old_content: Option<String>,
+    pub new_content: Option<String>,
 }
 
 #[derive(uniffi::Record, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize, Clone, Debug)]

@@ -8,15 +8,17 @@ pub fn generate_totp_secret() -> String {
 }
 
 #[uniffi::export]
-pub fn verify_user_totp(secret: String, mut code: String) -> bool {
+pub fn verify_user_totp(mut secret: String, mut code: String) -> bool {
     let timestamp = Utc::now().timestamp() as u64;
-    let res = verify_totp(secret, &code, timestamp);
+    let res = verify_totp(secret.clone(), &code, timestamp);
+    secret.zeroize();
     code.zeroize();
     res
 }
 
-fn verify_totp(secret: String, code: &str, timestamp: u64) -> bool {
-    let secret_bytes_res = Secret::Encoded(secret).to_bytes();
+fn verify_totp(mut secret: String, code: &str, timestamp: u64) -> bool {
+    let secret_bytes_res = Secret::Encoded(secret.clone()).to_bytes();
+    secret.zeroize();
 
     let mut secret_bytes = match secret_bytes_res {
         Ok(b) => b,

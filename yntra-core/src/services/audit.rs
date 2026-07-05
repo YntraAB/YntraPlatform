@@ -81,20 +81,15 @@ pub async fn log_action(actor_id: String, target_client_id: Option<String>, acti
 #[uniffi::export]
 pub async fn get_audit_logs(requester_user_id: String) -> Result<Vec<AuditLogEntry>, YntraError> {
     let conn = database::acquire_connection().await?;
-    let (user_role, user_ws): (String, Option<String>) = conn.query_row(
-        "SELECT role, workspace_id FROM users WHERE id = ?1",
-        crate::params![&requester_user_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
-    ).await.map_err(|e| YntraError::DbError(format!("Failed to retrieve user info: {}", e)))?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    let ws_id = auth.workspace_id.clone();
 
-    let ws_id = user_ws.unwrap_or_else(|| "workspace-1".to_string());
-
-    let (query, params) = if user_role == "platform_admin" {
+    let (query, params) = if auth.role == "platform_admin" {
         (
             "SELECT id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash FROM audit_logs ORDER BY timestamp DESC".to_string(),
             vec![],
         )
-    } else if user_role == "admin" {
+    } else if auth.role == "admin" {
         (
             "SELECT al.id, al.actor_id, al.target_client_id, al.action_type, al.timestamp, al.prev_hash, al.curr_hash
              FROM audit_logs al

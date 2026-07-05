@@ -141,10 +141,20 @@ pub async fn create_job_ticket(
 }
 
 #[uniffi::export]
-pub async fn update_job_status(job_id: String, status: String) -> Result<(), YntraError> {
+pub async fn update_job_status(requester_user_id: String, job_id: String, status: String) -> Result<(), YntraError> {
     let now_ms = crate::infra::time::get_current_time_ms();
 
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    let job_ws: String = conn.query_row(
+        "SELECT workspace_id FROM job_tickets WHERE id = ?1",
+        crate::params![&job_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
+
+    if auth.role != "platform_admin" && auth.workspace_id != job_ws {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
 
     conn.execute(
         "UPDATE job_tickets SET status = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
@@ -157,6 +167,7 @@ pub async fn update_job_status(job_id: String, status: String) -> Result<(), Ynt
 
 #[uniffi::export]
 pub async fn submit_job_completion(
+    requester_user_id: String,
     job_id: String,
     checklist_json: String,
     completion_report: String,
@@ -164,6 +175,16 @@ pub async fn submit_job_completion(
     let now_ms = crate::infra::time::get_current_time_ms();
 
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    let job_ws: String = conn.query_row(
+        "SELECT workspace_id FROM job_tickets WHERE id = ?1",
+        crate::params![&job_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
+
+    if auth.role != "platform_admin" && auth.workspace_id != job_ws {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
 
     conn.execute(
         "UPDATE job_tickets SET checklist_json = ?1, completion_report = ?2, status = 'completed', updated_at = ?3, sync_status = 'pending' WHERE id = ?4",
@@ -175,8 +196,18 @@ pub async fn submit_job_completion(
 }
 
 #[uniffi::export]
-pub async fn get_move_inventory(job_ticket_id: String) -> Result<Vec<MoveInventoryItem>, YntraError> {
+pub async fn get_move_inventory(requester_user_id: String, job_ticket_id: String) -> Result<Vec<MoveInventoryItem>, YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    let job_ws: String = conn.query_row(
+        "SELECT workspace_id FROM job_tickets WHERE id = ?1",
+        crate::params![&job_ticket_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
+
+    if auth.role != "platform_admin" && auth.workspace_id != job_ws {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
 
     let mut stmt = conn.prepare(
         "SELECT id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, handling_notes FROM move_inventory WHERE job_ticket_id = ?1",
@@ -199,6 +230,7 @@ pub async fn get_move_inventory(job_ticket_id: String) -> Result<Vec<MoveInvento
 
 #[uniffi::export]
 pub async fn add_move_inventory_item(
+    requester_user_id: String,
     job_ticket_id: String,
     item_category: String,
     item_name: String,
@@ -206,6 +238,18 @@ pub async fn add_move_inventory_item(
     estimated_volume_m3: f64,
     handling_notes: Option<String>,
 ) -> Result<MoveInventoryItem, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    let job_ws: String = conn.query_row(
+        "SELECT workspace_id FROM job_tickets WHERE id = ?1",
+        crate::params![&job_ticket_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
+
+    if auth.role != "platform_admin" && auth.workspace_id != job_ws {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
     let id = uuid::Uuid::new_v4().to_string();
     let item = MoveInventoryItem {
         id: id.clone(),
@@ -216,8 +260,6 @@ pub async fn add_move_inventory_item(
         estimated_volume_m3,
         handling_notes,
     };
-
-    let conn = database::acquire_connection().await?;
 
     conn.execute(
         "INSERT INTO move_inventory (id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, handling_notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -237,8 +279,18 @@ pub async fn add_move_inventory_item(
 }
 
 #[uniffi::export]
-pub async fn get_move_quote(job_ticket_id: String) -> Result<Option<MoveQuote>, YntraError> {
+pub async fn get_move_quote(requester_user_id: String, job_ticket_id: String) -> Result<Option<MoveQuote>, YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    let job_ws: String = conn.query_row(
+        "SELECT workspace_id FROM job_tickets WHERE id = ?1",
+        crate::params![&job_ticket_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
+
+    if auth.role != "platform_admin" && auth.workspace_id != job_ws {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
 
     let mut stmt = conn.prepare(
         "SELECT id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, accepted_at FROM move_quotes WHERE job_ticket_id = ?1",
@@ -264,6 +316,7 @@ pub async fn get_move_quote(job_ticket_id: String) -> Result<Option<MoveQuote>, 
 
 #[uniffi::export]
 pub async fn create_or_update_move_quote(
+    requester_user_id: String,
     job_ticket_id: String,
     base_price: f64,
     distance_fee: f64,
@@ -271,6 +324,18 @@ pub async fn create_or_update_move_quote(
     packing_supplies_fee: f64,
     status: String,
 ) -> Result<MoveQuote, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    let job_ws: String = conn.query_row(
+        "SELECT workspace_id FROM job_tickets WHERE id = ?1",
+        crate::params![&job_ticket_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
+
+    if auth.role != "platform_admin" && auth.workspace_id != job_ws {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
     let id = uuid::Uuid::new_v4().to_string();
     let total_price = base_price + distance_fee + stairs_surcharge + packing_supplies_fee;
     
@@ -285,8 +350,6 @@ pub async fn create_or_update_move_quote(
         status: status.clone(),
         accepted_at: None,
     };
-
-    let conn = database::acquire_connection().await?;
 
     conn.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
 
@@ -325,10 +388,20 @@ pub async fn create_or_update_move_quote(
 }
 
 #[uniffi::export]
-pub async fn accept_move_quote(quote_id: String) -> Result<(), YntraError> {
+pub async fn accept_move_quote(requester_user_id: String, quote_id: String) -> Result<(), YntraError> {
     let now_ms = crate::infra::time::get_current_time_ms();
 
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    let job_ws: String = conn.query_row(
+        "SELECT jt.workspace_id FROM move_quotes mq JOIN job_tickets jt ON mq.job_ticket_id = jt.id WHERE mq.id = ?1",
+        crate::params![&quote_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Quote not found".to_string()))?;
+
+    if auth.role != "platform_admin" && auth.workspace_id != job_ws {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
 
     conn.execute(
         "UPDATE move_quotes SET status = 'accepted', accepted_at = ?1 WHERE id = ?2",
