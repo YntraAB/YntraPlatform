@@ -8,6 +8,7 @@ use argon2::{
     },
     Argon2
 };
+use zeroize::Zeroize;
 
 #[uniffi::export]
 pub async fn get_user_by_email(email: String) -> Result<Option<WorkspaceUser>, YntraError> {
@@ -233,11 +234,24 @@ pub async fn update_user_via_directory(
     Ok(())
 }
 
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut result = 0;
+    for (x, y) in a.iter().zip(b.iter()) {
+        result |= x ^ y;
+    }
+    result == 0
+}
+
 #[allow(dead_code)]
 fn hash_password_pbkdf2(password: &str, salt: &[u8]) -> String {
     let mut out_hash = [0u8; 32];
     pbkdf2::pbkdf2_hmac::<sha2::Sha256>(password.as_bytes(), salt, 10_000, &mut out_hash);
-    format!("{}:{}", const_hex::encode(salt), const_hex::encode(&out_hash))
+    let result = format!("{}:{}", const_hex::encode(salt), const_hex::encode(&out_hash));
+    out_hash.zeroize();
+    result
 }
 
 fn verify_password_pbkdf2(password: &str, stored_hash: &str) -> bool {
@@ -246,25 +260,43 @@ fn verify_password_pbkdf2(password: &str, stored_hash: &str) -> bool {
         return false;
     }
 
-    let salt_bytes = match const_hex::decode(parts[0]) {
+    let mut salt_bytes = match const_hex::decode(parts[0]) {
         Ok(b) => b,
         Err(_) => return false,
     };
 
-    let expected_hash_hex = parts[1];
+    let mut expected_hash_bytes = match const_hex::decode(parts[1]) {
+        Ok(b) => b,
+        Err(_) => {
+            salt_bytes.zeroize();
+            return false;
+        }
+    };
+
     let mut out_hash = [0u8; 32];
     pbkdf2::pbkdf2_hmac::<sha2::Sha256>(password.as_bytes(), &salt_bytes, 10_000, &mut out_hash);
-    let computed_hash_hex = const_hex::encode(&out_hash);
 
-    computed_hash_hex == expected_hash_hex
+    let res = constant_time_eq(&out_hash, &expected_hash_bytes);
+    
+    salt_bytes.zeroize();
+    expected_hash_bytes.zeroize();
+    out_hash.zeroize();
+    
+    res
 }
 
-fn hash_password_argon2(password: &str) -> String {
+fn hash_password_argon2(password: &str) -> Result<String, YntraError> {
+    use argon2::{Algorithm, Version, Params};
     let salt = SaltString::generate(&mut OsRng);
-    let argon2 = Argon2::default();
+    
+    // Configure Argon2id: 19MB memory (19456 KB), 2 iterations, 1 thread
+    let params = Params::new(19456, 2, 1, Some(32))
+        .map_err(|e| YntraError::CryptoError(format!("Argon2 params invalid: {}", e)))?;
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+    
     argon2.hash_password(password.as_bytes(), &salt)
         .map(|h| h.to_string())
-        .unwrap_or_else(|_| "".to_string())
+        .map_err(|e| YntraError::CryptoError(format!("Argon2 hashing failed: {}", e)))
 }
 
 fn verify_password_argon2(password: &str, stored_hash: &str) -> bool {
@@ -282,6 +314,7 @@ fn verify_password_argon2(password: &str, stored_hash: &str) -> bool {
 #[uniffi::export]
 pub async fn verify_email_password(email: String, password: String) -> Result<Option<WorkspaceUser>, YntraError> {
     let email_lower = email.trim().to_lowercase();
+    let zeroizing_password = zeroize::Zeroizing::new(password);
 
     let conn = database::acquire_connection().await?;
 
@@ -292,10 +325,12 @@ pub async fn verify_email_password(email: String, password: String) -> Result<Op
     let mut rows = stmt.query(crate::params![email_lower]).await?;
     if let Some(row) = rows.next().await? {
         let stored_hash: Option<String> = row.get(7)?;
-        if let Some(h) = stored_hash {
-            if !verify_password_argon2(&password, &h) {
-                return Ok(None);
-            }
+        let auth_ok = match stored_hash {
+            Some(h) => verify_password_argon2(&zeroizing_password, &h),
+            None => false,
+        };
+        if !auth_ok {
+            return Ok(None);
         }
         let ws_id: Option<String> = row.get(1)?;
         let raw_pnum: Option<String> = row.get(12)?;
@@ -320,6 +355,7 @@ pub async fn verify_email_password(email: String, password: String) -> Result<Op
 
 #[uniffi::export]
 pub async fn set_user_password(requester_user_id: String, user_id: String, password: String) -> Result<(), YntraError> {
+    let zeroizing_password = zeroize::Zeroizing::new(password);
     let conn = database::acquire_connection().await?;
     let requester_row: Option<(String, Option<String>)> = conn.query_row(
         "SELECT role, workspace_id FROM users WHERE id = ?1",
@@ -349,7 +385,8 @@ pub async fn set_user_password(requester_user_id: String, user_id: String, passw
         return Err(YntraError::AuthError("Access denied: target user is in a different workspace".to_string()));
     }
 
-    let hashed = hash_password_argon2(&password);
+    let hashed_res = hash_password_argon2(&zeroizing_password);
+    let hashed = hashed_res?;
     let now_ms = crate::infra::time::get_current_time_ms();
 
     conn.execute(
@@ -412,7 +449,7 @@ mod tests {
     #[test]
     fn test_argon2_password_hashing() {
         let password = "super_secure_password_123";
-        let hashed = hash_password_argon2(password);
+        let hashed = hash_password_argon2(password).unwrap();
         assert!(hashed.starts_with("$argon2id$"));
         assert!(verify_password_argon2(password, &hashed));
         assert!(!verify_password_argon2("wrong_password", &hashed));
@@ -424,5 +461,27 @@ mod tests {
         let salt = b"salt123";
         let hashed_pbkdf2 = hash_password_pbkdf2(password, salt);
         assert!(verify_password_argon2(password, &hashed_pbkdf2));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_null_password_hash_auth_bypass_fixed() {
+        // Prepare database connection and create test user with NULL password hash
+        let conn = database::acquire_connection().await.unwrap();
+        let user_id = "test-bypass-user-123";
+        let email = "bypass@yntra.io";
+        
+        // Insert user with NULL password_hash
+        conn.execute(
+            "INSERT OR REPLACE INTO users (id, email, password_hash, role) VALUES (?1, ?2, NULL, 'user')",
+            crate::params![user_id, email],
+        ).await.unwrap();
+
+        // Attempt verification with some password - it must return Ok(None) (auth rejected)
+        let res = verify_email_password(email.to_string(), "any_password".to_string()).await.unwrap();
+        assert!(res.is_none());
+
+        // Clean up
+        conn.execute("DELETE FROM users WHERE id = ?1", crate::params![user_id]).await.unwrap();
     }
 }

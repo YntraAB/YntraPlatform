@@ -6,16 +6,16 @@ use crate::infra::observer::notify_observers;
 
 fn compute_hash(id: &str, actor_id: &str, target_client_id: Option<&str>, action_type: &str, timestamp: i64, prev_hash: &str) -> String {
     let mut hasher = blake3::Hasher::new();
-    let data = format!(
-        "{}:{}:{}:{}:{}:{}",
-        id,
-        actor_id,
-        target_client_id.unwrap_or(""),
-        action_type,
-        timestamp,
-        prev_hash
-    );
-    hasher.update(data.as_bytes());
+    
+    // Hash each string field with its length prefix to prevent delimiter collisions / input canonicalization
+    for field in &[id, actor_id, target_client_id.unwrap_or(""), action_type, prev_hash] {
+        hasher.update(&(field.len() as u64).to_be_bytes());
+        hasher.update(field.as_bytes());
+    }
+    
+    // Hash timestamp
+    hasher.update(&timestamp.to_be_bytes());
+    
     hasher.finalize().to_hex().to_string()
 }
 
@@ -31,7 +31,7 @@ pub async fn log_action(actor_id: String, target_client_id: Option<String>, acti
     let result = async {
         // Find previous hash
         let mut prev_hash = "genesis".to_string();
-        let mut stmt = conn.prepare("SELECT curr_hash FROM audit_logs ORDER BY timestamp DESC, id DESC LIMIT 1").await?;
+        let mut stmt = conn.prepare("SELECT curr_hash FROM audit_logs ORDER BY rowid DESC LIMIT 1").await?;
         let mut rows = stmt.query(()).await?;
         if let Some(row) = rows.next().await? {
             prev_hash = row.get(0)?;
@@ -79,10 +79,36 @@ pub async fn log_action(actor_id: String, target_client_id: Option<String>, acti
 }
 
 #[uniffi::export]
-pub async fn get_audit_logs() -> Result<Vec<AuditLogEntry>, YntraError> {
+pub async fn get_audit_logs(requester_user_id: String) -> Result<Vec<AuditLogEntry>, YntraError> {
     let conn = database::acquire_connection().await?;
-    let mut stmt = conn.prepare("SELECT id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash FROM audit_logs ORDER BY timestamp DESC, id DESC").await?;
-    let mut rows = stmt.query(()).await?;
+    let (user_role, user_ws): (String, Option<String>) = conn.query_row(
+        "SELECT role, workspace_id FROM users WHERE id = ?1",
+        crate::params![&requester_user_id],
+        |r| Ok((r.get(0)?, r.get(1)?))
+    ).await.map_err(|e| YntraError::DbError(format!("Failed to retrieve user info: {}", e)))?;
+
+    let ws_id = user_ws.unwrap_or_else(|| "workspace-1".to_string());
+
+    let (query, params) = if user_role == "platform_admin" {
+        (
+            "SELECT id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash FROM audit_logs ORDER BY timestamp DESC".to_string(),
+            vec![],
+        )
+    } else if user_role == "admin" {
+        (
+            "SELECT al.id, al.actor_id, al.target_client_id, al.action_type, al.timestamp, al.prev_hash, al.curr_hash
+             FROM audit_logs al
+             JOIN users u ON al.actor_id = u.id
+             WHERE u.workspace_id = ?1
+             ORDER BY al.timestamp DESC".to_string(),
+            vec![ws_id],
+        )
+    } else {
+        return Err(YntraError::AuthError("Access denied: only administrators can view audit logs".to_string()));
+    };
+
+    let mut stmt = conn.prepare(&query).await?;
+    let mut rows = stmt.query(crate::rusqlite::params_from_iter(params)).await?;
     let mut logs = Vec::new();
     while let Some(row) = rows.next().await? {
         logs.push(AuditLogEntry {
@@ -98,6 +124,43 @@ pub async fn get_audit_logs() -> Result<Vec<AuditLogEntry>, YntraError> {
     Ok(logs)
 }
 
+#[uniffi::export]
+pub async fn verify_audit_log_chain() -> Result<bool, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let mut stmt = conn.prepare("SELECT id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash FROM audit_logs ORDER BY rowid ASC").await?;
+    let mut rows = stmt.query(()).await?;
+    
+    let mut expected_prev_hash = "genesis".to_string();
+    
+    while let Some(row) = rows.next().await? {
+        let id: String = row.get(0)?;
+        let actor_id: String = row.get(1)?;
+        let target_client_id: Option<String> = row.get(2)?;
+        let action_type: String = row.get(3)?;
+        let timestamp: i64 = row.get(4)?;
+        let prev_hash: String = row.get(5)?;
+        let curr_hash: String = row.get(6)?;
+        
+        // 1. Check if the prev_hash matches what we expected
+        if prev_hash != expected_prev_hash {
+            tracing::error!("Audit log chain broken at log ID {}: expected prev_hash {}, got {}", id, expected_prev_hash, prev_hash);
+            return Ok(false);
+        }
+        
+        // 2. Recompute current hash
+        let computed = compute_hash(&id, &actor_id, target_client_id.as_deref(), &action_type, timestamp, &prev_hash);
+        if computed != curr_hash {
+            tracing::error!("Audit log hash mismatch at log ID {}: computed {}, got {}", id, computed, curr_hash);
+            return Ok(false);
+        }
+        
+        // 3. Update expected_prev_hash for the next iteration
+        expected_prev_hash = curr_hash;
+    }
+    
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,5 +173,14 @@ mod tests {
         assert_eq!(hash1.len(), 64);
         assert_eq!(hash2.len(), 64);
         assert_ne!(hash1, hash2);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_audit_log_verification() {
+        let res = verify_audit_log_chain().await;
+        // In clean test DB setup, this should return Ok(true)
+        assert!(res.is_ok());
+        assert!(res.unwrap());
     }
 }

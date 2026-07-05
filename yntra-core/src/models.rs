@@ -202,6 +202,7 @@ pub struct BankIdAuthSession {
     pub progress: f64,
     pub authenticated_user_id: Option<String>,
     pub created_at: String,
+    pub challenge: Option<String>,
 }
 
 #[derive(uniffi::Record, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize, Clone, Debug)]
