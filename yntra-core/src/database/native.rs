@@ -55,9 +55,12 @@ pub fn get_database() -> &'static libsql::Database {
                 let _ = db.sync().await;
             }
             
+            let raw_conn = db.connect().expect("Failed to connect to libSQL database for schema setup");
+            let _ = raw_conn.execute("PRAGMA foreign_keys = ON", ()).await;
             let conn = DbConnection {
-                inner: Some(db.connect().expect("Failed to connect to libSQL database for schema setup")),
+                inner: Some(raw_conn),
                 in_transaction: std::sync::atomic::AtomicBool::new(false),
+                _permit: None,
             };
             super::schema::setup_schema(&conn).await.expect("Failed to initialize database schema");
             
@@ -66,47 +69,86 @@ pub fn get_database() -> &'static libsql::Database {
      })
  }
  
- pub async fn acquire_connection() -> Result<DbConnection, YntraError> {
-     let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
-     {
-         let mut conns = pool.lock().unwrap();
-         if let Some(conn) = conns.pop_front() {
-             return Ok(DbConnection {
-                 inner: Some(conn),
-                 in_transaction: std::sync::atomic::AtomicBool::new(false),
-             });
-         }
-     }
-     let db = get_database();
-     let conn = db.connect().map_err(|e| YntraError::DbError(e.to_string()))?;
-     Ok(DbConnection {
-         inner: Some(conn),
-         in_transaction: std::sync::atomic::AtomicBool::new(false),
-     })
- }
- 
- pub struct DbConnection {
-     pub inner: Option<libsql::Connection>,
-     pub in_transaction: std::sync::atomic::AtomicBool,
- }
- 
- impl Drop for DbConnection {
-     fn drop(&mut self) {
-         if let Some(conn) = self.inner.take() {
-             if self.in_transaction.load(std::sync::atomic::Ordering::SeqCst) {
-                 let _ = block_on(async {
-                     let _ = conn.execute("ROLLBACK", ()).await;
-                 });
-             }
-             let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
-             if let Ok(mut conns) = pool.lock() {
-                 conns.push_back(conn);
-             }
-         }
-     }
- }
+static SEMAPHORE: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
+
+fn get_semaphore() -> &'static tokio::sync::Semaphore {
+    SEMAPHORE.get_or_init(|| tokio::sync::Semaphore::new(16))
+}
+
+pub async fn acquire_connection() -> Result<DbConnection, YntraError> {
+    let sem = get_semaphore();
+    let permit = match tokio::time::timeout(std::time::Duration::from_secs(1), sem.acquire()).await {
+        Ok(Ok(p)) => p,
+        _ => return Err(YntraError::DbError("Database connection pool exhausted".to_string())),
+    };
+
+    let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
+    {
+        let mut conns = pool.lock().unwrap();
+        if let Some(conn) = conns.pop_front() {
+            return Ok(DbConnection {
+                inner: Some(conn),
+                in_transaction: std::sync::atomic::AtomicBool::new(false),
+                _permit: Some(permit),
+            });
+        }
+    }
+
+    let db = get_database();
+    let conn = db.connect().map_err(|e| YntraError::DbError(e.to_string()))?;
+    let _ = conn.execute("PRAGMA foreign_keys = ON", ()).await;
+    Ok(DbConnection {
+        inner: Some(conn),
+        in_transaction: std::sync::atomic::AtomicBool::new(false),
+        _permit: Some(permit),
+    })
+}
+
+pub struct DbConnection {
+    pub inner: Option<libsql::Connection>,
+    pub in_transaction: std::sync::atomic::AtomicBool,
+    pub _permit: Option<tokio::sync::SemaphorePermit<'static>>,
+}
+
+impl Drop for DbConnection {
+    fn drop(&mut self) {
+        if let Some(conn) = self.inner.take() {
+            if self.in_transaction.load(std::sync::atomic::Ordering::SeqCst) {
+                let _ = block_on(async {
+                    let _ = conn.execute("ROLLBACK", ()).await;
+                });
+            }
+            let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
+            if let Ok(mut conns) = pool.lock() {
+                conns.push_back(conn);
+            }
+        }
+    }
+}
  
  impl DbConnection {
+     fn get_conn(&self) -> Result<&libsql::Connection, YntraError> {
+         self.inner.as_ref().ok_or_else(|| YntraError::DbError("Connection already closed".to_string()))
+     }
+
+     pub async fn begin_transaction(&self) -> Result<(), YntraError> {
+         self.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
+         self.in_transaction.store(true, std::sync::atomic::Ordering::SeqCst);
+         Ok(())
+     }
+
+     pub async fn commit(&self) -> Result<(), YntraError> {
+         self.execute("COMMIT", ()).await?;
+         self.in_transaction.store(false, std::sync::atomic::Ordering::SeqCst);
+         Ok(())
+     }
+
+     pub async fn rollback(&self) -> Result<(), YntraError> {
+         self.execute("ROLLBACK", ()).await?;
+         self.in_transaction.store(false, std::sync::atomic::Ordering::SeqCst);
+         Ok(())
+     }
+
      pub async fn execute<P: libsql::params::IntoParams + Send>(&self, sql: &str, params: P) -> Result<u64, YntraError> {
          let sql_upper = sql.to_uppercase();
          if sql_upper.contains("BEGIN") {
@@ -116,7 +158,8 @@ pub fn get_database() -> &'static libsql::Database {
              self.in_transaction.store(false, std::sync::atomic::Ordering::SeqCst);
          }
 
-         let res = self.inner.as_ref().unwrap().execute(sql, params).await
+         let conn = self.get_conn()?;
+         let res = conn.execute(sql, params).await
              .map_err(|e| YntraError::DbError(e.to_string()));
          if res.is_ok() {
              if let Some(table) = crate::infra::observer::extract_table_name(sql) {
@@ -127,28 +170,28 @@ pub fn get_database() -> &'static libsql::Database {
      }
  
      pub async fn execute_batch(&self, sql: &str) -> Result<(), YntraError> {
-         let sql_upper = sql.to_uppercase();
-         if sql_upper.contains("BEGIN") {
-             self.in_transaction.store(true, std::sync::atomic::Ordering::SeqCst);
-         }
-         if sql_upper.contains("COMMIT") || sql_upper.contains("ROLLBACK") {
-             self.in_transaction.store(false, std::sync::atomic::Ordering::SeqCst);
-         }
+        let sql_upper = sql.to_uppercase();
+        if sql_upper.contains("BEGIN") {
+            self.in_transaction.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        if sql_upper.contains("COMMIT") || sql_upper.contains("ROLLBACK") {
+            self.in_transaction.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
 
-         let res = self.inner.as_ref().unwrap().execute_batch(sql).await
-             .map_err(|e| YntraError::DbError(e.to_string()));
-         if res.is_ok() {
-             for stmt in sql.split(';') {
-                 if let Some(table) = crate::infra::observer::extract_table_name(stmt) {
-                     crate::infra::observer::set_last_modified_table(&table);
-                 }
-             }
-         }
-         res
-     }
+        let conn = self.get_conn()?;
+        conn.execute_batch(sql).await
+            .map_err(|e| YntraError::DbError(e.to_string()))?;
+        for stmt in sql.split(';') {
+            if let Some(table) = crate::infra::observer::extract_table_name(stmt) {
+                crate::infra::observer::set_last_modified_table(&table);
+            }
+        }
+        Ok(())
+    }
 
     pub async fn prepare(&self, sql: &str) -> Result<Statement, YntraError> {
-        let stmt = self.inner.as_ref().unwrap().prepare(sql).await
+        let conn = self.get_conn()?;
+        let stmt = conn.prepare(sql).await
             .map_err(|e| YntraError::DbError(e.to_string()))?;
         Ok(Statement { inner: stmt })
     }
@@ -159,7 +202,8 @@ pub fn get_database() -> &'static libsql::Database {
         F: FnOnce(&Row) -> Result<T, YntraError> + Send,
         T: Send,
     {
-        let mut stmt = self.inner.as_ref().unwrap().prepare(sql).await.map_err(|e| YntraError::DbError(e.to_string()))?;
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare(sql).await.map_err(|e| YntraError::DbError(e.to_string()))?;
         let mut rows = stmt.query(params).await.map_err(|e| YntraError::DbError(e.to_string()))?;
         if let Some(row) = rows.next().await.map_err(|e| YntraError::DbError(e.to_string()))? {
             let wrapped_row = Row { inner: row };

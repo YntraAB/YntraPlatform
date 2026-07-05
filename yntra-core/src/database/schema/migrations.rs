@@ -1,8 +1,10 @@
 use crate::YntraError;
 use super::super::DbConnection;
 
-pub async fn run_schema_migrations(conn: &DbConnection) -> Result<(), YntraError> {
-    let _ = conn.execute("ALTER TABLE users ADD COLUMN siths_card_id TEXT", ()).await;
+pub async fn run_schema_migrations(conn: &DbConnection, current_version: i32) -> Result<i32, YntraError> {
+    let mut version = current_version;
+    if version < 2 {
+        let _ = conn.execute("ALTER TABLE users ADD COLUMN siths_card_id TEXT", ()).await;
     let _ = conn.execute("ALTER TABLE users ADD COLUMN nfc_badge_uid TEXT", ()).await;
     let _ = conn.execute("ALTER TABLE users ADD COLUMN personal_number TEXT", ()).await;
     let _ = conn.execute("ALTER TABLE invitations ADD COLUMN siths_card_id TEXT", ()).await;
@@ -278,5 +280,7 @@ pub async fn run_schema_migrations(conn: &DbConnection) -> Result<(), YntraError
         );"
     ).await;
 
-    Ok(())
+        version = 2;
+    }
+    Ok(version)
 }

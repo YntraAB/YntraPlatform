@@ -26,34 +26,39 @@ pub async fn seed_mock_data(conn: &DbConnection) {
         crate::params![bob_pub],
     ).await;
 
-    #[allow(unused_mut)]
-    let mut admin_email = "".to_string();
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        admin_email = std::env::var("ADMIN_EMAIL").unwrap_or_default();
-        if admin_email.is_empty() {
-            if let Ok(content) = std::fs::read_to_string("admin_email.txt") {
-                admin_email = content.trim().to_string();
-            } else if let Ok(content) = std::fs::read_to_string("../admin_email.txt") {
-                admin_email = content.trim().to_string();
+    let admin_email = {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut email = std::env::var("ADMIN_EMAIL").unwrap_or_default();
+            if email.is_empty() {
+                if let Ok(content) = std::fs::read_to_string("admin_email.txt") {
+                    email = content.trim().to_string();
+                } else if let Ok(content) = std::fs::read_to_string("../admin_email.txt") {
+                    email = content.trim().to_string();
+                }
             }
-        }
-        if admin_email.is_empty() {
-            for path in &[".env", "../.env"] {
-                if let Ok(content) = std::fs::read_to_string(path) {
-                    for line in content.lines() {
-                        if let Some(stripped) = line.strip_prefix("ADMIN_EMAIL=") {
-                            admin_email = stripped.trim().trim_matches('"').trim_matches('\'').to_string();
+            if email.is_empty() {
+                for path in &[".env", "../.env"] {
+                    if let Ok(content) = std::fs::read_to_string(path) {
+                        for line in content.lines() {
+                            if let Some(stripped) = line.strip_prefix("ADMIN_EMAIL=") {
+                                email = stripped.trim().trim_matches('"').trim_matches('\'').to_string();
+                                break;
+                            }
+                        }
+                        if !email.is_empty() {
                             break;
                         }
                     }
-                    if !admin_email.is_empty() {
-                        break;
-                    }
                 }
             }
+            email
         }
-    }
+        #[cfg(target_arch = "wasm32")]
+        {
+            "".to_string()
+        }
+    };
 
     if !admin_email.is_empty() {
         let _ = conn.execute(

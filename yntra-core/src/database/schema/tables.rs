@@ -266,7 +266,18 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             timestamp INTEGER NOT NULL,
             prev_hash TEXT NOT NULL,
             curr_hash TEXT NOT NULL
-        );"
+        );
+        
+        CREATE INDEX IF NOT EXISTS idx_users_workspace ON users(workspace_id);
+        CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+        CREATE INDEX IF NOT EXISTS idx_notes_team ON notes(team_id);
+        CREATE INDEX IF NOT EXISTS idx_notes_workspace ON notes(workspace_id);
+        CREATE INDEX IF NOT EXISTS idx_events_workspace ON events(workspace_id);
+        CREATE INDEX IF NOT EXISTS idx_time_reports_user ON time_reports(user_id);
+        CREATE INDEX IF NOT EXISTS idx_team_members_user ON team_members(user_id);
+        CREATE INDEX IF NOT EXISTS idx_clients_workspace ON clients(workspace_id);
+        CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp);"
     )
     .await
     .map(|_| ())

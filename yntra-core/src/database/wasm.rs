@@ -100,6 +100,24 @@ impl Drop for DbConnection {
 }
 
 impl DbConnection {
+    pub async fn begin_transaction(&self) -> Result<(), YntraError> {
+        self.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
+        self.in_transaction.store(true, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+
+    pub async fn commit(&self) -> Result<(), YntraError> {
+        self.execute("COMMIT", ()).await?;
+        self.in_transaction.store(false, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+
+    pub async fn rollback(&self) -> Result<(), YntraError> {
+        self.execute("ROLLBACK", ()).await?;
+        self.in_transaction.store(false, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+
     pub async fn execute<P: IntoWasmParams>(&self, sql: &str, params: P) -> Result<u64, YntraError> {
         let sql_upper = sql.to_uppercase();
         if sql_upper.contains("BEGIN") {
