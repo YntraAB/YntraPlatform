@@ -112,10 +112,12 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
     });
     let courses = courses_res.read().clone().unwrap_or_default();
 
+    let req_id_timetable = active_user.id.clone();
     let slots_res = use_resource(move || {
         let _ = db_trig_val;
+        let r_id = req_id_timetable.clone();
         async move {
-            yntra_core::get_timetable_slots().await.unwrap_or_default()
+            yntra_core::get_timetable_slots(r_id).await.unwrap_or_default()
         }
     });
     let mut slots = slots_res.read().clone().unwrap_or_default();

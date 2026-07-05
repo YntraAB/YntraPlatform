@@ -96,7 +96,7 @@ pub fn LoginView(props: LoginViewProps) -> Element {
 
 
 
-    let show_hardware_modal = use_signal(|| false);
+    let mut show_hardware_modal = use_signal(|| false);
     let mut hardware_auth_type = use_signal(|| "siths".to_string()); // "siths" | "nfc"
     let mut hardware_reader_status = use_signal(|| "connecting".to_string()); // "connecting" | "polling" | "reading" | "error" | "success"
     let mut hardware_error_msg = use_signal(|| Option::<String>::None);
@@ -167,9 +167,13 @@ pub fn LoginView(props: LoginViewProps) -> Element {
     });
 
     let restart_passive_session = move || {
+        #[allow(unused_variables, unused_mut)]
         let mut active_session_id = active_session_id;
+        #[allow(unused_variables, unused_mut)]
         let mut hardware_auth_type = hardware_auth_type;
+        #[allow(unused_variables, unused_mut)]
         let mut hardware_reader_status = hardware_reader_status;
+        #[allow(unused_variables, unused_mut)]
         let mut hardware_error_msg = hardware_error_msg;
 
         #[cfg(not(target_arch = "wasm32"))]

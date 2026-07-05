@@ -626,9 +626,10 @@ pub fn SchoolView(props: SchoolViewProps) -> Element {
                 let contact = new_student_contact.read().clone();
                 let contact_opt = if contact.is_empty() { None } else { Some(contact) };
                 let ws = workspace_id.read().clone();
+                let requester_user_id = active_user.id.clone();
                 
                 spawn(async move {
-                    if yntra_core::add_student(ws, None, first, last, grade, contact_opt).await.is_ok() {
+                    if yntra_core::add_student(requester_user_id, ws, None, first, last, grade, contact_opt).await.is_ok() {
                         show_enroll_modal.set(false);
                         new_student_first_name.set(String::new());
                         new_student_last_name.set(String::new());

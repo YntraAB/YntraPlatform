@@ -26,10 +26,12 @@ pub fn LibraryDashboard(props: LibraryDashboardProps) -> Element {
     let db_trig = *db_trigger.read();
 
     // Query books
+    let uid_books = active_user_id.clone();
     let books_res = use_resource(move || {
         let _ = db_trig;
+        let u = uid_books.clone();
         async move {
-            yntra_core::get_library_books().await.unwrap_or_default()
+            yntra_core::get_library_books(u).await.unwrap_or_default()
         }
     });
     let books = books_res.read().clone().unwrap_or_default();

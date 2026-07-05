@@ -394,7 +394,7 @@ pub fn use_init_app_state() -> AppState {
         let _trig = trigger_messages.read();
         let uid = active_user_id.read().clone();
         async move {
-            get_messages(uid).await.unwrap_or_default()
+            get_messages(uid.clone(), uid).await.unwrap_or_default()
         }
     });
     let notes = use_resource(move || {
@@ -427,8 +427,9 @@ pub fn use_init_app_state() -> AppState {
     });
     let workspaces = use_resource(move || {
         let _trig = trigger_workspaces.read();
+        let uid = active_user_id.read().clone();
         async move {
-            get_workspaces().await.unwrap_or_default()
+            get_workspaces(uid).await.unwrap_or_default()
         }
     });
 

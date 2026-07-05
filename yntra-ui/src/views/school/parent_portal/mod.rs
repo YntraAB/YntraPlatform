@@ -117,10 +117,12 @@ pub fn ParentPortal(props: ParentPortalProps) -> Element {
     let term_grades = term_grades_res.read().clone().unwrap_or_default();
 
     // 3.8 Fetch timetable slots
+    let req_id_timetable = active_user.id.clone();
     let timetable_res = use_resource(move || {
         let _ = db_trig;
+        let r_id = req_id_timetable.clone();
         async move {
-            yntra_core::get_timetable_slots().await.unwrap_or_default()
+            yntra_core::get_timetable_slots(r_id).await.unwrap_or_default()
         }
     });
     let timetable_slots = timetable_res.read().clone().unwrap_or_default();
@@ -194,10 +196,12 @@ pub fn ParentPortal(props: ParentPortalProps) -> Element {
     let library_logs = library_logs_res.read().clone().unwrap_or_default();
 
     // 3.98 Fetch all library books for title lookup
+    let req_id_lib_books = active_user.id.clone();
     let library_books_res = use_resource(move || {
         let _ = db_trig;
+        let r_id = req_id_lib_books.clone();
         async move {
-            yntra_core::get_library_books().await.unwrap_or_default()
+            yntra_core::get_library_books(r_id).await.unwrap_or_default()
         }
     });
     let library_books = library_books_res.read().clone().unwrap_or_default();

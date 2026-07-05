@@ -10,7 +10,8 @@ pub fn WorkspacesList(is_platform_admin: bool) -> Element {
     
     let workspaces_res = use_resource(move || {
         let _trig = refresh_trigger.read();
-        async move { yntra_core::get_workspaces().await.unwrap_or_default() }
+        let uid = state.active_user_id.read().clone();
+        async move { yntra_core::get_workspaces(uid).await.unwrap_or_default() }
     });
 
     let mut selected_directory_workspace = state.selected_directory_workspace;
