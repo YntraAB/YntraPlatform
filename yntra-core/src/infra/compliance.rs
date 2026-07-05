@@ -97,3 +97,32 @@ impl ComplianceRegistry {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compliance_rules_retrieval() {
+        // test Sweden
+        let se = ComplianceRegistry::get_rule("SE");
+        assert_eq!(se.country_code, "SE");
+        assert_eq!(se.standard_daily_limit, 13.0);
+        assert_eq!(se.mandatory_daily_rest_hours, 11.0);
+
+        // test Norway
+        let no = ComplianceRegistry::get_rule("NO");
+        assert_eq!(no.country_code, "NO");
+        assert_eq!(no.standard_daily_limit, 9.0);
+
+        // test US California
+        let ca = ComplianceRegistry::get_rule("US-CA");
+        assert_eq!(ca.country_code, "US-CA");
+        assert_eq!(ca.standard_daily_limit, 8.0);
+
+        // test fallback to EU Working Time Directive
+        let fallback = ComplianceRegistry::get_rule("INVALID-CODE");
+        assert_eq!(fallback.country_code, "EU");
+        assert_eq!(fallback.standard_weekly_limit, 48.0);
+    }
+}

@@ -42,21 +42,29 @@ pub async fn setup_schema(conn: &DbConnection) -> Result<(), YntraError> {
 }
 
 fn obfuscate_salt(salt_hex: &str) -> String {
-    let bytes = const_hex::decode(salt_hex).unwrap_or_default();
+    use zeroize::Zeroize;
+    let mut bytes = const_hex::decode(salt_hex).unwrap_or_default();
     let xor_key = b"YntraSaltObfuscationKey2026";
-    let obfuscated: Vec<u8> = bytes.iter().enumerate().map(|(i, &b)| b ^ xor_key[i % xor_key.len()]).collect();
-    format!("obf:{}", const_hex::encode(obfuscated))
+    let mut obfuscated: Vec<u8> = bytes.iter().enumerate().map(|(i, &b)| b ^ xor_key[i % xor_key.len()]).collect();
+    let result = format!("obf:{}", const_hex::encode(&obfuscated));
+    bytes.zeroize();
+    obfuscated.zeroize();
+    result
 }
 
 fn deobfuscate_salt(obfuscated_str: &str) -> Option<String> {
     if !obfuscated_str.starts_with("obf:") {
         return Some(obfuscated_str.to_string());
     }
+    use zeroize::Zeroize;
     let body = &obfuscated_str[4..];
-    let bytes = const_hex::decode(body).ok()?;
+    let mut bytes = const_hex::decode(body).ok()?;
     let xor_key = b"YntraSaltObfuscationKey2026";
-    let deobfuscated: Vec<u8> = bytes.iter().enumerate().map(|(i, &b)| b ^ xor_key[i % xor_key.len()]).collect();
-    Some(const_hex::encode(deobfuscated))
+    let mut deobfuscated: Vec<u8> = bytes.iter().enumerate().map(|(i, &b)| b ^ xor_key[i % xor_key.len()]).collect();
+    let result = const_hex::encode(&deobfuscated);
+    bytes.zeroize();
+    deobfuscated.zeroize();
+    Some(result)
 }
 
 async fn initialize_salt_from_db(conn: &DbConnection) -> Result<(), YntraError> {
@@ -111,4 +119,42 @@ async fn initialize_salt_from_db(conn: &DbConnection) -> Result<(), YntraError> 
 
     crate::infra::crypto::initialize_system_salt(salt);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_salt_obfuscation_roundtrip() {
+        let original_salt = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let obf = obfuscate_salt(original_salt);
+        assert!(obf.starts_with("obf:"));
+        let deobf = deobfuscate_salt(&obf).unwrap();
+        assert_eq!(deobf, original_salt);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_initialize_salt_lifecycle() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = crate::database::acquire_connection().await.unwrap();
+
+        // Ensure database settings starts clean of system_salt
+        conn.execute("DELETE FROM system_settings WHERE key = 'system_salt'", ()).await.unwrap();
+
+        // 1. Fresh initialization (generates random salt)
+        initialize_salt_from_db(&conn).await.unwrap();
+
+        // Get value from settings
+        let stored: String = conn.query_row(
+            "SELECT value FROM system_settings WHERE key = 'system_salt'",
+            (),
+            |r| r.get(0)
+        ).await.unwrap();
+        assert!(stored.starts_with("obf:"));
+
+        // 2. Subsequent load
+        initialize_salt_from_db(&conn).await.unwrap();
+    }
 }

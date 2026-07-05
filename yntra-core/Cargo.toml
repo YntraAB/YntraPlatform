@@ -42,4 +42,5 @@ web-sys = { workspace = true, features = ["Storage", "Window"] }
 js-sys = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
 tracing-wasm = "0.2.1"
+futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
 

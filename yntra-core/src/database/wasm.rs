@@ -79,14 +79,23 @@ impl IntoWasmParams for () {
     }
 }
 
+static DB_LOCK: std::sync::OnceLock<futures_util::lock::Mutex<()>> = std::sync::OnceLock::new();
+
+fn get_db_lock() -> &'static futures_util::lock::Mutex<()> {
+    DB_LOCK.get_or_init(|| futures_util::lock::Mutex::new(()))
+}
+
 pub async fn acquire_connection() -> Result<DbConnection, YntraError> {
+    let guard = get_db_lock().lock().await;
     Ok(DbConnection {
         in_transaction: std::sync::atomic::AtomicBool::new(false),
+        _guard: guard,
     })
 }
 
 pub struct DbConnection {
     pub in_transaction: std::sync::atomic::AtomicBool,
+    pub _guard: futures_util::lock::MutexGuard<'static, ()>,
 }
 
 impl Drop for DbConnection {
@@ -149,8 +158,8 @@ impl DbConnection {
         }
 
         js_execute_sql("execute_batch", sql, "[]").await?;
-        for stmt in sql.split(';') {
-            if let Some(table) = crate::infra::observer::extract_table_name(stmt) {
+        for stmt in crate::infra::observer::split_sql_statements(sql) {
+            if let Some(table) = crate::infra::observer::extract_table_name(&stmt) {
                 crate::infra::observer::set_last_modified_table(&table);
             }
         }

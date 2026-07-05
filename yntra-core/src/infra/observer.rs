@@ -178,9 +178,48 @@ pub fn start_background_sync(interval_secs: u32) {
     }
 }
 
+pub fn split_sql_statements(sql: &str) -> Vec<String> {
+    let mut statements = Vec::new();
+    let mut current = String::new();
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    
+    for c in sql.chars() {
+        match c {
+            '\'' if !in_double_quote => in_single_quote = !in_single_quote,
+            '"' if !in_single_quote => in_double_quote = !in_double_quote,
+            ';' if !in_single_quote && !in_double_quote => {
+                let trimmed = current.trim();
+                if !trimmed.is_empty() {
+                    statements.push(trimmed.to_string());
+                }
+                current.clear();
+                continue;
+            }
+            _ => {}
+        }
+        current.push(c);
+    }
+    let trimmed = current.trim();
+    if !trimmed.is_empty() {
+        statements.push(trimmed.to_string());
+    }
+    statements
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_split_sql_statements() {
+        let sql = "INSERT INTO messages (body) VALUES ('hello; world'); UPDATE todos SET text = 'a;b'; DELETE FROM notes";
+        let res = split_sql_statements(sql);
+        assert_eq!(res.len(), 3);
+        assert_eq!(res[0], "INSERT INTO messages (body) VALUES ('hello; world')");
+        assert_eq!(res[1], "UPDATE todos SET text = 'a;b'");
+        assert_eq!(res[2], "DELETE FROM notes");
+    }
 
     #[test]
     fn test_extract_table_name_inserts() {

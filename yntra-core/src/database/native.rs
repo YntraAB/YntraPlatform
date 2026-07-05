@@ -181,8 +181,8 @@ impl Drop for DbConnection {
         let conn = self.get_conn()?;
         conn.execute_batch(sql).await
             .map_err(|e| YntraError::DbError(e.to_string()))?;
-        for stmt in sql.split(';') {
-            if let Some(table) = crate::infra::observer::extract_table_name(stmt) {
+        for stmt in crate::infra::observer::split_sql_statements(sql) {
+            if let Some(table) = crate::infra::observer::extract_table_name(&stmt) {
                 crate::infra::observer::set_last_modified_table(&table);
             }
         }
@@ -321,5 +321,77 @@ impl FromLibsqlRow for Option<i32> {
 impl FromLibsqlRow for Option<f64> {
     fn get_from_row(row: &libsql::Row, idx: i32) -> Result<Self, YntraError> {
         row.get::<Option<f64>>(idx).map_err(|e| YntraError::DbError(e.to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_transaction_auto_rollback_on_drop() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+
+        // 1. Establish initial data
+        let conn = acquire_connection().await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-tx-drop', 'Tx Drop WS', '[]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('user-tx-drop-1', 'ws-tx-drop', 'user1@tx.io', 'user')", ()).await.unwrap();
+
+        // 2. Start a transaction on a separate scope and drop it mid-transaction
+        {
+            let conn_tx = acquire_connection().await.unwrap();
+            conn_tx.begin_transaction().await.unwrap();
+            conn_tx.execute("INSERT INTO users (id, workspace_id, email, role) VALUES ('user-tx-drop-2', 'ws-tx-drop', 'user2@tx.io', 'user')", ()).await.unwrap();
+            // Drop conn_tx here without committing. It should auto-rollback.
+        }
+
+        // 3. Acquire a new connection and verify that user-2 was rolled back, but user-1 exists
+        let conn_new = acquire_connection().await.unwrap();
+        let user1_exists = conn_new.query_row(
+            "SELECT COUNT(*) FROM users WHERE id = 'user-tx-drop-1'",
+            (),
+            |r| r.get::<i64>(0)
+        ).await.unwrap_or(0);
+        assert_eq!(user1_exists, 1);
+
+        let user2_exists = conn_new.query_row(
+            "SELECT COUNT(*) FROM users WHERE id = 'user-tx-drop-2'",
+            (),
+            |r| r.get::<i64>(0)
+        ).await.unwrap_or(0);
+        assert_eq!(user2_exists, 0);
+
+        // Cleanup
+        conn_new.execute("DELETE FROM users WHERE workspace_id = 'ws-tx-drop'", ()).await.unwrap();
+        conn_new.execute("DELETE FROM workspaces WHERE id = 'ws-tx-drop'", ()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_connection_pool_limits() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+
+        // Acquire 16 connections (this should consume all semaphore permits)
+        let mut connections = Vec::new();
+        for _ in 0..16 {
+            let conn = acquire_connection().await;
+            assert!(conn.is_ok());
+            connections.push(conn.unwrap());
+        }
+
+        // The 17th acquisition should time out and return a pool exhaustion error
+        let conn_17 = acquire_connection().await;
+        assert!(conn_17.is_err());
+        if let Err(YntraError::DbError(msg)) = conn_17 {
+            assert!(msg.contains("Database connection pool exhausted"), "Got unexpected error msg: {}", msg);
+        } else {
+            panic!("Expected DbError for connection pool exhaustion");
+        }
+
+        // Drop one connection to free a permit
+        connections.pop();
+
+        // Now we should be able to acquire a connection successfully again
+        let conn_retry = acquire_connection().await;
+        assert!(conn_retry.is_ok());
     }
 }

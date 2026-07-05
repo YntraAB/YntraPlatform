@@ -11,4 +11,7 @@ pub use wasm::{acquire_connection, DbConnection, Statement, Row, Rows};
 pub mod schema;
 pub use schema::setup_schema;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub static DB_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 

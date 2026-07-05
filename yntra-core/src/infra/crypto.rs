@@ -272,14 +272,32 @@ pub fn decrypt_field(encrypted_data: &str, workspace_id: &str) -> Result<String,
 pub fn encrypt_opt_field(data: Option<String>, workspace_id: &str) -> Result<Option<String>, crate::infra::errors::YntraError> {
     let cipher = WorkspaceCipher::new(workspace_id)?;
     cipher.encrypt_opt(data)
-}
-
-pub fn decrypt_opt_field(encrypted_data: Option<String>, workspace_id: &str) -> Option<String> {
+}pub fn decrypt_opt_field(encrypted_data: Option<String>, workspace_id: &str) -> Option<String> {
     if let Ok(cipher) = WorkspaceCipher::new(workspace_id) {
         cipher.decrypt_opt(encrypted_data)
     } else {
         None
     }
+}
+
+pub fn hash_anonymous_reporter(user_id: &str, workspace_id: &str) -> Result<String, crate::infra::errors::YntraError> {
+    let salt = get_system_salt_ref()?;
+    
+    let mut hasher = blake3::Hasher::new_derive_key("Yntra whistleblower reporter anonymity hash v1");
+    hasher.update(&(salt.len() as u64).to_be_bytes());
+    hasher.update(salt);
+    
+    hasher.update(&(workspace_id.len() as u64).to_be_bytes());
+    hasher.update(workspace_id.as_bytes());
+    
+    hasher.update(&(user_id.len() as u64).to_be_bytes());
+    hasher.update(user_id.as_bytes());
+    
+    let mut output = [0u8; 32];
+    hasher.finalize_xof().fill(&mut output);
+    hasher.zeroize();
+    
+    Ok(format!("anon_hash:{}", hex_encode(&output)))
 }
 
 pub struct WorkspaceCipher {
@@ -404,11 +422,9 @@ impl Drop for WorkspaceCipher {
 mod tests {
     use super::*;
 
-    static TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     #[test]
     fn test_chacha_encryption_decryption() {
-        let _test_lock = TEST_MUTEX.lock().unwrap();
+        let _test_lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         set_session_key("test-session-key".to_string().into_bytes());
         
         let plaintext = "Sensitive whistleblowing report text";
@@ -430,7 +446,7 @@ mod tests {
 
     #[test]
     fn test_strong_session_key_derivation() {
-        let _test_lock = TEST_MUTEX.lock().unwrap();
+        let _test_lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         let plaintext = "Highly sensitive user data";
         let workspace_id = "test-workspace-456";
 
@@ -458,7 +474,7 @@ mod tests {
 
     #[test]
     fn test_session_key_poisoning_recovery() {
-        let _test_lock = TEST_MUTEX.lock().unwrap();
+        let _test_lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         // Poison the mutex by panicking while holding the lock
         let _ = std::panic::catch_unwind(|| {
             let _lock = SESSION_KEY.lock().unwrap();
@@ -487,7 +503,7 @@ mod tests {
 
     #[test]
     fn test_system_salt_duplicate_initialization() {
-        let _test_lock = TEST_MUTEX.lock().unwrap();
+        let _test_lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         let initial_salt = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20".to_string();
         
         // This may succeed or fail depending on whether it's already set by another test/startup.
