@@ -18,6 +18,8 @@ pub enum YntraError {
     NetworkError(String),
     #[error("Invitation error: {0}")]
     InvitationError(String),
+    #[error("Crypto error: {0}")]
+    CryptoError(String),
 }
 
 #[cfg(not(target_arch = "wasm32"))]

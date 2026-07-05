@@ -27,7 +27,7 @@ pub async fn get_reports(requester_user_id: String) -> Result<Vec<ReportItem>, Y
         let is_anon_int: i32 = row.get(4)?;
         let ws_id: String = row.get(1)?;
         let raw_content: String = row.get(5)?;
-        let decrypted = crate::infra::crypto::decrypt_field(&raw_content, &ws_id);
+        let decrypted = crate::infra::crypto::decrypt_field(&raw_content, &ws_id).unwrap_or(raw_content);
         
         Ok(ReportItem {
             id: row.get(0)?,
@@ -65,7 +65,7 @@ pub async fn add_report(
     })
     .to_string();
 
-    let encrypted_content = crate::infra::crypto::encrypt_field(&content_json, &workspace_id);
+    let encrypted_content = crate::infra::crypto::encrypt_field(&content_json, &workspace_id)?;
     let now_ms = crate::infra::time::get_current_time_ms();
     let item = ReportItem {
         id: id.clone(),

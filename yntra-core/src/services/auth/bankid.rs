@@ -296,7 +296,7 @@ pub async fn submit_bankid_pin(session_id: String, pin: String) -> Result<(), Yn
                     let id: String = row.get(0)?;
                     let raw_pnum: Option<String> = row.get(1)?;
                     let ws_id: Option<String> = row.get(2)?;
-                    let decrypted_pnum = crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id);
+                    let decrypted_pnum = crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id.as_deref().unwrap_or("workspace-1"));
                     Some((id, decrypted_pnum))
                 } else {
                     None

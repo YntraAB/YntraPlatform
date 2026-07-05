@@ -63,7 +63,7 @@ pub async fn get_clients(requester_user_id: String) -> Result<Vec<ClientProfile>
             team_id: row.get(2)?,
             first_name: row.get(3)?,
             last_name: row.get(4)?,
-            personal_number: crate::infra::crypto::decrypt_opt_field(raw_pnum, Some(ws_id)),
+            personal_number: crate::infra::crypto::decrypt_opt_field(raw_pnum, &ws_id),
             care_level: row.get(6)?,
             message_settings: row.get(7)?,
             created_at: row.get(8)?,
@@ -121,12 +121,12 @@ pub async fn get_medications(client_id: String, actor_id: String) -> Result<Vec<
     }
 
     let ws_id = client.0;
+    let cipher = crate::infra::crypto::WorkspaceCipher::new(&ws_id);
 
     // 3. Query medications and decrypt sensitive fields
     let mut stmt = conn.prepare("SELECT id, client_id, name, dosage, frequency, instructions, created_at, workspace_id, updated_at, sync_status FROM client_medications WHERE client_id = ?1").await?;
 
     let list = stmt.query_map(crate::params![client_id], |row| {
-        let ws_id_clone = ws_id.clone();
         let raw_dosage: Option<String> = row.get(3)?;
         let raw_freq: Option<String> = row.get(4)?;
         let raw_instr: Option<String> = row.get(5)?;
@@ -134,9 +134,9 @@ pub async fn get_medications(client_id: String, actor_id: String) -> Result<Vec<
             id: row.get(0)?,
             client_id: row.get(1)?,
             name: row.get(2)?,
-            dosage: crate::infra::crypto::decrypt_opt_field(raw_dosage, Some(ws_id_clone.clone())),
-            frequency: crate::infra::crypto::decrypt_opt_field(raw_freq, Some(ws_id_clone.clone())),
-            instructions: crate::infra::crypto::decrypt_opt_field(raw_instr, Some(ws_id_clone)),
+            dosage: cipher.decrypt_opt(raw_dosage),
+            frequency: cipher.decrypt_opt(raw_freq),
+            instructions: cipher.decrypt_opt(raw_instr),
             created_at: row.get(6)?,
             workspace_id: row.get(7)?,
             updated_at: row.get(8)?,
@@ -204,7 +204,7 @@ pub async fn get_journals(client_id: String, actor_id: String) -> Result<Vec<Jou
             id: row.get(0)?,
             client_id: row.get(1)?,
             author_id: row.get(2)?,
-            content: crate::infra::crypto::decrypt_field(&raw_content, &ws_id_clone),
+            content: crate::infra::crypto::decrypt_field(&raw_content, &ws_id_clone).unwrap_or(raw_content),
             created_at: row.get(4)?,
             workspace_id: row.get(5)?,
             updated_at: row.get(6)?,
@@ -281,7 +281,7 @@ pub async fn add_journal_entry(
         sync_status: "pending".to_string(),
     };
 
-    let enc_content = crate::infra::crypto::encrypt_field(&item.content, &workspace_id);
+    let enc_content = crate::infra::crypto::encrypt_field(&item.content, &workspace_id)?;
 
     conn.execute(
         "INSERT INTO client_journals (id, client_id, author_id, content, created_at, workspace_id, updated_at, sync_status)
@@ -373,9 +373,10 @@ pub async fn add_medication(
         sync_status: "pending".to_string(),
     };
 
-    let enc_dosage = crate::infra::crypto::encrypt_opt_field(item.dosage.clone(), Some(workspace_id.clone()));
-    let enc_freq = crate::infra::crypto::encrypt_opt_field(item.frequency.clone(), Some(workspace_id.clone()));
-    let enc_instr = crate::infra::crypto::encrypt_opt_field(item.instructions.clone(), Some(workspace_id.clone()));
+    let cipher = crate::infra::crypto::WorkspaceCipher::new(&workspace_id);
+    let enc_dosage = cipher.encrypt_opt(item.dosage.clone())?;
+    let enc_freq = cipher.encrypt_opt(item.frequency.clone())?;
+    let enc_instr = cipher.encrypt_opt(item.instructions.clone())?;
 
     conn.execute(
         "INSERT INTO client_medications (id, client_id, name, dosage, frequency, instructions, created_at, workspace_id, updated_at, sync_status)
@@ -425,7 +426,7 @@ pub async fn add_client_via_directory(
     };
 
     let conn = database::acquire_connection().await?;
-    let encrypted_pnum = crate::infra::crypto::encrypt_opt_field(item.personal_number.clone(), Some(workspace_id.clone()));
+    let encrypted_pnum = crate::infra::crypto::encrypt_opt_field(item.personal_number.clone(), &workspace_id)?;
 
     conn.execute(
         "INSERT INTO clients (id, workspace_id, team_id, first_name, last_name, personal_number, care_level, message_settings, created_at, updated_at, sync_status)
@@ -467,7 +468,7 @@ pub async fn update_client_profile(
             return Err(YntraError::NotFoundError("Client not found".to_string()));
         }
     };
-    let encrypted_pnum = crate::infra::crypto::encrypt_opt_field(personal_number.clone(), Some(ws_id));
+    let encrypted_pnum = crate::infra::crypto::encrypt_opt_field(personal_number, &ws_id)?;
 
     conn.execute(
         "UPDATE clients SET first_name = ?1, last_name = ?2, personal_number = ?3, care_level = ?4, updated_at = ?5, sync_status = 'pending' WHERE id = ?6",

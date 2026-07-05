@@ -33,7 +33,7 @@ pub async fn get_user_by_email(email: String) -> Result<Option<WorkspaceUser>, Y
             nfc_badge_uid: row.get(8)?,
             updated_at: row.get(9)?,
             sync_status: row.get(10)?,
-            personal_number: crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id),
+            personal_number: crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id.as_deref().unwrap_or("workspace-1")),
         }))
     } else {
         Ok(None)
@@ -66,7 +66,7 @@ pub async fn get_users(requester_user_id: String) -> Result<Vec<WorkspaceUser>, 
         let raw_pnum: Option<String> = row.get(11)?;
         
         let personal_number = if is_admin {
-            crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id.clone())
+            crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id.as_deref().unwrap_or("workspace-1"))
         } else {
             None
         };
@@ -311,7 +311,7 @@ pub async fn verify_email_password(email: String, password: String) -> Result<Op
             nfc_badge_uid: row.get(9)?,
             updated_at: row.get(10)?,
             sync_status: row.get(11)?,
-            personal_number: crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id),
+            personal_number: crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id.as_deref().unwrap_or("workspace-1")),
         }))
     } else {
         Ok(None)

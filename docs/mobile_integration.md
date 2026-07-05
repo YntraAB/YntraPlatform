@@ -174,4 +174,18 @@ class TodoViewModel : ViewModel() {
         clearObservers()
     }
 }
+
+---
+
+## 5. Security & Memory Management (FFI Boundary)
+
+When passing sensitive user secrets (such as PINs, passwords, or encryption keys) across the UniFFI boundary to `set_session_key()`, developers must manage memory carefully to prevent secret exposure.
+
+### FFI Memory Leakage Risk
+While the shared Rust core zeroizes its own buffers immediately after stretching or derivation, the JNI/Swift bridging layer and host language runtimes (JVM heap, Swift heap) can allocate intermediate copies of `String` arguments that Rust cannot access or clear.
+
+### Recommended Guidelines
+1. **Wipe Native Memory**: In Swift or Kotlin, do not store plain-text passwords or PINs in persistent heap variables or long-lived Model/State objects.
+2. **Clear UI Buffers**: Securely clear memory buffers of text inputs or custom PIN views immediately after passing the value to the FFI layer.
+3. **Use Platform Secure Storage**: Store master session tokens or keys in native secure containers (e.g. Android Keystore, iOS Keychain) rather than keeping them in memory.
 ```
