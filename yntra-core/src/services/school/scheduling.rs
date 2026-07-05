@@ -1,38 +1,25 @@
-#[cfg(not(target_arch = "wasm32"))]
 use crate::database;
 use crate::observer::notify_observers;
 use crate::{TimetableSlot, YntraError};
 
-#[cfg(target_arch = "wasm32")]
-use crate::wasm_store;
-
 #[uniffi::export]
 pub async fn get_timetable_slots() -> Result<Vec<TimetableSlot>, YntraError> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let conn = database::native::acquire_connection().await?;
-        let mut stmt = conn.prepare("SELECT id, workspace_id, course_id, day_of_week, start_time, end_time, classroom, updated_at, sync_status FROM timetable_slots").await?;
-        let list = stmt.query_map((), |row| {
-            Ok(TimetableSlot {
-                id: row.get(0)?,
-                workspace_id: row.get(1)?,
-                course_id: row.get(2)?,
-                day_of_week: row.get(3)?,
-                start_time: row.get(4)?,
-                end_time: row.get(5)?,
-                classroom: row.get(6)?,
-                updated_at: row.get(7)?,
-                sync_status: row.get(8)?,
-            })
-        }).await?;
-        Ok(list)
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        let store = wasm_store::get_store().lock().unwrap();
-        Ok(store.timetable_slots.clone())
-    }
+    let conn = database::acquire_connection().await?;
+    let mut stmt = conn.prepare("SELECT id, workspace_id, course_id, day_of_week, start_time, end_time, classroom, updated_at, sync_status FROM timetable_slots").await?;
+    let list = stmt.query_map((), |row| {
+        Ok(TimetableSlot {
+            id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            course_id: row.get(2)?,
+            day_of_week: row.get(3)?,
+            start_time: row.get(4)?,
+            end_time: row.get(5)?,
+            classroom: row.get(6)?,
+            updated_at: row.get(7)?,
+            sync_status: row.get(8)?,
+        })
+    }).await?;
+    Ok(list)
 }
 
 #[uniffi::export]
@@ -45,25 +32,12 @@ pub async fn save_timetable_slot(
     end_time: String,
     classroom: Option<String>,
 ) -> Result<TimetableSlot, YntraError> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let conn = database::native::acquire_connection().await?;
-        if !super::check_permission(&conn, &requester_user_id, "can_manage_courses").await? {
-            return Err(YntraError::AuthError("Access denied: cannot manage scheduling".to_string()));
-        }
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        let store = wasm_store::get_store().lock().unwrap();
-        let requester = store.users.iter().find(|u| u.id == requester_user_id)
-            .ok_or_else(|| YntraError::AuthError("Requester user not found".to_string()))?;
-        let is_authorized = requester.role == "admin" || requester.role == "platform_admin" || requester.role.contains("rektor") || requester.role.contains("principal");
-        if !is_authorized {
-            return Err(YntraError::AuthError("Access denied".to_string()));
-        }
+    let conn = database::acquire_connection().await?;
+    if !super::check_permission(&conn, &requester_user_id, "can_manage_courses").await? {
+        return Err(YntraError::AuthError("Access denied: cannot manage scheduling".to_string()));
     }
 
-    let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+    let now_ms = crate::infra::time::get_current_time_ms();
     let id = uuid::Uuid::new_v4().to_string();
     let slot = TimetableSlot {
         id: id.clone(),
@@ -77,30 +51,20 @@ pub async fn save_timetable_slot(
         sync_status: "pending".to_string(),
     };
 
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let conn = database::native::acquire_connection().await?;
-        conn.execute(
-            "INSERT INTO timetable_slots (id, workspace_id, course_id, day_of_week, start_time, end_time, classroom, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            crate::params![
-                &slot.id,
-                &slot.workspace_id,
-                &slot.course_id,
-                &slot.day_of_week,
-                &slot.start_time,
-                &slot.end_time,
-                &slot.classroom,
-                &slot.updated_at,
-                &slot.sync_status,
-            ],
-        ).await?;
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        let mut store = wasm_store::get_store().lock().unwrap();
-        store.timetable_slots.push(slot.clone());
-    }
+    conn.execute(
+        "INSERT INTO timetable_slots (id, workspace_id, course_id, day_of_week, start_time, end_time, classroom, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        crate::params![
+            &slot.id,
+            &slot.workspace_id,
+            &slot.course_id,
+            &slot.day_of_week,
+            &slot.start_time,
+            &slot.end_time,
+            &slot.classroom,
+            &slot.updated_at,
+            &slot.sync_status,
+        ],
+    ).await?;
 
     notify_observers();
     Ok(slot)
@@ -108,26 +72,11 @@ pub async fn save_timetable_slot(
 
 #[uniffi::export]
 pub async fn delete_timetable_slot(requester_user_id: String, id: String) -> Result<(), YntraError> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let conn = database::native::acquire_connection().await?;
-        if !super::check_permission(&conn, &requester_user_id, "can_manage_courses").await? {
-            return Err(YntraError::AuthError("Access denied: cannot manage scheduling".to_string()));
-        }
-        conn.execute("DELETE FROM timetable_slots WHERE id = ?1", crate::params![&id]).await?;
+    let conn = database::acquire_connection().await?;
+    if !super::check_permission(&conn, &requester_user_id, "can_manage_courses").await? {
+        return Err(YntraError::AuthError("Access denied: cannot manage scheduling".to_string()));
     }
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        let mut store = wasm_store::get_store().lock().unwrap();
-        let requester = store.users.iter().find(|u| u.id == requester_user_id)
-            .ok_or_else(|| YntraError::AuthError("Requester user not found".to_string()))?;
-        let is_authorized = requester.role == "admin" || requester.role == "platform_admin" || requester.role.contains("rektor") || requester.role.contains("principal");
-        if !is_authorized {
-            return Err(YntraError::AuthError("Access denied".to_string()));
-        }
-        store.timetable_slots.retain(|s| s.id != id);
-    }
+    conn.execute("DELETE FROM timetable_slots WHERE id = ?1", crate::params![&id]).await?;
 
     notify_observers();
     Ok(())
@@ -141,7 +90,7 @@ pub async fn sync_timetable_to_calendar(workspace_id: String, user_id: String) -
     }
 
     let courses = super::academics::get_courses(user_id.clone()).await?;
-    let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+    let now_ms = crate::infra::time::get_current_time_ms();
     let now_secs = now_ms / 1000;
 
     let mut new_events = Vec::new();
@@ -184,45 +133,31 @@ pub async fn sync_timetable_to_calendar(workspace_id: String, user_id: String) -
         }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let conn = database::native::acquire_connection().await?;
-        for ev in new_events {
-            let count: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM events WHERE title = ?1 AND start_time = ?2",
-                crate::params![&ev.title, &ev.start_time],
-                |row| row.get(0),
-            ).await.unwrap_or(0);
+    let conn = database::acquire_connection().await?;
+    for ev in new_events {
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM events WHERE title = ?1 AND start_time = ?2",
+            crate::params![&ev.title, &ev.start_time],
+            |row| row.get(0),
+        ).await.unwrap_or(0);
 
-            if count == 0 {
-                conn.execute(
-                    "INSERT INTO events (id, workspace_id, user_id, team_id, assignee_id, title, start_time, end_time, metadata, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                    crate::params![
-                        &ev.id,
-                        &ev.workspace_id,
-                        &ev.user_id,
-                        &ev.team_id,
-                        &ev.assignee_id,
-                        &ev.title,
-                        &ev.start_time,
-                        &ev.end_time,
-                        &ev.metadata,
-                        &ev.updated_at,
-                        &ev.sync_status,
-                    ],
-                ).await?;
-            }
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        let mut store = wasm_store::get_store().lock().unwrap();
-        for ev in new_events {
-            let exists = store.events.iter().any(|e| e.title == ev.title && e.start_time == ev.start_time);
-            if !exists {
-                store.events.push(ev);
-            }
+        if count == 0 {
+            conn.execute(
+                "INSERT INTO events (id, workspace_id, user_id, team_id, assignee_id, title, start_time, end_time, metadata, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                crate::params![
+                    &ev.id,
+                    &ev.workspace_id,
+                    &ev.user_id,
+                    &ev.team_id,
+                    &ev.assignee_id,
+                    &ev.title,
+                    &ev.start_time,
+                    &ev.end_time,
+                    &ev.metadata,
+                    &ev.updated_at,
+                    &ev.sync_status,
+                ],
+            ).await?;
         }
     }
 

@@ -30,8 +30,10 @@ pub use services::role_templates::*;
 // Support absolute paths inside submodules that import modules re-exported at the root
 pub use infra::errors;
 pub use infra::observer;
+pub use infra::crypto::{set_session_key, clear_session_key};
 #[cfg(target_arch = "wasm32")]
-pub use infra::wasm_store;
+pub use database::schema::setup_schema;
+
 
 // Setup UniFFI scaffolding for mobile bindings generation
 uniffi::setup_scaffolding!();
@@ -142,7 +144,164 @@ pub mod rusqlite {
 #[macro_export]
 macro_rules! params {
     ($($value:expr),* $(,)?) => {{
+        #[allow(unused_imports)]
         use $crate::rusqlite::ToLibsqlValue;
         vec![$($value.to_value()),*]
     }};
+}
+
+#[cfg(target_arch = "wasm32")]
+pub mod rusqlite {
+    pub use crate::database::wasm::params_from_iter;
+    pub type Error = crate::YntraError;
+
+    pub trait ToWasmValue {
+        fn to_value(&self) -> serde_json::Value;
+    }
+
+    impl ToWasmValue for str {
+        fn to_value(&self) -> serde_json::Value {
+            serde_json::Value::String(self.to_string())
+        }
+    }
+
+    impl ToWasmValue for String {
+        fn to_value(&self) -> serde_json::Value {
+            serde_json::Value::String(self.clone())
+        }
+    }
+
+    impl ToWasmValue for i64 {
+        fn to_value(&self) -> serde_json::Value {
+            serde_json::Value::Number(serde_json::value::Number::from(*self))
+        }
+    }
+
+    impl ToWasmValue for i32 {
+        fn to_value(&self) -> serde_json::Value {
+            serde_json::Value::Number(serde_json::value::Number::from(*self))
+        }
+    }
+
+    impl ToWasmValue for f64 {
+        fn to_value(&self) -> serde_json::Value {
+            if let Some(n) = serde_json::value::Number::from_f64(*self) {
+                serde_json::Value::Number(n)
+            } else {
+                serde_json::Value::Null
+            }
+        }
+    }
+
+    impl ToWasmValue for bool {
+        fn to_value(&self) -> serde_json::Value {
+            serde_json::Value::Bool(*self)
+        }
+    }
+
+    impl<T: ToWasmValue> ToWasmValue for Option<T> {
+        fn to_value(&self) -> serde_json::Value {
+            match self {
+                Some(v) => v.to_value(),
+                None => serde_json::Value::Null,
+            }
+        }
+    }
+
+    impl ToWasmValue for &str {
+        fn to_value(&self) -> serde_json::Value {
+            serde_json::Value::String(self.to_string())
+        }
+    }
+
+    impl ToWasmValue for &String {
+        fn to_value(&self) -> serde_json::Value {
+            serde_json::Value::String((*self).clone())
+        }
+    }
+
+    impl ToWasmValue for &i64 {
+        fn to_value(&self) -> serde_json::Value {
+            serde_json::Value::Number(serde_json::value::Number::from(**self))
+        }
+    }
+
+    impl ToWasmValue for &i32 {
+        fn to_value(&self) -> serde_json::Value {
+            serde_json::Value::Number(serde_json::value::Number::from(**self))
+        }
+    }
+
+    impl ToWasmValue for &f64 {
+        fn to_value(&self) -> serde_json::Value {
+            if let Some(n) = serde_json::value::Number::from_f64(**self) {
+                serde_json::Value::Number(n)
+            } else {
+                serde_json::Value::Null
+            }
+        }
+    }
+
+    impl ToWasmValue for &bool {
+        fn to_value(&self) -> serde_json::Value {
+            serde_json::Value::Bool(**self)
+        }
+    }
+
+    impl<T: ToWasmValue> ToWasmValue for &Option<T> {
+        fn to_value(&self) -> serde_json::Value {
+            match self.as_ref() {
+                Some(v) => v.to_value(),
+                None => serde_json::Value::Null,
+            }
+        }
+    }
+
+    pub use crate::params;
+}
+
+#[cfg(target_arch = "wasm32")]
+#[macro_export]
+macro_rules! params {
+    ($($value:expr),* $(,)?) => {{
+        #[allow(unused_imports)]
+        use $crate::rusqlite::ToWasmValue;
+        vec![$($value.to_value()),*]
+    }};
+}
+
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn init_wasm_db() -> Result<(), YntraError> {
+    Ok(())
+}
+
+#[cfg(target_arch = "wasm32")]
+#[uniffi::export]
+pub async fn init_wasm_db() -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    database::setup_schema(&conn).await?;
+    Ok(())
+}
+
+#[cfg(target_arch = "wasm32")]
+#[uniffi::export]
+pub fn init_tracing() -> Result<(), YntraError> {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        tracing_wasm::set_as_global_default();
+    });
+    Ok(())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[uniffi::export]
+pub fn init_tracing() -> Result<(), YntraError> {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .try_init();
+    });
+    Ok(())
 }

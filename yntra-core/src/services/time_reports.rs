@@ -1,85 +1,61 @@
-#[cfg(not(target_arch = "wasm32"))]
 use crate::database;
 use crate::observer::notify_observers;
 use crate::{TimeReport, YntraError};
 
-#[cfg(target_arch = "wasm32")]
-use crate::wasm_store;
-
 #[uniffi::export]
 pub async fn get_time_reports(requester_user_id: String, user_id: Option<String>) -> Result<Vec<TimeReport>, YntraError> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let conn = database::native::acquire_connection().await?;
-        let requester_role: String = conn.query_row(
-            "SELECT role FROM users WHERE id = ?1",
-            crate::params![&requester_user_id],
-            |r| r.get(0)
-        ).await.unwrap_or_else(|_| "user".to_string());
+    let conn = database::acquire_connection().await?;
+    let requester_role: String = conn.query_row(
+        "SELECT role FROM users WHERE id = ?1",
+        crate::params![&requester_user_id],
+        |r| r.get(0)
+    ).await.map_err(|e| YntraError::DbError(format!("Failed to retrieve user role: {}", e)))?;
 
-        let is_admin = requester_role == "admin" || requester_role == "platform_admin";
+    let is_admin = requester_role == "admin" || requester_role == "platform_admin";
 
-        let (query, params) = if is_admin {
-            match user_id {
-                Some(uid) => (
-                    "SELECT id, workspace_id, user_id, team_id, date, start_time, end_time, hours, note, status, created_at, updated_at, sync_status FROM time_reports WHERE user_id = ?1 ORDER BY date DESC".to_string(),
-                    vec![uid],
-                ),
-                None => (
-                    "SELECT id, workspace_id, user_id, team_id, date, start_time, end_time, hours, note, status, created_at, updated_at, sync_status FROM time_reports ORDER BY date DESC".to_string(),
-                    vec![],
-                ),
-            }
-        } else {
-            if let Some(ref uid) = user_id {
-                if uid != &requester_user_id {
-                    return Err(YntraError::AuthError("Access denied: you can only view your own time reports".to_string()));
-                }
-            }
-            (
+    let (query, params) = if is_admin {
+        match user_id {
+            Some(uid) => (
                 "SELECT id, workspace_id, user_id, team_id, date, start_time, end_time, hours, note, status, created_at, updated_at, sync_status FROM time_reports WHERE user_id = ?1 ORDER BY date DESC".to_string(),
-                vec![requester_user_id.clone()],
-            )
-        };
-
-        let mut stmt = conn.prepare(&query).await?;
-        let list = stmt.query_map(crate::rusqlite::params_from_iter(params), |row| {
-            Ok(TimeReport {
-                id: row.get(0)?,
-                workspace_id: row.get(1)?,
-                user_id: row.get(2)?,
-                team_id: row.get(3)?,
-                date: row.get(4)?,
-                start_time: row.get(5)?,
-                end_time: row.get(6)?,
-                hours: row.get(7)?,
-                note: row.get(8)?,
-                status: row.get(9)?,
-                created_at: row.get(10)?,
-                updated_at: row.get(11)?,
-                sync_status: row.get(12)?,
-            })
-        }).await?;
-
-        Ok(list)
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        let store = wasm_store::get_store().lock().unwrap();
-        let requester = store.users.iter().find(|u| u.id == requester_user_id);
-        let is_admin = requester.map(|u| u.role == "admin" || u.role == "platform_admin").unwrap_or(false);
-
-        if is_admin {
-            if let Some(uid) = user_id {
-                Ok(store.time_reports.iter().filter(|r| r.user_id == uid).cloned().collect())
-            } else {
-                Ok(store.time_reports.clone())
-            }
-        } else {
-            Ok(store.time_reports.iter().filter(|r| r.user_id == requester_user_id).cloned().collect())
+                vec![uid],
+            ),
+            None => (
+                "SELECT id, workspace_id, user_id, team_id, date, start_time, end_time, hours, note, status, created_at, updated_at, sync_status FROM time_reports ORDER BY date DESC".to_string(),
+                vec![],
+            ),
         }
-    }
+    } else {
+        if let Some(ref uid) = user_id {
+            if uid != &requester_user_id {
+                return Err(YntraError::AuthError("Access denied: you can only view your own time reports".to_string()));
+            }
+        }
+        (
+            "SELECT id, workspace_id, user_id, team_id, date, start_time, end_time, hours, note, status, created_at, updated_at, sync_status FROM time_reports WHERE user_id = ?1 ORDER BY date DESC".to_string(),
+            vec![requester_user_id.clone()],
+        )
+    };
+
+    let mut stmt = conn.prepare(&query).await?;
+    let list = stmt.query_map(crate::rusqlite::params_from_iter(params), |row| {
+        Ok(TimeReport {
+            id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            user_id: row.get(2)?,
+            team_id: row.get(3)?,
+            date: row.get(4)?,
+            start_time: row.get(5)?,
+            end_time: row.get(6)?,
+            hours: row.get(7)?,
+            note: row.get(8)?,
+            status: row.get(9)?,
+            created_at: row.get(10)?,
+            updated_at: row.get(11)?,
+            sync_status: row.get(12)?,
+        })
+    }).await?;
+
+    Ok(list)
 }
 
 #[uniffi::export]
@@ -104,40 +80,22 @@ pub async fn add_time_report(
     let mut user_reports = Vec::new();
     let mut settings_json = "{}".to_string();
 
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let conn = database::native::acquire_connection().await?;
-        
-        // Fetch workspace settings
-        let mut w_stmt = conn.prepare("SELECT settings FROM workspaces WHERE id = ?1").await?;
-        let mut w_rows = w_stmt.query(crate::params![&workspace_id]).await?;
-        if let Some(row) = w_rows.next().await? {
-            settings_json = row.get(0)?;
-        }
-
-        // Fetch user reports
-        let mut stmt = conn.prepare("SELECT date, hours FROM time_reports WHERE user_id = ?1").await?;
-        let mut rows = stmt.query(crate::params![&user_id]).await?;
-        while let Some(row) = rows.next().await? {
-            let r_date: String = row.get(0)?;
-            let r_hours: f64 = row.get(1)?;
-            user_reports.push((r_date, r_hours));
-        }
+    let conn = database::acquire_connection().await?;
+    
+    // Fetch workspace settings
+    let mut w_stmt = conn.prepare("SELECT settings FROM workspaces WHERE id = ?1").await?;
+    let mut w_rows = w_stmt.query(crate::params![&workspace_id]).await?;
+    if let Some(row) = w_rows.next().await? {
+        settings_json = row.get(0)?;
     }
 
-    #[cfg(target_arch = "wasm32")]
-    {
-        let store = wasm_store::get_store().lock().unwrap();
-        
-        // Fetch workspace settings
-        if store.workspace.id == workspace_id {
-            settings_json = store.workspace.settings.clone();
-        }
-
-        // Fetch user reports
-        for r in store.time_reports.iter().filter(|r| r.user_id == user_id) {
-            user_reports.push((r.date.clone(), r.hours));
-        }
+    // Fetch user reports
+    let mut stmt = conn.prepare("SELECT date, hours FROM time_reports WHERE user_id = ?1").await?;
+    let mut rows = stmt.query(crate::params![&user_id]).await?;
+    while let Some(row) = rows.next().await? {
+        let r_date: String = row.get(0)?;
+        let r_hours: f64 = row.get(1)?;
+        user_reports.push((r_date, r_hours));
     }
 
     // Parse configuration fields
@@ -223,37 +181,25 @@ pub async fn add_time_report(
         sync_status: "pending".to_string(),
     };
 
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let conn = database::native::acquire_connection().await?;
+    conn.execute(
+        "INSERT INTO time_reports (id, workspace_id, user_id, team_id, date, start_time, end_time, hours, note, status, created_at, updated_at, sync_status)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending_attest', ?10, ?11, 'pending')",
+        crate::params![
+            &item.id,
+            &item.workspace_id,
+            &item.user_id,
+            &item.team_id,
+            &item.date,
+            &item.start_time,
+            &item.end_time,
+            &item.hours,
+            &item.note,
+            &item.created_at,
+            &item.updated_at
+        ],
+    ).await?;
 
-        conn.execute(
-            "INSERT INTO time_reports (id, workspace_id, user_id, team_id, date, start_time, end_time, hours, note, status, created_at, updated_at, sync_status)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending_attest', ?10, ?11, 'pending')",
-            crate::params![
-                &item.id,
-                &item.workspace_id,
-                &item.user_id,
-                &item.team_id,
-                &item.date,
-                &item.start_time,
-                &item.end_time,
-                &item.hours,
-                &item.note,
-                &item.created_at,
-                &item.updated_at
-            ],
-        ).await?;
-
-        notify_observers();
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        let mut store = wasm_store::get_store().lock().unwrap();
-        store.time_reports.push(item.clone());
-        notify_observers();
-    }
+    notify_observers();
 
     Ok(item)
 }
@@ -261,54 +207,28 @@ pub async fn add_time_report(
 #[uniffi::export]
 pub async fn update_time_report_status(id: String, status: String) -> Result<(), YntraError> {
     let now_ms = crate::infra::time::get_current_time_ms();
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let conn = database::native::acquire_connection().await?;
+    let conn = database::acquire_connection().await?;
 
-        conn.execute(
-            "UPDATE time_reports SET status = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
-            crate::params![&status, &now_ms, &id],
-        ).await?;
+    conn.execute(
+        "UPDATE time_reports SET status = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
+        crate::params![&status, &now_ms, &id],
+    ).await?;
 
-        notify_observers();
-        Ok(())
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        let mut store = wasm_store::get_store().lock().unwrap();
-        if let Some(report) = store.time_reports.iter_mut().find(|r| r.id == id) {
-            report.status = status;
-            report.updated_at = now_ms;
-            report.sync_status = "pending".to_string();
-        }
-        notify_observers();
-        Ok(())
-    }
+    notify_observers();
+    Ok(())
 }
 
 #[uniffi::export]
 pub async fn delete_time_report(id: String) -> Result<(), YntraError> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let conn = database::native::acquire_connection().await?;
+    let conn = database::acquire_connection().await?;
 
-        conn.execute(
-            "DELETE FROM time_reports WHERE id = ?1",
-            [id],
-        ).await?;
+    conn.execute(
+        "DELETE FROM time_reports WHERE id = ?1",
+        crate::params![id],
+    ).await?;
 
-        notify_observers();
-        Ok(())
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        let mut store = wasm_store::get_store().lock().unwrap();
-        store.time_reports.retain(|r| r.id != id);
-        notify_observers();
-        Ok(())
-    }
+    notify_observers();
+    Ok(())
 }
 
 fn parse_date(date_str: &str) -> Option<(i32, i32, i32)> {

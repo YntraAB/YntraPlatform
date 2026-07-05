@@ -1,69 +1,50 @@
 use crate::{JobTicket, YntraError};
 use uuid::Uuid;
-
-#[cfg(not(target_arch = "wasm32"))]
 use crate::database;
-#[cfg(not(target_arch = "wasm32"))]
 use crate::infra::observer::notify_observers;
-
-#[cfg(target_arch = "wasm32")]
-use crate::infra::wasm_store;
-#[cfg(target_arch = "wasm32")]
-use crate::infra::observer::notify_observers;
+use crate::{MoveInventoryItem, MoveQuote};
 
 #[uniffi::export]
 pub async fn get_job_tickets(requester_user_id: String) -> Result<Vec<JobTicket>, YntraError> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let conn = database::native::acquire_connection().await?;
-        let requester_ws: String = conn.query_row(
-            "SELECT workspace_id FROM users WHERE id = ?1",
-            crate::params![&requester_user_id],
-            |r| r.get(0)
-        ).await.map_err(|_| YntraError::AuthError("Requester user not found".to_string()))?;
+    let conn = database::acquire_connection().await?;
+    let requester_ws: String = conn.query_row(
+        "SELECT workspace_id FROM users WHERE id = ?1",
+        crate::params![&requester_user_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::AuthError("Requester user not found".to_string()))?;
 
-        let mut stmt = conn.prepare(
-            "SELECT id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed FROM job_tickets WHERE workspace_id = ?1",
-        ).await?;
+    let mut stmt = conn.prepare(
+        "SELECT id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed FROM job_tickets WHERE workspace_id = ?1",
+    ).await?;
 
-        let list = stmt.query_map(crate::params![requester_ws], |row| {
-            Ok(JobTicket {
-                id: row.get(0)?,
-                workspace_id: row.get(1)?,
-                title: row.get(2)?,
-                description: row.get(3)?,
-                location_address: row.get(4)?,
-                priority: row.get(5)?,
-                status: row.get(6)?,
-                assigned_user_id: row.get(7)?,
-                scheduled_date: row.get(8)?,
-                checklist_json: row.get(9)?,
-                completion_report: row.get(10)?,
-                created_at: row.get(11)?,
-                updated_at: row.get(12)?,
-                sync_status: row.get(13)?,
-                origin_address: row.get(14)?,
-                destination_address: row.get(15)?,
-                origin_floor: row.get(16)?,
-                destination_floor: row.get(17)?,
-                origin_has_elevator: row.get::<i32>(18)? != 0,
-                destination_has_elevator: row.get::<i32>(19)? != 0,
-                origin_parking_permit_needed: row.get::<i32>(20)? != 0,
-                destination_parking_permit_needed: row.get::<i32>(21)? != 0,
-            })
-        }).await?;
+    let list = stmt.query_map(crate::params![requester_ws], |row| {
+        Ok(JobTicket {
+            id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            title: row.get(2)?,
+            description: row.get(3)?,
+            location_address: row.get(4)?,
+            priority: row.get(5)?,
+            status: row.get(6)?,
+            assigned_user_id: row.get(7)?,
+            scheduled_date: row.get(8)?,
+            checklist_json: row.get(9)?,
+            completion_report: row.get(10)?,
+            created_at: row.get(11)?,
+            updated_at: row.get(12)?,
+            sync_status: row.get(13)?,
+            origin_address: row.get(14)?,
+            destination_address: row.get(15)?,
+            origin_floor: row.get(16)?,
+            destination_floor: row.get(17)?,
+            origin_has_elevator: row.get::<i32>(18)? != 0,
+            destination_has_elevator: row.get::<i32>(19)? != 0,
+            origin_parking_permit_needed: row.get::<i32>(20)? != 0,
+            destination_parking_permit_needed: row.get::<i32>(21)? != 0,
+        })
+    }).await?;
 
-        Ok(list)
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        let store = wasm_store::get_store().lock().unwrap();
-        let requester = store.users.iter().find(|u| u.id == requester_user_id)
-            .ok_or_else(|| YntraError::AuthError("Requester user not found".to_string()))?;
-        let ws_id = requester.workspace_id.clone().unwrap_or_default();
-        Ok(store.job_tickets.iter().filter(|j| j.workspace_id == ws_id).cloned().collect())
-    }
+    Ok(list)
 }
 
 #[uniffi::export]
@@ -116,93 +97,62 @@ pub async fn create_job_ticket(
         destination_parking_permit_needed,
     };
 
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let conn = database::native::acquire_connection().await?;
-        let requester_ws: String = conn.query_row(
-            "SELECT workspace_id FROM users WHERE id = ?1",
-            crate::params![&requester_user_id],
-            |r| r.get(0)
-        ).await.map_err(|_| YntraError::AuthError("Requester user not found".to_string()))?;
+    let conn = database::acquire_connection().await?;
+    let requester_ws: String = conn.query_row(
+        "SELECT workspace_id FROM users WHERE id = ?1",
+        crate::params![&requester_user_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::AuthError("Requester user not found".to_string()))?;
 
-        if requester_ws != workspace_id {
-            return Err(YntraError::AuthError("Access denied: requester belongs to a different workspace".to_string()));
-        }
-
-        conn.execute(
-            "INSERT INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
-            crate::params![
-                job.id,
-                job.workspace_id,
-                job.title,
-                job.description,
-                job.location_address,
-                job.priority,
-                job.status,
-                job.assigned_user_id,
-                job.scheduled_date,
-                job.checklist_json,
-                job.completion_report,
-                job.created_at,
-                job.updated_at,
-                job.sync_status,
-                job.origin_address,
-                job.destination_address,
-                job.origin_floor,
-                job.destination_floor,
-                job.origin_has_elevator,
-                job.destination_has_elevator,
-                job.origin_parking_permit_needed,
-                job.destination_parking_permit_needed
-            ],
-        ).await?;
-
-        notify_observers();
-        Ok(job)
+    if requester_ws != workspace_id {
+        return Err(YntraError::AuthError("Access denied: requester belongs to a different workspace".to_string()));
     }
 
-    #[cfg(target_arch = "wasm32")]
-    {
-        let mut store = wasm_store::get_store().lock().unwrap();
-        let requester = store.users.iter().find(|u| u.id == requester_user_id)
-            .ok_or_else(|| YntraError::AuthError("Requester user not found".to_string()))?;
-        if requester.workspace_id.as_deref() != Some(&workspace_id) {
-            return Err(YntraError::AuthError("Access denied: requester belongs to a different workspace".to_string()));
-        }
-        store.job_tickets.push(job.clone());
-        notify_observers();
-        Ok(job)
-    }
+    conn.execute(
+        "INSERT INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+        crate::params![
+            job.id,
+            job.workspace_id,
+            job.title,
+            job.description,
+            job.location_address,
+            job.priority,
+            job.status,
+            job.assigned_user_id,
+            job.scheduled_date,
+            job.checklist_json,
+            job.completion_report,
+            job.created_at,
+            job.updated_at,
+            job.sync_status,
+            job.origin_address,
+            job.destination_address,
+            job.origin_floor,
+            job.destination_floor,
+            job.origin_has_elevator,
+            job.destination_has_elevator,
+            job.origin_parking_permit_needed,
+            job.destination_parking_permit_needed
+        ],
+    ).await?;
+
+    notify_observers();
+    Ok(job)
 }
 
 #[uniffi::export]
 pub async fn update_job_status(job_id: String, status: String) -> Result<(), YntraError> {
     let now_ms = crate::infra::time::get_current_time_ms();
 
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let conn = database::native::acquire_connection().await?;
+    let conn = database::acquire_connection().await?;
 
-        conn.execute(
-            "UPDATE job_tickets SET status = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
-            crate::params![status, now_ms, job_id],
-        ).await?;
+    conn.execute(
+        "UPDATE job_tickets SET status = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
+        crate::params![status, now_ms, job_id],
+    ).await?;
 
-        notify_observers();
-        Ok(())
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        let mut store = wasm_store::get_store().lock().unwrap();
-        if let Some(job) = store.job_tickets.iter_mut().find(|j| j.id == job_id) {
-            job.status = status;
-            job.updated_at = now_ms;
-            job.sync_status = "pending".to_string();
-        }
-        notify_observers();
-        Ok(())
-    }
+    notify_observers();
+    Ok(())
 }
 
 #[uniffi::export]
@@ -213,70 +163,38 @@ pub async fn submit_job_completion(
 ) -> Result<(), YntraError> {
     let now_ms = crate::infra::time::get_current_time_ms();
 
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let conn = database::native::acquire_connection().await?;
+    let conn = database::acquire_connection().await?;
 
-        conn.execute(
-            "UPDATE job_tickets SET checklist_json = ?1, completion_report = ?2, status = 'completed', updated_at = ?3, sync_status = 'pending' WHERE id = ?4",
-            crate::params![checklist_json, completion_report, now_ms, job_id],
-        ).await?;
+    conn.execute(
+        "UPDATE job_tickets SET checklist_json = ?1, completion_report = ?2, status = 'completed', updated_at = ?3, sync_status = 'pending' WHERE id = ?4",
+        crate::params![checklist_json, completion_report, now_ms, job_id],
+    ).await?;
 
-        notify_observers();
-        Ok(())
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        let mut store = wasm_store::get_store().lock().unwrap();
-        if let Some(job) = store.job_tickets.iter_mut().find(|j| j.id == job_id) {
-            job.checklist_json = checklist_json;
-            job.completion_report = Some(completion_report);
-            job.status = "completed".to_string();
-            job.updated_at = now_ms;
-            job.sync_status = "pending".to_string();
-        }
-        notify_observers();
-        Ok(())
-    }
+    notify_observers();
+    Ok(())
 }
-
-use crate::{MoveInventoryItem, MoveQuote};
 
 #[uniffi::export]
 pub async fn get_move_inventory(job_ticket_id: String) -> Result<Vec<MoveInventoryItem>, YntraError> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let conn = database::native::acquire_connection().await?;
+    let conn = database::acquire_connection().await?;
 
-        let mut stmt = conn.prepare(
-            "SELECT id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, handling_notes FROM move_inventory WHERE job_ticket_id = ?1",
-        ).await?;
+    let mut stmt = conn.prepare(
+        "SELECT id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, handling_notes FROM move_inventory WHERE job_ticket_id = ?1",
+    ).await?;
 
-        let list = stmt.query_map(crate::params![job_ticket_id], |row| {
-            Ok(MoveInventoryItem {
-                id: row.get(0)?,
-                job_ticket_id: row.get(1)?,
-                item_category: row.get(2)?,
-                item_name: row.get(3)?,
-                quantity: row.get(4)?,
-                estimated_volume_m3: row.get(5)?,
-                handling_notes: row.get(6)?,
-            })
-        }).await?;
+    let list = stmt.query_map(crate::params![job_ticket_id], |row| {
+        Ok(MoveInventoryItem {
+            id: row.get(0)?,
+            job_ticket_id: row.get(1)?,
+            item_category: row.get(2)?,
+            item_name: row.get(3)?,
+            quantity: row.get(4)?,
+            estimated_volume_m3: row.get(5)?,
+            handling_notes: row.get(6)?,
+        })
+    }).await?;
 
-        Ok(list)
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        let store = wasm_store::get_store().lock().unwrap();
-        let items: Vec<MoveInventoryItem> = store.move_inventories.iter()
-            .filter(|i| i.job_ticket_id == job_ticket_id)
-            .cloned()
-            .collect();
-        Ok(items)
-    }
+    Ok(list)
 }
 
 #[uniffi::export]
@@ -299,71 +217,48 @@ pub async fn add_move_inventory_item(
         handling_notes,
     };
 
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let conn = database::native::acquire_connection().await?;
+    let conn = database::acquire_connection().await?;
 
-        conn.execute(
-            "INSERT INTO move_inventory (id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, handling_notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            crate::params![
-                item.id,
-                item.job_ticket_id,
-                item.item_category,
-                item.item_name,
-                item.quantity,
-                item.estimated_volume_m3,
-                item.handling_notes
-            ],
-        ).await?;
+    conn.execute(
+        "INSERT INTO move_inventory (id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, handling_notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        crate::params![
+            item.id,
+            item.job_ticket_id,
+            item.item_category,
+            item.item_name,
+            item.quantity,
+            item.estimated_volume_m3,
+            item.handling_notes
+        ],
+    ).await?;
 
-        notify_observers();
-        Ok(item)
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        let mut store = wasm_store::get_store().lock().unwrap();
-        store.move_inventories.push(item.clone());
-        notify_observers();
-        Ok(item)
-    }
+    notify_observers();
+    Ok(item)
 }
 
 #[uniffi::export]
 pub async fn get_move_quote(job_ticket_id: String) -> Result<Option<MoveQuote>, YntraError> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let conn = database::native::acquire_connection().await?;
+    let conn = database::acquire_connection().await?;
 
-        let mut stmt = conn.prepare(
-            "SELECT id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, accepted_at FROM move_quotes WHERE job_ticket_id = ?1",
-        ).await?;
+    let mut stmt = conn.prepare(
+        "SELECT id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, accepted_at FROM move_quotes WHERE job_ticket_id = ?1",
+    ).await?;
 
-        let mut rows = stmt.query(crate::params![job_ticket_id]).await?;
-        if let Some(row) = rows.next().await? {
-            Ok(Some(MoveQuote {
-                id: row.get(0)?,
-                job_ticket_id: row.get(1)?,
-                base_price: row.get(2)?,
-                distance_fee: row.get(3)?,
-                stairs_surcharge: row.get(4)?,
-                packing_supplies_fee: row.get(5)?,
-                total_price: row.get(6)?,
-                status: row.get(7)?,
-                accepted_at: row.get(8)?,
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        let store = wasm_store::get_store().lock().unwrap();
-        let quote = store.move_quotes.iter()
-            .find(|q| q.job_ticket_id == job_ticket_id)
-            .cloned();
-        Ok(quote)
+    let mut rows = stmt.query(crate::params![job_ticket_id]).await?;
+    if let Some(row) = rows.next().await? {
+        Ok(Some(MoveQuote {
+            id: row.get(0)?,
+            job_ticket_id: row.get(1)?,
+            base_price: row.get(2)?,
+            distance_fee: row.get(3)?,
+            stairs_surcharge: row.get(4)?,
+            packing_supplies_fee: row.get(5)?,
+            total_price: row.get(6)?,
+            status: row.get(7)?,
+            accepted_at: row.get(8)?,
+        }))
+    } else {
+        Ok(None)
     }
 }
 
@@ -391,10 +286,11 @@ pub async fn create_or_update_move_quote(
         accepted_at: None,
     };
 
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let conn = database::native::acquire_connection().await?;
+    let conn = database::acquire_connection().await?;
 
+    conn.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
+
+    let res = async {
         // Delete existing quote for the job first
         let _ = conn.execute("DELETE FROM move_quotes WHERE job_ticket_id = ?1", crate::params![job_ticket_id]).await;
 
@@ -412,18 +308,19 @@ pub async fn create_or_update_move_quote(
                 quote.accepted_at
             ],
         ).await?;
+        Ok(())
+    }.await;
 
-        notify_observers();
-        Ok(quote)
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        let mut store = wasm_store::get_store().lock().unwrap();
-        store.move_quotes.retain(|q| q.job_ticket_id != job_ticket_id);
-        store.move_quotes.push(quote.clone());
-        notify_observers();
-        Ok(quote)
+    match res {
+        Ok(_) => {
+            conn.execute("COMMIT", ()).await?;
+            notify_observers();
+            Ok(quote)
+        }
+        Err(e) => {
+            let _ = conn.execute("ROLLBACK", ()).await;
+            Err(e)
+        }
     }
 }
 
@@ -431,27 +328,13 @@ pub async fn create_or_update_move_quote(
 pub async fn accept_move_quote(quote_id: String) -> Result<(), YntraError> {
     let now_ms = crate::infra::time::get_current_time_ms();
 
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let conn = database::native::acquire_connection().await?;
+    let conn = database::acquire_connection().await?;
 
-        conn.execute(
-            "UPDATE move_quotes SET status = 'accepted', accepted_at = ?1 WHERE id = ?2",
-            crate::params![now_ms, quote_id],
-        ).await?;
+    conn.execute(
+        "UPDATE move_quotes SET status = 'accepted', accepted_at = ?1 WHERE id = ?2",
+        crate::params![now_ms, quote_id],
+    ).await?;
 
-        notify_observers();
-        Ok(())
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        let mut store = wasm_store::get_store().lock().unwrap();
-        if let Some(quote) = store.move_quotes.iter_mut().find(|q| q.id == quote_id) {
-            quote.status = "accepted".to_string();
-            quote.accepted_at = Some(now_ms);
-        }
-        notify_observers();
-        Ok(())
-    }
+    notify_observers();
+    Ok(())
 }

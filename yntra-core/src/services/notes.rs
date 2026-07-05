@@ -1,96 +1,132 @@
-#[cfg(not(target_arch = "wasm32"))]
 use crate::database;
 use crate::observer::notify_observers;
 use crate::{DailyNote, EditHistoryEntry, YntraError};
 
-#[cfg(target_arch = "wasm32")]
-use crate::wasm_store;
+fn decode_content(raw_content: &str) -> String {
+    if raw_content.starts_with("loro:") {
+        if let Some(bytes) = crate::infra::crypto::hex_decode(&raw_content[5..]) {
+            let doc = loro::LoroDoc::new();
+            if doc.import(&bytes).is_ok() {
+                return doc.get_text("content").to_string();
+            }
+        }
+    }
+    raw_content.to_string()
+}
+
+fn apply_diff_to_loro(text: &loro::LoroText, old_str: &str, new_str: &str) -> Result<(), YntraError> {
+    let old_chars: Vec<char> = old_str.chars().collect();
+    let new_chars: Vec<char> = new_str.chars().collect();
+    
+    let diffs = diff::slice(&old_chars, &new_chars);
+    
+    let mut pos = 0;
+    let mut i = 0;
+    while i < diffs.len() {
+        match diffs[i] {
+            diff::Result::Both(_, _) => {
+                pos += 1;
+                i += 1;
+            }
+            diff::Result::Left(_) => {
+                let mut del_count = 0;
+                while i < diffs.len() {
+                    if let diff::Result::Left(_) = diffs[i] {
+                        del_count += 1;
+                        i += 1;
+                    } else {
+                        break;
+                    }
+                }
+                text.delete(pos, del_count).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            }
+            diff::Result::Right(_) => {
+                let mut ins_str = String::new();
+                while i < diffs.len() {
+                    if let diff::Result::Right(c) = diffs[i] {
+                        ins_str.push(*c);
+                        i += 1;
+                    } else {
+                        break;
+                    }
+                }
+                let ins_len = ins_str.chars().count();
+                text.insert(pos, &ins_str).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                pos += ins_len;
+            }
+        }
+    }
+    Ok(())
+}
+
 
 #[uniffi::export]
 pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Result<Vec<DailyNote>, YntraError> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let conn = database::native::acquire_connection().await?;
-        let user_role: String = conn.query_row(
-            "SELECT role FROM users WHERE id = ?1",
-            crate::params![&requester_user_id],
-            |r| r.get(0)
-        ).await.unwrap_or_else(|_| "user".to_string());
+    let conn = database::acquire_connection().await?;
+    let user_role: String = conn.query_row(
+        "SELECT role FROM users WHERE id = ?1",
+        crate::params![&requester_user_id],
+        |r| r.get(0)
+    ).await.map_err(|e| YntraError::DbError(format!("Failed to retrieve user role: {}", e)))?;
 
-        let is_admin = user_role == "admin" || user_role == "platform_admin";
+    let is_admin = user_role == "admin" || user_role == "platform_admin";
 
-        let (query, params) = if is_admin {
-            match team_id {
-                Some(tid) => (
-                    "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status FROM notes WHERE team_id = ?1 ORDER BY created_at DESC".to_string(),
-                    vec![tid],
-                ),
-                None => (
-                    "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status FROM notes ORDER BY created_at DESC".to_string(),
-                    vec![],
-                ),
-            }
-        } else {
-            match team_id {
-                Some(tid) => {
-                    let is_member: i64 = conn.query_row(
-                        "SELECT COUNT(*) FROM team_members WHERE team_id = ?1 AND user_id = ?2",
-                        crate::params![&tid, &requester_user_id],
-                        |r| r.get(0)
-                    ).await.unwrap_or(0);
-                    if is_member == 0 {
-                        return Err(YntraError::AuthError("Access denied: you are not a member of this team".to_string()));
-                    }
-                    (
-                        "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status FROM notes WHERE team_id = ?1 ORDER BY created_at DESC".to_string(),
-                        vec![tid],
-                    )
-                }
-                None => (
-                    "SELECT n.id, n.workspace_id, n.team_id, n.author_id, n.subject, n.content, n.edit_history, n.created_at, n.updated_at, n.sync_status
-                     FROM notes n
-                     JOIN team_members tm ON n.team_id = tm.team_id
-                     WHERE tm.user_id = ?1
-                     ORDER BY n.created_at DESC".to_string(),
-                    vec![requester_user_id.clone()],
-                ),
-            }
-        };
-
-        let mut stmt = conn.prepare(&query).await?;
-        let list = stmt.query_map(crate::rusqlite::params_from_iter(params), |row| {
-            Ok(DailyNote {
-                id: row.get(0)?,
-                workspace_id: row.get(1)?,
-                team_id: row.get(2)?,
-                author_id: row.get(3)?,
-                subject: row.get(4)?,
-                content: row.get(5)?,
-                edit_history: row.get(6)?,
-                created_at: row.get(7)?,
-                updated_at: row.get(8)?,
-                sync_status: row.get(9)?,
-            })
-        }).await?;
-
-        Ok(list)
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        let _ = requester_user_id;
-        let store = wasm_store::get_store().lock().unwrap();
-        if let Some(tid) = team_id {
-            Ok(store
-                .notes
-                .iter()
-                .filter(|n| n.team_id == tid)
-                .cloned()
-                .collect())
-        } else {
-            Ok(store.notes.clone())
+    let (query, params) = if is_admin {
+        match team_id {
+            Some(tid) => (
+                "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status FROM notes WHERE team_id = ?1 ORDER BY created_at DESC".to_string(),
+                crate::params![&tid],
+            ),
+            None => (
+                "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status FROM notes ORDER BY created_at DESC".to_string(),
+                crate::params![],
+            ),
         }
-    }
+    } else {
+        match team_id {
+            Some(tid) => {
+                let is_member: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM team_members WHERE team_id = ?1 AND user_id = ?2",
+                    crate::params![&tid, &requester_user_id],
+                    |r| r.get(0)
+                ).await.unwrap_or(0);
+                if is_member == 0 {
+                    return Err(YntraError::AuthError("Access denied: you are not a member of this team".to_string()));
+                }
+                (
+                    "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status FROM notes WHERE team_id = ?1 ORDER BY created_at DESC".to_string(),
+                    crate::params![&tid],
+                )
+            }
+            None => (
+                "SELECT n.id, n.workspace_id, n.team_id, n.author_id, n.subject, n.content, n.edit_history, n.created_at, n.updated_at, n.sync_status
+                 FROM notes n
+                 JOIN team_members tm ON n.team_id = tm.team_id
+                 WHERE tm.user_id = ?1
+                 ORDER BY n.created_at DESC".to_string(),
+                 crate::params![&requester_user_id],
+            ),
+        }
+    };
+
+    let mut stmt = conn.prepare(&query).await?;
+    let list = stmt.query_map(params, |row| {
+        let raw_content: String = row.get(5)?;
+        Ok(DailyNote {
+            id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            team_id: row.get(2)?,
+            author_id: row.get(3)?,
+            subject: row.get(4)?,
+            content: decode_content(&raw_content),
+            edit_history: row.get(6)?,
+            created_at: row.get(7)?,
+            updated_at: row.get(8)?,
+            sync_status: row.get(9)?,
+        })
+    }).await?;
+
+    Ok(list)
 }
 
 #[uniffi::export]
@@ -104,48 +140,48 @@ pub async fn add_note(
     let id = uuid::Uuid::new_v4().to_string();
     let created_at = crate::infra::time::get_current_datetime_str();
     let now_ms = crate::infra::time::get_current_time_ms();
-    let item = DailyNote {
+    
+    // Create Loro doc for the content
+    let doc = loro::LoroDoc::new();
+    let text = doc.get_text("content");
+    text.insert(0, &content).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    let loro_bytes = doc.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    let loro_content = format!("loro:{}", crate::infra::crypto::hex_encode(&loro_bytes));
+
+    let mut item = DailyNote {
         id: id.clone(),
         workspace_id,
         team_id,
         author_id: Some(author_id),
         subject,
-        content,
+        content: loro_content,
         edit_history: "[]".to_string(),
         created_at,
         updated_at: now_ms,
         sync_status: "pending".to_string(),
     };
 
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let conn = database::native::acquire_connection().await?;
+    let conn = database::acquire_connection().await?;
 
-        conn.execute(
-            "INSERT INTO notes (id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, '[]', ?7, ?8, 'pending')",
-            crate::params![
-                &item.id,
-                &item.workspace_id,
-                &item.team_id,
-                &item.author_id,
-                &item.subject,
-                &item.content,
-                &item.created_at,
-                &item.updated_at
-            ],
-        ).await?;
+    conn.execute(
+        "INSERT INTO notes (id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, '[]', ?7, ?8, 'pending')",
+        crate::params![
+            &item.id,
+            &item.workspace_id,
+            &item.team_id,
+            &item.author_id,
+            &item.subject,
+            &item.content,
+            &item.created_at,
+            &item.updated_at
+        ],
+    ).await?;
 
-        notify_observers();
-    }
+    notify_observers();
 
-    #[cfg(target_arch = "wasm32")]
-    {
-        let mut store = wasm_store::get_store().lock().unwrap();
-        store.notes.push(item.clone());
-        notify_observers();
-    }
-
+    // Return the plaintext representation in memory
+    item.content = content;
     Ok(item)
 }
 
@@ -157,206 +193,264 @@ pub async fn update_note(
     content: String,
 ) -> Result<DailyNote, YntraError> {
     let now_ms = crate::infra::time::get_current_time_ms();
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let conn = database::native::acquire_connection().await?;
+    let conn = database::acquire_connection().await?;
 
-        // 1. Fetch the existing note
-        let mut stmt = conn.prepare(
-            "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status FROM notes WHERE id = ?1"
-        ).await?;
-        let mut rows = stmt.query(crate::params![&note_id]).await?;
-        let old_note = if let Some(row) = rows.next().await? {
-            DailyNote {
-                id: row.get(0)?,
-                workspace_id: row.get(1)?,
-                team_id: row.get(2)?,
-                author_id: row.get(3)?,
-                subject: row.get(4)?,
-                content: row.get(5)?,
-                edit_history: row.get(6)?,
-                created_at: row.get(7)?,
-                updated_at: row.get(8)?,
-                sync_status: row.get(9)?,
-            }
-        } else {
-            return Err(YntraError::NotFoundError(format!("Note not found: {}", note_id)));
-        };
-
-        // 2. Compute history entry
-        let mut history: Vec<EditHistoryEntry> = serde_json::from_str(&old_note.edit_history)
-            .unwrap_or_default();
-        
-        let mut changed = false;
-        let mut entry = EditHistoryEntry {
-            editedBy: edited_by_name,
-            editedAt: crate::infra::time::get_current_time_str_hm(),
-            oldSubject: None,
-            newSubject: None,
-            oldContent: None,
-            newContent: None,
-        };
-
-        if old_note.subject != subject {
-            entry.oldSubject = Some(old_note.subject.clone());
-            entry.newSubject = Some(subject.clone());
-            changed = true;
+    // 1. Fetch the existing note
+    let mut stmt = conn.prepare(
+        "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status FROM notes WHERE id = ?1"
+    ).await?;
+    let mut rows = stmt.query(crate::params![&note_id]).await?;
+    let old_note = if let Some(row) = rows.next().await? {
+        DailyNote {
+            id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            team_id: row.get(2)?,
+            author_id: row.get(3)?,
+            subject: row.get(4)?,
+            content: row.get(5)?,
+            edit_history: row.get(6)?,
+            created_at: row.get(7)?,
+            updated_at: row.get(8)?,
+            sync_status: row.get(9)?,
         }
-        if old_note.content != content {
-            entry.oldContent = Some(old_note.content.clone());
-            entry.newContent = Some(content.clone());
-            changed = true;
-        }
-        if changed {
-            history.insert(0, entry);
-        }
+    } else {
+        return Err(YntraError::NotFoundError(format!("Note not found: {}", note_id)));
+    };
 
-        let edit_history_str = serde_json::to_string(&history)
-            .map_err(|e| YntraError::DbError(e.to_string()))?;
+    let old_content_plain = decode_content(&old_note.content);
 
-        // 3. Update database
-        conn.execute(
-            "UPDATE notes SET subject = ?1, content = ?2, edit_history = ?3, updated_at = ?4, sync_status = 'pending' WHERE id = ?5",
-            crate::params![&subject, &content, &edit_history_str, &now_ms, &note_id],
-        ).await?;
+    // 2. Compute history entry using plain content
+    let mut history: Vec<EditHistoryEntry> = serde_json::from_str(&old_note.edit_history)
+        .unwrap_or_default();
+    
+    let mut changed = false;
+    let mut entry = EditHistoryEntry {
+        editedBy: edited_by_name,
+        editedAt: crate::infra::time::get_current_time_str_hm(),
+        oldSubject: None,
+        newSubject: None,
+        oldContent: None,
+        newContent: None,
+    };
 
-        let updated_note = DailyNote {
-            id: old_note.id,
-            workspace_id: old_note.workspace_id,
-            team_id: old_note.team_id,
-            author_id: old_note.author_id,
-            subject,
-            content,
-            edit_history: edit_history_str,
-            created_at: old_note.created_at,
-            updated_at: now_ms,
-            sync_status: "pending".to_string(),
-        };
-
-        notify_observers();
-        Ok(updated_note)
+    if old_note.subject != subject {
+        entry.oldSubject = Some(old_note.subject.clone());
+        entry.newSubject = Some(subject.clone());
+        changed = true;
+    }
+    if old_content_plain != content {
+        entry.oldContent = Some(old_content_plain.clone());
+        entry.newContent = Some(content.clone());
+        changed = true;
+    }
+    if changed {
+        history.insert(0, entry);
     }
 
-    #[cfg(target_arch = "wasm32")]
-    {
-        let mut store = wasm_store::get_store().lock().unwrap();
-        if let Some(note) = store.notes.iter_mut().find(|n| n.id == note_id) {
-            let mut history: Vec<EditHistoryEntry> = serde_json::from_str(&note.edit_history)
-                .unwrap_or_default();
-            
-            let mut changed = false;
-            let mut entry = EditHistoryEntry {
-                editedBy: edited_by_name,
-                editedAt: crate::infra::time::get_current_time_str_hm(),
-                oldSubject: None,
-                newSubject: None,
-                oldContent: None,
-                newContent: None,
-            };
+    let edit_history_str = serde_json::to_string(&history)
+        .map_err(|e| YntraError::DbError(e.to_string()))?;
 
-            if note.subject != subject {
-                entry.oldSubject = Some(note.subject.clone());
-                entry.newSubject = Some(subject.clone());
-                changed = true;
-            }
-            if note.content != content {
-                entry.oldContent = Some(note.content.clone());
-                entry.newContent = Some(content.clone());
-                changed = true;
-            }
-            if changed {
-                history.insert(0, entry);
-            }
-
-            let edit_history_str = serde_json::to_string(&history)
-                .map_err(|e| YntraError::DbError(e.to_string()))?;
-
-            note.subject = subject.clone();
-            note.content = content.clone();
-            note.edit_history = edit_history_str.clone();
-            note.updated_at = now_ms;
-            note.sync_status = "pending".to_string();
-
-            let updated_note = note.clone();
-            drop(store);
-            notify_observers();
-            Ok(updated_note)
-        } else {
-            Err(YntraError::NotFoundError(format!("Note not found: {}", note_id)))
+    // Update the Loro document
+    let doc = loro::LoroDoc::new();
+    if old_note.content.starts_with("loro:") {
+        if let Some(bytes) = crate::infra::crypto::hex_decode(&old_note.content[5..]) {
+            let _ = doc.import(&bytes);
         }
+    } else {
+        let text = doc.get_text("content");
+        let _ = text.insert(0, &old_note.content);
     }
+
+    let text = doc.get_text("content");
+    apply_diff_to_loro(&text, &old_content_plain, &content)?;
+    let loro_bytes = doc.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    let loro_content = format!("loro:{}", crate::infra::crypto::hex_encode(&loro_bytes));
+
+    // 3. Update database
+    conn.execute(
+        "UPDATE notes SET subject = ?1, content = ?2, edit_history = ?3, updated_at = ?4, sync_status = 'pending' WHERE id = ?5",
+        crate::params![&subject, &loro_content, &edit_history_str, &now_ms, &note_id],
+    ).await?;
+
+    let updated_note = DailyNote {
+        id: old_note.id,
+        workspace_id: old_note.workspace_id,
+        team_id: old_note.team_id,
+        author_id: old_note.author_id,
+        subject,
+        content,
+        edit_history: edit_history_str,
+        created_at: old_note.created_at,
+        updated_at: now_ms,
+        sync_status: "pending".to_string(),
+    };
+
+    notify_observers();
+    Ok(updated_note)
 }
 
 #[uniffi::export]
 pub async fn delete_note(requester_user_id: String, note_id: String) -> Result<(), YntraError> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let conn = database::native::acquire_connection().await?;
+    let conn = database::acquire_connection().await?;
 
-        let note_row: Option<(String, Option<String>)> = conn.query_row(
-            "SELECT workspace_id, author_id FROM notes WHERE id = ?1",
-            crate::params![&note_id],
+    let note_row: Option<(String, Option<String>)> = conn.query_row(
+        "SELECT workspace_id, author_id FROM notes WHERE id = ?1",
+        crate::params![&note_id],
+        |r| Ok((r.get(0)?, r.get(1)?))
+    ).await.ok();
+
+    if let Some((note_ws_id, author_id)) = note_row {
+        let requester_row: Option<(String, Option<String>)> = conn.query_row(
+            "SELECT role, workspace_id FROM users WHERE id = ?1",
+            crate::params![&requester_user_id],
             |r| Ok((r.get(0)?, r.get(1)?))
         ).await.ok();
 
-        if let Some((note_ws_id, author_id)) = note_row {
-            let requester_row: Option<(String, Option<String>)> = conn.query_row(
-                "SELECT role, workspace_id FROM users WHERE id = ?1",
-                crate::params![&requester_user_id],
-                |r| Ok((r.get(0)?, r.get(1)?))
-            ).await.ok();
+        let (req_role, req_ws_id) = match requester_row {
+            Some((role, Some(ws_id))) => (role, ws_id),
+            _ => return Err(YntraError::AuthError("Requester user not found or invalid workspace".to_string())),
+        };
 
-            let (req_role, req_ws_id) = match requester_row {
-                Some((role, Some(ws_id))) => (role, ws_id),
-                _ => return Err(YntraError::AuthError("Requester user not found or invalid workspace".to_string())),
-            };
-
-            if note_ws_id != req_ws_id {
-                return Err(YntraError::AuthError("Access denied: note is in a different workspace".to_string()));
-            }
-
-            let is_author = author_id.as_deref() == Some(&requester_user_id);
-            let is_admin = req_role == "admin" || req_role == "platform_admin";
-
-            if !is_author && !is_admin {
-                return Err(YntraError::AuthError("Access denied: only the author or an administrator can delete this note".to_string()));
-            }
-        } else {
-            return Err(YntraError::NotFoundError(format!("Note not found: {}", note_id)));
+        if note_ws_id != req_ws_id {
+            return Err(YntraError::AuthError("Access denied: note is in a different workspace".to_string()));
         }
 
-        conn.execute("DELETE FROM notes WHERE id = ?1", crate::params![&note_id]).await?;
+        let is_author = author_id.as_deref() == Some(&requester_user_id);
+        let is_admin = req_role == "admin" || req_role == "platform_admin";
 
-        notify_observers();
-        Ok(())
+        if !is_author && !is_admin {
+            return Err(YntraError::AuthError("Access denied: only the author or an administrator can delete this note".to_string()));
+        }
+    } else {
+        return Err(YntraError::NotFoundError(format!("Note not found: {}", note_id)));
     }
 
-    #[cfg(target_arch = "wasm32")]
-    {
-        let mut store = wasm_store::get_store().lock().unwrap();
-        let requester = store.users.iter().find(|u| u.id == requester_user_id)
-            .ok_or_else(|| YntraError::AuthError("Requester user not found".to_string()))?;
-        let req_role = requester.role.as_str();
-        let req_ws = requester.workspace_id.clone().unwrap_or_default();
+    conn.execute("DELETE FROM notes WHERE id = ?1", crate::params![&note_id]).await?;
 
-        if let Some(pos) = store.notes.iter().position(|n| n.id == note_id) {
-            let note = &store.notes[pos];
-            if note.workspace_id != req_ws {
-                return Err(YntraError::AuthError("Access denied: note is in a different workspace".to_string()));
-            }
-            let is_author = note.author_id.as_deref() == Some(&requester_user_id);
-            let is_admin = req_role == "admin" || req_role == "platform_admin";
+    notify_observers();
+    Ok(())
+}
 
-            if !is_author && !is_admin {
-                return Err(YntraError::AuthError("Access denied".to_string()));
-            }
-
-            store.notes.remove(pos);
-            drop(store);
-            notify_observers();
-            Ok(())
-        } else {
-            Err(YntraError::NotFoundError(format!("Note not found: {}", note_id)))
+#[uniffi::export]
+pub fn merge_loro_notes(state1: String, state2: String) -> Result<String, YntraError> {
+    let doc = loro::LoroDoc::new();
+    
+    // Import state1
+    if state1.starts_with("loro:") {
+        if let Some(bytes) = crate::infra::crypto::hex_decode(&state1[5..]) {
+            doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
         }
+    } else {
+        doc.get_text("content").insert(0, &state1).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    }
+
+    // Import state2
+    if state2.starts_with("loro:") {
+        if let Some(bytes) = crate::infra::crypto::hex_decode(&state2[5..]) {
+            doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+        }
+    } else {
+        let text = doc.get_text("content");
+        let len = text.to_string().chars().count();
+        let _ = text.delete(0, len);
+        text.insert(0, &state2).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    }
+
+    let merged_bytes = doc.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    Ok(format!("loro:{}", crate::infra::crypto::hex_encode(&merged_bytes)))
+}
+
+#[uniffi::export]
+pub async fn get_note_loro_state(note_id: String) -> Result<Vec<u8>, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let content: String = conn.query_row(
+        "SELECT content FROM notes WHERE id = ?1",
+        crate::params![&note_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError(format!("Note not found: {}", note_id)))?;
+
+    if content.starts_with("loro:") {
+        let bytes = crate::infra::crypto::hex_decode(&content[5..])
+            .ok_or_else(|| YntraError::SerializationError("Invalid hex state".to_string()))?;
+        Ok(bytes)
+    } else {
+        let doc = loro::LoroDoc::new();
+        doc.get_text("content").insert(0, &content).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+        let bytes = doc.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+        Ok(bytes)
+    }
+}
+
+#[uniffi::export]
+pub async fn apply_note_loro_update(note_id: String, update_bytes: Vec<u8>) -> Result<(), YntraError> {
+    let now_ms = crate::infra::time::get_current_time_ms();
+    let conn = database::acquire_connection().await?;
+    let content: String = conn.query_row(
+        "SELECT content FROM notes WHERE id = ?1",
+        crate::params![&note_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError(format!("Note not found: {}", note_id)))?;
+
+    let doc = loro::LoroDoc::new();
+    if content.starts_with("loro:") {
+        if let Some(bytes) = crate::infra::crypto::hex_decode(&content[5..]) {
+            doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+        }
+    } else {
+        doc.get_text("content").insert(0, &content).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    }
+
+    doc.import(&update_bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    let loro_bytes = doc.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    let loro_content = format!("loro:{}", crate::infra::crypto::hex_encode(&loro_bytes));
+
+    conn.execute(
+        "UPDATE notes SET content = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
+        crate::params![&loro_content, &now_ms, &note_id],
+    ).await?;
+
+    notify_observers();
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_note_loro_merge() {
+        // Create initial doc state
+        let doc1 = loro::LoroDoc::new();
+        let text1 = doc1.get_text("content");
+        text1.insert(0, "Hello").unwrap();
+        let state1 = format!("loro:{}", crate::infra::crypto::hex_encode(&doc1.export(loro::ExportMode::Snapshot).unwrap()));
+
+        // Create concurrent update state from doc1's state
+        let doc2 = loro::LoroDoc::new();
+        let bytes1 = crate::infra::crypto::hex_decode(&state1[5..]).unwrap();
+        doc2.import(&bytes1).unwrap();
+        let text2 = doc2.get_text("content");
+        text2.insert(5, " World").unwrap();
+        let state2 = format!("loro:{}", crate::infra::crypto::hex_encode(&doc2.export(loro::ExportMode::Snapshot).unwrap()));
+
+        // Create another concurrent update state from doc1's state
+        let doc3 = loro::LoroDoc::new();
+        doc3.import(&bytes1).unwrap();
+        let text3 = doc3.get_text("content");
+        text3.insert(0, "CRDT ").unwrap();
+        let state3 = format!("loro:{}", crate::infra::crypto::hex_encode(&doc3.export(loro::ExportMode::Snapshot).unwrap()));
+
+        // Merge state2 and state3
+        let merged1 = merge_loro_notes(state2, state3).unwrap();
+        let merged_bytes = crate::infra::crypto::hex_decode(&merged1[5..]).unwrap();
+
+        // Load merged state into a final document
+        let doc_final = loro::LoroDoc::new();
+        doc_final.import(&merged_bytes).unwrap();
+        let final_text = doc_final.get_text("content").to_string();
+
+        // The text should contain edits from both users resolved conflict-free
+        assert!(final_text.contains("World"));
+        assert!(final_text.contains("CRDT"));
     }
 }

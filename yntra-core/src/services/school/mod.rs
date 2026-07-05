@@ -1,8 +1,4 @@
-#[cfg(not(target_arch = "wasm32"))]
 use crate::{database, YntraError};
-
-#[cfg(target_arch = "wasm32")]
-use crate::wasm_store;
 
 pub mod students;
 pub mod academics;
@@ -20,9 +16,8 @@ pub use health::*;
 pub use finance::*;
 pub use library::*;
 
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) async fn check_permission(
-    conn: &database::native::DbConnection,
+    conn: &database::DbConnection,
     user_id: &str,
     permission: &str,
 ) -> Result<bool, YntraError> {
@@ -68,9 +63,8 @@ pub(crate) async fn check_permission(
     Ok(false)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) async fn has_health_access(
-    conn: &database::native::DbConnection,
+    conn: &database::DbConnection,
     requester_user_id: &str,
     student_id: &str,
 ) -> Result<bool, YntraError> {
@@ -103,9 +97,8 @@ pub(crate) async fn has_health_access(
     Ok(false)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) async fn has_academic_access(
-    conn: &database::native::DbConnection,
+    conn: &database::DbConnection,
     requester_user_id: &str,
     student_id: &str,
 ) -> Result<bool, YntraError> {
@@ -136,58 +129,4 @@ pub(crate) async fn has_academic_access(
     }
 
     Ok(false)
-}
-
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn has_health_access_wasm(
-    store: &wasm_store::Store,
-    requester_user_id: &str,
-    student_id: &str,
-) -> bool {
-    let requester = match store.users.iter().find(|u| u.id == requester_user_id) {
-        Some(u) => u,
-        None => return false,
-    };
-
-    if requester.role == "admin" || requester.role == "platform_admin" || requester.role.contains("nurse") || requester.role.contains("skoterska") {
-        return true;
-    }
-
-    if let Some(student) = store.student_profiles.iter().find(|s| s.id == student_id) {
-        if student.user_id.as_deref() == Some(requester_user_id) {
-            return true;
-        }
-        if requester.role == "parent" {
-            return true;
-        }
-    }
-
-    false
-}
-
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn has_academic_access_wasm(
-    store: &wasm_store::Store,
-    requester_user_id: &str,
-    student_id: &str,
-) -> bool {
-    let requester = match store.users.iter().find(|u| u.id == requester_user_id) {
-        Some(u) => u,
-        None => return false,
-    };
-
-    if requester.role == "admin" || requester.role == "platform_admin" || requester.role.contains("teacher") || requester.role.contains("rektor") || requester.role.contains("principal") {
-        return true;
-    }
-
-    if let Some(student) = store.student_profiles.iter().find(|s| s.id == student_id) {
-        if student.user_id.as_deref() == Some(requester_user_id) {
-            return true;
-        }
-        if requester.role == "parent" {
-            return true;
-        }
-    }
-
-    false
 }
