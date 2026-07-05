@@ -189,14 +189,13 @@ pub struct Row {
 
 impl Row {
     pub fn get<T: serde::de::DeserializeOwned>(&self, idx: i32) -> Result<T, YntraError> {
-        if let Some(obj) = self.value.as_object() {
-            let key = obj.keys().nth(idx as usize)
+        if let Some(arr) = self.value.as_array() {
+            let val = arr.get(idx as usize)
                 .ok_or_else(|| YntraError::DbError(format!("Column index out of bounds: {}", idx)))?;
-            let val = obj.get(key).unwrap();
             serde_json::from_value(val.clone())
-                .map_err(|e| YntraError::DbError(format!("Failed to deserialize column {}: {}", key, e)))
+                .map_err(|e| YntraError::DbError(format!("Failed to deserialize column at index {}: {}", idx, e)))
         } else {
-            Err(YntraError::DbError("Row value is not a JSON object".to_string()))
+            Err(YntraError::DbError("Row value is not a JSON array".to_string()))
         }
     }
 }

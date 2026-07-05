@@ -53,7 +53,7 @@ onmessage = async function(e) {
       db.exec({
         sql: sql,
         bind: params || [],
-        rowMode: 'object',
+        rowMode: 'array',
         callback: (row) => rows.push(row),
       });
       postMessage({ id, success: true, rows });
