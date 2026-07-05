@@ -37,3 +37,31 @@ impl From<libsql::Error> for YntraError {
         }
     }
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_libsql_error_conversion() {
+        let constraint_err = libsql::Error::SqliteFailure(19, "UNIQUE constraint failed: table.col".to_string());
+        let yntra_constraint = YntraError::from(constraint_err);
+        assert!(matches!(yntra_constraint, YntraError::ConstraintError(_)));
+        assert_eq!(yntra_constraint.to_string(), "Constraint violation: UNIQUE constraint failed: table.col");
+
+        let db_err = libsql::Error::SqliteFailure(1, "some other sqlite error".to_string());
+        let yntra_db = YntraError::from(db_err);
+        assert!(matches!(yntra_db, YntraError::DbError(_)));
+
+        let conn_err = libsql::Error::ConnectionFailed("host unreachable".to_string());
+        let yntra_conn = YntraError::from(conn_err);
+        assert!(matches!(yntra_conn, YntraError::DbError(_)));
+        assert!(yntra_conn.to_string().contains("Connection failed"));
+
+        let misuse_err = libsql::Error::Misuse("misuse".to_string());
+        let yntra_misuse = YntraError::from(misuse_err);
+        assert!(matches!(yntra_misuse, YntraError::DbError(_)));
+        assert!(yntra_misuse.to_string().contains("API misuse"));
+    }
+}
+

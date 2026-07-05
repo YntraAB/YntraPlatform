@@ -247,3 +247,48 @@ fn date_to_days(year: i32, month: i32, day: i32) -> i32 {
     let y = year - m / 10;
     365 * y + y / 4 - y / 100 + y / 400 + (m * 306 + 5) / 10 + (day - 1)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_date_valid() {
+        assert_eq!(parse_date("2026-07-05"), Some((2026, 7, 5)));
+        assert_eq!(parse_date("2000-01-01"), Some((2000, 1, 1)));
+    }
+
+    #[test]
+    fn test_parse_date_invalid() {
+        assert_eq!(parse_date("2026-07"), None);
+        assert_eq!(parse_date("2026/07/05"), None);
+        assert_eq!(parse_date("abc-def-ghi"), None);
+    }
+
+    #[test]
+    fn test_date_to_days_sequence() {
+        let day1 = date_to_days(2026, 7, 1);
+        let day2 = date_to_days(2026, 7, 2);
+        let day3 = date_to_days(2026, 7, 8);
+
+        assert_eq!(day2 - day1, 1);
+        assert_eq!(day3 - day1, 7);
+    }
+
+    #[test]
+    fn test_date_to_days_leap_year() {
+        // 2024 is a leap year (Feb 29 exists)
+        let pre_leap = date_to_days(2024, 2, 28);
+        let leap_day = date_to_days(2024, 2, 29);
+        let post_leap = date_to_days(2024, 3, 1);
+
+        assert_eq!(leap_day - pre_leap, 1);
+        assert_eq!(post_leap - leap_day, 1);
+
+        // 2025 is not a leap year
+        let normal_feb28 = date_to_days(2025, 2, 28);
+        let normal_mar01 = date_to_days(2025, 3, 1);
+        assert_eq!(normal_mar01 - normal_feb28, 1);
+    }
+}
+

@@ -69,3 +69,33 @@ pub fn get_default_roles_json(
     serde_json::to_string(&val)
         .map_err(|e| crate::YntraError::DbError(format!("Failed to serialize role template: {}", e)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_school_roles_loading() {
+        let json_sv = get_default_roles_json("school".to_string(), None, true).unwrap();
+        let json_en = get_default_roles_json("school".to_string(), None, false).unwrap();
+
+        assert!(json_sv.contains("Rektor") || json_sv.contains("Lärare"));
+        assert!(json_en.contains("Principal") || json_en.contains("Teacher"));
+    }
+
+    #[test]
+    fn test_care_subtypes_loading() {
+        let lss = get_default_roles_json("assistance".to_string(), Some("lss".to_string()), false).unwrap();
+        let hvb = get_default_roles_json("assistance".to_string(), Some("hvb".to_string()), false).unwrap();
+
+        assert!(lss.contains("LSS"));
+        assert!(hvb.contains("HVB"));
+    }
+
+    #[test]
+    fn test_invalid_template() {
+        let err = get_default_roles_json("invalid_type".to_string(), None, false);
+        assert!(err.is_err());
+    }
+}
+

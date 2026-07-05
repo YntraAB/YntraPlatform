@@ -453,4 +453,34 @@ mod tests {
         assert!(final_text.contains("World"));
         assert!(final_text.contains("CRDT"));
     }
+
+    #[test]
+    fn test_apply_diff_to_loro() {
+        let doc = loro::LoroDoc::new();
+        let text = doc.get_text("content");
+        
+        // Initial insert
+        text.insert(0, "Hello World").unwrap();
+        
+        // Test insertion in middle
+        apply_diff_to_loro(&text, "Hello World", "Hello CRDT World").unwrap();
+        assert_eq!(text.to_string(), "Hello CRDT World");
+
+        // Test deletion in middle
+        apply_diff_to_loro(&text, "Hello CRDT World", "Hello World").unwrap();
+        assert_eq!(text.to_string(), "Hello World");
+
+        // Test replacement
+        apply_diff_to_loro(&text, "Hello World", "Goodbye World").unwrap();
+        assert_eq!(text.to_string(), "Goodbye World");
+
+        // Test empty string handling
+        apply_diff_to_loro(&text, "Goodbye World", "").unwrap();
+        assert_eq!(text.to_string(), "");
+
+        // Test restore from empty
+        apply_diff_to_loro(&text, "", "Back again").unwrap();
+        assert_eq!(text.to_string(), "Back again");
+    }
 }
+

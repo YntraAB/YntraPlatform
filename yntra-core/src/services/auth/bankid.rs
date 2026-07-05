@@ -369,3 +369,38 @@ pub async fn update_auth_session_status(session_id: String, status: String, prog
     notify_observers();
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_norwegian_birthdate_match() {
+        // Norwegian: DDMMYYXXXXX
+        assert!(check_birthdate_match("05072612345", "050726"));
+        assert!(!check_birthdate_match("05072612345", "060726"));
+    }
+
+    #[test]
+    fn test_swedish_12digit_birthdate_match() {
+        // Swedish: YYYYMMDDXXXX
+        assert!(check_birthdate_match("198905141234", "140589"));
+        assert!(check_birthdate_match("200112319876", "311201"));
+        assert!(!check_birthdate_match("198905141234", "150589"));
+    }
+
+    #[test]
+    fn test_swedish_10digit_birthdate_match() {
+        // Swedish: YYMMDDXXXX
+        assert!(check_birthdate_match("8905141234", "140589"));
+        assert!(check_birthdate_match("0112319876", "311201"));
+        assert!(!check_birthdate_match("8905141234", "150589"));
+    }
+
+    #[test]
+    fn test_birthdate_fallback_containment() {
+        assert!(check_birthdate_match("abc140589xyz", "140589"));
+        assert!(!check_birthdate_match("abc140588xyz", "140589"));
+    }
+}
+

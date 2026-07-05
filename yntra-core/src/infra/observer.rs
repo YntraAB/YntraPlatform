@@ -173,3 +173,39 @@ pub fn start_background_sync(interval_secs: u32) {
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_table_name_inserts() {
+        assert_eq!(extract_table_name("INSERT INTO todos (id, text) VALUES (1, 'hello')"), Some("todos".to_string()));
+        assert_eq!(extract_table_name("INSERT INTO [todos] (id) VALUES (1)"), Some("todos".to_string()));
+        assert_eq!(extract_table_name("INSERT INTO `todos` VALUES (1)"), Some("todos".to_string()));
+        assert_eq!(extract_table_name("  INSERT   INTO   \"todos\" ..."), Some("todos".to_string()));
+    }
+
+    #[test]
+    fn test_extract_table_name_updates() {
+        assert_eq!(extract_table_name("UPDATE users SET name = 'Alice'"), Some("users".to_string()));
+        assert_eq!(extract_table_name("UPDATE [users] SET x = 1"), Some("users".to_string()));
+        assert_eq!(extract_table_name("UPDATE `users` SET x = 1"), Some("users".to_string()));
+    }
+
+    #[test]
+    fn test_extract_table_name_deletes() {
+        assert_eq!(extract_table_name("DELETE FROM messages WHERE id = 1"), Some("messages".to_string()));
+        assert_eq!(extract_table_name("DELETE FROM [messages]"), Some("messages".to_string()));
+    }
+
+    #[test]
+    fn test_extract_table_name_invalid_or_select() {
+        assert_eq!(extract_table_name("SELECT * FROM todos"), None);
+        assert_eq!(extract_table_name("INSERT INTO"), None);
+        assert_eq!(extract_table_name("UPDATE"), None);
+        assert_eq!(extract_table_name("DELETE FROM"), None);
+        assert_eq!(extract_table_name(""), None);
+    }
+}
+

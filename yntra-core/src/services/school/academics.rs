@@ -409,25 +409,7 @@ pub async fn calculate_and_save_gpa(
     let mut stmt = conn.prepare("SELECT final_grade FROM term_grades WHERE student_id = ?1 AND term_name = ?2").await?;
     let grades: Vec<Option<String>> = stmt.query_map(crate::params![&student_id, &term_name], |row| row.get(0)).await?;
     
-    let mut total_points = 0.0;
-    let mut count = 0;
-    for g_opt in grades {
-        if let Some(g) = g_opt {
-            let pts = match g.trim().to_uppercase().as_str() {
-                "A" => Some(4.0),
-                "B" => Some(3.0),
-                "C" => Some(2.0),
-                "D" => Some(1.0),
-                "F" => Some(0.0),
-                _ => None,
-            };
-            if let Some(p) = pts {
-                total_points += p;
-                count += 1;
-            }
-        }
-    }
-    let gpa = if count > 0 { total_points / (count as f64) } else { 0.0 };
+    let gpa = calculate_gpa(&grades);
     
     let existing_id: Option<String> = conn.query_row(
         "SELECT id FROM report_cards WHERE student_id = ?1 AND term_name = ?2",
@@ -486,3 +468,63 @@ pub async fn calculate_and_save_gpa(
     notify_observers();
     Ok(record)
 }
+
+pub(crate) fn calculate_gpa(grades: &[Option<String>]) -> f64 {
+    let mut total_points = 0.0;
+    let mut count = 0;
+    for g_opt in grades {
+        if let Some(g) = g_opt {
+            let pts = match g.trim().to_uppercase().as_str() {
+                "A" => Some(4.0),
+                "B" => Some(3.0),
+                "C" => Some(2.0),
+                "D" => Some(1.0),
+                "F" => Some(0.0),
+                _ => None,
+            };
+            if let Some(p) = pts {
+                total_points += p;
+                count += 1;
+            }
+        }
+    }
+    if count > 0 { total_points / (count as f64) } else { 0.0 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_calculate_gpa_all_cases() {
+        // Test standard values
+        assert_eq!(calculate_gpa(&[Some("A".to_string())]), 4.0);
+        assert_eq!(calculate_gpa(&[Some("B".to_string())]), 3.0);
+        assert_eq!(calculate_gpa(&[Some("C".to_string())]), 2.0);
+        assert_eq!(calculate_gpa(&[Some("D".to_string())]), 1.0);
+        assert_eq!(calculate_gpa(&[Some("F".to_string())]), 0.0);
+
+        // Test average calculations
+        assert_eq!(calculate_gpa(&[Some("A".to_string()), Some("B".to_string())]), 3.5);
+        assert_eq!(calculate_gpa(&[Some("A".to_string()), Some("F".to_string())]), 2.0);
+
+        // Test lowercase and whitespaces
+        assert_eq!(calculate_gpa(&[Some("  a  ".to_string()), Some("b\n".to_string())]), 3.5);
+
+        // Test invalid and None grades ignored
+        assert_eq!(
+            calculate_gpa(&[
+                Some("A".to_string()),
+                None,
+                Some("INVALID".to_string()),
+                Some("B".to_string())
+            ]),
+            3.5
+        );
+
+        // Test empty/only invalid inputs
+        assert_eq!(calculate_gpa(&[]), 0.0);
+        assert_eq!(calculate_gpa(&[None, Some("X".to_string())]), 0.0);
+    }
+}
+
