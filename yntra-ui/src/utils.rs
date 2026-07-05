@@ -5,12 +5,16 @@ use tokio::sync::mpsc;
 use yntra_core::DatabaseObserver;
 
 pub struct DioxusDbObserver {
-    pub tx: mpsc::UnboundedSender<()>,
+    pub tx: mpsc::UnboundedSender<String>,
 }
 
 impl DatabaseObserver for DioxusDbObserver {
     fn on_database_changed(&self) {
-        let _ = self.tx.send(());
+        let _ = self.tx.send("all".to_string());
+    }
+
+    fn on_table_changed(&self, table: String) {
+        let _ = self.tx.send(table);
     }
 }
 

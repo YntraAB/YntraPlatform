@@ -7,6 +7,7 @@ use yntra_core::{
     Workspace, WorkspaceUser, get_clients, get_events,
     get_messages, get_notes, get_reports, get_teams, get_time_reports, get_users,
     get_workspace, get_workspaces, register_observer, get_user_by_email,
+    init_wasm_db, init_tracing, start_background_sync,
 };
 
 pub mod components;
@@ -49,6 +50,16 @@ fn main() {
 fn App() -> Element {
     // Core state signals
     let mut db_trigger = use_signal(|| 0);
+    let mut trigger_todos = use_signal(|| 0);
+    let mut trigger_users = use_signal(|| 0);
+    let mut trigger_teams = use_signal(|| 0);
+    let mut trigger_events = use_signal(|| 0);
+    let mut trigger_messages = use_signal(|| 0);
+    let mut trigger_notes = use_signal(|| 0);
+    let mut trigger_time = use_signal(|| 0);
+    let mut trigger_clients = use_signal(|| 0);
+    let mut trigger_reports = use_signal(|| 0);
+    let mut trigger_workspaces = use_signal(|| 0);
     let active_user_id = use_signal(|| "user-1".to_string());
     let mut active_section = use_signal(|| "dashboard".to_string());
     let needs_setup = use_signal(|| false);
@@ -71,6 +82,9 @@ fn App() -> Element {
     let mut setup_needed = needs_setup;
     use_effect(move || {
         spawn(async move {
+            let _ = init_tracing();
+            let _ = init_wasm_db().await;
+            start_background_sync(30);
             let mut eval = dioxus::document::eval(
                 r#"
                 let logged_in = localStorage.getItem("yntra_logged_in") === "true";
@@ -229,7 +243,7 @@ fn App() -> Element {
 
     // Dynamic database query outputs (resources)
     let workspace = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = trigger_workspaces.read();
         async move {
             get_workspace().await.unwrap_or_else(|_| Workspace {
                 id: "workspace-1".to_string(),
@@ -243,61 +257,61 @@ fn App() -> Element {
         }
     });
     let users = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = trigger_users.read();
         let uid = active_user_id.read().clone();
         async move {
             get_users(uid).await.unwrap_or_default()
         }
     });
     let teams = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = trigger_teams.read();
         async move {
             get_teams().await.unwrap_or_default()
         }
     });
     let events = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = trigger_events.read();
         async move {
             get_events(None).await.unwrap_or_default()
         }
     });
     let messages = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = trigger_messages.read();
         let uid = active_user_id.read().clone();
         async move {
             get_messages(uid).await.unwrap_or_default()
         }
     });
     let notes = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = trigger_notes.read();
         let uid = active_user_id.read().clone();
         async move {
             get_notes(uid, None).await.unwrap_or_default()
         }
     });
     let time_reports = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = trigger_time.read();
         let uid = active_user_id.read().clone();
         async move {
             get_time_reports(uid, None).await.unwrap_or_default()
         }
     });
     let clients = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = trigger_clients.read();
         let uid = active_user_id.read().clone();
         async move {
             get_clients(uid).await.unwrap_or_default()
         }
     });
     let reports = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = trigger_reports.read();
         let uid = active_user_id.read().clone();
         async move {
             get_reports(uid).await.unwrap_or_default()
         }
     });
     let workspaces = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = trigger_workspaces.read();
         async move {
             get_workspaces().await.unwrap_or_default()
         }
@@ -305,7 +319,7 @@ fn App() -> Element {
 
     // Multi-thread channel mapping database notifications to the Dioxus UI thread
     let channel = use_hook(move || {
-        let (tx, rx) = mpsc::unbounded_channel::<()>();
+        let (tx, rx) = mpsc::unbounded_channel::<String>();
         (tx, Arc::new(Mutex::new(Some(rx))))
     });
 
@@ -332,7 +346,61 @@ fn App() -> Element {
         let mut rx_opt = channel.1.lock().unwrap();
         if let Some(mut rx) = rx_opt.take() {
             spawn(async move {
-                while rx.recv().await.is_some() {
+                while let Some(table) = rx.recv().await {
+                    match table.as_str() {
+                        "todos" => {
+                            let v = *trigger_todos.read();
+                            trigger_todos.set(v + 1);
+                        }
+                        "users" | "team_members" => {
+                            let v = *trigger_users.read();
+                            trigger_users.set(v + 1);
+                        }
+                        "teams" => {
+                            let v = *trigger_teams.read();
+                            trigger_teams.set(v + 1);
+                        }
+                        "events" => {
+                            let v = *trigger_events.read();
+                            trigger_events.set(v + 1);
+                        }
+                        "messages" => {
+                            let v = *trigger_messages.read();
+                            trigger_messages.set(v + 1);
+                        }
+                        "notes" => {
+                            let v = *trigger_notes.read();
+                            trigger_notes.set(v + 1);
+                        }
+                        "time_reports" => {
+                            let v = *trigger_time.read();
+                            trigger_time.set(v + 1);
+                        }
+                        "clients" | "client_medications" | "client_journals" => {
+                            let v = *trigger_clients.read();
+                            trigger_clients.set(v + 1);
+                        }
+                        "reports" => {
+                            let v = *trigger_reports.read();
+                            trigger_reports.set(v + 1);
+                        }
+                        "workspaces" => {
+                            let v = *trigger_workspaces.read();
+                            trigger_workspaces.set(v + 1);
+                        }
+                        _ => {
+                            let v_todos = *trigger_todos.read(); trigger_todos.set(v_todos + 1);
+                            let v_users = *trigger_users.read(); trigger_users.set(v_users + 1);
+                            let v_teams = *trigger_teams.read(); trigger_teams.set(v_teams + 1);
+                            let v_events = *trigger_events.read(); trigger_events.set(v_events + 1);
+                            let v_messages = *trigger_messages.read(); trigger_messages.set(v_messages + 1);
+                            let v_notes = *trigger_notes.read(); trigger_notes.set(v_notes + 1);
+                            let v_time = *trigger_time.read(); trigger_time.set(v_time + 1);
+                            let v_clients = *trigger_clients.read(); trigger_clients.set(v_clients + 1);
+                            let v_reports = *trigger_reports.read(); trigger_reports.set(v_reports + 1);
+                            let v_workspaces = *trigger_workspaces.read(); trigger_workspaces.set(v_workspaces + 1);
+                        }
+                    }
                     let val = *db_trigger.read();
                     db_trigger.set(val + 1);
                 }
@@ -688,6 +756,8 @@ fn App() -> Element {
         style { {include_str!("../public/tailwind.css")} }
         // Load extracted global CSS stylesheet
         style { {include_str!("../public/global.css")} }
+        // Load SQLite Web Worker Bridge
+        script { src: "/db-bridge.js" }
 
         components::VisualEffectHandler {
             account_preferences,
