@@ -221,11 +221,12 @@ fn get_encryption_keys_internal(
 
     // 4. Retrieve and feed session key (minimize mutex critical section)
     {
+        let mut is_poisoned = false;
         let lock = match SESSION_KEY.lock() {
             Ok(l) => l,
-            Err(_) => {
-                hasher.zeroize();
-                return Err(crate::infra::errors::YntraError::CryptoError("session_key_lock_poisoned".to_string()));
+            Err(poisoned) => {
+                is_poisoned = true;
+                poisoned.into_inner()
             }
         };
         if let Some(sk) = lock.as_ref() {
@@ -233,7 +234,11 @@ fn get_encryption_keys_internal(
             hasher.update(&sk.new_key);
         } else {
             hasher.zeroize();
-            return Err(crate::infra::errors::YntraError::CryptoError("session_key_missing".to_string()));
+            if is_poisoned {
+                return Err(crate::infra::errors::YntraError::CryptoError("session_key_lock_poisoned".to_string()));
+            } else {
+                return Err(crate::infra::errors::YntraError::CryptoError("session_key_missing".to_string()));
+            }
         }
     }
 
@@ -255,87 +260,26 @@ pub fn hex_decode(s: &str) -> Option<Vec<u8>> {
 }
 
 pub fn encrypt_field(data: &str, workspace_id: &str) -> Result<String, crate::infra::errors::YntraError> {
-    let key_bytes = get_encryption_keys_internal(workspace_id)?;
-
-    let mut nonce_bytes = [0u8; 24];
-    getrandom::fill(&mut nonce_bytes).map_err(|e| {
-        tracing::error!("Failed to generate random nonce: {:?}", e);
-        crate::infra::errors::YntraError::CryptoError("Failed to generate random nonce".to_string())
-    })?;
-    let zeroizing_nonce = zeroize::Zeroizing::new(nonce_bytes);
-
-    let key = Key::from_slice(&key_bytes[..]);
-    let cipher = XChaCha20Poly1305::new(key);
-    let nonce = XNonce::from_slice(&zeroizing_nonce[..]);
-    
-    let result = if let Ok(ct) = cipher.encrypt(nonce, data.as_bytes()) {
-        Ok(format!("enc:{}:{}", hex_encode(&zeroizing_nonce[..]), hex_encode(&ct)))
-    } else {
-        tracing::error!("XChaCha20Poly1305 encryption failed");
-        Err(crate::infra::errors::YntraError::CryptoError("encryption_failed".to_string()))
-    };
-    
-    result
+    let cipher = WorkspaceCipher::new(workspace_id)?;
+    cipher.encrypt(data)
 }
 
 pub fn decrypt_field(encrypted_data: &str, workspace_id: &str) -> Result<String, crate::infra::errors::YntraError> {
-    if !encrypted_data.starts_with("enc:") {
-        return Err(crate::infra::errors::YntraError::CryptoError("not_encrypted".to_string()));
-    }
-    
-    let body = &encrypted_data[4..];
-    
-    let mut parts = body.splitn(3, ':');
-    match (parts.next(), parts.next(), parts.next()) {
-        (Some(p1), Some(p2), None) => {
-            let mut nonce_bytes = [0u8; 24];
-            if const_hex::decode_to_slice(p1, &mut nonce_bytes).is_err() {
-                return Err(crate::infra::errors::YntraError::CryptoError("invalid_nonce".to_string()));
-            }
-            let zeroizing_nonce = zeroize::Zeroizing::new(nonce_bytes);
-            
-            let ct = match hex_decode(p2) {
-                Some(b) => b,
-                None => {
-                    return Err(crate::infra::errors::YntraError::CryptoError("invalid_ciphertext".to_string()));
-                }
-            };
-            
-            match get_encryption_keys_internal(workspace_id) {
-                Ok(key_bytes) => {
-                    let key = Key::from_slice(&key_bytes[..]);
-                    let cipher = XChaCha20Poly1305::new(key);
-                    let nonce = XNonce::from_slice(&zeroizing_nonce[..]);
-                    
-                    let res = cipher.decrypt(nonce, ct.as_slice());
-                    
-                    match res {
-                        Ok(pt) => bytes_to_string(pt),
-                        Err(_) => Err(crate::infra::errors::YntraError::CryptoError("decryption_failed".to_string())),
-                    }
-                }
-                Err(e) => Err(e),
-            }
-        }
-        _ => Err(crate::infra::errors::YntraError::CryptoError("invalid_format".to_string())),
-    }
+    let cipher = WorkspaceCipher::new(workspace_id)?;
+    cipher.decrypt(encrypted_data)
 }
 
 pub fn encrypt_opt_field(data: Option<String>, workspace_id: &str) -> Result<Option<String>, crate::infra::errors::YntraError> {
-    match data {
-        Some(mut d) => {
-            let res = encrypt_field(&d, workspace_id).map(Some);
-            d.zeroize();
-            res
-        }
-        None => Ok(None),
-    }
+    let cipher = WorkspaceCipher::new(workspace_id)?;
+    cipher.encrypt_opt(data)
 }
 
 pub fn decrypt_opt_field(encrypted_data: Option<String>, workspace_id: &str) -> Option<String> {
-    encrypted_data.and_then(|d| {
-        decrypt_field(&d, workspace_id).ok()
-    })
+    if let Ok(cipher) = WorkspaceCipher::new(workspace_id) {
+        cipher.decrypt_opt(encrypted_data)
+    } else {
+        None
+    }
 }
 
 pub struct WorkspaceCipher {
@@ -460,8 +404,11 @@ impl Drop for WorkspaceCipher {
 mod tests {
     use super::*;
 
+    static TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn test_chacha_encryption_decryption() {
+        let _test_lock = TEST_MUTEX.lock().unwrap();
         set_session_key("test-session-key".to_string().into_bytes());
         
         let plaintext = "Sensitive whistleblowing report text";
@@ -483,6 +430,7 @@ mod tests {
 
     #[test]
     fn test_strong_session_key_derivation() {
+        let _test_lock = TEST_MUTEX.lock().unwrap();
         let plaintext = "Highly sensitive user data";
         let workspace_id = "test-workspace-456";
 
@@ -510,6 +458,7 @@ mod tests {
 
     #[test]
     fn test_session_key_poisoning_recovery() {
+        let _test_lock = TEST_MUTEX.lock().unwrap();
         // Poison the mutex by panicking while holding the lock
         let _ = std::panic::catch_unwind(|| {
             let _lock = SESSION_KEY.lock().unwrap();
@@ -529,12 +478,16 @@ mod tests {
         assert!(set_session_key("my-new-session-key".to_string().into_bytes()));
 
         // Check lock is usable again and holds the stretched key
-        let lock = SESSION_KEY.lock().unwrap();
+        let lock = match SESSION_KEY.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
         assert!(lock.is_some());
     }
 
     #[test]
     fn test_system_salt_duplicate_initialization() {
+        let _test_lock = TEST_MUTEX.lock().unwrap();
         let initial_salt = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20".to_string();
         
         // This may succeed or fail depending on whether it's already set by another test/startup.

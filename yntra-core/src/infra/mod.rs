@@ -3,6 +3,8 @@ pub mod observer;
 pub mod time;
 pub mod crypto;
 pub mod compliance;
+pub mod auth;
+
 
 
 
