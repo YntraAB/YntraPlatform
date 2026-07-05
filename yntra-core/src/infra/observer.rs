@@ -10,14 +10,12 @@ pub trait DatabaseObserver: Send + Sync {
     }
 }
 
-thread_local! {
-    static LAST_MODIFIED_TABLE: std::cell::RefCell<Option<String>> = std::cell::RefCell::new(None);
-}
+static MODIFIED_TABLES: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
 
 pub fn set_last_modified_table(table: &str) {
-    LAST_MODIFIED_TABLE.with(|val| {
-        *val.borrow_mut() = Some(table.to_string());
-    });
+    if let Ok(mut tables) = MODIFIED_TABLES.get_or_init(|| Mutex::new(std::collections::HashSet::new())).lock() {
+        tables.insert(table.to_string());
+    }
 }
 
 pub fn extract_table_name(sql: &str) -> Option<String> {
@@ -74,16 +72,22 @@ pub fn clear_observers() {
 }
 
 pub fn notify_observers() {
-    let table_opt = LAST_MODIFIED_TABLE.with(|val| {
-        val.borrow_mut().take()
-    });
+    let tables = if let Ok(mut lock) = MODIFIED_TABLES.get_or_init(|| Mutex::new(std::collections::HashSet::new())).lock() {
+        std::mem::take(&mut *lock)
+    } else {
+        std::collections::HashSet::new()
+    };
 
     if let Ok(observers) = get_observers().lock() {
-        for observer in observers.iter() {
-            if let Some(ref table) = table_opt {
-                observer.on_table_changed(table.clone());
-            } else {
+        if tables.is_empty() {
+            for observer in observers.iter() {
                 observer.on_database_changed();
+            }
+        } else {
+            for observer in observers.iter() {
+                for table in &tables {
+                    observer.on_table_changed(table.clone());
+                }
             }
         }
     }
