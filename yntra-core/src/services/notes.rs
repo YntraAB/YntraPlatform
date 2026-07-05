@@ -63,23 +63,34 @@ fn apply_diff_to_loro(text: &loro::LoroText, old_str: &str, new_str: &str) -> Re
 #[uniffi::export]
 pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Result<Vec<DailyNote>, YntraError> {
     let conn = database::acquire_connection().await?;
-    let user_role: String = conn.query_row(
-        "SELECT role FROM users WHERE id = ?1",
+    let (user_role, user_ws): (String, Option<String>) = conn.query_row(
+        "SELECT role, workspace_id FROM users WHERE id = ?1",
         crate::params![&requester_user_id],
-        |r| r.get(0)
-    ).await.map_err(|e| YntraError::DbError(format!("Failed to retrieve user role: {}", e)))?;
+        |r| Ok((r.get(0)?, r.get(1)?))
+    ).await.map_err(|e| YntraError::DbError(format!("Failed to retrieve user info: {}", e)))?;
 
-    let is_admin = user_role == "admin" || user_role == "platform_admin";
+    let ws_id = user_ws.unwrap_or_else(|| "workspace-1".to_string());
 
-    let (query, params) = if is_admin {
+    let (query, params) = if user_role == "platform_admin" {
         match team_id {
             Some(tid) => (
                 "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status FROM notes WHERE team_id = ?1 ORDER BY created_at DESC".to_string(),
-                crate::params![&tid],
+                crate::params![tid],
             ),
             None => (
                 "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status FROM notes ORDER BY created_at DESC".to_string(),
                 crate::params![],
+            ),
+        }
+    } else if user_role == "admin" {
+        match team_id {
+            Some(tid) => (
+                "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status FROM notes WHERE team_id = ?1 AND workspace_id = ?2 ORDER BY created_at DESC".to_string(),
+                crate::params![tid, ws_id],
+            ),
+            None => (
+                "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status FROM notes WHERE workspace_id = ?1 ORDER BY created_at DESC".to_string(),
+                crate::params![ws_id],
             ),
         }
     } else {
@@ -95,7 +106,7 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
                 }
                 (
                     "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status FROM notes WHERE team_id = ?1 ORDER BY created_at DESC".to_string(),
-                    crate::params![&tid],
+                    crate::params![tid],
                 )
             }
             None => (
@@ -104,7 +115,7 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
                  JOIN team_members tm ON n.team_id = tm.team_id
                  WHERE tm.user_id = ?1
                  ORDER BY n.created_at DESC".to_string(),
-                 crate::params![&requester_user_id],
+                 crate::params![requester_user_id],
             ),
         }
     };

@@ -5,15 +5,15 @@ use crate::{TimeReport, YntraError};
 #[uniffi::export]
 pub async fn get_time_reports(requester_user_id: String, user_id: Option<String>) -> Result<Vec<TimeReport>, YntraError> {
     let conn = database::acquire_connection().await?;
-    let requester_role: String = conn.query_row(
-        "SELECT role FROM users WHERE id = ?1",
+    let (requester_role, requester_ws): (String, Option<String>) = conn.query_row(
+        "SELECT role, workspace_id FROM users WHERE id = ?1",
         crate::params![&requester_user_id],
-        |r| r.get(0)
-    ).await.map_err(|e| YntraError::DbError(format!("Failed to retrieve user role: {}", e)))?;
+        |r| Ok((r.get(0)?, r.get(1)?))
+    ).await.map_err(|e| YntraError::DbError(format!("Failed to retrieve user info: {}", e)))?;
 
-    let is_admin = requester_role == "admin" || requester_role == "platform_admin";
+    let ws_id = requester_ws.unwrap_or_else(|| "workspace-1".to_string());
 
-    let (query, params) = if is_admin {
+    let (query, params) = if requester_role == "platform_admin" {
         match user_id {
             Some(uid) => (
                 "SELECT id, workspace_id, user_id, team_id, date, start_time, end_time, hours, note, status, created_at, updated_at, sync_status FROM time_reports WHERE user_id = ?1 ORDER BY date DESC".to_string(),
@@ -22,6 +22,17 @@ pub async fn get_time_reports(requester_user_id: String, user_id: Option<String>
             None => (
                 "SELECT id, workspace_id, user_id, team_id, date, start_time, end_time, hours, note, status, created_at, updated_at, sync_status FROM time_reports ORDER BY date DESC".to_string(),
                 vec![],
+            ),
+        }
+    } else if requester_role == "admin" {
+        match user_id {
+            Some(uid) => (
+                "SELECT id, workspace_id, user_id, team_id, date, start_time, end_time, hours, note, status, created_at, updated_at, sync_status FROM time_reports WHERE user_id = ?1 AND workspace_id = ?2 ORDER BY date DESC".to_string(),
+                vec![uid, ws_id],
+            ),
+            None => (
+                "SELECT id, workspace_id, user_id, team_id, date, start_time, end_time, hours, note, status, created_at, updated_at, sync_status FROM time_reports WHERE workspace_id = ?1 ORDER BY date DESC".to_string(),
+                vec![ws_id],
             ),
         }
     } else {

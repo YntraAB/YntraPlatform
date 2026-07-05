@@ -5,31 +5,34 @@ use crate::{ClientProfile, JournalEntry, MedicationItem, YntraError};
 #[uniffi::export]
 pub async fn get_clients(requester_user_id: String) -> Result<Vec<ClientProfile>, YntraError> {
     let conn = database::acquire_connection().await?;
-    let user_row: Option<(String, Option<String>)> = conn.query_row(
-        "SELECT role, full_name FROM users WHERE id = ?1",
+    let user_row: Option<(String, Option<String>, Option<String>)> = conn.query_row(
+        "SELECT role, full_name, workspace_id FROM users WHERE id = ?1",
         crate::params![&requester_user_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))
     ).await.ok();
 
-    let (role, full_name) = match user_row {
-        Some((r, f)) => (r, f),
+    let (role, full_name, ws_id) = match user_row {
+        Some((r, f, w)) => (r, f, w.unwrap_or_else(|| "workspace-1".to_string())),
         None => return Err(YntraError::AuthError("User not found".to_string())),
     };
 
-    let is_admin = role == "admin" || role == "platform_admin";
-
-    let (query, params) = if is_admin {
+    let (query, params) = if role == "platform_admin" {
         (
             "SELECT id, workspace_id, team_id, first_name, last_name, personal_number, care_level, message_settings, created_at, updated_at, sync_status FROM clients".to_string(),
             vec![],
+        )
+    } else if role == "admin" {
+        (
+            "SELECT id, workspace_id, team_id, first_name, last_name, personal_number, care_level, message_settings, created_at, updated_at, sync_status FROM clients WHERE workspace_id = ?1".to_string(),
+            vec![ws_id],
         )
     } else if role == "client" {
         if let Some(name) = full_name {
             let parts: Vec<&str> = name.split_whitespace().collect();
             if parts.len() >= 2 {
                 (
-                    "SELECT id, workspace_id, team_id, first_name, last_name, personal_number, care_level, message_settings, created_at, updated_at, sync_status FROM clients WHERE first_name = ?1 AND last_name = ?2".to_string(),
-                    vec![parts[0].to_string(), parts[1].to_string()],
+                    "SELECT id, workspace_id, team_id, first_name, last_name, personal_number, care_level, message_settings, created_at, updated_at, sync_status FROM clients WHERE first_name = ?1 AND last_name = ?2 AND workspace_id = ?3".to_string(),
+                    vec![parts[0].to_string(), parts[1].to_string(), ws_id],
                 )
             } else {
                 (
@@ -48,8 +51,8 @@ pub async fn get_clients(requester_user_id: String) -> Result<Vec<ClientProfile>
             "SELECT c.id, c.workspace_id, c.team_id, c.first_name, c.last_name, c.personal_number, c.care_level, c.message_settings, c.created_at, c.updated_at, c.sync_status
              FROM clients c
              JOIN team_members tm ON c.team_id = tm.team_id
-             WHERE tm.user_id = ?1".to_string(),
-            vec![requester_user_id.clone()],
+             WHERE tm.user_id = ?1 AND c.workspace_id = ?2".to_string(),
+            vec![requester_user_id.clone(), ws_id],
         )
     };
 
@@ -121,7 +124,7 @@ pub async fn get_medications(client_id: String, actor_id: String) -> Result<Vec<
     }
 
     let ws_id = client.0;
-    let cipher = crate::infra::crypto::WorkspaceCipher::new(&ws_id);
+    let cipher = crate::infra::crypto::WorkspaceCipher::new(&ws_id)?;
 
     // 3. Query medications and decrypt sensitive fields
     let mut stmt = conn.prepare("SELECT id, client_id, name, dosage, frequency, instructions, created_at, workspace_id, updated_at, sync_status FROM client_medications WHERE client_id = ?1").await?;
@@ -193,18 +196,18 @@ pub async fn get_journals(client_id: String, actor_id: String) -> Result<Vec<Jou
     }
 
     let ws_id = client.0;
+    let cipher = crate::infra::crypto::WorkspaceCipher::new(&ws_id)?;
 
     // 3. Query journals and decrypt sensitive content field
     let mut stmt = conn.prepare("SELECT id, client_id, author_id, content, created_at, workspace_id, updated_at, sync_status FROM client_journals WHERE client_id = ?1 ORDER BY created_at DESC").await?;
 
-    let list = stmt.query_map(crate::params![client_id], |row| {
-        let ws_id_clone = ws_id.clone();
+    let list = stmt.query_map(crate::params![client_id], move |row| {
         let raw_content: String = row.get(3)?;
         Ok(JournalEntry {
             id: row.get(0)?,
             client_id: row.get(1)?,
             author_id: row.get(2)?,
-            content: crate::infra::crypto::decrypt_field(&raw_content, &ws_id_clone).unwrap_or(raw_content),
+            content: cipher.decrypt(&raw_content).unwrap_or(raw_content),
             created_at: row.get(4)?,
             workspace_id: row.get(5)?,
             updated_at: row.get(6)?,
@@ -373,7 +376,7 @@ pub async fn add_medication(
         sync_status: "pending".to_string(),
     };
 
-    let cipher = crate::infra::crypto::WorkspaceCipher::new(&workspace_id);
+    let cipher = crate::infra::crypto::WorkspaceCipher::new(&workspace_id)?;
     let enc_dosage = cipher.encrypt_opt(item.dosage.clone())?;
     let enc_freq = cipher.encrypt_opt(item.frequency.clone())?;
     let enc_instr = cipher.encrypt_opt(item.instructions.clone())?;

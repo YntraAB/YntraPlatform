@@ -362,14 +362,16 @@ pub fn use_init_app_state() -> AppState {
     });
     let teams = use_resource(move || {
         let _trig = trigger_teams.read();
+        let uid = active_user_id.read().clone();
         async move {
-            get_teams().await.unwrap_or_default()
+            get_teams(uid).await.unwrap_or_default()
         }
     });
     let events = use_resource(move || {
         let _trig = trigger_events.read();
+        let uid = active_user_id.read().clone();
         async move {
-            get_events(None).await.unwrap_or_default()
+            get_events(uid, None).await.unwrap_or_default()
         }
     });
     let messages = use_resource(move || {

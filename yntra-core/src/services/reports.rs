@@ -5,29 +5,46 @@ use crate::{ReportItem, YntraError};
 #[uniffi::export]
 pub async fn get_reports(requester_user_id: String) -> Result<Vec<ReportItem>, YntraError> {
     let conn = database::acquire_connection().await?;
-    let user_role: String = conn.query_row(
-        "SELECT role FROM users WHERE id = ?1",
+    let (user_role, user_ws): (String, Option<String>) = conn.query_row(
+        "SELECT role, workspace_id FROM users WHERE id = ?1",
         crate::params![&requester_user_id],
-        |r| r.get(0)
-    ).await.map_err(|e| YntraError::DbError(format!("Failed to retrieve user role: {}", e)))?;
+        |r| Ok((r.get(0)?, r.get(1)?))
+    ).await.map_err(|e| YntraError::DbError(format!("Failed to retrieve user info: {}", e)))?;
 
-    let is_admin = user_role == "admin" || user_role == "platform_admin";
+    let ws_id = user_ws.unwrap_or_else(|| "workspace-1".to_string());
 
-    let query = if is_admin {
-        "SELECT id, workspace_id, user_id, type, is_anonymous, content, status, created_at, updated_at, sync_status FROM reports ORDER BY created_at DESC"
+    let (query, params) = if user_role == "platform_admin" {
+        (
+            "SELECT id, workspace_id, user_id, type, is_anonymous, content, status, created_at, updated_at, sync_status FROM reports ORDER BY created_at DESC".to_string(),
+            vec![],
+        )
+    } else if user_role == "admin" {
+        (
+            "SELECT id, workspace_id, user_id, type, is_anonymous, content, status, created_at, updated_at, sync_status FROM reports WHERE workspace_id = ?1 ORDER BY created_at DESC".to_string(),
+            vec![ws_id],
+        )
     } else {
-        "SELECT id, workspace_id, user_id, type, is_anonymous, content, status, created_at, updated_at, sync_status FROM reports WHERE user_id = ?1 ORDER BY created_at DESC"
+        (
+            "SELECT id, workspace_id, user_id, type, is_anonymous, content, status, created_at, updated_at, sync_status FROM reports WHERE user_id = ?1 ORDER BY created_at DESC".to_string(),
+            vec![requester_user_id],
+        )
     };
 
-    let mut stmt = conn.prepare(query).await?;
+    let mut stmt = conn.prepare(&query).await?;
 
-    let params: Vec<String> = if is_admin { vec![] } else { vec![requester_user_id] };
+    let mut ciphers: std::collections::HashMap<String, crate::infra::crypto::WorkspaceCipher> = std::collections::HashMap::new();
 
-    let list = stmt.query_map(crate::rusqlite::params_from_iter(params), |row| {
+    let list = stmt.query_map(crate::rusqlite::params_from_iter(params), move |row| {
         let is_anon_int: i32 = row.get(4)?;
         let ws_id: String = row.get(1)?;
         let raw_content: String = row.get(5)?;
-        let decrypted = crate::infra::crypto::decrypt_field(&raw_content, &ws_id).unwrap_or(raw_content);
+        
+        if !ciphers.contains_key(&ws_id) {
+            let c = crate::infra::crypto::WorkspaceCipher::new(&ws_id)?;
+            ciphers.insert(ws_id.clone(), c);
+        }
+        let cipher = ciphers.get(&ws_id).unwrap();
+        let decrypted = cipher.decrypt(&raw_content).unwrap_or(raw_content);
         
         Ok(ReportItem {
             id: row.get(0)?,

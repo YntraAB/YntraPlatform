@@ -3,12 +3,12 @@ use crate::observer::notify_observers;
 use crate::{TodoItem, YntraError};
 
 #[uniffi::export]
-pub async fn get_todos() -> Result<Vec<TodoItem>, YntraError> {
+pub async fn get_todos(workspace_id: String) -> Result<Vec<TodoItem>, YntraError> {
     let conn = database::acquire_connection().await?;
 
-    let mut stmt = conn.prepare("SELECT id, text, completed, workspace_id, updated_at, sync_status FROM todos").await?;
+    let mut stmt = conn.prepare("SELECT id, text, completed, workspace_id, updated_at, sync_status FROM todos WHERE workspace_id = ?1").await?;
 
-    let todos = stmt.query_map((), |row| {
+    let todos = stmt.query_map(crate::params![workspace_id], |row| {
         let completed_int: i32 = row.get(2)?;
         Ok(TodoItem {
             id: row.get(0)?,

@@ -3,12 +3,18 @@ use crate::observer::notify_observers;
 use crate::{Team, TeamEvent, YntraError};
 
 #[uniffi::export]
-pub async fn get_teams() -> Result<Vec<Team>, YntraError> {
+pub async fn get_teams(requester_user_id: String) -> Result<Vec<Team>, YntraError> {
     let conn = database::acquire_connection().await?;
+    
+    let requester_ws: String = conn.query_row(
+        "SELECT workspace_id FROM users WHERE id = ?1",
+        crate::params![&requester_user_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::AuthError("Requester user not found".to_string()))?;
 
-    let mut stmt = conn.prepare("SELECT id, workspace_id, name, updated_at, sync_status FROM teams").await?;
+    let mut stmt = conn.prepare("SELECT id, workspace_id, name, updated_at, sync_status FROM teams WHERE workspace_id = ?1").await?;
 
-    let list = stmt.query_map((), |row| {
+    let list = stmt.query_map(crate::params![&requester_ws], |row| {
         Ok(Team {
             id: row.get(0)?,
             workspace_id: row.get(1)?,
@@ -22,25 +28,27 @@ pub async fn get_teams() -> Result<Vec<Team>, YntraError> {
 }
 
 #[uniffi::export]
-pub async fn get_events(team_id: Option<String>) -> Result<Vec<TeamEvent>, YntraError> {
+pub async fn get_events(requester_user_id: String, team_id: Option<String>) -> Result<Vec<TeamEvent>, YntraError> {
     let conn = database::acquire_connection().await?;
 
-    let query = match team_id {
-        Some(_) => {
-            "SELECT id, workspace_id, user_id, team_id, assignee_id, title, start_time, end_time, metadata, updated_at, sync_status FROM events WHERE team_id = ?1"
-        }
-        None => {
-            "SELECT id, workspace_id, user_id, team_id, assignee_id, title, start_time, end_time, metadata, updated_at, sync_status FROM events"
-        }
+    let requester_ws: String = conn.query_row(
+        "SELECT workspace_id FROM users WHERE id = ?1",
+        crate::params![&requester_user_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::AuthError("Requester user not found".to_string()))?;
+
+    let (query, params) = match team_id {
+        Some(tid) => (
+            "SELECT id, workspace_id, user_id, team_id, assignee_id, title, start_time, end_time, metadata, updated_at, sync_status FROM events WHERE team_id = ?1 AND workspace_id = ?2".to_string(),
+            vec![tid, requester_ws],
+        ),
+        None => (
+            "SELECT id, workspace_id, user_id, team_id, assignee_id, title, start_time, end_time, metadata, updated_at, sync_status FROM events WHERE workspace_id = ?1".to_string(),
+            vec![requester_ws],
+        ),
     };
 
-    let mut stmt = conn.prepare(query).await?;
-
-    let params: Vec<String> = match team_id {
-        Some(tid) => vec![tid],
-        None => vec![],
-    };
-
+    let mut stmt = conn.prepare(&query).await?;
     let list = stmt.query_map(crate::rusqlite::params_from_iter(params), |row| {
         Ok(TeamEvent {
             id: row.get(0)?,

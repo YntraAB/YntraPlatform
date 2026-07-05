@@ -24,11 +24,14 @@ pub fn TodosView(props: TodosViewProps) -> Element {
     let db_trigger = props.db_trigger;
     let state = use_context::<AppState>();
     
+    let ws_res = state.workspace;
+    
     // Fetch todos from FFI
     let todos_resource = use_resource(move || {
         let _ = db_trig;
+        let ws_id = ws_res.read().as_ref().map(|w| w.id.clone()).unwrap_or_else(|| "workspace-1".to_string());
         async move {
-            yntra_core::get_todos().await.unwrap_or_default()
+            yntra_core::get_todos(ws_id).await.unwrap_or_default()
         }
     });
 
