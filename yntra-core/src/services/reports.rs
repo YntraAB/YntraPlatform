@@ -19,9 +19,10 @@ pub async fn get_reports(requester_user_id: String) -> Result<Vec<ReportItem>, Y
             vec![ws_id],
         )
     } else {
+        let anon_hash = crate::infra::crypto::hash_anonymous_reporter(&requester_user_id, &ws_id)?;
         (
-            "SELECT id, workspace_id, user_id, type, is_anonymous, content, status, created_at, updated_at, sync_status FROM reports WHERE user_id = ?1 ORDER BY created_at DESC".to_string(),
-            vec![requester_user_id],
+            "SELECT id, workspace_id, user_id, type, is_anonymous, content, status, created_at, updated_at, sync_status FROM reports WHERE user_id = ?1 OR user_id = ?2 ORDER BY created_at DESC".to_string(),
+            vec![requester_user_id, anon_hash],
         )
     };
 
@@ -41,10 +42,16 @@ pub async fn get_reports(requester_user_id: String) -> Result<Vec<ReportItem>, Y
         let cipher = ciphers.get(&ws_id).unwrap();
         let decrypted = cipher.decrypt(&raw_content).unwrap_or(raw_content);
         
+        let user_id: String = if is_anon_int != 0 {
+            "anonymous".to_string()
+        } else {
+            row.get(2)?
+        };
+
         Ok(ReportItem {
             id: row.get(0)?,
             workspace_id: ws_id,
-            user_id: row.get(2)?,
+            user_id,
             type_name: row.get(3)?,
             is_anonymous: is_anon_int != 0,
             content: decrypted,
@@ -79,10 +86,25 @@ pub async fn add_report(
 
     let encrypted_content = crate::infra::crypto::encrypt_field(&content_json, &workspace_id)?;
     let now_ms = crate::infra::time::get_current_time_ms();
+    let conn = database::acquire_connection().await?;
+
+    let db_user_id = if is_anonymous {
+        let hash = crate::infra::crypto::hash_anonymous_reporter(&user_id, &workspace_id)?;
+        let anon_email = format!("anonymous-{}@yntra.io", &hash[10..18]);
+        conn.execute(
+            "INSERT OR IGNORE INTO users (id, workspace_id, email, role, preferences, updated_at, sync_status)
+             VALUES (?1, ?2, ?3, 'assistant', '{}', ?4, 'synced')",
+            crate::params![&hash, &workspace_id, &anon_email, &now_ms],
+        ).await?;
+        hash
+    } else {
+        user_id.clone()
+    };
+
     let item = ReportItem {
         id: id.clone(),
-        workspace_id,
-        user_id: user_id.clone(),
+        workspace_id: workspace_id.clone(),
+        user_id: if is_anonymous { "anonymous".to_string() } else { user_id.clone() },
         type_name: report_type.clone(),
         is_anonymous,
         content: encrypted_content.clone(),
@@ -92,15 +114,13 @@ pub async fn add_report(
         sync_status: "pending".to_string(),
     };
 
-    let conn = database::acquire_connection().await?;
-
     conn.execute(
         "INSERT INTO reports (id, workspace_id, user_id, type, is_anonymous, content, status, created_at, updated_at, sync_status)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7, ?8, 'pending')",
         crate::params![
             &item.id,
             &item.workspace_id,
-            &item.user_id,
+            &db_user_id,
             &item.type_name,
             if item.is_anonymous { 1 } else { 0 },
             &item.content,
@@ -110,8 +130,8 @@ pub async fn add_report(
     ).await?;
 
     let mut stmt =
-        conn.prepare("SELECT id FROM users WHERE role IN ('admin', 'platform_admin')").await?;
-    let admin_ids_iter = stmt.query_map((), |row| row.get::<String>(0)).await?;
+        conn.prepare("SELECT id FROM users WHERE role = 'platform_admin' OR (role = 'admin' AND workspace_id = ?1)").await?;
+    let admin_ids_iter = stmt.query_map(crate::params![&workspace_id], |row| row.get::<String>(0)).await?;
     let mut admin_ids = Vec::new();
     for admin_id in admin_ids_iter {
         admin_ids.push(admin_id);
@@ -151,14 +171,20 @@ pub async fn add_report(
 pub async fn update_report_status(requester_user_id: String, report_id: String, status: String) -> Result<(), YntraError> {
     let now_ms = crate::infra::time::get_current_time_ms();
     let conn = database::acquire_connection().await?;
-    let user_role: String = conn.query_row(
-        "SELECT role FROM users WHERE id = ?1",
-        crate::params![&requester_user_id],
-        |r| r.get(0)
-    ).await.map_err(|e| YntraError::DbError(format!("Failed to retrieve user role: {}", e)))?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    if user_role != "admin" && user_role != "platform_admin" {
+    if auth.role != "admin" && auth.role != "platform_admin" {
         return Err(YntraError::AuthError("Access denied: only admins can update report status".to_string()));
+    }
+
+    let report_ws: String = conn.query_row(
+        "SELECT workspace_id FROM reports WHERE id = ?1",
+        crate::params![&report_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Report not found".to_string()))?;
+
+    if auth.role != "platform_admin" && auth.workspace_id != report_ws {
+        return Err(YntraError::AuthError("Access denied: report belongs to a different workspace".to_string()));
     }
 
     conn.execute(
@@ -168,4 +194,98 @@ pub async fn update_report_status(requester_user_id: String, report_id: String, 
 
     notify_observers();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database;
+
+    #[tokio::test]
+    async fn test_report_scoping_and_anonymity() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        // Clear existing dirty state from previous failed runs
+        let _ = conn.execute("DELETE FROM reports WHERE workspace_id IN ('ws-rep-1', 'ws-rep-2')", ()).await;
+        let _ = conn.execute("DELETE FROM messages WHERE workspace_id IN ('ws-rep-1', 'ws-rep-2')", ()).await;
+        let _ = conn.execute("DELETE FROM users WHERE workspace_id IN ('ws-rep-1', 'ws-rep-2')", ()).await;
+        let _ = conn.execute("DELETE FROM workspaces WHERE id IN ('ws-rep-1', 'ws-rep-2')", ()).await;
+
+        // 1. Setup workspace structure and users
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-rep-1', 'Rep WS 1', '[]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-rep-2', 'Rep WS 2', '[]', '{}')", ()).await.unwrap();
+
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-rep-padmin', 'ws-rep-1', 'padmin@rep.io', 'platform_admin')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-rep-admin1', 'ws-rep-1', 'admin1@rep.io', 'admin')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-rep-user1', 'ws-rep-1', 'user1@rep.io', 'user')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-rep-user2', 'ws-rep-2', 'user2@rep.io', 'user')", ()).await.unwrap();
+
+        // Initialize key/salt for decrypting reports
+        crate::infra::crypto::set_session_key("rep-test-session-key".to_string().into_bytes());
+
+        // 2. Add reports
+        let r1 = add_report(
+            "ws-rep-1".to_string(),
+            "u-rep-user1".to_string(),
+            "whistleblow".to_string(),
+            false, // not anonymous
+            "Subject 1".to_string(),
+            "Desc 1".to_string(),
+            "2026-07-05".to_string(),
+        ).await.unwrap();
+
+        let r2 = add_report(
+            "ws-rep-1".to_string(),
+            "u-rep-user1".to_string(),
+            "whistleblow".to_string(),
+            true, // anonymous
+            "Subject 2".to_string(),
+            "Desc 2".to_string(),
+            "2026-07-05".to_string(),
+        ).await.unwrap();
+
+        let r3 = add_report(
+            "ws-rep-2".to_string(),
+            "u-rep-user2".to_string(),
+            "compliance".to_string(),
+            false,
+            "Subject 3".to_string(),
+            "Desc 3".to_string(),
+            "2026-07-05".to_string(),
+        ).await.unwrap();
+
+        // 3. Verify get_reports scoping:
+
+        // A. Standard user 1 (should only see their own, and for r2 (anonymous), the author is still "anonymous" to them or they see it)
+        // Wait, standard user query: WHERE user_id = requester_user_id.
+        // Wait, r2 is anonymous, but in database user_id = 'u-rep-user1'. So they see both r1 and r2!
+        let list_user = get_reports("u-rep-user1".to_string()).await.unwrap();
+        assert_eq!(list_user.len(), 2);
+        // r2 is anonymous, so its returned user_id is masked to "anonymous"
+        let anon_rep = list_user.iter().find(|r| r.id == r2.id).unwrap();
+        assert_eq!(anon_rep.user_id, "anonymous");
+        assert!(anon_rep.content.contains("Desc 2")); // Decrypted successfully
+
+        let non_anon_rep = list_user.iter().find(|r| r.id == r1.id).unwrap();
+        assert_eq!(non_anon_rep.user_id, "u-rep-user1");
+
+        // B. Admin 1 (should see all reports in ws-rep-1, meaning r1 and r2, but not r3)
+        let list_admin = get_reports("u-rep-admin1".to_string()).await.unwrap();
+        assert_eq!(list_admin.len(), 2);
+        assert!(list_admin.iter().any(|r| r.id == r1.id));
+        assert!(list_admin.iter().any(|r| r.id == r2.id));
+        assert!(!list_admin.iter().any(|r| r.id == r3.id));
+
+        // C. Platform admin (should see all reports across workspaces: r1, r2, r3)
+        let list_padmin = get_reports("u-rep-padmin".to_string()).await.unwrap();
+        assert_eq!(list_padmin.len(), 3);
+
+        // Cleanup
+        conn.execute("DELETE FROM reports WHERE workspace_id IN ('ws-rep-1', 'ws-rep-2')", ()).await.unwrap();
+        conn.execute("DELETE FROM messages WHERE workspace_id IN ('ws-rep-1', 'ws-rep-2')", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id IN ('ws-rep-1', 'ws-rep-2')", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id IN ('ws-rep-1', 'ws-rep-2')", ()).await.unwrap();
+        crate::infra::crypto::clear_session_key();
+    }
 }

@@ -193,7 +193,18 @@ pub async fn run_hardware_auth_native(session_id: String, provider: String) {
     // Establish context
     let ctx = match Context::establish(Scope::User) {
         Ok(c) => c,
-        Err(_) => return, // Silent exit on PC/SC subsystem failure
+        Err(e) => {
+            let err_msg = format!("Smart Card subsystem failed to initialize: {:?}", e);
+            if let Ok(conn) = database::acquire_connection().await {
+                let _ = conn.execute(
+                    "UPDATE bankid_auth_sessions SET status = 'error', progress = 0.0, error_message = ?1 WHERE id = ?2",
+                    crate::params![err_msg, session_id],
+                ).await;
+            }
+            notify_observers();
+            tracing::error!("[Smart Card Error] {}", err_msg);
+            return;
+        }
     };
 
     // Run real hardware polling directly! It will handle reader plug/unplug events dynamically.
@@ -446,6 +457,100 @@ pub async fn run_hardware_auth(session_id: String, provider: String) {
     #[cfg(target_arch = "wasm32")]
     {
         let _ = run_hardware_auth_simulation(session_id, provider).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database;
+
+    #[tokio::test]
+    async fn test_authenticate_with_siths_and_nfc() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        // 1. Setup workspace and users
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-hw-1', 'HW WS 1', '[]', '{}')", ()).await.unwrap();
+
+        // Let's set a session key for personal number encryption
+        crate::infra::crypto::set_session_key("hw-test-session-key".to_string().into_bytes());
+
+        let pnum = "19950505-5555";
+        let enc_pnum = crate::infra::crypto::encrypt_opt_field(Some(pnum.to_string()), "ws-hw-1").unwrap();
+
+        conn.execute(
+            "INSERT OR REPLACE INTO users (id, workspace_id, email, role, siths_card_id, nfc_badge_uid, personal_number) VALUES ('u-hw-1', 'ws-hw-1', 'user1@hw.io', 'user', 'siths-card-123', 'nfc-badge-456', ?1)",
+            crate::params![enc_pnum],
+        ).await.unwrap();
+
+        // 2. Test authenticate_with_siths
+        let auth_siths = authenticate_with_siths("siths-card-123".to_string()).await.unwrap();
+        assert_eq!(auth_siths.id, "u-hw-1");
+        assert_eq!(auth_siths.personal_number, Some(pnum.to_string()));
+
+        let err_siths = authenticate_with_siths("invalid-card".to_string()).await;
+        assert!(err_siths.is_err());
+        assert!(matches!(err_siths.err().unwrap(), YntraError::NotFoundError(_)));
+
+        // 3. Test authenticate_with_nfc
+        let auth_nfc = authenticate_with_nfc("nfc-badge-456".to_string()).await.unwrap();
+        assert_eq!(auth_nfc.id, "u-hw-1");
+        assert_eq!(auth_nfc.personal_number, Some(pnum.to_string()));
+
+        let err_nfc = authenticate_with_nfc("invalid-badge".to_string()).await;
+        assert!(err_nfc.is_err());
+        assert!(matches!(err_nfc.err().unwrap(), YntraError::NotFoundError(_)));
+
+        // Cleanup
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-hw-1'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-hw-1'", ()).await.unwrap();
+        crate::infra::crypto::clear_session_key();
+    }
+
+    #[tokio::test]
+    async fn test_hardware_auth_simulation_progression() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-hw-2', 'HW WS 2', '[]', '{}')", ()).await.unwrap();
+
+        // Setup user-1 which is mapped to seed 1 in simulation key derivation
+        let verifying_key = ed25519_dalek::SigningKey::from_bytes(&[1; 32]).verifying_key();
+        let pubkey_hex = const_hex::encode(verifying_key.to_bytes());
+
+        conn.execute(
+            "INSERT OR REPLACE INTO users (id, workspace_id, email, role, siths_card_id, siths_public_key) VALUES ('user-1', 'ws-hw-2', 'marie@hw.io', 'admin', 'siths-card-marie', ?1)",
+            crate::params![pubkey_hex],
+        ).await.unwrap();
+
+        // Insert a mock BankID auth session
+        let session_id = "sess-hw-sim-123";
+        let challenge = "0102030405060708090a0b0c0d0e0f100102030405060708090a0b0c0d0e0f10"; // 32-byte hex challenge
+        conn.execute(
+            "INSERT OR REPLACE INTO bankid_auth_sessions (id, target_role, provider, status, qr_data, progress, created_at, challenge) VALUES (?1, 'admin', 'siths', 'connecting', 'qr', 0.0, 'now', ?2)",
+            crate::params![session_id, challenge],
+        ).await.unwrap();
+
+        // Run simulation
+        let res = run_hardware_auth_simulation(session_id.to_string(), "siths".to_string()).await;
+        assert!(res.is_ok());
+
+        // Verify status is success, authenticated_user_id is user-1, progress = 100
+        let (status, progress, auth_uid): (String, f64, Option<String>) = conn.query_row(
+            "SELECT status, progress, authenticated_user_id FROM bankid_auth_sessions WHERE id = ?1",
+            crate::params![session_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        ).await.unwrap();
+
+        assert_eq!(status, "success");
+        assert_eq!(progress, 100.0);
+        assert_eq!(auth_uid, Some("user-1".to_string()));
+
+        // Cleanup
+        conn.execute("DELETE FROM bankid_auth_sessions WHERE id = ?1", crate::params![session_id]).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-hw-2'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-hw-2'", ()).await.unwrap();
     }
 }
 

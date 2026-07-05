@@ -56,8 +56,9 @@ pub async fn update_workspace_modules(requester_user_id: String, workspace_id: S
 }
 
 #[uniffi::export]
-pub async fn get_workspaces() -> Result<Vec<Workspace>, YntraError> {
+pub async fn get_workspaces(requester_user_id: String) -> Result<Vec<Workspace>, YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     let mut stmt = conn.prepare("SELECT id, name, modules_active, settings, brand_color, logo_url, block_settings FROM workspaces").await?;
 
@@ -73,7 +74,13 @@ pub async fn get_workspaces() -> Result<Vec<Workspace>, YntraError> {
         })
     }).await?;
 
-    Ok(list)
+    let filtered = if auth.role == "platform_admin" {
+        list
+    } else {
+        list.into_iter().filter(|w| w.id == auth.workspace_id).collect()
+    };
+
+    Ok(filtered)
 }
 
 #[uniffi::export]
@@ -332,4 +339,40 @@ pub async fn update_workspace_block_settings(requester_user_id: String, workspac
 
     notify_observers();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_get_workspaces_tenant_isolation() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = crate::database::acquire_connection().await.unwrap();
+
+        // Setup test users
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('ws-user-admin', 'workspace-1', 'wsadmin@yntra.io', 'admin')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('ws-user-padmin', 'workspace-1', 'wspadmin@yntra.io', 'platform_admin')", ()).await.unwrap();
+
+        // Ensure workspace-1 and another mock workspace exists
+        conn.execute(
+            "INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('workspace-2', 'Mock Workspace 2', '{}', '{}')",
+            (),
+        ).await.unwrap();
+
+        // Querying as standard admin user (should only see workspace-1)
+        let list1 = get_workspaces("ws-user-admin".to_string()).await.unwrap();
+        assert!(list1.iter().any(|w| w.id == "workspace-1"));
+        assert!(!list1.iter().any(|w| w.id == "workspace-2"));
+
+        // Querying as platform admin (should see all workspaces)
+        let list2 = get_workspaces("ws-user-padmin".to_string()).await.unwrap();
+        assert!(list2.iter().any(|w| w.id == "workspace-1"));
+        assert!(list2.iter().any(|w| w.id == "workspace-2"));
+
+        // Clean up
+        conn.execute("DELETE FROM users WHERE id IN ('ws-user-admin', 'ws-user-padmin')", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'workspace-2'", ()).await.unwrap();
+    }
 }

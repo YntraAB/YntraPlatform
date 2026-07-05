@@ -37,6 +37,10 @@ pub async fn add_course(
     classroom: Option<String>,
 ) -> Result<Course, YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
     if !super::check_permission(&conn, &requester_user_id, "can_manage_courses").await? {
         return Err(YntraError::AuthError("Access denied: cannot manage courses".to_string()));
     }
@@ -73,6 +77,17 @@ pub async fn update_course(
     classroom: Option<String>,
 ) -> Result<Course, YntraError> {
     let conn = database::acquire_connection().await?;
+    let course_ws: String = conn.query_row(
+        "SELECT workspace_id FROM courses WHERE id = ?1",
+        crate::params![&id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Course not found".to_string()))?;
+
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != course_ws {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
     if !super::check_permission(&conn, &requester_user_id, "can_manage_courses").await? {
         return Err(YntraError::AuthError("Access denied: cannot manage courses".to_string()));
     }
@@ -137,6 +152,21 @@ pub async fn add_assignment(
     max_points: i32,
 ) -> Result<Assignment, YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let course_ws: String = conn.query_row(
+        "SELECT workspace_id FROM courses WHERE id = ?1",
+        crate::params![&course_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Course not found".to_string()))?;
+
+    if course_ws != workspace_id {
+        return Err(YntraError::ValidationError("Course does not belong to the specified workspace".to_string()));
+    }
+
     if !super::check_permission(&conn, &requester_user_id, "can_manage_assignments").await? {
         return Err(YntraError::AuthError("Access denied: cannot manage assignments".to_string()));
     }
@@ -212,6 +242,31 @@ pub async fn add_submission(
     feedback: Option<String>,
 ) -> Result<Submission, YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let student_ws: String = conn.query_row(
+        "SELECT workspace_id FROM student_profiles WHERE id = ?1",
+        crate::params![&student_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Student profile not found".to_string()))?;
+
+    if student_ws != workspace_id {
+        return Err(YntraError::ValidationError("Student does not belong to the specified workspace".to_string()));
+    }
+
+    let assignment_ws: String = conn.query_row(
+        "SELECT workspace_id FROM assignments WHERE id = ?1",
+        crate::params![&assignment_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Assignment not found".to_string()))?;
+
+    if assignment_ws != workspace_id {
+        return Err(YntraError::ValidationError("Assignment does not belong to the specified workspace".to_string()));
+    }
+
     if !super::has_academic_access(&conn, &requester_user_id, &student_id).await? {
         return Err(YntraError::AuthError("Access denied: cannot submit for this student".to_string()));
     }
@@ -249,6 +304,17 @@ pub async fn update_submission_grade(
     feedback: Option<String>,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
+    let submission_ws: String = conn.query_row(
+        "SELECT workspace_id FROM submissions WHERE id = ?1",
+        crate::params![&submission_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Submission not found".to_string()))?;
+
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != submission_ws {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
     if !super::check_permission(&conn, &requester_user_id, "can_manage_grades").await? {
         return Err(YntraError::AuthError("Access denied: cannot grade submissions".to_string()));
     }
@@ -304,6 +370,31 @@ pub async fn save_term_grade(
     teacher_comments: Option<String>,
 ) -> Result<TermGrade, YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let student_ws: String = conn.query_row(
+        "SELECT workspace_id FROM student_profiles WHERE id = ?1",
+        crate::params![&student_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Student profile not found".to_string()))?;
+
+    if student_ws != workspace_id {
+        return Err(YntraError::ValidationError("Student does not belong to the specified workspace".to_string()));
+    }
+
+    let course_ws: String = conn.query_row(
+        "SELECT workspace_id FROM courses WHERE id = ?1",
+        crate::params![&course_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Course not found".to_string()))?;
+
+    if course_ws != workspace_id {
+        return Err(YntraError::ValidationError("Course does not belong to the specified workspace".to_string()));
+    }
+
     if !super::check_permission(&conn, &requester_user_id, "can_manage_grades").await? {
         return Err(YntraError::AuthError("Access denied: cannot modify term grades".to_string()));
     }
@@ -384,6 +475,17 @@ pub async fn publish_report_card(
     principal_comments: Option<String>,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
+    let rc_ws: String = conn.query_row(
+        "SELECT workspace_id FROM report_cards WHERE id = ?1",
+        crate::params![&report_card_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Report card not found".to_string()))?;
+
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != rc_ws {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
     if !super::check_permission(&conn, &requester_user_id, "can_publish_report_cards").await? {
         return Err(YntraError::AuthError("Access denied: cannot publish report cards".to_string()));
     }
@@ -403,6 +505,21 @@ pub async fn calculate_and_save_gpa(
     term_name: String,
 ) -> Result<ReportCard, YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let student_ws: String = conn.query_row(
+        "SELECT workspace_id FROM student_profiles WHERE id = ?1",
+        crate::params![&student_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Student profile not found".to_string()))?;
+
+    if student_ws != workspace_id {
+        return Err(YntraError::ValidationError("Student does not belong to the specified workspace".to_string()));
+    }
+
     if !super::check_permission(&conn, &requester_user_id, "can_manage_grades").await? {
         return Err(YntraError::AuthError("Access denied: cannot calculate GPA".to_string()));
     }
@@ -475,11 +592,27 @@ pub(crate) fn calculate_gpa(grades: &[Option<String>]) -> f64 {
     for g_opt in grades {
         if let Some(g) = g_opt {
             let pts = match g.trim().to_uppercase().as_str() {
+                // US / ECTS / Swedish standard
                 "A" => Some(4.0),
                 "B" => Some(3.0),
                 "C" => Some(2.0),
                 "D" => Some(1.0),
+                "E" => Some(1.0),
                 "F" => Some(0.0),
+                // Norwegian scale (1 to 6)
+                "6" => Some(4.0),
+                "5" => Some(3.0),
+                "4" => Some(2.0),
+                "3" => Some(1.5),
+                "2" => Some(1.0),
+                "1" => Some(0.0),
+                // Danish scale (12, 10, 7, 4, 02, 00, -3)
+                "12" => Some(4.0),
+                "10" => Some(3.5),
+                "7" => Some(3.0),
+                "02" => Some(1.0),
+                "00" | "0" => Some(0.0),
+                "-3" => Some(0.0),
                 _ => None,
             };
             if let Some(p) = pts {
@@ -502,7 +635,16 @@ mod tests {
         assert_eq!(calculate_gpa(&[Some("B".to_string())]), 3.0);
         assert_eq!(calculate_gpa(&[Some("C".to_string())]), 2.0);
         assert_eq!(calculate_gpa(&[Some("D".to_string())]), 1.0);
+        assert_eq!(calculate_gpa(&[Some("E".to_string())]), 1.0);
         assert_eq!(calculate_gpa(&[Some("F".to_string())]), 0.0);
+
+        // Test Norwegian grades
+        assert_eq!(calculate_gpa(&[Some("6".to_string()), Some("5".to_string())]), 3.5);
+        assert_eq!(calculate_gpa(&[Some("2".to_string()), Some("1".to_string())]), 0.5);
+
+        // Test Danish grades
+        assert_eq!(calculate_gpa(&[Some("12".to_string()), Some("10".to_string())]), 3.75);
+        assert_eq!(calculate_gpa(&[Some("02".to_string()), Some("-3".to_string())]), 0.5);
 
         // Test average calculations
         assert_eq!(calculate_gpa(&[Some("A".to_string()), Some("B".to_string())]), 3.5);

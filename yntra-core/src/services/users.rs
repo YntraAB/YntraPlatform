@@ -21,7 +21,6 @@ pub async fn get_user_by_email(email: String) -> Result<Option<WorkspaceUser>, Y
     let mut rows = stmt.query(crate::params![email_lower]).await?;
     if let Some(row) = rows.next().await? {
         let ws_id: Option<String> = row.get(1)?;
-        let raw_pnum: Option<String> = row.get(11)?;
         Ok(Some(WorkspaceUser {
             id: row.get(0)?,
             workspace_id: ws_id.clone(),
@@ -30,11 +29,11 @@ pub async fn get_user_by_email(email: String) -> Result<Option<WorkspaceUser>, Y
             phone: row.get(4)?,
             role: row.get(5)?,
             preferences: row.get(6)?,
-            siths_card_id: row.get(7)?,
-            nfc_badge_uid: row.get(8)?,
+            siths_card_id: None,
+            nfc_badge_uid: None,
             updated_at: row.get(9)?,
             sync_status: row.get(10)?,
-            personal_number: crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id.as_deref().unwrap_or("")),
+            personal_number: None,
         }))
     } else {
         Ok(None)
@@ -52,20 +51,23 @@ pub async fn get_users(requester_user_id: String) -> Result<Vec<WorkspaceUser>, 
     ).await?;
 
     let list = stmt.query_map(crate::params![&auth.workspace_id], |row| {
+        let id: String = row.get(0)?;
         let ws_id: Option<String> = row.get(1)?;
         let raw_pnum: Option<String> = row.get(11)?;
         
-        let personal_number = if auth.is_admin {
+        let is_self = id == requester_user_id;
+        
+        let personal_number = if auth.is_admin || is_self {
             crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id.as_deref().unwrap_or(""))
         } else {
             None
         };
         
-        let siths_card_id = if auth.is_admin { row.get(7)? } else { None };
-        let nfc_badge_uid = if auth.is_admin { row.get(8)? } else { None };
+        let siths_card_id = if auth.is_admin || is_self { row.get(7)? } else { None };
+        let nfc_badge_uid = if auth.is_admin || is_self { row.get(8)? } else { None };
 
         Ok(WorkspaceUser {
-            id: row.get(0)?,
+            id,
             workspace_id: ws_id,
             email: row.get(2)?,
             full_name: row.get(3)?,
@@ -360,11 +362,15 @@ pub async fn delete_user(requester_user_id: String, user_id: String) -> Result<(
         // 1. Delete associated child relationships
         conn.execute("DELETE FROM team_members WHERE user_id = ?1", crate::params![&user_id]).await?;
         conn.execute("DELETE FROM time_reports WHERE user_id = ?1", crate::params![&user_id]).await?;
+        conn.execute("DELETE FROM student_parents WHERE parent_user_id = ?1", crate::params![&user_id]).await?;
         
         // 2. Anonymize/Nullify references in other tables to preserve integrity
         conn.execute("UPDATE messages SET sender_id = NULL WHERE sender_id = ?1", crate::params![&user_id]).await?;
         conn.execute("UPDATE messages SET receiver_id = NULL WHERE receiver_id = ?1", crate::params![&user_id]).await?;
         conn.execute("UPDATE reports SET user_id = NULL WHERE user_id = ?1", crate::params![&user_id]).await?;
+        conn.execute("UPDATE student_profiles SET user_id = NULL WHERE user_id = ?1", crate::params![&user_id]).await?;
+        conn.execute("UPDATE courses SET teacher_id = NULL WHERE teacher_id = ?1", crate::params![&user_id]).await?;
+        conn.execute("UPDATE job_tickets SET assigned_user_id = NULL WHERE assigned_user_id = ?1", crate::params![&user_id]).await?;
 
         // 3. Delete user profile record
         conn.execute("DELETE FROM users WHERE id = ?1", crate::params![&user_id]).await?;
@@ -408,6 +414,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_null_password_hash_auth_bypass_fixed() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         // Prepare database connection and create test user with NULL password hash
         let conn = database::acquire_connection().await.unwrap();
         let user_id = "test-bypass-user-123";
@@ -425,5 +432,67 @@ mod tests {
 
         // Clean up
         conn.execute("DELETE FROM users WHERE id = ?1", crate::params![user_id]).await.unwrap();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_get_user_by_email_excludes_sensitive_fields() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+        let user_id = "test-sensitive-user-123";
+        let email = "sensitive@yntra.io";
+        
+        conn.execute(
+            "INSERT OR REPLACE INTO users (id, workspace_id, email, password_hash, role, personal_number, siths_card_id, nfc_badge_uid) VALUES (?1, 'workspace-1', ?2, NULL, 'user', '19850101-9999', 'card-123', 'badge-456')",
+            crate::params![user_id, email],
+        ).await.unwrap();
+
+        let res = get_user_by_email(email.to_string()).await.unwrap().unwrap();
+        assert_eq!(res.id, user_id);
+        assert_eq!(res.email, email);
+        assert!(res.personal_number.is_none());
+        assert!(res.siths_card_id.is_none());
+        assert!(res.nfc_badge_uid.is_none());
+
+        conn.execute("DELETE FROM users WHERE id = ?1", crate::params![user_id]).await.unwrap();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_get_users_self_decryption() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        crate::infra::crypto::set_session_key("test-session-key".to_string().into_bytes());
+
+        let conn = database::acquire_connection().await.unwrap();
+        let user1_id = "test-self-user-1";
+        let user2_id = "test-self-user-2";
+        let personal_number = "19900101-1234";
+
+        let enc_pnum = crate::infra::crypto::encrypt_opt_field(Some(personal_number.to_string()), "workspace-1").unwrap();
+        
+        conn.execute(
+            "INSERT OR REPLACE INTO users (id, workspace_id, email, role, personal_number) VALUES (?1, 'workspace-1', 'user1@yntra.io', 'assistant', ?2)",
+            crate::params![user1_id, enc_pnum.clone()],
+        ).await.unwrap();
+        
+        conn.execute(
+            "INSERT OR REPLACE INTO users (id, workspace_id, email, role, personal_number) VALUES (?1, 'workspace-1', 'user2@yntra.io', 'assistant', ?2)",
+            crate::params![user2_id, enc_pnum.clone()],
+        ).await.unwrap();
+
+        // Querying as user1
+        let list = get_users(user1_id.to_string()).await.unwrap();
+        
+        // Find user1 in the returned list
+        let self_user = list.iter().find(|u| u.id == user1_id).unwrap();
+        assert_eq!(self_user.personal_number, Some(personal_number.to_string()));
+
+        // Find user2 in the returned list (should be None since requester is not admin and it's not user2 themselves)
+        let other_user = list.iter().find(|u| u.id == user2_id).unwrap();
+        assert!(other_user.personal_number.is_none());
+
+        // Clean up
+        conn.execute("DELETE FROM users WHERE id IN (?1, ?2)", crate::params![user1_id, user2_id]).await.unwrap();
+        crate::infra::crypto::clear_session_key();
     }
 }

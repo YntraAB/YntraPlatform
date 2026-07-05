@@ -2,6 +2,24 @@ use crate::database;
 use crate::observer::notify_observers;
 use crate::{ClientProfile, JournalEntry, MedicationItem, YntraError};
 
+fn personal_numbers_match(p1: &str, p2: &str) -> bool {
+    let d1: String = p1.chars().filter(|c| c.is_ascii_digit()).collect();
+    let d2: String = p2.chars().filter(|c| c.is_ascii_digit()).collect();
+    if d1.is_empty() || d2.is_empty() {
+        return false;
+    }
+    if d1 == d2 {
+        return true;
+    }
+    if d1.len() == 12 && d2.len() == 10 {
+        return d1[2..] == d2;
+    }
+    if d1.len() == 10 && d2.len() == 12 {
+        return d1 == d2[2..];
+    }
+    false
+}
+
 #[uniffi::export]
 pub async fn get_clients(requester_user_id: String) -> Result<Vec<ClientProfile>, YntraError> {
     let conn = database::acquire_connection().await?;
@@ -16,6 +34,16 @@ pub async fn get_clients(requester_user_id: String) -> Result<Vec<ClientProfile>
         None => return Err(YntraError::AuthError("User not found".to_string())),
     };
 
+    let decrypted_user_pnum = if role == "client" {
+        if let Some(ref pn) = personal_number {
+            crate::infra::crypto::decrypt_field(pn, &ws_id).ok()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let (query, params) = if role == "platform_admin" {
         (
             "SELECT id, workspace_id, team_id, first_name, last_name, personal_number, care_level, message_settings, created_at, updated_at, sync_status FROM clients".to_string(),
@@ -24,20 +52,13 @@ pub async fn get_clients(requester_user_id: String) -> Result<Vec<ClientProfile>
     } else if role == "admin" {
         (
             "SELECT id, workspace_id, team_id, first_name, last_name, personal_number, care_level, message_settings, created_at, updated_at, sync_status FROM clients WHERE workspace_id = ?1".to_string(),
-            vec![ws_id],
+            vec![ws_id.clone()],
         )
     } else if role == "client" {
-        if let Some(pn) = personal_number {
-            (
-                "SELECT id, workspace_id, team_id, first_name, last_name, personal_number, care_level, message_settings, created_at, updated_at, sync_status FROM clients WHERE personal_number = ?1 AND workspace_id = ?2".to_string(),
-                vec![pn, ws_id],
-            )
-        } else {
-            (
-                "SELECT id, workspace_id, team_id, first_name, last_name, personal_number, care_level, message_settings, created_at, updated_at, sync_status FROM clients WHERE 1 = 0".to_string(),
-                vec![],
-            )
-        }
+        (
+            "SELECT id, workspace_id, team_id, first_name, last_name, personal_number, care_level, message_settings, created_at, updated_at, sync_status FROM clients WHERE workspace_id = ?1".to_string(),
+            vec![ws_id.clone()],
+        )
     } else {
         (
             "SELECT c.id, c.workspace_id, c.team_id, c.first_name, c.last_name, c.personal_number, c.care_level, c.message_settings, c.created_at, c.updated_at, c.sync_status
@@ -66,6 +87,22 @@ pub async fn get_clients(requester_user_id: String) -> Result<Vec<ClientProfile>
             sync_status: row.get(10)?,
         })
     }).await?;
+
+    let list = if role == "client" {
+        if let Some(target_pnum) = decrypted_user_pnum {
+            list.into_iter().filter(|c| {
+                if let Some(ref c_pnum) = c.personal_number {
+                    personal_numbers_match(c_pnum, &target_pnum)
+                } else {
+                    false
+                }
+            }).collect()
+        } else {
+            vec![]
+        }
+    } else {
+        list
+    };
 
     Ok(list)
 }
@@ -217,41 +254,45 @@ pub async fn add_journal_entry(
     author_id: String,
     content: String,
 ) -> Result<JournalEntry, YntraError> {
-    let conn = database::acquire_connection().await?;
-    let auth = crate::AuthContext::authorize(&conn, &author_id).await?;
+    {
+        let conn = database::acquire_connection().await?;
+        let auth = crate::AuthContext::authorize(&conn, &author_id).await?;
 
-    if auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: author belongs to a different workspace".to_string()));
+        if auth.workspace_id != workspace_id {
+            return Err(YntraError::AuthError("Access denied: author belongs to a different workspace".to_string()));
+        }
+
+        let client_row: Option<(String, Option<String>)> = conn.query_row(
+            "SELECT workspace_id, team_id FROM clients WHERE id = ?1",
+            crate::params![&client_id],
+            |r| Ok((r.get(0)?, r.get(1)?))
+        ).await.ok();
+
+        let (client_ws, client_team) = match client_row {
+            Some((ws, team)) => (ws, team),
+            None => return Err(YntraError::NotFoundError("Client not found".to_string())),
+        };
+
+        if client_ws != workspace_id {
+            return Err(YntraError::AuthError("Access denied: client belongs to a different workspace".to_string()));
+        }
+
+        let is_authorized = if auth.role == "platform_admin" || auth.role == "admin" {
+            true
+        } else if let Some(tid) = &client_team {
+            let mut member_stmt = conn.prepare("SELECT 1 FROM team_members WHERE team_id = ?1 AND user_id = ?2").await?;
+            let mut member_rows = member_stmt.query(crate::params![tid, &author_id]).await?;
+            member_rows.next().await?.is_some()
+        } else {
+            true
+        };
+
+        if !is_authorized {
+            return Err(YntraError::AuthError("You are not authorized to write to this client's records".to_string()));
+        }
     }
 
-    let client_row: Option<(String, Option<String>)> = conn.query_row(
-        "SELECT workspace_id, team_id FROM clients WHERE id = ?1",
-        crate::params![&client_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
-    ).await.ok();
-
-    let (client_ws, client_team) = match client_row {
-        Some((ws, team)) => (ws, team),
-        None => return Err(YntraError::NotFoundError("Client not found".to_string())),
-    };
-
-    if client_ws != workspace_id {
-        return Err(YntraError::AuthError("Access denied: client belongs to a different workspace".to_string()));
-    }
-
-    let is_authorized = if auth.role == "platform_admin" || auth.role == "admin" {
-        true
-    } else if let Some(tid) = &client_team {
-        let mut member_stmt = conn.prepare("SELECT 1 FROM team_members WHERE team_id = ?1 AND user_id = ?2").await?;
-        let mut member_rows = member_stmt.query(crate::params![tid, &author_id]).await?;
-        member_rows.next().await?.is_some()
-    } else {
-        true
-    };
-
-    if !is_authorized {
-        return Err(YntraError::AuthError("You are not authorized to write to this client's records".to_string()));
-    }
+    crate::log_action(author_id.clone(), Some(client_id.clone()), "add_journal_entry".to_string()).await?;
 
     let id = uuid::Uuid::new_v4().to_string();
     let created_at = crate::infra::time::get_current_datetime_str();
@@ -269,6 +310,7 @@ pub async fn add_journal_entry(
 
     let enc_content = crate::infra::crypto::encrypt_field(&item.content, &workspace_id)?;
 
+    let conn = database::acquire_connection().await?;
     conn.execute(
         "INSERT INTO client_journals (id, client_id, author_id, content, created_at, workspace_id, updated_at, sync_status)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending')",
@@ -298,41 +340,45 @@ pub async fn add_medication(
     frequency: String,
     instructions: String,
 ) -> Result<MedicationItem, YntraError> {
-    let conn = database::acquire_connection().await?;
-    let auth = crate::AuthContext::authorize(&conn, &actor_id).await?;
+    {
+        let conn = database::acquire_connection().await?;
+        let auth = crate::AuthContext::authorize(&conn, &actor_id).await?;
 
-    if auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: actor belongs to a different workspace".to_string()));
+        if auth.workspace_id != workspace_id {
+            return Err(YntraError::AuthError("Access denied: actor belongs to a different workspace".to_string()));
+        }
+
+        let client_row: Option<(String, Option<String>)> = conn.query_row(
+            "SELECT workspace_id, team_id FROM clients WHERE id = ?1",
+            crate::params![&client_id],
+            |r| Ok((r.get(0)?, r.get(1)?))
+        ).await.ok();
+
+        let (client_ws, client_team) = match client_row {
+            Some((ws, team)) => (ws, team),
+            None => return Err(YntraError::NotFoundError("Client not found".to_string())),
+        };
+
+        if client_ws != workspace_id {
+            return Err(YntraError::AuthError("Access denied: client belongs to a different workspace".to_string()));
+        }
+
+        let is_authorized = if auth.role == "platform_admin" || auth.role == "admin" {
+            true
+        } else if let Some(tid) = &client_team {
+            let mut member_stmt = conn.prepare("SELECT 1 FROM team_members WHERE team_id = ?1 AND user_id = ?2").await?;
+            let mut member_rows = member_stmt.query(crate::params![tid, &actor_id]).await?;
+            member_rows.next().await?.is_some()
+        } else {
+            true
+        };
+
+        if !is_authorized {
+            return Err(YntraError::AuthError("You are not authorized to write to this client's records".to_string()));
+        }
     }
 
-    let client_row: Option<(String, Option<String>)> = conn.query_row(
-        "SELECT workspace_id, team_id FROM clients WHERE id = ?1",
-        crate::params![&client_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
-    ).await.ok();
-
-    let (client_ws, client_team) = match client_row {
-        Some((ws, team)) => (ws, team),
-        None => return Err(YntraError::NotFoundError("Client not found".to_string())),
-    };
-
-    if client_ws != workspace_id {
-        return Err(YntraError::AuthError("Access denied: client belongs to a different workspace".to_string()));
-    }
-
-    let is_authorized = if auth.role == "platform_admin" || auth.role == "admin" {
-        true
-    } else if let Some(tid) = &client_team {
-        let mut member_stmt = conn.prepare("SELECT 1 FROM team_members WHERE team_id = ?1 AND user_id = ?2").await?;
-        let mut member_rows = member_stmt.query(crate::params![tid, &actor_id]).await?;
-        member_rows.next().await?.is_some()
-    } else {
-        true
-    };
-
-    if !is_authorized {
-        return Err(YntraError::AuthError("You are not authorized to write to this client's records".to_string()));
-    }
+    crate::log_action(actor_id.clone(), Some(client_id.clone()), "add_medication".to_string()).await?;
 
     let id = uuid::Uuid::new_v4().to_string();
     let created_at = crate::infra::time::get_current_datetime_str();
@@ -355,6 +401,7 @@ pub async fn add_medication(
     let enc_freq = cipher.encrypt_opt(item.frequency.clone())?;
     let enc_instr = cipher.encrypt_opt(item.instructions.clone())?;
 
+    let conn = database::acquire_connection().await?;
     conn.execute(
         "INSERT INTO client_medications (id, client_id, name, dosage, frequency, instructions, created_at, workspace_id, updated_at, sync_status)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending')",
@@ -517,5 +564,108 @@ pub async fn delete_client(requester_user_id: String, client_id: String) -> Resu
             let _ = conn.execute("ROLLBACK", ()).await;
             Err(e)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_personal_numbers_match_helper() {
+        assert!(personal_numbers_match("19900101-1234", "199001011234"));
+        assert!(personal_numbers_match("19900101-1234", "900101-1234"));
+        assert!(personal_numbers_match("9001011234", "19900101-1234"));
+        assert!(!personal_numbers_match("19900101-1234", "19900101-1235"));
+    }
+
+    #[tokio::test]
+    async fn test_get_clients_probabilistic_encryption_match() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        crate::infra::crypto::set_session_key("test-session-key".to_string().into_bytes());
+
+        let conn = database::acquire_connection().await.unwrap();
+        let user_id = "test-client-user-999";
+        let email = "client-user@yntra.io";
+        let ws_id = "workspace-1";
+        let personal_number = "19900101-1234";
+
+        // Insert the client user with encrypted personal number
+        let enc_user_pnum = crate::infra::crypto::encrypt_opt_field(Some(personal_number.to_string()), ws_id).unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO users (id, workspace_id, email, password_hash, role, personal_number) VALUES (?1, ?2, ?3, NULL, 'client', ?4)",
+            crate::params![user_id, ws_id, email, enc_user_pnum],
+        ).await.unwrap();
+
+        // Insert the client profile with encrypted personal number (random nonce generates different ciphertext)
+        let client_id = "client-profile-999";
+        let enc_client_pnum = crate::infra::crypto::encrypt_opt_field(Some(personal_number.to_string()), ws_id).unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO clients (id, workspace_id, first_name, last_name, personal_number, care_level, created_at, updated_at) VALUES (?1, ?2, 'Alice', 'Smith', ?3, 'Normal', '2026-07-05', 0)",
+            crate::params![client_id, ws_id, enc_client_pnum],
+        ).await.unwrap();
+
+        // Retrieve the client profile as the logged-in client user
+        let clients_list = get_clients(user_id.to_string()).await.unwrap();
+        assert_eq!(clients_list.len(), 1);
+        assert_eq!(clients_list[0].id, client_id);
+        assert_eq!(clients_list[0].first_name, "Alice");
+        assert_eq!(clients_list[0].personal_number, Some(personal_number.to_string()));
+
+        // Clean up
+        conn.execute("DELETE FROM users WHERE id = ?1", crate::params![user_id]).await.unwrap();
+        conn.execute("DELETE FROM clients WHERE id = ?1", crate::params![client_id]).await.unwrap();
+        crate::infra::crypto::clear_session_key();
+    }
+
+    #[tokio::test]
+    async fn test_compliance_logging_for_client_writes() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+
+        // Setup test workspace and user
+        let user_id = "test-author-user-777";
+        let client_id = "test-client-777";
+        let ws_id = "workspace-1";
+
+        {
+            let conn = database::acquire_connection().await.unwrap();
+            // Pre-clean in case of previous test crashes
+            let _ = conn.execute("DELETE FROM client_journals WHERE author_id = ?1", crate::params![user_id]).await;
+            let _ = conn.execute("DELETE FROM client_medications WHERE client_id = ?1", crate::params![client_id]).await;
+            let _ = conn.execute("DELETE FROM users WHERE id = ?1", crate::params![user_id]).await;
+            let _ = conn.execute("DELETE FROM clients WHERE id = ?1", crate::params![client_id]).await;
+            let _ = conn.execute("DELETE FROM audit_logs WHERE actor_id = ?1", crate::params![user_id]).await;
+
+            conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES (?1, ?2, 'author@yntra.io', 'admin')", crate::params![user_id, ws_id]).await.unwrap();
+            conn.execute("INSERT OR REPLACE INTO clients (id, workspace_id, first_name, last_name, care_level, created_at, updated_at) VALUES (?1, ?2, 'Bob', 'Jones', 'Normal', '2026-07-05', 0)", crate::params![client_id, ws_id]).await.unwrap();
+        }
+
+        crate::infra::crypto::set_session_key("test-session-key".to_string().into_bytes());
+
+        // 1. Add Journal Entry
+        let _journal = add_journal_entry(ws_id.to_string(), client_id.to_string(), user_id.to_string(), "Patient condition stable".to_string()).await.unwrap();
+
+        // 2. Add Medication
+        let _medication = add_medication(ws_id.to_string(), client_id.to_string(), user_id.to_string(), "Aspirin".to_string(), "500mg".to_string(), "Daily".to_string(), "Take after meal".to_string()).await.unwrap();
+
+        // 3. Verify that audit logs contain entries for both writes
+        let logs = crate::get_audit_logs(user_id.to_string()).await.unwrap();
+        
+        let has_journal_log = logs.iter().any(|l| l.actor_id == user_id && l.target_client_id.as_deref() == Some(client_id) && l.action_type == "add_journal_entry");
+        let has_medication_log = logs.iter().any(|l| l.actor_id == user_id && l.target_client_id.as_deref() == Some(client_id) && l.action_type == "add_medication");
+
+        assert!(has_journal_log);
+        assert!(has_medication_log);
+
+        // Clean up
+        {
+            let conn = database::acquire_connection().await.unwrap();
+            conn.execute("DELETE FROM client_journals WHERE author_id = ?1", crate::params![user_id]).await.unwrap();
+            conn.execute("DELETE FROM client_medications WHERE client_id = ?1", crate::params![client_id]).await.unwrap();
+            conn.execute("DELETE FROM users WHERE id = ?1", crate::params![user_id]).await.unwrap();
+            conn.execute("DELETE FROM clients WHERE id = ?1", crate::params![client_id]).await.unwrap();
+            conn.execute("DELETE FROM audit_logs WHERE actor_id = ?1", crate::params![user_id]).await.unwrap();
+        }
+        crate::infra::crypto::clear_session_key();
     }
 }

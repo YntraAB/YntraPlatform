@@ -3,10 +3,11 @@ use crate::observer::notify_observers;
 use crate::{TimetableSlot, YntraError};
 
 #[uniffi::export]
-pub async fn get_timetable_slots() -> Result<Vec<TimetableSlot>, YntraError> {
+pub async fn get_timetable_slots(requester_user_id: String) -> Result<Vec<TimetableSlot>, YntraError> {
     let conn = database::acquire_connection().await?;
-    let mut stmt = conn.prepare("SELECT id, workspace_id, course_id, day_of_week, start_time, end_time, classroom, updated_at, sync_status FROM timetable_slots").await?;
-    let list = stmt.query_map((), |row| {
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    let mut stmt = conn.prepare("SELECT id, workspace_id, course_id, day_of_week, start_time, end_time, classroom, updated_at, sync_status FROM timetable_slots WHERE workspace_id = ?1").await?;
+    let list = stmt.query_map(crate::params![auth.workspace_id], |row| {
         Ok(TimetableSlot {
             id: row.get(0)?,
             workspace_id: row.get(1)?,
@@ -33,6 +34,21 @@ pub async fn save_timetable_slot(
     classroom: Option<String>,
 ) -> Result<TimetableSlot, YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let course_ws: String = conn.query_row(
+        "SELECT workspace_id FROM courses WHERE id = ?1",
+        crate::params![&course_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Course not found".to_string()))?;
+
+    if course_ws != workspace_id {
+        return Err(YntraError::ValidationError("Course does not belong to the specified workspace".to_string()));
+    }
+
     if !super::check_permission(&conn, &requester_user_id, "can_manage_courses").await? {
         return Err(YntraError::AuthError("Access denied: cannot manage scheduling".to_string()));
     }
@@ -73,6 +89,17 @@ pub async fn save_timetable_slot(
 #[uniffi::export]
 pub async fn delete_timetable_slot(requester_user_id: String, id: String) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
+    let slot_ws: String = conn.query_row(
+        "SELECT workspace_id FROM timetable_slots WHERE id = ?1",
+        crate::params![&id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Timetable slot not found".to_string()))?;
+
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != slot_ws {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
     if !super::check_permission(&conn, &requester_user_id, "can_manage_courses").await? {
         return Err(YntraError::AuthError("Access denied: cannot manage scheduling".to_string()));
     }
@@ -82,9 +109,99 @@ pub async fn delete_timetable_slot(requester_user_id: String, id: String) -> Res
     Ok(())
 }
 
+async fn get_student_active_courses(
+    conn: &database::DbConnection,
+    student_id: &str,
+) -> Result<std::collections::HashSet<String>, YntraError> {
+    let mut course_ids = std::collections::HashSet::new();
+
+    // 1. Attendance records
+    if let Ok(mut stmt) = conn.prepare("SELECT DISTINCT course_id FROM attendance_records WHERE student_id = ?1").await {
+        if let Ok(mut rows) = stmt.query(crate::params![student_id]).await {
+            while let Ok(Some(row)) = rows.next().await {
+                if let Ok(cid) = row.get::<String>(0) {
+                    course_ids.insert(cid);
+                }
+            }
+        }
+    }
+
+    // 2. Term grades
+    if let Ok(mut stmt) = conn.prepare("SELECT DISTINCT course_id FROM term_grades WHERE student_id = ?1").await {
+        if let Ok(mut rows) = stmt.query(crate::params![student_id]).await {
+            while let Ok(Some(row)) = rows.next().await {
+                if let Ok(cid) = row.get::<String>(0) {
+                    course_ids.insert(cid);
+                }
+            }
+        }
+    }
+
+    // 3. Submissions
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT DISTINCT a.course_id FROM submissions s JOIN assignments a ON s.assignment_id = a.id WHERE s.student_id = ?1"
+    ).await {
+        if let Ok(mut rows) = stmt.query(crate::params![student_id]).await {
+            while let Ok(Some(row)) = rows.next().await {
+                if let Ok(cid) = row.get::<String>(0) {
+                    course_ids.insert(cid);
+                }
+            }
+        }
+    }
+
+    Ok(course_ids)
+}
+
 #[uniffi::export]
 pub async fn sync_timetable_to_calendar(workspace_id: String, user_id: String) -> Result<(), YntraError> {
-    let slots = get_timetable_slots().await?;
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &user_id).await?;
+
+    let is_admin = auth.role == "platform_admin" || auth.role == "admin" || auth.role.contains("rektor") || auth.role.contains("principal");
+
+    let mut allowed_course_ids = std::collections::HashSet::new();
+
+    // 1. Check if user is a teacher
+    let mut stmt = conn.prepare("SELECT id FROM courses WHERE teacher_id = ?1").await?;
+    let mut rows = stmt.query(crate::params![&user_id]).await?;
+    while let Some(row) = rows.next().await? {
+        let cid: String = row.get(0)?;
+        allowed_course_ids.insert(cid);
+    }
+
+    // 2. Check if user is a student
+    if let Ok(student_id) = conn.query_row(
+        "SELECT id FROM student_profiles WHERE user_id = ?1",
+        crate::params![&user_id],
+        |r| r.get::<String>(0)
+    ).await {
+        let active = get_student_active_courses(&conn, &student_id).await?;
+        allowed_course_ids.extend(active);
+    }
+
+    // 3. Check if user is a parent
+    let mut stmt = conn.prepare("SELECT student_id FROM student_parents WHERE parent_user_id = ?1").await?;
+    let mut rows = stmt.query(crate::params![&user_id]).await?;
+    while let Some(row) = rows.next().await? {
+        let sid: String = row.get(0)?;
+        let child_courses = get_student_active_courses(&conn, &sid).await?;
+        allowed_course_ids.extend(child_courses);
+    }
+
+    let all_slots = get_timetable_slots(user_id.clone()).await?;
+    let slots: Vec<TimetableSlot> = all_slots
+        .into_iter()
+        .filter(|s| s.workspace_id == workspace_id)
+        .filter(|s| {
+            if is_admin {
+                true
+            } else {
+                allowed_course_ids.contains(&s.course_id)
+            }
+        })
+        .collect();
+
     if slots.is_empty() {
         return Ok(());
     }
@@ -196,3 +313,82 @@ fn format_date_from_secs(secs: i64) -> String {
     let day = days + 1;
     format!("{:04}-{:02}-{:02}", year, month, day)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database;
+
+    #[test]
+    fn test_format_date_from_secs_scenarios() {
+        // Test epoch start
+        assert_eq!(format_date_from_secs(0), "1970-01-01");
+        // Test 1 day after epoch
+        assert_eq!(format_date_from_secs(86400), "1970-01-02");
+        // Test leap years
+        assert_eq!(format_date_from_secs(1582934400), "2020-02-29"); // 2020-02-29
+        assert_eq!(format_date_from_secs(1583020800), "2020-03-01"); // 2020-03-01
+        // Test standard modern dates (1783296000 is 2026-07-06 UTC)
+        assert_eq!(format_date_from_secs(1783296000), "2026-07-06");
+    }
+
+    #[tokio::test]
+    async fn test_sync_timetable_to_calendar_generation() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = database::acquire_connection().await.unwrap();
+
+        // Cleanup first in case of dirty state
+        let _ = conn.execute("PRAGMA foreign_keys = OFF;", ()).await;
+        let _ = conn.execute("DELETE FROM events WHERE workspace_id = 'ws-sched-1'", ()).await;
+        let _ = conn.execute("DELETE FROM timetable_slots WHERE workspace_id = 'ws-sched-1'", ()).await;
+        let _ = conn.execute("DELETE FROM courses WHERE workspace_id = 'ws-sched-1'", ()).await;
+        let _ = conn.execute("DELETE FROM users WHERE workspace_id = 'ws-sched-1'", ()).await;
+        let _ = conn.execute("DELETE FROM workspaces WHERE id = 'ws-sched-1'", ()).await;
+        let _ = conn.execute("PRAGMA foreign_keys = ON;", ()).await;
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-sched-1', 'Sched WS', '[]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-sched-admin', 'ws-sched-1', 'admin@sched.io', 'admin')", ()).await.unwrap();
+
+        // 1. Save course
+        conn.execute(
+            "INSERT OR REPLACE INTO courses (id, workspace_id, name, subject, teacher_id, classroom, updated_at, sync_status) VALUES ('course-1', 'ws-sched-1', 'Math 101', 'Math', 'teacher-1', 'Room 101', 0, 'synced')",
+            ()
+        ).await.unwrap();
+
+        // 2. Setup timetable slot (day_of_week: 1)
+        let slot = save_timetable_slot(
+            "u-sched-admin".to_string(),
+            "ws-sched-1".to_string(),
+            "course-1".to_string(),
+            1, // day_of_week
+            "09:00".to_string(),
+            "10:30".to_string(),
+            Some("Room 101".to_string()),
+        ).await.unwrap();
+
+        assert_eq!(slot.classroom, Some("Room 101".to_string()));
+
+        let sync_res = sync_timetable_to_calendar("ws-sched-1".to_string(), "u-sched-admin".to_string()).await;
+        assert!(sync_res.is_ok());
+
+        // Verify that events were created in the database
+        let events_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM events WHERE workspace_id = 'ws-sched-1' AND user_id = 'u-sched-admin'",
+            (),
+            |r| r.get(0)
+        ).await.unwrap();
+        
+        // Since it checks 14 days, it should find 2 days matching day_of_week = 1
+        assert_eq!(events_count, 2);
+
+        // Cleanup
+        let _ = conn.execute("PRAGMA foreign_keys = OFF;", ()).await;
+        conn.execute("DELETE FROM events WHERE workspace_id = 'ws-sched-1'", ()).await.unwrap();
+        conn.execute("DELETE FROM timetable_slots WHERE workspace_id = 'ws-sched-1'", ()).await.unwrap();
+        conn.execute("DELETE FROM courses WHERE workspace_id = 'ws-sched-1'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-sched-1'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-sched-1'", ()).await.unwrap();
+        let _ = conn.execute("PRAGMA foreign_keys = ON;", ()).await;
+    }
+}
+

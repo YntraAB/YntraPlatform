@@ -3,8 +3,25 @@ use crate::observer::notify_observers;
 use crate::{MessageItem, YntraError};
 
 #[uniffi::export]
-pub async fn get_messages(user_id: String) -> Result<Vec<MessageItem>, YntraError> {
+pub async fn get_messages(requester_user_id: String, user_id: String) -> Result<Vec<MessageItem>, YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if auth.role != "platform_admin" && requester_user_id != user_id {
+        if auth.role == "admin" {
+            let target_ws: String = conn.query_row(
+                "SELECT workspace_id FROM users WHERE id = ?1",
+                crate::params![&user_id],
+                |r| r.get(0)
+            ).await.map_err(|_| YntraError::NotFoundError("Target user not found".to_string()))?;
+
+            if auth.workspace_id != target_ws {
+                return Err(YntraError::AuthError("Access denied: target user is in a different workspace".to_string()));
+            }
+        } else {
+            return Err(YntraError::AuthError("Access denied: cannot view messages of other users".to_string()));
+        }
+    }
 
     let mut stmt = conn.prepare(
         "SELECT id, workspace_id, sender_id, receiver_id, target_team_id, subject, body, is_read, created_at, updated_at, sync_status
@@ -93,4 +110,32 @@ pub async fn mark_message_read(id: String) -> Result<(), YntraError> {
 
     notify_observers();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_get_messages_authorization() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+        
+        // Insert two test users
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('test-msg-user-1', 'workspace-1', 'msg1@yntra.io', 'assistant')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('test-msg-user-2', 'workspace-1', 'msg2@yntra.io', 'assistant')", ()).await.unwrap();
+        
+        // Verify user 1 can get their own messages
+        let res1 = get_messages("test-msg-user-1".to_string(), "test-msg-user-1".to_string()).await;
+        assert!(res1.is_ok());
+
+        // Verify user 1 cannot get user 2's messages
+        let res2 = get_messages("test-msg-user-1".to_string(), "test-msg-user-2".to_string()).await;
+        assert!(res2.is_err());
+        assert!(matches!(res2.unwrap_err(), YntraError::AuthError(_)));
+
+        // Clean up
+        conn.execute("DELETE FROM users WHERE id IN ('test-msg-user-1', 'test-msg-user-2')", ()).await.unwrap();
+    }
 }

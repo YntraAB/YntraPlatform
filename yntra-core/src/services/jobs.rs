@@ -411,3 +411,105 @@ pub async fn accept_move_quote(requester_user_id: String, quote_id: String) -> R
     notify_observers();
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database;
+
+    #[tokio::test]
+    async fn test_job_tickets_workspace_scoping() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        // Workspaces and users
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-job-1', 'Job WS 1', '[]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-job-2', 'Job WS 2', '[]', '{}')", ()).await.unwrap();
+
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-job-user1', 'ws-job-1', 'u1@job.io', 'user')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-job-user2', 'ws-job-2', 'u2@job.io', 'user')", ()).await.unwrap();
+
+        // Create a job in ws-job-1
+        let job1 = create_job_ticket(
+            "u-job-user1".to_string(),
+            "ws-job-1".to_string(),
+            "Move office chair".to_string(),
+            "Heavy chair".to_string(),
+            "123 Main St".to_string(),
+            "high".to_string(),
+            Some("u-job-user1".to_string()),
+            "2026-07-05".to_string(),
+            "[]".to_string(),
+            None, None, 0, 0, false, false, false, false,
+        ).await.unwrap();
+
+        // Retrieve tickets as user 1 (should see job1)
+        let list1 = get_job_tickets("u-job-user1".to_string()).await.unwrap();
+        assert_eq!(list1.len(), 1);
+        assert_eq!(list1[0].id, job1.id);
+
+        // Retrieve tickets as user 2 (should see 0, since ws-job-2 has no jobs)
+        let list2 = get_job_tickets("u-job-user2".to_string()).await.unwrap();
+        assert_eq!(list2.len(), 0);
+
+        // Cleanup
+        conn.execute("DELETE FROM job_tickets WHERE workspace_id IN ('ws-job-1', 'ws-job-2')", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id IN ('ws-job-1', 'ws-job-2')", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id IN ('ws-job-1', 'ws-job-2')", ()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_move_quote_lifecycle() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-job-q', 'Job Q WS', '[]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-job-q-user', 'ws-job-q', 'uq@job.io', 'user')", ()).await.unwrap();
+
+        // Create job
+        let job = create_job_ticket(
+            "u-job-q-user".to_string(),
+            "ws-job-q".to_string(),
+            "Move piano".to_string(),
+            "Grand piano".to_string(),
+            "123 Piano Rd".to_string(),
+            "medium".to_string(),
+            None,
+            "2026-07-05".to_string(),
+            "[]".to_string(),
+            None, None, 0, 0, false, false, false, false,
+        ).await.unwrap();
+
+        // Generate quote
+        let quote = create_or_update_move_quote(
+            "u-job-q-user".to_string(),
+            job.id.clone(),
+            200.0, // base
+            50.0,  // distance
+            100.0, // stairs
+            20.0,  // supplies
+            "pending".to_string(),
+        ).await.unwrap();
+
+        assert_eq!(quote.base_price, 200.0);
+        assert_eq!(quote.total_price, 370.0); // 200 + 50 + 100 + 20
+        assert_eq!(quote.status, "pending");
+
+        // Accept quote
+        let accept_res = accept_move_quote("u-job-q-user".to_string(), quote.id.clone()).await;
+        assert!(accept_res.is_ok());
+
+        // Get quote and verify status is accepted
+        let retrieved = get_move_quote("u-job-q-user".to_string(), job.id.clone()).await.unwrap();
+        assert!(retrieved.is_some());
+        let q = retrieved.unwrap();
+        assert_eq!(q.status, "accepted");
+        assert!(q.accepted_at.is_some());
+
+        // Cleanup
+        conn.execute("DELETE FROM move_quotes WHERE job_ticket_id = ?1", crate::params![job.id]).await.unwrap();
+        conn.execute("DELETE FROM job_tickets WHERE id = ?1", crate::params![job.id]).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-job-q'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-job-q'", ()).await.unwrap();
+    }
+}

@@ -235,3 +235,131 @@ pub async fn update_event(
     notify_observers();
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database;
+
+    #[tokio::test]
+    async fn test_get_teams_workspace_scoping() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = database::acquire_connection().await.unwrap();
+
+        // Cleanup first
+        let _ = conn.execute("DELETE FROM teams WHERE workspace_id IN ('ws-team-1', 'ws-team-2')", ()).await;
+        let _ = conn.execute("DELETE FROM users WHERE workspace_id IN ('ws-team-1', 'ws-team-2')", ()).await;
+        let _ = conn.execute("DELETE FROM workspaces WHERE id IN ('ws-team-1', 'ws-team-2')", ()).await;
+
+        // Workspace 1
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-team-1', 'Team WS 1', '[]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-team-user-1', 'ws-team-1', 'user1@team.io', 'employee')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO teams (id, workspace_id, name, updated_at, sync_status) VALUES ('team-1', 'ws-team-1', 'Team Alpha', 0, 'synced')", ()).await.unwrap();
+
+        // Workspace 2
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-team-2', 'Team WS 2', '[]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-team-user-2', 'ws-team-2', 'user2@team.io', 'employee')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO teams (id, workspace_id, name, updated_at, sync_status) VALUES ('team-2', 'ws-team-2', 'Team Beta', 0, 'synced')", ()).await.unwrap();
+
+        // Query teams for user 1 (should only see team-1 in ws-team-1)
+        let list1 = get_teams("u-team-user-1".to_string()).await.unwrap();
+        assert_eq!(list1.len(), 1);
+        assert_eq!(list1[0].name, "Team Alpha");
+
+        // Query teams for user 2 (should only see team-2 in ws-team-2)
+        let list2 = get_teams("u-team-user-2".to_string()).await.unwrap();
+        assert_eq!(list2.len(), 1);
+        assert_eq!(list2[0].name, "Team Beta");
+
+        // Cleanup
+        conn.execute("DELETE FROM teams WHERE workspace_id IN ('ws-team-1', 'ws-team-2')", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id IN ('ws-team-1', 'ws-team-2')", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id IN ('ws-team-1', 'ws-team-2')", ()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_event_lifecycle() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = database::acquire_connection().await.unwrap();
+
+        // Cleanup first
+        let _ = conn.execute("DELETE FROM events WHERE workspace_id = 'ws-team-3'", ()).await;
+        let _ = conn.execute("DELETE FROM users WHERE workspace_id = 'ws-team-3'", ()).await;
+        let _ = conn.execute("DELETE FROM workspaces WHERE id = 'ws-team-3'", ()).await;
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-team-3', 'Team WS 3', '[]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-team-user-3', 'ws-team-3', 'user3@team.io', 'employee')", ()).await.unwrap();
+
+        // 1. Add event
+        let event = add_event(
+            "ws-team-3".to_string(),
+            "Meeting".to_string(),
+            "2026-07-05 10:00".to_string(),
+            "2026-07-05 11:00".to_string(),
+            None,
+            None,
+            Some("u-team-user-3".to_string()),
+        ).await.unwrap();
+
+        assert_eq!(event.title, "Meeting");
+        assert_eq!(event.sync_status, "pending");
+
+        // Verify in DB
+        let db_event: TeamEvent = conn.query_row(
+            "SELECT id, workspace_id, user_id, team_id, assignee_id, title, start_time, end_time, metadata, updated_at, sync_status FROM events WHERE id = ?1",
+            crate::params![&event.id],
+            |row| {
+                Ok(TeamEvent {
+                    id: row.get(0)?,
+                    workspace_id: row.get(1)?,
+                    user_id: row.get(2)?,
+                    team_id: row.get(3)?,
+                    assignee_id: row.get(4)?,
+                    title: row.get(5)?,
+                    start_time: row.get(6)?,
+                    end_time: row.get(7)?,
+                    metadata: row.get(8)?,
+                    updated_at: row.get(9)?,
+                    sync_status: row.get(10)?,
+                })
+            }
+        ).await.unwrap();
+        assert_eq!(db_event.title, "Meeting");
+
+        // 2. Update event
+        update_event(
+            db_event.id.clone(),
+            "Updated Meeting".to_string(),
+            "2026-07-05 10:30".to_string(),
+            "2026-07-05 11:30".to_string(),
+            None,
+            None,
+            Some("u-team-user-3".to_string()),
+            "{\"note\":\"important\"}".to_string(),
+        ).await.unwrap();
+
+        // Verify in DB
+        let updated_title: String = conn.query_row(
+            "SELECT title FROM events WHERE id = ?1",
+            crate::params![&db_event.id],
+            |r| r.get(0)
+        ).await.unwrap();
+        assert_eq!(updated_title, "Updated Meeting");
+
+        // 3. Delete event
+        delete_event(db_event.id.clone()).await.unwrap();
+
+        // Verify deleted
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM events WHERE id = ?1",
+            crate::params![&db_event.id],
+            |r| r.get(0)
+        ).await.unwrap();
+        assert_eq!(count, 0);
+
+        // Cleanup
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-team-3'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-team-3'", ()).await.unwrap();
+    }
+}
+

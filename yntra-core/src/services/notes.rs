@@ -177,7 +177,7 @@ pub async fn add_note(
         team_id,
         author_id: Some(author_id),
         subject,
-        content: loro_content,
+        content: content.clone(), // Return plaintext content for UI consistency
         edit_history: "[]".to_string(),
         created_at,
         updated_at: now_ms,
@@ -193,7 +193,7 @@ pub async fn add_note(
              &item.team_id,
              &item.author_id,
              &item.subject,
-             &item.content,
+             &loro_content, // Use the serialized Loro snapshot for database storage
              &item.created_at,
              &item.updated_at
          ],
@@ -360,30 +360,28 @@ pub async fn delete_note(requester_user_id: String, note_id: String) -> Result<(
 
 #[uniffi::export]
 pub fn merge_loro_notes(state1: String, state2: String) -> Result<String, YntraError> {
-    let doc = loro::LoroDoc::new();
-    
-    // Import state1
+    let doc1 = loro::LoroDoc::new();
     if state1.starts_with("loro:") {
         if let Some(bytes) = crate::infra::crypto::hex_decode(&state1[5..]) {
-            doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            doc1.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
         }
     } else {
-        doc.get_text("content").insert(0, &state1).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+        doc1.get_text("content").insert(0, &state1).map_err(|e| YntraError::SerializationError(e.to_string()))?;
     }
 
-    // Import state2
+    let doc2 = loro::LoroDoc::new();
     if state2.starts_with("loro:") {
         if let Some(bytes) = crate::infra::crypto::hex_decode(&state2[5..]) {
-            doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            doc2.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
         }
     } else {
-        let text = doc.get_text("content");
-        let len = text.to_string().chars().count();
-        let _ = text.delete(0, len);
-        text.insert(0, &state2).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+        doc2.get_text("content").insert(0, &state2).map_err(|e| YntraError::SerializationError(e.to_string()))?;
     }
 
-    let merged_bytes = doc.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    let bytes2 = doc2.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    doc1.import(&bytes2).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+
+    let merged_bytes = doc1.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
     Ok(format!("loro:{}", crate::infra::crypto::hex_encode(&merged_bytes)))
 }
 
@@ -479,6 +477,35 @@ mod tests {
         // The text should contain edits from both users resolved conflict-free
         assert!(final_text.contains("World"));
         assert!(final_text.contains("CRDT"));
+    }
+
+    #[test]
+    fn test_note_loro_merge_symmetric_plaintext() {
+        let doc1 = loro::LoroDoc::new();
+        let text1 = doc1.get_text("content");
+        text1.insert(0, "LoroState").unwrap();
+        let state1 = format!("loro:{}", crate::infra::crypto::hex_encode(&doc1.export(loro::ExportMode::Snapshot).unwrap()));
+
+        let state2 = "PlaintextState".to_string();
+
+        // Merge state1 (Loro) and state2 (Plaintext)
+        let merged_1_2 = merge_loro_notes(state1.clone(), state2.clone()).unwrap();
+        let merged_bytes_1_2 = crate::infra::crypto::hex_decode(&merged_1_2[5..]).unwrap();
+        let doc_final_1_2 = loro::LoroDoc::new();
+        doc_final_1_2.import(&merged_bytes_1_2).unwrap();
+        let text_final_1_2 = doc_final_1_2.get_text("content").to_string();
+        
+        assert!(text_final_1_2.contains("LoroState"));
+        assert!(text_final_1_2.contains("PlaintextState"));
+
+        // Merge state2 (Plaintext) and state1 (Loro) - Should yield the exact same result symmetrically!
+        let merged_2_1 = merge_loro_notes(state2, state1).unwrap();
+        let merged_bytes_2_1 = crate::infra::crypto::hex_decode(&merged_2_1[5..]).unwrap();
+        let doc_final_2_1 = loro::LoroDoc::new();
+        doc_final_2_1.import(&merged_bytes_2_1).unwrap();
+        let text_final_2_1 = doc_final_2_1.get_text("content").to_string();
+
+        assert_eq!(text_final_1_2, text_final_2_1);
     }
 
     #[test]

@@ -26,7 +26,21 @@ fn check_birthdate_match(personal_number: &str, birthdate_ddmmyy: &str) -> bool 
     let mut digits: String = personal_number.chars().filter(|c| c.is_ascii_digit()).collect();
     let matches = if digits.len() == 11 {
         // DDMMYYXXXXX (Norwegian)
-        digits.starts_with(birthdate_ddmmyy)
+        if digits.len() >= 6 {
+            let mut dd = digits[0..2].parse::<i32>().unwrap_or(0);
+            if dd > 40 {
+                dd -= 40;
+            }
+            let mut mm = digits[2..4].parse::<i32>().unwrap_or(0);
+            if mm > 40 {
+                mm -= 40;
+            }
+            let yy = &digits[4..6];
+            let normalized_ddmmyy = format!("{:02}{:02}{}", dd, mm, yy);
+            normalized_ddmmyy == birthdate_ddmmyy
+        } else {
+            false
+        }
     } else if digits.len() == 12 {
         // YYYYMMDDXXXX
         if digits.len() < 8 {
@@ -36,11 +50,14 @@ fn check_birthdate_match(personal_number: &str, birthdate_ddmmyy: &str) -> bool 
         }
         let yy = &digits[2..4];
         let mm = &digits[4..6];
-        let dd = &digits[6..8];
-        let expected_ddmmyy = format!("{}{}{}", dd, mm, yy);
+        let mut dd = digits[6..8].parse::<i32>().unwrap_or(0);
+        if dd > 60 {
+            dd -= 60;
+        }
+        let expected_ddmmyy = format!("{:02}{}{}", dd, mm, yy);
         expected_ddmmyy == birthdate_ddmmyy
     } else if digits.len() == 10 {
-        // YYMMDDXXXX
+        // YYMMDDXXXX (Swedish) OR DDMMYYXXXX (Danish CPR)
         if digits.len() < 6 {
             use zeroize::Zeroize;
             digits.zeroize();
@@ -48,9 +65,12 @@ fn check_birthdate_match(personal_number: &str, birthdate_ddmmyy: &str) -> bool 
         }
         let yy = &digits[0..2];
         let mm = &digits[2..4];
-        let dd = &digits[4..6];
-        let expected_ddmmyy = format!("{}{}{}", dd, mm, yy);
-        expected_ddmmyy == birthdate_ddmmyy
+        let mut dd = digits[4..6].parse::<i32>().unwrap_or(0);
+        if dd > 60 {
+            dd -= 60;
+        }
+        let expected_ddmmyy = format!("{:02}{}{}", dd, mm, yy);
+        expected_ddmmyy == birthdate_ddmmyy || digits[0..6] == *birthdate_ddmmyy
     } else {
         digits.contains(birthdate_ddmmyy)
     };
@@ -215,7 +235,7 @@ pub async fn submit_bankid_pin(session_id: String, pin: String) -> Result<(), Yn
                     let parts: Vec<&str> = zeroizing_pin_clone.split('|').collect();
                     if parts.len() == 2 {
                         let phone_input = parts[0];
-                        if let Ok(mut stmt) = conn.prepare("SELECT id FROM users WHERE phone = ?1 OR phone LIKE '%' || ?1 LIMIT 1").await {
+                        if let Ok(mut stmt) = conn.prepare("SELECT id FROM users WHERE phone = ?1 LIMIT 1").await {
                             if let Ok(mut rows) = stmt.query(crate::params![phone_input]).await {
                                 if let Ok(Some(row)) = rows.next().await {
                                     resolved_id = row.get::<String>(0).ok();
@@ -317,7 +337,7 @@ pub async fn submit_bankid_pin(session_id: String, pin: String) -> Result<(), Yn
 
             let user_info = {
                 let conn = database::acquire_connection().await?;
-                let mut stmt = conn.prepare("SELECT id, personal_number, workspace_id FROM users WHERE phone = ?1 OR phone LIKE '%' || ?1 LIMIT 1").await?;
+                let mut stmt = conn.prepare("SELECT id, personal_number, workspace_id FROM users WHERE phone = ?1 LIMIT 1").await?;
                 let mut rows = stmt.query(crate::params![phone_input]).await?;
                 if let Some(row) = rows.next().await? {
                     let id: String = row.get(0)?;
@@ -507,6 +527,27 @@ mod tests {
         // Norwegian: DDMMYYXXXXX
         assert!(check_birthdate_match("05072612345", "050726"));
         assert!(!check_birthdate_match("05072612345", "060726"));
+    }
+
+    #[test]
+    fn test_danish_birthdate_match() {
+        // Danish CPR: DDMMYYXXXX
+        assert!(check_birthdate_match("1405891234", "140589"));
+        assert!(check_birthdate_match("3112019876", "311201"));
+        assert!(!check_birthdate_match("1405891234", "150589"));
+    }
+
+    #[test]
+    fn test_norwegian_d_number_birthdate_match() {
+        // Norwegian D-number: first digit of day increased by 4
+        assert!(check_birthdate_match("45072612345", "050726"));
+    }
+
+    #[test]
+    fn test_swedish_coordination_number_birthdate_match() {
+        // Swedish Samordningsnummer: day increased by 60
+        assert!(check_birthdate_match("198905741234", "140589"));
+        assert!(check_birthdate_match("8905741234", "140589"));
     }
 
     #[test]

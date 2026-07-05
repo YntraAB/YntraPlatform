@@ -43,6 +43,21 @@ pub async fn save_school_invoice(
     paid_at: Option<String>,
 ) -> Result<SchoolInvoice, YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let student_ws: String = conn.query_row(
+        "SELECT workspace_id FROM student_profiles WHERE id = ?1",
+        crate::params![&student_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Student profile not found".to_string()))?;
+
+    if student_ws != workspace_id {
+        return Err(YntraError::ValidationError("Student does not belong to the specified workspace".to_string()));
+    }
+
     if !super::check_permission(&conn, &requester_user_id, "can_manage_finance").await? {
         return Err(YntraError::AuthError("Access denied: cannot manage invoices".to_string()));
     }
@@ -124,6 +139,21 @@ pub async fn record_school_payment(
     paid_at: String,
 ) -> Result<SchoolPayment, YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let invoice_ws: String = conn.query_row(
+        "SELECT workspace_id FROM school_invoices WHERE id = ?1",
+        crate::params![&invoice_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Invoice not found".to_string()))?;
+
+    if invoice_ws != workspace_id {
+        return Err(YntraError::ValidationError("Invoice does not belong to the specified workspace".to_string()));
+    }
+
     if !super::check_permission(&conn, &requester_user_id, "can_manage_finance").await? {
         return Err(YntraError::AuthError("Access denied: cannot manage payments".to_string()));
     }
@@ -142,27 +172,199 @@ pub async fn record_school_payment(
         sync_status: "pending".to_string(),
     };
 
-    // 1. Log payment
-    conn.execute(
-        "INSERT INTO school_payments (id, workspace_id, invoice_id, amount, payment_method, paid_at, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        crate::params![
-            &payment.id,
-            &payment.workspace_id,
-            &payment.invoice_id,
-            &payment.amount,
-            &payment.payment_method,
-            &payment.paid_at,
-            &payment.updated_at,
-            &payment.sync_status,
-        ],
-    ).await?;
-    
-    // 2. Update matching invoice to paid
-    conn.execute(
-        "UPDATE school_invoices SET status = 'paid', paid_at = ?1, updated_at = ?2 WHERE id = ?3",
-        crate::params![&payment.paid_at, &now_ms, &payment.invoice_id],
-    ).await?;
+    conn.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
 
-    notify_observers();
-    Ok(payment)
+    let res = async {
+        // 1. Log payment
+        conn.execute(
+            "INSERT INTO school_payments (id, workspace_id, invoice_id, amount, payment_method, paid_at, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            crate::params![
+                &payment.id,
+                &payment.workspace_id,
+                &payment.invoice_id,
+                &payment.amount,
+                &payment.payment_method,
+                &payment.paid_at,
+                &payment.updated_at,
+                &payment.sync_status,
+            ],
+        ).await?;
+        
+        // 2. Update matching invoice to paid
+        conn.execute(
+            "UPDATE school_invoices SET status = 'paid', paid_at = ?1, updated_at = ?2 WHERE id = ?3",
+            crate::params![&payment.paid_at, &now_ms, &payment.invoice_id],
+        ).await?;
+        Ok::<(), YntraError>(())
+    }.await;
+
+    match res {
+        Ok(_) => {
+            conn.execute("COMMIT", ()).await?;
+            notify_observers();
+            Ok(payment)
+        }
+        Err(e) => {
+            let _ = conn.execute("ROLLBACK", ()).await;
+            Err(e)
+        }
+    }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database;
+
+    #[tokio::test]
+    async fn test_save_school_invoice_and_scoping() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = database::acquire_connection().await.unwrap();
+
+        // Cleanup first in case of dirty state
+        let _ = conn.execute("DELETE FROM school_invoices WHERE workspace_id = 'ws-fin-1'", ()).await;
+        let _ = conn.execute("DELETE FROM student_parents WHERE student_id = 'student-fin-1'", ()).await;
+        let _ = conn.execute("DELETE FROM student_profiles WHERE workspace_id = 'ws-fin-1'", ()).await;
+        let _ = conn.execute("DELETE FROM users WHERE workspace_id = 'ws-fin-1'", ()).await;
+        let _ = conn.execute("DELETE FROM workspaces WHERE id = 'ws-fin-1'", ()).await;
+
+        // Setup workspace & users
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-fin-1', 'Fin WS', '[]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-fin-admin', 'ws-fin-1', 'admin@fin.io', 'admin')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-fin-parent', 'ws-fin-1', 'parent@fin.io', 'parent')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-fin-stranger', 'ws-fin-1', 'stranger@fin.io', 'parent')", ()).await.unwrap();
+
+        conn.execute("INSERT OR REPLACE INTO student_profiles (id, workspace_id, user_id, first_name, last_name, grade_level, updated_at) VALUES ('student-fin-1', 'ws-fin-1', NULL, 'Billy', 'Kid', 'Grade 2', 0)", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO student_parents (student_id, parent_user_id) VALUES ('student-fin-1', 'u-fin-parent')", ()).await.unwrap();
+
+        // 1. Save invoice (Should Succeed as Admin)
+        let inv = save_school_invoice(
+            "u-fin-admin".to_string(),
+            None,
+            "ws-fin-1".to_string(),
+            "student-fin-1".to_string(),
+            "Tuition fee".to_string(),
+            1200.50,
+            "2026-07-31".to_string(),
+            "unpaid".to_string(),
+            None,
+        ).await.unwrap();
+
+        assert_eq!(inv.title, "Tuition fee");
+        assert_eq!(inv.amount, 1200.50);
+        assert_eq!(inv.status, "unpaid");
+
+        // 2. Fetch invoice as parent (academic access)
+        let list = get_school_invoices("u-fin-parent".to_string(), "student-fin-1".to_string()).await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, inv.id);
+
+        // 3. Fetch invoice as stranger (should fail)
+        let res_stranger = get_school_invoices("u-fin-stranger".to_string(), "student-fin-1".to_string()).await;
+        assert!(res_stranger.is_err());
+        assert!(matches!(res_stranger.unwrap_err(), YntraError::AuthError(_)));
+
+        // Cleanup
+        conn.execute("DELETE FROM school_invoices WHERE workspace_id = 'ws-fin-1'", ()).await.unwrap();
+        conn.execute("DELETE FROM student_parents WHERE student_id = 'student-fin-1'", ()).await.unwrap();
+        conn.execute("DELETE FROM student_profiles WHERE workspace_id = 'ws-fin-1'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-fin-1'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-fin-1'", ()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_record_school_payment_transaction_success() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = database::acquire_connection().await.unwrap();
+
+        // Cleanup first in case of dirty state
+        let _ = conn.execute("DELETE FROM school_payments WHERE workspace_id = 'ws-fin-2'", ()).await;
+        let _ = conn.execute("DELETE FROM school_invoices WHERE workspace_id = 'ws-fin-2'", ()).await;
+        let _ = conn.execute("DELETE FROM student_profiles WHERE workspace_id = 'ws-fin-2'", ()).await;
+        let _ = conn.execute("DELETE FROM users WHERE workspace_id = 'ws-fin-2'", ()).await;
+        let _ = conn.execute("DELETE FROM workspaces WHERE id = 'ws-fin-2'", ()).await;
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-fin-2', 'Fin WS 2', '[]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-fin-admin-2', 'ws-fin-2', 'admin@fin.io', 'admin')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO student_profiles (id, workspace_id, user_id, first_name, last_name, grade_level, updated_at) VALUES ('student-fin-2', 'ws-fin-2', NULL, 'Billy', 'Kid', 'Grade 2', 0)", ()).await.unwrap();
+
+        // 1. Setup mock invoice
+        conn.execute(
+            "INSERT OR REPLACE INTO school_invoices (id, workspace_id, student_id, title, amount, due_date, status, paid_at, updated_at, sync_status) VALUES ('inv-2', 'ws-fin-2', 'student-fin-2', 'Fee', 100.0, '2026-07-31', 'unpaid', NULL, 0, 'synced')",
+            ()
+        ).await.unwrap();
+
+        // 2. Record payment (Should succeed)
+        let pay = record_school_payment(
+            "u-fin-admin-2".to_string(),
+            "ws-fin-2".to_string(),
+            "inv-2".to_string(),
+            100.0,
+            "Card".to_string(),
+            "2026-07-05".to_string(),
+        ).await.unwrap();
+
+        assert_eq!(pay.amount, 100.0);
+        assert_eq!(pay.payment_method, "Card");
+
+        // Verify status in DB is paid
+        let invoice_status: String = conn.query_row(
+            "SELECT status FROM school_invoices WHERE id = 'inv-2'",
+            (),
+            |r| r.get(0)
+        ).await.unwrap();
+        assert_eq!(invoice_status, "paid");
+
+        // Verify payment is in DB
+        let payment_exists: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM school_payments WHERE invoice_id = 'inv-2'",
+            (),
+            |r| r.get(0)
+        ).await.unwrap();
+        assert_eq!(payment_exists, 1);
+
+        // Cleanup
+        conn.execute("DELETE FROM school_payments WHERE workspace_id = 'ws-fin-2'", ()).await.unwrap();
+        conn.execute("DELETE FROM school_invoices WHERE workspace_id = 'ws-fin-2'", ()).await.unwrap();
+        conn.execute("DELETE FROM student_profiles WHERE workspace_id = 'ws-fin-2'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-fin-2'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-fin-2'", ()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_record_school_payment_transaction_failure() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = database::acquire_connection().await.unwrap();
+
+        // Cleanup first
+        let _ = conn.execute("DELETE FROM users WHERE workspace_id = 'ws-fin-3'", ()).await;
+        let _ = conn.execute("DELETE FROM workspaces WHERE id = 'ws-fin-3'", ()).await;
+
+        // Enable foreign key checking for this test connection
+        conn.execute("PRAGMA foreign_keys = ON;", ()).await.unwrap();
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-fin-3', 'Fin WS 3', '[]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-fin-admin-3', 'ws-fin-3', 'admin@fin.io', 'admin')", ()).await.unwrap();
+
+        // Record payment with non-existent invoice ID (inv-nonexistent)
+        // This should fail because of the foreign key constraint on invoice_id -> school_invoices(id)
+        let res = record_school_payment(
+            "u-fin-admin-3".to_string(),
+            "ws-fin-3".to_string(),
+            "inv-nonexistent".to_string(),
+            100.0,
+            "Card".to_string(),
+            "2026-07-05".to_string(),
+        ).await;
+
+        assert!(res.is_err());
+
+        // Disable foreign key checking again just to restore defaults
+        conn.execute("PRAGMA foreign_keys = OFF;", ()).await.unwrap();
+
+        // Cleanup
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-fin-3'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-fin-3'", ()).await.unwrap();
+    }
+}
+
