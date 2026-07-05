@@ -26,41 +26,56 @@ pub async fn log_action(actor_id: String, target_client_id: Option<String>, acti
     
     let conn = database::acquire_connection().await?;
     
-    // Find previous hash
-    let mut prev_hash = "genesis".to_string();
-    let mut stmt = conn.prepare("SELECT curr_hash FROM audit_logs ORDER BY timestamp DESC, id DESC LIMIT 1").await?;
-    let mut rows = stmt.query(()).await?;
-    if let Some(row) = rows.next().await? {
-        prev_hash = row.get(0)?;
+    conn.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
+    
+    let result = async {
+        // Find previous hash
+        let mut prev_hash = "genesis".to_string();
+        let mut stmt = conn.prepare("SELECT curr_hash FROM audit_logs ORDER BY timestamp DESC, id DESC LIMIT 1").await?;
+        let mut rows = stmt.query(()).await?;
+        if let Some(row) = rows.next().await? {
+            prev_hash = row.get(0)?;
+        }
+        
+        let curr_hash = compute_hash(&id, &actor_id, target_client_id.as_deref(), &action_type, timestamp, &prev_hash);
+        
+        let entry = AuditLogEntry {
+            id: id.clone(),
+            actor_id: actor_id.clone(),
+            target_client_id: target_client_id.clone(),
+            action_type: action_type.clone(),
+            timestamp,
+            prev_hash,
+            curr_hash,
+        };
+        
+        conn.execute(
+            "INSERT INTO audit_logs (id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            crate::params![
+                entry.id,
+                entry.actor_id,
+                entry.target_client_id,
+                entry.action_type,
+                entry.timestamp,
+                entry.prev_hash,
+                entry.curr_hash
+            ],
+        ).await?;
+        
+        Ok::<AuditLogEntry, YntraError>(entry)
+    }.await;
+
+    match result {
+        Ok(entry) => {
+            conn.execute("COMMIT", ()).await?;
+            notify_observers();
+            Ok(entry)
+        }
+        Err(err) => {
+            let _ = conn.execute("ROLLBACK", ()).await;
+            Err(err)
+        }
     }
-    
-    let curr_hash = compute_hash(&id, &actor_id, target_client_id.as_deref(), &action_type, timestamp, &prev_hash);
-    
-    let entry = AuditLogEntry {
-        id: id.clone(),
-        actor_id: actor_id.clone(),
-        target_client_id: target_client_id.clone(),
-        action_type: action_type.clone(),
-        timestamp,
-        prev_hash,
-        curr_hash,
-    };
-    
-    conn.execute(
-        "INSERT INTO audit_logs (id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        crate::params![
-            entry.id,
-            entry.actor_id,
-            entry.target_client_id,
-            entry.action_type,
-            entry.timestamp,
-            entry.prev_hash,
-            entry.curr_hash
-        ],
-    ).await?;
-    
-    notify_observers();
-    Ok(entry)
 }
 
 #[uniffi::export]
