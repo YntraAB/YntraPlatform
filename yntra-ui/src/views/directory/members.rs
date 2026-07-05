@@ -24,6 +24,8 @@ impl PartialEq for MembersListProps {
 pub fn MembersList(props: MembersListProps) -> Element {
     let active_user = props.active_user;
     let active_uid_outside = active_user.id.clone();
+    let active_uid_for_invite = active_uid_outside.clone();
+    let active_uid_for_client = active_uid_outside.clone();
     let team_id_unwrap = props.team_id_unwrap.clone();
     let custom_roles = props.custom_roles.clone();
     let state = use_context::<AppState>();
@@ -299,7 +301,7 @@ pub fn MembersList(props: MembersListProps) -> Element {
                                 if !email.is_empty() && !name.is_empty() {
                                     let w_id = ws_id.clone();
                                     let role = new_member_role.read().clone();
-                                    let active_uid = active_uid_outside.clone();
+                                    let active_uid = active_uid_for_invite.clone();
                                     spawn(async move {
                                         let _ = invite_user_via_directory(
                                             active_uid,
@@ -392,8 +394,10 @@ pub fn MembersList(props: MembersListProps) -> Element {
                                     let w_id = ws_id.clone();
                                     let t_id = Some(tid.clone());
                                     let care_lvl = new_client_care_level.read().clone();
+                                    let requester_uid = active_uid_for_client.clone();
                                     spawn(async move {
                                         let _ = add_client_via_directory(
+                                            requester_uid,
                                             w_id,
                                             t_id,
                                             fname,

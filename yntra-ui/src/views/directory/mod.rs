@@ -390,6 +390,7 @@ pub fn DirectoryView(props: DirectoryViewProps) -> Element {
                                             let mut new_team = new_team_name;
                                             let mut w_clients = wizard_clients;
                                             let mut trigger = db_trigger;
+                                            let requester_uid_outside = active_user.id.clone();
 
                                             spawn(async move {
                                                 if let Ok(team) = add_team_via_directory(ws_id_clone.clone(), name).await {
@@ -403,8 +404,10 @@ pub fn DirectoryView(props: DirectoryViewProps) -> Element {
                                                             contact_person_email: String::new(),
                                                         });
                                                     }
+                                                    let requester_uid = requester_uid_outside.clone();
                                                     for c in list.iter() {
                                                         let _ = add_client_via_directory(
+                                                            requester_uid.clone(),
                                                             ws_id_clone.clone(),
                                                             Some(team_id.clone()),
                                                             c.first_name.clone(),

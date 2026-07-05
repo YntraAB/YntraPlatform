@@ -96,7 +96,7 @@ pub fn LoginView(props: LoginViewProps) -> Element {
 
 
 
-    let mut show_hardware_modal = use_signal(|| false);
+    let show_hardware_modal = use_signal(|| false);
     let mut hardware_auth_type = use_signal(|| "siths".to_string()); // "siths" | "nfc"
     let mut hardware_reader_status = use_signal(|| "connecting".to_string()); // "connecting" | "polling" | "reading" | "error" | "success"
     let mut hardware_error_msg = use_signal(|| Option::<String>::None);
@@ -167,15 +167,21 @@ pub fn LoginView(props: LoginViewProps) -> Element {
     });
 
     let restart_passive_session = move || {
+        let mut active_session_id = active_session_id;
+        let mut hardware_auth_type = hardware_auth_type;
+        let mut hardware_reader_status = hardware_reader_status;
+        let mut hardware_error_msg = hardware_error_msg;
+
         #[cfg(not(target_arch = "wasm32"))]
         {
             active_session_id.set(None);
             hardware_auth_type.set("card_or_badge".to_string());
             hardware_reader_status.set("connecting".to_string());
             hardware_error_msg.set(None);
+            let mut active_sess = active_session_id;
             spawn(async move {
                 if let Ok(sess) = yntra_core::initiate_bankid_auth("assistant".to_string(), "card_or_badge".to_string()).await {
-                    active_session_id.set(Some(sess.id.clone()));
+                    active_sess.set(Some(sess.id.clone()));
                 }
             });
         }

@@ -11,6 +11,17 @@ use yntra_core::{
 use crate::locales::get_system_locale;
 use crate::utils::{DioxusDbObserver, get_supabase_user_email};
 
+fn extract_access_token(hash: &str) -> Option<String> {
+    let hash_clean = hash.trim_start_matches('#').trim_start_matches('?');
+    for part in hash_clean.split('&') {
+        let mut kv = part.splitn(2, '=');
+        if let (Some("access_token"), Some(v)) = (kv.next(), kv.next()) {
+            return Some(v.to_string());
+        }
+    }
+    None
+}
+
 #[derive(Clone, Copy)]
 pub struct AppState {
     pub db_trigger: Signal<u32>,
@@ -167,8 +178,8 @@ pub fn use_init_app_state() -> AppState {
     let login_tab = use_signal(|| "employee".to_string());
     let show_bankid_modal = use_signal(|| false);
     let scanning_state = use_signal(|| "idle".to_string());
-    let login_email = use_signal(String::new);
-    let login_password = use_signal(String::new);
+    let mut login_email = use_signal(String::new);
+    let mut login_password = use_signal(String::new);
     let login_error = use_signal(|| Option::<String>::None);
     let mut auth_region = use_signal(get_system_locale);
 
@@ -216,6 +227,11 @@ pub fn use_init_app_state() -> AppState {
         let is_login = *logged_in.read();
         let uid = active_user_id.read().clone();
         
+        if is_login {
+            login_password.set(String::new());
+            login_email.set(String::new());
+        }
+
         let js = if is_login {
             format!(
                 r#"
@@ -524,31 +540,21 @@ pub fn use_init_app_state() -> AppState {
 
             spawn(async move {
                 while let Some(hash) = rx.recv().await {
-                    println!("[Desktop OAuth] Receiver captured hash callback!");
-                    if hash.contains("access_token=") {
-                        let hash_clean = hash.trim_start_matches('#');
-                        let mut access_token = None;
-                        for part in hash_clean.split('&') {
-                            let mut kv = part.split('=');
-                            if let (Some("access_token"), Some(v)) = (kv.next(), kv.next()) {
-                                access_token = Some(v.to_string());
-                            }
-                        }
-
-                        if let Some(token) = access_token {
-                            println!("[Desktop OAuth] Extracted token, calling get_supabase_user_email...");
+                    log::info!("[Desktop OAuth] Receiver captured hash callback!");
+                        if let Some(token) = extract_access_token(&hash) {
+                            log::info!("[Desktop OAuth] Extracted token, calling get_supabase_user_email...");
                             match get_supabase_user_email(&token).await {
                                 Ok(email) => {
-                                    println!("[Desktop OAuth] Supabase returned email: {}", email);
+                                    log::info!("[Desktop OAuth] Supabase returned email: {}", email);
                                     if let Ok(Some(user)) = get_user_by_email(email.clone()).await {
-                                        println!("[Desktop OAuth] Found user in database: id={}, role={}", user.id, user.role);
+                                        log::info!("[Desktop OAuth] Found user in database: id={}, role={}", user.id, user.role);
                                             let prefs: serde_json::Value = serde_json::from_str(&user.preferences).unwrap_or_default();
                                             let mfa_enabled = prefs.get("two_factor_enabled").and_then(|v| v.as_bool()).unwrap_or(false);
                                             if mfa_enabled {
-                                                println!("[Desktop OAuth] 2FA is enabled for user, showing 2FA modal");
+                                                log::info!("[Desktop OAuth] 2FA is enabled for user, showing 2FA modal");
                                                 two_factor_user.set(Some(user.clone()));
                                             } else {
-                                                println!("[Desktop OAuth] Logging in user...");
+                                                log::info!("[Desktop OAuth] Logging in user...");
                                                 active_uid.set(user.id.clone());
                                                 if user.role == "client" {
                                                     active_sec.set("client_portal".to_string());
@@ -561,20 +567,17 @@ pub fn use_init_app_state() -> AppState {
                                             }
                                         } else {
                                             let err_msg = format!("User '{}' authenticated by Supabase is not registered in this Yntra workspace.", email);
-                                            println!("[Desktop OAuth] Error: {}", err_msg);
+                                            log::error!("[Desktop OAuth] Error: {}", err_msg);
                                             log_error.set(Some(err_msg));
                                         }
                                     }
                                 Err(e) => {
                                     let err_msg = format!("Supabase authentication failed: {}", e);
-                                    println!("[Desktop OAuth] Error: {}", err_msg);
+                                    log::error!("[Desktop OAuth] Error: {}", err_msg);
                                     log_error.set(Some(err_msg));
                                 }
                             }
                         }
-                    } else {
-                        println!("[Desktop OAuth] Hash did not contain access_token");
-                    }
                 }
             });
         }
@@ -592,17 +595,7 @@ pub fn use_init_app_state() -> AppState {
         spawn(async move {
             let mut eval = dioxus::document::eval("dioxus.send(window.location.hash);");
             if let Ok(serde_json::Value::String(hash)) = eval.recv::<serde_json::Value>().await {
-                if hash.contains("access_token=") {
-                    let hash_clean = hash.trim_start_matches('#');
-                    let mut access_token = None;
-                    for part in hash_clean.split('&') {
-                        let mut kv = part.split('=');
-                        if let (Some("access_token"), Some(v)) = (kv.next(), kv.next()) {
-                            access_token = Some(v.to_string());
-                        }
-                    }
-
-                    if let Some(token) = access_token {
+                if let Some(token) = extract_access_token(&hash) {
                         match get_supabase_user_email(&token).await {
                             Ok(email) => {
                                 if let Ok(Some(user)) = get_user_by_email(email.clone()).await {
@@ -632,7 +625,6 @@ pub fn use_init_app_state() -> AppState {
                                 log_error.set(Some(format!("Supabase authentication failed: {}", e)));
                             }
                         }
-                    }
                 }
             }
         });

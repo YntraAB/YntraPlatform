@@ -206,6 +206,7 @@ pub fn SchoolView(props: SchoolViewProps) -> Element {
         let ws_opt = ws_opt.clone();
         let mut db_trigger = db_trigger;
         let mut show_school_setup = show_school_setup;
+        let active_user_id = active_user.id.clone();
         move |(grading, late, country, school_type): (String, String, String, String)| {
             if let Some(ref ws) = ws_opt {
                 let ws_id = ws.id.clone();
@@ -223,8 +224,9 @@ pub fn SchoolView(props: SchoolViewProps) -> Element {
                 }
                 
                 let settings_str = serde_json::to_string(&settings_val).unwrap_or_default();
+                let requester_uid = active_user_id.clone();
                 spawn(async move {
-                    let _ = yntra_core::update_workspace_settings(ws_id, settings_str).await;
+                    let _ = yntra_core::update_workspace_settings(requester_uid, ws_id, settings_str).await;
                     show_school_setup.set(false);
                     let current = *db_trigger.read();
                     db_trigger.set(current + 1);

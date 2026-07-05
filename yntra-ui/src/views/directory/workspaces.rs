@@ -108,8 +108,9 @@ pub fn WorkspacesList(is_platform_admin: bool) -> Element {
                                                 onclick: move |e| {
                                                     e.stop_propagation();
                                                     let target_id = ws_id_delete.clone();
+                                                    let requester_uid = state.active_user_id.read().clone();
                                                     spawn(async move {
-                                                        if yntra_core::delete_workspace_via_hub(target_id).await.is_ok() {
+                                                        if yntra_core::delete_workspace_via_hub(requester_uid, target_id).await.is_ok() {
                                                             let next = *refresh_trigger.read() + 1;
                                                             refresh_trigger.set(next);
                                                         }

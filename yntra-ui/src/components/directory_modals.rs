@@ -229,8 +229,10 @@ pub fn EditMemberDialog(props: EditMemberDialogProps) -> Element {
                     let last = client_last.read().trim().to_string();
                     let ssn = client_ssn.read().trim().to_string();
                     let lvl = client_level.read().clone();
+                    let requester_uid = state.active_user_id.read().clone();
 
                     yntra_core::update_client_profile(
+                        requester_uid,
                         c.id.clone(),
                         first,
                         last,

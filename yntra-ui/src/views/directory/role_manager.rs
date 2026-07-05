@@ -440,8 +440,9 @@ pub fn RoleManagerDialog(
                                                         let settings_str = serde_json::to_string(&new_settings).unwrap_or_default();
                                                         
                                                         let ws_id = workspace_id.clone();
+                                                        let requester_uid = state.active_user_id.read().clone();
                                                         spawn(async move {
-                                                            let _ = yntra_core::update_workspace_settings(ws_id, settings_str).await;
+                                                            let _ = yntra_core::update_workspace_settings(requester_uid, ws_id, settings_str).await;
                                                         });
                                                         editing_role_id.set(None);
                                                         let current = *db_trigger.read();
@@ -490,8 +491,9 @@ pub fn RoleManagerDialog(
                                                         let settings_str = serde_json::to_string(&new_settings).unwrap_or_default();
                                                         
                                                         let ws_id = workspace_id.clone();
+                                                        let requester_uid = state.active_user_id.read().clone();
                                                         spawn(async move {
-                                                            let _ = yntra_core::update_workspace_settings(ws_id, settings_str).await;
+                                                            let _ = yntra_core::update_workspace_settings(requester_uid, ws_id, settings_str).await;
                                                         });
                                                         editing_role_id.set(None);
                                                         let current = *db_trigger.read();

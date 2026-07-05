@@ -197,7 +197,7 @@ pub fn CoursesGrading(props: CoursesGradingProps) -> Element {
             let ws_opt = ws_opt.clone();
             let mut db_trigger = db_trigger;
             spawn(async move {
-                let _ = yntra_core::update_course(active_user_id, course_id.clone(), name, subject, None, classroom).await;
+                let _ = yntra_core::update_course(active_user_id.clone(), course_id.clone(), name, subject, None, classroom).await;
                 
                 if let Some(ref ws) = ws_opt {
                     let mut block_settings: serde_json::Value = serde_json::from_str(&ws.block_settings).unwrap_or_default();
@@ -211,7 +211,8 @@ pub fn CoursesGrading(props: CoursesGradingProps) -> Element {
                     });
                     
                     let block_str = serde_json::to_string(&block_settings).unwrap_or_default();
-                    let _ = yntra_core::update_workspace_block_settings(ws.id.clone(), block_str).await;
+                    let requester_uid = active_user_id.clone();
+                    let _ = yntra_core::update_workspace_block_settings(requester_uid, ws.id.clone(), block_str).await;
                 }
                 
                 let current = *db_trigger.read();

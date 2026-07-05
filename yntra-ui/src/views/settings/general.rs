@@ -79,17 +79,20 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
         settings_val.get("late_policy").and_then(|v| v.as_str()).unwrap_or("none").to_string()
     });
 
+    let state = use_context::<crate::state::AppState>();
     // Helper functions that clone required values to avoid borrow checker errors
     let workspace_id = props.workspace.id.clone();
     let save_identity = {
         let workspace_id = workspace_id.clone();
+        let user_id = state.active_user_id.read().clone();
         move |name: String, color: String, logo: Option<String>| {
             let name_trimmed = name.trim().to_string();
             if !name_trimmed.is_empty() {
                 settings_save_status.set("saving".to_string());
                 let ws_id = workspace_id.clone();
+                let requester_uid = user_id.clone();
                 spawn(async move {
-                    let _ = update_workspace_general(ws_id, name_trimmed, color, logo).await;
+                    let _ = update_workspace_general(requester_uid, ws_id, name_trimmed, color, logo).await;
                 });
                 let current_trig = *db_trigger.read();
                 db_trigger.set(current_trig + 1);
@@ -101,6 +104,7 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
     let save_settings = {
         let workspace_settings_raw = props.workspace.settings.clone();
         let workspace_id = workspace_id.clone();
+        let user_id = state.active_user_id.read().clone();
         move |lang: String, tz: String, ws_start: i32, tmpl: String, grading: String, late: String| {
             settings_save_status.set("saving".to_string());
             let mut settings_map: serde_json::Value = serde_json::from_str(&workspace_settings_raw).unwrap_or_default();
@@ -113,8 +117,9 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
             
             let settings_str = serde_json::to_string(&settings_map).unwrap_or_default();
             let ws_id = workspace_id.clone();
+            let requester_uid = user_id.clone();
             spawn(async move {
-                let _ = yntra_core::update_workspace_settings(ws_id, settings_str).await;
+                let _ = yntra_core::update_workspace_settings(requester_uid, ws_id, settings_str).await;
             });
             
             let current_trig = *db_trigger.read();

@@ -32,9 +32,11 @@ pub fn FinanceSettings(props: FinanceSettingsProps) -> Element {
             .to_string()
     });
 
+    let state = use_context::<crate::state::AppState>();
     let handle_update_settings = {
         let ws_block_settings_raw = workspace.block_settings.clone();
         let ws_id = workspace.id.clone();
+        let user_id = state.active_user_id.read().clone();
         move |new_name: String| {
             settings_save_status.set("saving".to_string());
             
@@ -51,8 +53,9 @@ pub fn FinanceSettings(props: FinanceSettingsProps) -> Element {
             let settings_str = serde_json::to_string(&settings_map).unwrap_or_default();
             let ws_id = ws_id.clone();
             let settings_str_clone = settings_str.clone();
+            let requester_uid = user_id.clone();
             spawn(async move {
-                let _ = yntra_core::update_workspace_block_settings(ws_id, settings_str_clone).await;
+                let _ = yntra_core::update_workspace_block_settings(requester_uid, ws_id, settings_str_clone).await;
             });
 
             let current_trig = *db_trigger.read();

@@ -34,6 +34,11 @@ impl PartialEq for ShiftListProps {
 
 #[component]
 pub fn ShiftList(props: ShiftListProps) -> Element {
+    let state = use_context::<crate::state::AppState>();
+    let requester_id = state.active_user_id.read().clone();
+    let requester_id_approve = requester_id.clone();
+    let requester_id_reject = requester_id.clone();
+    let requester_id_delete = requester_id.clone();
     let filtered_reports = props.filtered_reports.clone();
     let users = props.users.clone();
     let teams = props.teams.clone();
@@ -216,9 +221,10 @@ pub fn ShiftList(props: ShiftListProps) -> Element {
                                             style: "background: var(--success); border-color: var(--success); color: white;",
                                             onclick: move |_| {
                                                 let ids = selected_time_reports.read().clone();
+                                                let req_id = requester_id_approve.clone();
                                                 spawn(async move {
                                                     for id in ids {
-                                                        let _ = update_time_report_status(id, "approved".to_string()).await;
+                                                        let _ = update_time_report_status(req_id.clone(), id, "approved".to_string()).await;
                                                     }
                                                 });
                                                 selected_time_reports.set(Vec::new());
@@ -235,9 +241,10 @@ pub fn ShiftList(props: ShiftListProps) -> Element {
                                             style: "background: var(--danger); border-color: var(--danger); color: white;",
                                             onclick: move |_| {
                                                 let ids = selected_time_reports.read().clone();
+                                                let req_id = requester_id_reject.clone();
                                                 spawn(async move {
                                                     for id in ids {
-                                                        let _ = update_time_report_status(id, "rejected".to_string()).await;
+                                                        let _ = update_time_report_status(req_id.clone(), id, "rejected".to_string()).await;
                                                     }
                                                 });
                                                 selected_time_reports.set(Vec::new());
@@ -252,9 +259,10 @@ pub fn ShiftList(props: ShiftListProps) -> Element {
                                         class: "yntra-btn secondary h-9 w-9 text-muted-foreground transition-colors hover:bg-rose-500/10 hover:text-rose-500 cursor-pointer flex items-center justify-center p-0 rounded-lg border border-border",
                                         onclick: move |_| {
                                             let ids = selected_time_reports.read().clone();
+                                            let req_id = requester_id_delete.clone();
                                             spawn(async move {
                                                 for id in ids {
-                                                    let _ = delete_time_report(id).await;
+                                                    let _ = delete_time_report(req_id.clone(), id).await;
                                                 }
                                             });
                                             selected_time_reports.set(Vec::new());

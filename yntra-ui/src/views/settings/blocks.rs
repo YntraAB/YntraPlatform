@@ -75,6 +75,7 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
         let attendance_enabled = props.attendance_enabled;
         let finance_enabled = props.finance_enabled;
         let library_enabled = props.library_enabled;
+        let user_id = props.active_user.id.clone();
         let workspace_id = props.workspace.id.clone();
         
         move |block: BlockItem, next_state: bool| {
@@ -140,8 +141,9 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
             let new_json = serde_json::to_string(&serde_json::Value::Object(map)).unwrap_or_default();
             let ws_id = workspace_id.clone();
             let new_json_clone = new_json.clone();
+            let requester_uid = user_id.clone();
             spawn(async move {
-                let _ = update_workspace_modules(ws_id, new_json_clone).await;
+                let _ = update_workspace_modules(requester_uid, ws_id, new_json_clone).await;
             });
             
             let current = *db_trigger.read();

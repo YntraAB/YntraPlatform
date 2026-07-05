@@ -5,12 +5,11 @@ use tokio::sync::mpsc;
 
 pub fn start_loopback_listener(tx: mpsc::UnboundedSender<String>) {
     thread::spawn(move || {
-        println!("[Desktop OAuth] Starting loopback listener on 127.0.0.1:5173...");
+        log::info!("[Desktop OAuth] Starting loopback listener on 127.0.0.1:5173...");
         let listener = match TcpListener::bind("127.0.0.1:5173") {
             Ok(l) => l,
             Err(e) => {
-                println!("[Desktop OAuth] Failed to bind loopback listener to port 5173: {}", e);
-                log::error!("Failed to bind loopback listener to port 5173: {}", e);
+                log::error!("[Desktop OAuth] Failed to bind loopback listener to port 5173: {}", e);
                 return;
             }
         };
@@ -55,10 +54,10 @@ pub fn start_loopback_listener(tx: mpsc::UnboundedSender<String>) {
 
             let req = String::from_utf8_lossy(&request_data);
             let first_line = req.lines().next().unwrap_or("");
-            println!("[Desktop OAuth] Received request: {}", first_line);
+            log::info!("[Desktop OAuth] Received request: {}", first_line);
 
             if req.starts_with("GET / ") || req.starts_with("GET /?") {
-                println!("[Desktop OAuth] Serving callback HTML page");
+                log::info!("[Desktop OAuth] Serving callback HTML page");
                 let html = r#"HTTP/1.1 200 OK
 Content-Type: text/html; charset=utf-8
 Connection: close
@@ -93,7 +92,7 @@ Connection: close
 </html>"#;
                 let _ = stream.write_all(html.as_bytes());
             } else if req.starts_with("POST /token") {
-                println!("[Desktop OAuth] Handling POST /token");
+                log::info!("[Desktop OAuth] Handling POST /token");
                 let response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nOK";
                 let _ = stream.write_all(response.as_bytes());
 
@@ -102,18 +101,18 @@ Connection: close
                     // Removed verbose body print to secure access tokens and reduce console spam
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(body) {
                         if let Some(hash) = json.get("hash").and_then(|h| h.as_str()) {
-                            println!("[Desktop OAuth] Token hash extracted successfully. Sending to Dioxus channel...");
+                            log::info!("[Desktop OAuth] Token hash extracted successfully. Sending to Dioxus channel...");
                             let _ = tx.send(hash.to_string());
                         } else {
-                            println!("[Desktop OAuth] Warning: 'hash' key not found in body JSON");
+                            log::warn!("[Desktop OAuth] Warning: 'hash' key not found in body JSON");
                         }
                     } else {
-                        println!("[Desktop OAuth] Warning: Failed to parse body as JSON");
+                        log::warn!("[Desktop OAuth] Warning: Failed to parse body as JSON");
                     }
                 }
                 break; // Stop listening after capturing the token
             }
         }
-        println!("[Desktop OAuth] Loopback listener thread shutting down");
+        log::info!("[Desktop OAuth] Loopback listener thread shutting down");
     });
 }

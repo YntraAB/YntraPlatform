@@ -51,9 +51,11 @@ pub fn SchedulerSettings(props: SchedulerSettingsProps) -> Element {
 
 
 
+    let state = use_context::<crate::state::AppState>();
     let handle_update_settings = {
         let ws_settings_raw = workspace.settings.clone();
         let ws_id = workspace.id.clone();
+        let user_id = state.active_user_id.read().clone();
         move |new_view: Option<String>, new_density: Option<String>, new_start: Option<i32>, new_end: Option<i32>| {
             settings_save_status.set("saving".to_string());
             
@@ -76,8 +78,9 @@ pub fn SchedulerSettings(props: SchedulerSettingsProps) -> Element {
             let settings_str = serde_json::to_string(&settings_map).unwrap_or_default();
             let ws_id_clone = ws_id.clone();
             let settings_str_clone = settings_str.clone();
+            let requester_uid = user_id.clone();
             spawn(async move {
-                let _ = yntra_core::update_workspace_settings(ws_id_clone, settings_str_clone).await;
+                let _ = yntra_core::update_workspace_settings(requester_uid, ws_id_clone, settings_str_clone).await;
             });
 
             let current_trig = *db_trigger.read();

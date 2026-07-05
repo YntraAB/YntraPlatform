@@ -399,8 +399,9 @@ pub fn TemplateManagerDialog(
                                 
                                 let modules_json = serde_json::to_string(&serde_json::Value::Object(modules_map)).unwrap_or_default();
                                 let ws_id = workspace_id.clone();
+                                let requester_uid = state.active_user_id.read().clone();
                                 spawn(async move {
-                                    if yntra_core::update_workspace_modules(ws_id, modules_json).await.is_ok() {
+                                    if yntra_core::update_workspace_modules(requester_uid, ws_id, modules_json).await.is_ok() {
                                         show_template_manager_modal.set(false);
                                         let current = *db_trigger.read();
                                         db_trigger.set(current + 1);

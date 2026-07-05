@@ -20,10 +20,15 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
 
     let mut active_tab = use_signal(|| "moving_jobs".to_string());
 
+    let active_uid_for_jobs = props.active_user_id.clone();
+    let active_uid_for_inv = props.active_user_id.clone();
+    let active_uid_for_quote = props.active_user_id.clone();
+    let active_uid_for_accept = props.active_user_id.clone();
+
     // Fetch resources locally
     let jobs_res = use_resource(move || {
         let _trig = db_trigger.read();
-        let uid = props.active_user_id.clone();
+        let uid = active_uid_for_jobs.clone();
         async move { get_job_tickets(uid).await.unwrap_or_default() }
     });
     let jobs = jobs_res.read().clone().unwrap_or_default();
@@ -32,27 +37,31 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
     let active_job_id = active_job.as_ref().map(|j| j.id.clone()).unwrap_or_default();
     
     let active_job_id_for_inv = active_job_id.clone();
+    let uid_for_inv = active_uid_for_inv.clone();
     let inventory_res = use_resource(move || {
         let _trig = db_trigger.read();
         let jid = active_job_id_for_inv.clone();
+        let uid = uid_for_inv.clone();
         async move {
             if jid.is_empty() {
                 Vec::new()
             } else {
-                get_move_inventory(jid).await.unwrap_or_default()
+                get_move_inventory(uid, jid).await.unwrap_or_default()
             }
         }
     });
     
     let active_job_id_for_quote = active_job_id.clone();
+    let uid_for_quote = active_uid_for_quote.clone();
     let quote_res = use_resource(move || {
         let _trig = db_trigger.read();
         let jid = active_job_id_for_quote.clone();
+        let uid = uid_for_quote.clone();
         async move {
             if jid.is_empty() {
                 None
             } else {
-                get_move_quote(jid).await.unwrap_or(None)
+                get_move_quote(uid, jid).await.unwrap_or(None)
             }
         }
     });
@@ -61,9 +70,11 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
     let total_volume: f64 = inventories.iter().map(|i| i.estimated_volume_m3 * i.quantity as f64).sum();
     let quote = quote_res.read().clone().flatten();
 
+    let uid_for_accept = active_uid_for_accept.clone();
     let on_accept_quote = move |quote_id: String| {
+        let uid = uid_for_accept.clone();
         spawn(async move {
-            if accept_move_quote(quote_id).await.is_ok() {
+            if accept_move_quote(uid, quote_id).await.is_ok() {
                 let current_val = *db_trigger.read();
                 db_trigger.set(current_val + 1);
             }

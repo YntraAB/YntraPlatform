@@ -66,8 +66,9 @@ pub fn NoteEdit(props: NoteEditProps) -> Element {
                                     let final_sub = if sub.is_empty() { "Untitled Note".to_string() } else { sub };
                                     let note_id = n_id.clone();
                                     let author = author_name.clone();
+                                    let user_id = active_user.id.clone();
                                     spawn(async move {
-                                        let _ = update_note(note_id, author, final_sub, content).await;
+                                        let _ = update_note(user_id, note_id, author, final_sub, content).await;
                                     });
                                     edit_mode.set(false);
                                 }

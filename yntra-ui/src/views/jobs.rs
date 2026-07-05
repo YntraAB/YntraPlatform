@@ -51,27 +51,31 @@ pub fn JobsView(props: JobsViewProps) -> Element {
 
     // Reactive resources for moving company modules (Inventory & Quote)
     let selected_job_id_for_inv = selected_job_id.read().clone().unwrap_or_default();
+    let uid_for_inv = props.active_user_id.read().clone();
     let inventory_res = use_resource(move || {
         let _ = db_trig;
         let jid = selected_job_id_for_inv.clone();
+        let uid = uid_for_inv.clone();
         async move {
             if jid.is_empty() {
                 Vec::new()
             } else {
-                yntra_core::get_move_inventory(jid).await.unwrap_or_default()
+                yntra_core::get_move_inventory(uid, jid).await.unwrap_or_default()
             }
         }
     });
 
     let selected_job_id_for_quote = selected_job_id.read().clone().unwrap_or_default();
+    let uid_for_quote = props.active_user_id.read().clone();
     let quote_res = use_resource(move || {
         let _ = db_trig;
         let jid = selected_job_id_for_quote.clone();
+        let uid = uid_for_quote.clone();
         async move {
             if jid.is_empty() {
                 None
             } else {
-                yntra_core::get_move_quote(jid).await.unwrap_or(None)
+                yntra_core::get_move_quote(uid, jid).await.unwrap_or(None)
             }
         }
     });
@@ -435,8 +439,9 @@ pub fn JobsView(props: JobsViewProps) -> Element {
                                                 onclick: move |_| {
                                                     let job_id = job_id_status.clone();
                                                     let mut trigger = db_trigger;
+                                                    let uid = props.active_user_id.read().clone();
                                                     spawn(async move {
-                                                        if yntra_core::update_job_status(job_id, "in_progress".to_string()).await.is_ok() {
+                                                        if yntra_core::update_job_status(uid, job_id, "in_progress".to_string()).await.is_ok() {
                                                             let current = *trigger.read();
                                                             trigger.set(current + 1);
                                                         }
@@ -452,8 +457,9 @@ pub fn JobsView(props: JobsViewProps) -> Element {
                                                     let report_str = completion_report_state.read().clone();
                                                     let job_id = job_id_submit.clone();
                                                     let mut trigger = db_trigger;
+                                                    let uid = props.active_user_id.read().clone();
                                                     spawn(async move {
-                                                        if yntra_core::submit_job_completion(job_id, checklist_str, report_str).await.is_ok() {
+                                                        if yntra_core::submit_job_completion(uid, job_id, checklist_str, report_str).await.is_ok() {
                                                             let current = *trigger.read();
                                                             trigger.set(current + 1);
                                                         }
