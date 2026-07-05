@@ -1,0 +1,158 @@
+use dioxus::prelude::*;
+use yntra_core::{DailyNote, Team, WorkspaceUser};
+
+mod diff;
+mod teams;
+mod list;
+mod compose;
+mod edit;
+mod read;
+
+pub use teams::TeamOverview;
+pub use list::NoteList;
+pub use compose::NoteCompose;
+pub use edit::NoteEdit;
+pub use read::NoteRead;
+
+#[derive(Props, Clone)]
+pub struct NotesViewProps {
+    pub active_user: WorkspaceUser,
+    pub users: Vec<WorkspaceUser>,
+    pub teams: Vec<Team>,
+    pub notes: Vec<DailyNote>,
+    pub selected_note_team_id: Signal<String>,
+    pub note_subject: Signal<String>,
+    pub note_content: Signal<String>,
+    pub active_note_id: Signal<Option<String>>,
+    pub is_composing: Signal<bool>,
+    pub locale: String,
+}
+
+impl PartialEq for NotesViewProps {
+    fn eq(&self, _other: &Self) -> bool {
+        false
+    }
+}
+
+#[component]
+pub fn NotesView(props: NotesViewProps) -> Element {
+    let active_user = props.active_user;
+    let users = props.users.clone();
+    let teams = props.teams.clone();
+    let notes = props.notes.clone();
+
+    let selected_note_team_id = props.selected_note_team_id;
+    let note_subject = props.note_subject;
+    let note_content = props.note_content;
+
+    let active_note_id = props.active_note_id;
+    let is_composing = props.is_composing;
+    
+    let edit_mode = use_signal(|| false);
+    let search_query = use_signal(String::new);
+    let note_search_query = use_signal(String::new);
+
+    let edit_subject = use_signal(String::new);
+    let edit_content = use_signal(String::new);
+    let expanded_note_history_id = use_signal(|| Option::<String>::None);
+
+    let active_team_id = selected_note_team_id.read().clone();
+
+    if active_team_id.is_empty() {
+        rsx! {
+            TeamOverview {
+                teams: teams,
+                notes: notes,
+                selected_note_team_id: selected_note_team_id,
+                active_note_id: active_note_id,
+                is_composing: is_composing,
+                edit_mode: edit_mode,
+                search_query: search_query,
+                locale: props.locale,
+            }
+        }
+    } else {
+        let selected_team = teams.iter().find(|t| t.id == active_team_id);
+        let team_name = selected_team.map(|t| t.name.clone()).unwrap_or_default();
+
+        if *is_composing.read() {
+            rsx! {
+                NoteCompose {
+                    active_user: active_user,
+                    active_team_id: active_team_id,
+                    team_name: team_name,
+                    note_subject: note_subject,
+                    note_content: note_content,
+                    is_composing: is_composing,
+                    locale: props.locale,
+                }
+            }
+        } else {
+            let team_notes: Vec<DailyNote> = notes
+                .iter()
+                .filter(|n| n.team_id == active_team_id)
+                .cloned()
+                .collect();
+
+            let filtered_notes: Vec<DailyNote> = if note_search_query.read().is_empty() {
+                team_notes.clone()
+            } else {
+                let q = note_search_query.read().to_lowercase();
+                team_notes
+                    .iter()
+                    .filter(|n| n.subject.to_lowercase().contains(&q) || n.content.to_lowercase().contains(&q))
+                    .cloned()
+                    .collect()
+            };
+
+            if let Some(target_id) = active_note_id.read().clone() {
+                if let Some(note) = notes.iter().find(|n| n.id == target_id) {
+                    if *edit_mode.read() {
+                        rsx! {
+                            NoteEdit {
+                                active_user: active_user,
+                                note_id: note.id.clone(),
+                                edit_subject: edit_subject,
+                                edit_content: edit_content,
+                                edit_mode: edit_mode,
+                                locale: props.locale,
+                            }
+                        }
+                    } else {
+                        rsx! {
+                            NoteRead {
+                                active_user: active_user,
+                                users: users,
+                                note: note.clone(),
+                                active_note_id: active_note_id,
+                                edit_subject: edit_subject,
+                                edit_content: edit_content,
+                                edit_mode: edit_mode,
+                                expanded_note_history_id: expanded_note_history_id,
+                                locale: props.locale,
+                            }
+                        }
+                    }
+                } else {
+                    rsx! { div { "Note not found" } }
+                }
+            } else {
+                rsx! {
+                    NoteList {
+                        users: users,
+                        filtered_notes: filtered_notes,
+                        team_name: team_name,
+                        selected_note_team_id: selected_note_team_id,
+                        active_note_id: active_note_id,
+                        is_composing: is_composing,
+                        edit_mode: edit_mode,
+                        note_subject: note_subject,
+                        note_content: note_content,
+                        note_search_query: note_search_query,
+                        locale: props.locale,
+                    }
+                }
+            }
+        }
+    }
+}
