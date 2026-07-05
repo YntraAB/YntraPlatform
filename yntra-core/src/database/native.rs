@@ -55,66 +55,97 @@ pub fn get_database() -> &'static libsql::Database {
                 let _ = db.sync().await;
             }
             
-            let conn = DbConnection { inner: Some(db.connect().expect("Failed to connect to libSQL database for schema setup")) };
+            let conn = DbConnection {
+                inner: Some(db.connect().expect("Failed to connect to libSQL database for schema setup")),
+                in_transaction: std::sync::atomic::AtomicBool::new(false),
+            };
             super::schema::setup_schema(&conn).await.expect("Failed to initialize database schema");
             
             db
         })
-    })
-}
+     })
+ }
+ 
+ pub async fn acquire_connection() -> Result<DbConnection, YntraError> {
+     let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
+     {
+         let mut conns = pool.lock().unwrap();
+         if let Some(conn) = conns.pop_front() {
+             return Ok(DbConnection {
+                 inner: Some(conn),
+                 in_transaction: std::sync::atomic::AtomicBool::new(false),
+             });
+         }
+     }
+     let db = get_database();
+     let conn = db.connect().map_err(|e| YntraError::DbError(e.to_string()))?;
+     Ok(DbConnection {
+         inner: Some(conn),
+         in_transaction: std::sync::atomic::AtomicBool::new(false),
+     })
+ }
+ 
+ pub struct DbConnection {
+     pub inner: Option<libsql::Connection>,
+     pub in_transaction: std::sync::atomic::AtomicBool,
+ }
+ 
+ impl Drop for DbConnection {
+     fn drop(&mut self) {
+         if let Some(conn) = self.inner.take() {
+             if self.in_transaction.load(std::sync::atomic::Ordering::SeqCst) {
+                 let _ = block_on(async {
+                     let _ = conn.execute("ROLLBACK", ()).await;
+                 });
+             }
+             let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
+             if let Ok(mut conns) = pool.lock() {
+                 conns.push_back(conn);
+             }
+         }
+     }
+ }
+ 
+ impl DbConnection {
+     pub async fn execute<P: libsql::params::IntoParams + Send>(&self, sql: &str, params: P) -> Result<u64, YntraError> {
+         let sql_upper = sql.to_uppercase();
+         if sql_upper.contains("BEGIN") {
+             self.in_transaction.store(true, std::sync::atomic::Ordering::SeqCst);
+         }
+         if sql_upper.contains("COMMIT") || sql_upper.contains("ROLLBACK") {
+             self.in_transaction.store(false, std::sync::atomic::Ordering::SeqCst);
+         }
 
-pub async fn acquire_connection() -> Result<DbConnection, YntraError> {
-    let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
-    {
-        let mut conns = pool.lock().unwrap();
-        if let Some(conn) = conns.pop_front() {
-            return Ok(DbConnection { inner: Some(conn) });
-        }
-    }
-    let db = get_database();
-    let conn = db.connect().map_err(|e| YntraError::DbError(e.to_string()))?;
-    Ok(DbConnection { inner: Some(conn) })
-}
+         let res = self.inner.as_ref().unwrap().execute(sql, params).await
+             .map_err(|e| YntraError::DbError(e.to_string()));
+         if res.is_ok() {
+             if let Some(table) = crate::infra::observer::extract_table_name(sql) {
+                 crate::infra::observer::set_last_modified_table(&table);
+             }
+         }
+         res
+     }
+ 
+     pub async fn execute_batch(&self, sql: &str) -> Result<(), YntraError> {
+         let sql_upper = sql.to_uppercase();
+         if sql_upper.contains("BEGIN") {
+             self.in_transaction.store(true, std::sync::atomic::Ordering::SeqCst);
+         }
+         if sql_upper.contains("COMMIT") || sql_upper.contains("ROLLBACK") {
+             self.in_transaction.store(false, std::sync::atomic::Ordering::SeqCst);
+         }
 
-pub struct DbConnection {
-    pub inner: Option<libsql::Connection>,
-}
-
-impl Drop for DbConnection {
-    fn drop(&mut self) {
-        if let Some(conn) = self.inner.take() {
-            let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
-            if let Ok(mut conns) = pool.lock() {
-                conns.push_back(conn);
-            }
-        }
-    }
-}
-
-impl DbConnection {
-    pub async fn execute<P: libsql::params::IntoParams + Send>(&self, sql: &str, params: P) -> Result<u64, YntraError> {
-        let res = self.inner.as_ref().unwrap().execute(sql, params).await
-            .map_err(|e| YntraError::DbError(e.to_string()));
-        if res.is_ok() {
-            if let Some(table) = crate::infra::observer::extract_table_name(sql) {
-                crate::infra::observer::set_last_modified_table(&table);
-            }
-        }
-        res
-    }
-
-    pub async fn execute_batch(&self, sql: &str) -> Result<(), YntraError> {
-        let res = self.inner.as_ref().unwrap().execute_batch(sql).await
-            .map_err(|e| YntraError::DbError(e.to_string()));
-        if res.is_ok() {
-            for stmt in sql.split(';') {
-                if let Some(table) = crate::infra::observer::extract_table_name(stmt) {
-                    crate::infra::observer::set_last_modified_table(&table);
-                }
-            }
-        }
-        res
-    }
+         let res = self.inner.as_ref().unwrap().execute_batch(sql).await
+             .map_err(|e| YntraError::DbError(e.to_string()));
+         if res.is_ok() {
+             for stmt in sql.split(';') {
+                 if let Some(table) = crate::infra::observer::extract_table_name(stmt) {
+                     crate::infra::observer::set_last_modified_table(&table);
+                 }
+             }
+         }
+         res
+     }
 
     pub async fn prepare(&self, sql: &str) -> Result<Statement, YntraError> {
         let stmt = self.inner.as_ref().unwrap().prepare(sql).await

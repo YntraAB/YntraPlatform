@@ -80,13 +80,35 @@ impl IntoWasmParams for () {
 }
 
 pub async fn acquire_connection() -> Result<DbConnection, YntraError> {
-    Ok(DbConnection)
+    Ok(DbConnection {
+        in_transaction: std::sync::atomic::AtomicBool::new(false),
+    })
 }
 
-pub struct DbConnection;
+pub struct DbConnection {
+    pub in_transaction: std::sync::atomic::AtomicBool,
+}
+
+impl Drop for DbConnection {
+    fn drop(&mut self) {
+        if self.in_transaction.load(std::sync::atomic::Ordering::SeqCst) {
+            wasm_bindgen_futures::spawn_local(async {
+                let _ = js_execute_sql("execute", "ROLLBACK", "[]").await;
+            });
+        }
+    }
+}
 
 impl DbConnection {
     pub async fn execute<P: IntoWasmParams>(&self, sql: &str, params: P) -> Result<u64, YntraError> {
+        let sql_upper = sql.to_uppercase();
+        if sql_upper.contains("BEGIN") {
+            self.in_transaction.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        if sql_upper.contains("COMMIT") || sql_upper.contains("ROLLBACK") {
+            self.in_transaction.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+
         let params_wasm = params.into_wasm_params();
         let params_str = serde_json::to_string(&params_wasm)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
@@ -100,6 +122,14 @@ impl DbConnection {
     }
 
     pub async fn execute_batch(&self, sql: &str) -> Result<(), YntraError> {
+        let sql_upper = sql.to_uppercase();
+        if sql_upper.contains("BEGIN") {
+            self.in_transaction.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        if sql_upper.contains("COMMIT") || sql_upper.contains("ROLLBACK") {
+            self.in_transaction.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+
         js_execute_sql("execute_batch", sql, "[]").await?;
         for stmt in sql.split(';') {
             if let Some(table) = crate::infra::observer::extract_table_name(stmt) {

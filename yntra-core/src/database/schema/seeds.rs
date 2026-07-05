@@ -14,13 +14,16 @@ pub async fn seed_mock_data(conn: &DbConnection) {
         ('team-1', 'user-2', 'workspace-1', 1719830400000, 'synced');"
     ).await;
 
+    let alice_pub = const_hex::encode(ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]).verifying_key().to_bytes());
+    let bob_pub = const_hex::encode(ed25519_dalek::SigningKey::from_bytes(&[2u8; 32]).verifying_key().to_bytes());
+
     let _ = conn.execute(
-        "UPDATE users SET siths_card_id = 'SITHS-ALICE-123', nfc_badge_uid = 'NFC-ALICE-999' WHERE id = 'user-1'",
-        (),
+        "UPDATE users SET siths_card_id = 'SITHS-ALICE-123', siths_public_key = ?1, nfc_badge_uid = 'NFC-ALICE-999' WHERE id = 'user-1'",
+        crate::params![alice_pub],
     ).await;
     let _ = conn.execute(
-        "UPDATE users SET siths_card_id = 'SITHS-BOB-456', nfc_badge_uid = 'NFC-BOB-888' WHERE id = 'user-2'",
-        (),
+        "UPDATE users SET siths_card_id = 'SITHS-BOB-456', siths_public_key = ?1, nfc_badge_uid = 'NFC-BOB-888' WHERE id = 'user-2'",
+        crate::params![bob_pub],
     ).await;
 
     #[allow(unused_mut)]

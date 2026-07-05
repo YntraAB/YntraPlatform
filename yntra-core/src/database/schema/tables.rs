@@ -37,6 +37,7 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             preferences TEXT NOT NULL DEFAULT '{}',
             password_hash TEXT,
             siths_card_id TEXT,
+            siths_public_key TEXT,
             nfc_badge_uid TEXT,
             personal_number TEXT,
             updated_at INTEGER NOT NULL DEFAULT 0,
@@ -210,11 +211,12 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             target_role TEXT NOT NULL,
             provider TEXT NOT NULL,
             status TEXT NOT NULL,
-            pin TEXT NOT NULL,
+            error_message TEXT,
             qr_data TEXT NOT NULL,
             progress REAL NOT NULL DEFAULT 0.0,
             authenticated_user_id TEXT,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            challenge TEXT
         );
 
         CREATE TABLE IF NOT EXISTS job_tickets (
