@@ -1,14 +1,14 @@
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native;
+#[cfg(not(target_arch = "wasm32"))]
+pub use native::{acquire_connection, DbConnection, Statement, Row, Rows};
 
 #[cfg(target_arch = "wasm32")]
-pub mod wasm {
-    use wasm_bindgen::prelude::*;
+pub mod wasm;
+#[cfg(target_arch = "wasm32")]
+pub use wasm::{acquire_connection, DbConnection, Statement, Row, Rows};
 
-    pub fn query_wasm(sql: &str) {
-        web_sys::console::log_1(&JsValue::from_str(&format!(
-            "WASM DB Query (OPFS Web Worker Bridge): {}",
-            sql
-        )));
-    }
-}
+pub mod schema;
+pub use schema::setup_schema;
+
+
