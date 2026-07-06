@@ -97,7 +97,7 @@ fn verify_auth_signature(public_key_hex: &str, message: &str, signature_hex: &st
 }
 
 fn verify_finnish_checksum(pnum: &str) -> bool {
-    let clean = pnum.trim();
+    let clean = pnum.trim().to_uppercase();
     if clean.len() != 11 {
         return false;
     }
@@ -141,7 +141,7 @@ fn check_birthdate_match_impl(personal_number: &str, birthdate_ddmmyy: &str, pro
 
     // Handle Finnish Personal Identity Code (Format: DDMMYYCZZZQ)
     let is_finnish_format = if clean_pnum.len() == 11 {
-        let separator = clean_pnum.chars().nth(6).unwrap_or(' ');
+        let separator = clean_pnum.chars().nth(6).unwrap_or(' ').to_ascii_uppercase();
         let valid_finnish_separators = ['+', '-', 'A', 'B', 'C', 'D', 'E', 'F', 'Y', 'X', 'W', 'V', 'U'];
         valid_finnish_separators.contains(&separator) && verify_finnish_checksum(clean_pnum)
     } else {
@@ -152,7 +152,7 @@ fn check_birthdate_match_impl(personal_number: &str, birthdate_ddmmyy: &str, pro
         if enforce_se || enforce_no || enforce_dk {
             return false;
         }
-        return clean_pnum.starts_with(birthdate_ddmmyy) && verify_finnish_checksum(clean_pnum);
+        return clean_pnum.to_uppercase().starts_with(birthdate_ddmmyy) && verify_finnish_checksum(clean_pnum);
     }
     
     let mut digits: String = personal_number.chars().filter(|c| c.is_ascii_digit()).collect();
@@ -593,11 +593,37 @@ pub async fn verify_hardware_auth_signature(
 pub async fn complete_auth_session(session_id: String, user_id: String, signature_hex: String) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
 
-    // Verify user exists and retrieve workspace_id
-    let ws_id: String = conn.query_row(
-        "SELECT workspace_id FROM users WHERE id = ?1",
+    // 1. Check if the session exists and is active (not finalized or expired)
+    let (status, created_at): (String, String) = conn.query_row(
+        "SELECT status, created_at FROM bankid_auth_sessions WHERE id = ?1",
+        crate::params![&session_id],
+        |r| Ok((r.get(0)?, r.get(1)?))
+    ).await.map_err(|_| YntraError::NotFoundError("Session not found".to_string()))?;
+
+    if status == "success" || status == "error" {
+        return Err(YntraError::ValidationError("Authentication session already finalized".to_string()));
+    }
+
+    // Check expiry (10 minutes)
+    let created_dt = chrono::NaiveDateTime::parse_from_str(&created_at, "%Y-%m-%d %H:%M:%S")
+        .map(|dt| dt.and_local_timezone(chrono::Utc).unwrap())
+        .map_err(|e| YntraError::AuthError(format!("Failed to parse session creation time: {}", e)))?;
+    let elapsed = chrono::Utc::now().signed_duration_since(created_dt).num_seconds();
+    if elapsed > 600 {
+        // Mark session as expired/error
+        conn.execute(
+            "UPDATE bankid_auth_sessions SET status = 'error', progress = 0.0, error_message = 'Session expired' WHERE id = ?1",
+            crate::params![&session_id],
+        ).await?;
+        notify_observers();
+        return Err(YntraError::AuthError("Authentication session expired (older than 10 minutes)".to_string()));
+    }
+
+    // Verify user exists and retrieve role and workspace_id
+    let (role, ws_id): (String, String) = conn.query_row(
+        "SELECT role, workspace_id FROM users WHERE id = ?1",
         crate::params![&user_id],
-        |r| r.get(0)
+        |r| Ok((r.get(0)?, r.get(1)?))
     ).await.map_err(|_| YntraError::NotFoundError("User does not exist".to_string()))?;
 
     // Retrieve creator public key for workspace
@@ -607,6 +633,21 @@ pub async fn complete_auth_session(session_id: String, user_id: String, signatur
         |r| Ok(r.get(0)?)
     ).await.unwrap_or(None);
 
+    let is_privileged = role == "admin"
+        || role == "platform_admin"
+        || role.contains("rektor")
+        || role.contains("principal")
+        || role.contains("teacher")
+        || role.contains("nurse")
+        || role.contains("skoterska")
+        || role.contains("sköterska")
+        || role.contains("helsesykepleier")
+        || role.contains("helsesøster")
+        || role.contains("sundhedsplejerske")
+        || role.contains("terveydenhoitaja")
+        || role.contains("kouluterveydenhoitaja")
+        || role.contains("hoitaja");
+
     if let Some(pk) = creator_pk {
         if !pk.trim().is_empty() {
             // Verify signature: message is "auth_session:session_id:user_id"
@@ -615,7 +656,11 @@ pub async fn complete_auth_session(session_id: String, user_id: String, signatur
             if !is_valid {
                 return Err(YntraError::AuthError("Cryptographic signature verification failed for authentication session completion".to_string()));
             }
+        } else if is_privileged {
+            return Err(YntraError::AuthError("Cryptographic signature verification is required for privileged roles, but workspace public key is empty".to_string()));
         }
+    } else if is_privileged {
+        return Err(YntraError::AuthError("Cryptographic signature verification is required for privileged roles, but workspace public key is not configured".to_string()));
     }
 
     conn.execute(
