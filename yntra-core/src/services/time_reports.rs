@@ -114,16 +114,14 @@ pub async fn add_time_report(
         }
 
         let settings_parsed: serde_json::Value = serde_json::from_str(&settings_json).unwrap_or(serde_json::Value::Null);
-        let u_prefs_parsed: serde_json::Value = serde_json::from_str(&user_prefs_json).unwrap_or(serde_json::Value::Null);
-        let week_start_day = u_prefs_parsed.get("week_start")
-            .or_else(|| settings_parsed.get("week_start"))
+        let week_start_day = settings_parsed.get("week_start")
             .and_then(|v| v.as_i64())
             .unwrap_or(1) as i32;
 
         let target_week_start = get_week_start_days(target_days, week_start_day);
 
         // Fetch user reports in a sliding window to optimize performance and prevent scaling issues
-        let start_days = target_week_start - 15 * 7;
+        let start_days = target_week_start - 15 * 7 - 1;
         let end_days = target_week_start + 16 * 7;
         let start_date_str = format_date_from_days(start_days);
         let end_date_str = format_date_from_days(end_days);
@@ -151,8 +149,7 @@ pub async fn add_time_report(
         .unwrap_or("EU");
     let target_region = target_region_raw.to_uppercase();
 
-    let week_start_day = u_prefs.get("week_start")
-        .or_else(|| settings.get("week_start"))
+    let week_start_day = settings.get("week_start")
         .and_then(|v| v.as_i64())
         .unwrap_or(1) as i32;
     let target_week_start = get_week_start_days(target_days, week_start_day);
@@ -171,6 +168,13 @@ pub async fn add_time_report(
     let rule = crate::infra::compliance::ComplianceRegistry::get_rule(&target_region);
     let daily_limit = if allow_overtime { rule.max_daily_limit_with_overtime } else { rule.standard_daily_limit };
     let weekly_limit = if allow_overtime || allow_union_exempt { rule.max_weekly_limit_with_exemption } else { rule.standard_weekly_limit };
+
+    let mandatory_rest_hours_limit = if rule.mandatory_daily_rest_hours > 0.0 {
+        if allow_union_exempt { 8.0 } else { rule.mandatory_daily_rest_hours }
+    } else {
+        0.0
+    };
+    let mandatory_rest_min = (mandatory_rest_hours_limit * 60.0) as i32;
 
     // Convert existing user reports to absolute minute intervals
     let mut existing_intervals = Vec::new();
@@ -193,16 +197,7 @@ pub async fn add_time_report(
             None => return Err(YntraError::ValidationError("Invalid date format, expected YYYY-MM-DD".to_string())),
         };
         let day_start_min = date_to_days(y, m, d) * 1440;
-        
-        let mut day_existing = Vec::new();
-        for (r_date, r_hrs, r_start, r_end) in &user_reports {
-            if r_date == &date {
-                if let Some(interval) = get_report_interval(r_date, *r_hrs, r_start.as_deref(), r_end.as_deref()) {
-                    day_existing.push(interval);
-                }
-            }
-        }
-        resolve_fallback_interval_for_day(day_start_min, hours, &day_existing)
+        resolve_fallback_interval_for_day(day_start_min, hours, &existing_intervals, mandatory_rest_min)
     };
 
     let start_day_idx = new_start_abs / 1440;
@@ -221,23 +216,25 @@ pub async fn add_time_report(
     let mut all_intervals = existing_intervals.clone();
     all_intervals.push((new_start_abs, new_end_abs));
 
-    if !target_region.starts_with("US") {
-        for day_idx in start_day_idx..=end_day_idx {
-            let daily_logged_on_day = get_hours_on_day(day_idx, &all_intervals);
-            if daily_logged_on_day > daily_limit {
-                let day_date_str = format_date_from_days(day_idx);
-                let msg = match target_region.as_str() {
-                    "NO" | "SE" | "DK" | "FI" => format!(
-                        "Daily working hours limit ({}h) exceeded under {} on {}. Logged on this day: {:.2}h.",
-                        daily_limit, rule.law_name, day_date_str, daily_logged_on_day
-                    ),
-                    _ => format!(
-                        "Daily working hours limit ({}h) exceeded on {}. Logged on this day: {:.2}h (Violates mandatory 11h daily rest period)",
-                        daily_limit, day_date_str, daily_logged_on_day
-                    ),
-                };
-                return Err(YntraError::ValidationError(msg));
-            }
+    for day_idx in start_day_idx..=end_day_idx {
+        let daily_logged_on_day = get_hours_on_day(day_idx, &all_intervals);
+        if daily_logged_on_day > daily_limit {
+            let day_date_str = format_date_from_days(day_idx);
+            let msg = match target_region.as_str() {
+                "NO" | "SE" | "DK" | "FI" => format!(
+                    "Daily working hours limit ({}h) exceeded under {} on {}. Logged on this day: {:.2}h.",
+                    daily_limit, rule.law_name, day_date_str, daily_logged_on_day
+                ),
+                r if r.starts_with("US") => format!(
+                    "Daily working hours limit ({}h) exceeded under {} on {}. Logged on this day: {:.2}h.",
+                    daily_limit, rule.law_name, day_date_str, daily_logged_on_day
+                ),
+                _ => format!(
+                    "Daily working hours limit ({}h) exceeded on {}. Logged on this day: {:.2}h (Violates mandatory 11h daily rest period)",
+                    daily_limit, day_date_str, daily_logged_on_day
+                ),
+            };
+            return Err(YntraError::ValidationError(msg));
         }
     }
 
@@ -268,7 +265,7 @@ pub async fn add_time_report(
             let (s_start, _s_end) = sorted_intervals[i];
             let window_start = s_start;
             let dst_change_in_window = adjust_duration_for_dst(window_start, window_start + 1440, &target_region);
-            let window_end = s_start + 1440 - dst_change_in_window;
+            let window_end = s_start + 1440 + dst_change_in_window;
             
             // Collect all segments overlapping with W
             let mut segments = Vec::new();
@@ -286,7 +283,8 @@ pub async fn add_time_report(
             
             for &(seg_start, seg_end) in &segments {
                 if seg_start > current_point {
-                    let rest_gap = seg_start - current_point;
+                    let gap_dst = adjust_duration_for_dst(current_point, seg_start, &target_region);
+                    let rest_gap = seg_start - current_point + gap_dst;
                     if rest_gap > max_rest {
                         max_rest = rest_gap;
                     }
@@ -295,7 +293,8 @@ pub async fn add_time_report(
             }
             
             if window_end > current_point {
-                let rest_gap = window_end - current_point;
+                let gap_dst = adjust_duration_for_dst(current_point, window_end, &target_region);
+                let rest_gap = window_end - current_point + gap_dst;
                 if rest_gap > max_rest {
                     max_rest = rest_gap;
                 }
@@ -311,16 +310,18 @@ pub async fn add_time_report(
     }
 
     // 5. Validate weekly limit (fixed calendar week containing target_days)
-    let weekly_logged: f64 = user_reports.iter()
-        .filter_map(|(r_date, hrs, _, _)| {
-            parse_date(r_date)
-                .map(|(y, m, d)| date_to_days(y, m, d))
-                .filter(|&days| days >= target_week_start && days < target_week_start + 7)
-                .map(|_| *hrs)
-        })
-        .sum();
+    let week_start_min = target_week_start * 1440;
+    let week_end_min = week_start_min + 7 * 1440;
+    let mut weekly_logged = 0.0;
+    for &(start, end) in &existing_intervals {
+        let overlap_start = start.max(week_start_min);
+        let overlap_end = end.min(week_end_min);
+        if overlap_start < overlap_end {
+            weekly_logged += (overlap_end - overlap_start) as f64 / 60.0;
+        }
+    }
 
-    let skip_calendar_weekly_cap = (matches!(target_region.as_str(), "SE" | "NO" | "DK" | "FI" | "EU") && allow_overtime) || target_region.starts_with("US");
+    let skip_calendar_weekly_cap = allow_overtime;
 
     if !skip_calendar_weekly_cap && weekly_logged + hours > weekly_limit {
         let msg = match target_region.as_str() {
@@ -340,16 +341,18 @@ pub async fn add_time_report(
     if matches!(target_region.as_str(), "SE" | "NO" | "DK" | "FI" | "EU") {
         for offset in 0..16 {
             let w_start = target_week_start + (offset - 15) * 7;
-            let rolling_logged: f64 = user_reports.iter()
-                .filter_map(|(r_date, hrs, _, _)| {
-                    parse_date(r_date)
-                        .map(|(y, m, d)| date_to_days(y, m, d))
-                        .filter(|&days| days >= w_start && days < w_start + 16 * 7)
-                        .map(|_| *hrs)
-                })
-                .sum();
+            let w_start_min = w_start * 1440;
+            let w_end_min = w_start_min + 16 * 7 * 1440;
+            let mut rolling_logged = 0.0;
+            for &(start, end) in &all_intervals {
+                let overlap_start = start.max(w_start_min);
+                let overlap_end = end.min(w_end_min);
+                if overlap_start < overlap_end {
+                    rolling_logged += (overlap_end - overlap_start) as f64 / 60.0;
+                }
+            }
 
-            let rolling_average = (rolling_logged + hours) / 16.0;
+            let rolling_average = rolling_logged / 16.0;
             if rolling_average > 48.0 {
                 return Err(YntraError::ValidationError(format!(
                     "Rolling 16-week average weekly working hours ({:.2}h) exceeds the legal limit of 48.0h under {} in the 16-week window starting at {}.",
@@ -594,22 +597,42 @@ fn get_report_interval(
 fn resolve_fallback_interval_for_day(
     day_start_min: i32,
     hours: f64,
-    existing_intervals: &[(i32, i32)],
+    all_existing_intervals: &[(i32, i32)],
+    mandatory_rest_min: i32,
 ) -> (i32, i32) {
     let duration_min = (hours * 60.0) as i32;
     let mut candidate_start = day_start_min + 8 * 60; // Start at 08:00
     
     loop {
         let candidate_end = candidate_start + duration_min;
-        let mut overlap = false;
-        for &(estart, eend) in existing_intervals {
+        let mut conflict = false;
+        
+        // 1. Check for overlaps with ANY shift
+        for &(estart, eend) in all_existing_intervals {
             if candidate_start < eend && estart < candidate_end {
-                overlap = true;
-                candidate_start = eend + 30; // Move start time to 30 mins after the overlapping shift ends
+                conflict = true;
+                candidate_start = eend + 30; // Move start time past overlap
                 break;
             }
         }
-        if !overlap {
+        
+        // 2. Check if it satisfies mandatory daily rest relative to adjacent shifts
+        if !conflict && mandatory_rest_min > 0 {
+            for &(estart, eend) in all_existing_intervals {
+                if eend <= candidate_start && (candidate_start - eend) < mandatory_rest_min {
+                    conflict = true;
+                    candidate_start = eend + mandatory_rest_min;
+                    break;
+                }
+                if estart >= candidate_end && (estart - candidate_end) < mandatory_rest_min {
+                    conflict = true;
+                    candidate_start = estart + 30; // Jump past it
+                    break;
+                }
+            }
+        }
+        
+        if !conflict {
             return (candidate_start, candidate_end);
         }
     }
@@ -676,12 +699,15 @@ fn get_hours_on_day(day_index: i32, intervals: &[(i32, i32)]) -> f64 {
 }
 
 fn get_dst_offset_change(y: i32, m: i32, d: i32, region: &str) -> i32 {
+    if region == "US-AZ" || region == "US-HI" {
+        return 0;
+    }
     let days = date_to_days(y, m, d);
     let is_sunday = (days + 3) % 7 == 0;
     if !is_sunday {
         return 0;
     }
-    let is_eu = matches!(region, "SE" | "NO" | "DK" | "FI" | "EU");
+    let is_eu = matches!(region, "SE" | "NO" | "DK" | "FI" | "EU" | "GB" | "IE");
     let is_us = region.starts_with("US");
 
     if is_eu {
@@ -718,10 +744,22 @@ fn adjust_duration_for_dst(start_abs: i32, end_abs: i32, region: &str) -> i32 {
                 120
             } else if change < 0 {
                 // Spring forward transitions
-                if region == "FI" { 180 } else { 120 }
+                if region == "FI" {
+                    180
+                } else if region == "GB" || region == "IE" {
+                    60
+                } else {
+                    120
+                }
             } else {
                 // Autumn fallback transitions (local time moves back)
-                if region == "FI" { 240 } else { 180 }
+                if region == "FI" {
+                    240
+                } else if region == "GB" || region == "IE" {
+                    120
+                } else {
+                    180
+                }
             };
             let transition_abs = day_idx * 1440 + transition_hour;
             if start_abs <= transition_abs && transition_abs <= end_abs {
@@ -735,12 +773,20 @@ fn adjust_duration_for_dst(start_abs: i32, end_abs: i32, region: &str) -> i32 {
 fn check_weekly_rest_for_week(
     week_start_days: i32,
     sorted_intervals: &[(i32, i32)],
-    _target_region: &str,
+    target_region: &str,
     weekly_rest_limit_min: i32,
     law_name: &str,
 ) -> Result<(), YntraError> {
     let week_start_min = week_start_days * 1440;
     let week_end_min = (week_start_days + 7) * 1440;
+    
+    // Early exit: if the worker has no shifts in the target week, they are automatically compliant.
+    let has_shifts_in_target_week = sorted_intervals.iter().any(|&(s, e)| {
+        s < week_end_min && e > week_start_min
+    });
+    if !has_shifts_in_target_week {
+        return Ok(());
+    }
     
     let start_days = week_start_days - 15 * 7;
     let end_days = week_start_days + 16 * 7;
@@ -759,10 +805,19 @@ fn check_weekly_rest_for_week(
         let gap_start = intervals[idx].1;
         let gap_end = intervals[idx + 1].0;
         
-        // Check if the gap overlaps with the calendar week
-        if gap_start < week_end_min && gap_end > week_start_min {
-            let gap_duration = gap_end - gap_start;
-            if gap_duration >= weekly_rest_limit_min {
+        let overlap_start = gap_start.max(week_start_min);
+        let overlap_end = gap_end.min(week_end_min);
+        
+        if overlap_start < overlap_end {
+            let gap_dst = adjust_duration_for_dst(gap_start, gap_end, target_region);
+            let gap_duration = gap_end - gap_start + gap_dst;
+            
+            let overlap_dst = adjust_duration_for_dst(overlap_start, overlap_end, target_region);
+            let overlap_duration = overlap_end - overlap_start + overlap_dst;
+            
+            // Overlap with the calendar week must be at least 24 hours (1440 mins)
+            // and the total consecutive rest period must satisfy weekly rest limit
+            if overlap_duration >= 24 * 60 && gap_duration >= weekly_rest_limit_min {
                 has_compliant_rest = true;
                 break;
             }
