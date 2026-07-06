@@ -138,20 +138,28 @@ pub async fn record_school_payment(
     payment_method: String,
     paid_at: String,
 ) -> Result<SchoolPayment, YntraError> {
+    if amount <= 0.0 {
+        return Err(YntraError::ValidationError("Payment amount must be greater than zero".to_string()));
+    }
+
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
 
-    let invoice_ws: String = conn.query_row(
-        "SELECT workspace_id FROM school_invoices WHERE id = ?1",
+    let (invoice_ws, inv_amount, inv_status): (String, f64, String) = conn.query_row(
+        "SELECT workspace_id, amount, status FROM school_invoices WHERE id = ?1",
         crate::params![&invoice_id],
-        |r| r.get(0)
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))
     ).await.map_err(|_| YntraError::NotFoundError("Invoice not found".to_string()))?;
 
     if invoice_ws != workspace_id {
         return Err(YntraError::ValidationError("Invoice does not belong to the specified workspace".to_string()));
+    }
+
+    if inv_status == "paid" {
+        return Err(YntraError::ValidationError("Invoice is already fully paid".to_string()));
     }
 
     if !super::check_permission(&conn, &requester_user_id, "can_manage_finance").await? {
@@ -175,6 +183,16 @@ pub async fn record_school_payment(
     conn.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
 
     let res = async {
+        // Fetch previous payments sum
+        let prev_payments_sum: f64 = conn.query_row(
+            "SELECT IFNULL(SUM(amount), 0.0) FROM school_payments WHERE invoice_id = ?1",
+            crate::params![&payment.invoice_id],
+            |row| row.get(0)
+        ).await.unwrap_or(0.0);
+
+        let total_paid = prev_payments_sum + amount;
+        let new_status = if total_paid >= inv_amount { "paid" } else { "partially_paid" };
+
         // 1. Log payment
         conn.execute(
             "INSERT INTO school_payments (id, workspace_id, invoice_id, amount, payment_method, paid_at, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -190,10 +208,10 @@ pub async fn record_school_payment(
             ],
         ).await?;
         
-        // 2. Update matching invoice to paid
+        // 2. Update matching invoice status
         conn.execute(
-            "UPDATE school_invoices SET status = 'paid', paid_at = ?1, updated_at = ?2 WHERE id = ?3",
-            crate::params![&payment.paid_at, &now_ms, &payment.invoice_id],
+            "UPDATE school_invoices SET status = ?1, paid_at = ?2, updated_at = ?3 WHERE id = ?4",
+            crate::params![new_status, &payment.paid_at, &now_ms, &payment.invoice_id],
         ).await?;
         Ok::<(), YntraError>(())
     }.await;

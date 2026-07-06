@@ -9,17 +9,30 @@ fn validate_grade_for_region(grade: &str, region: &str) -> Result<(), YntraError
     }
     match region {
         "SE" => {
-            // Swedish grades: A-F (and lowercase), - (streck), G (Godkänd), VG (Väl godkänd), U (Underkänd)
-            let valid_grades = ["A", "B", "C", "D", "E", "F", "a", "b", "c", "d", "e", "f", "-", "G", "VG", "U", "g", "vg", "u"];
+            // Swedish grades: A-F (and lowercase), - (streck), G (Godkänd), VG (Väl godkänd), MVG (Mycket väl godkänd), U (Underkänd)
+            let valid_grades = ["A", "B", "C", "D", "E", "F", "a", "b", "c", "d", "e", "f", "-", "G", "VG", "MVG", "U", "g", "vg", "mvg", "u"];
             if !valid_grades.contains(&clean.as_str()) {
-                return Err(YntraError::ValidationError(format!("Invalid grade '{}' for Swedish grading system (expected A-F, G, VG, U, or -).", clean)));
+                return Err(YntraError::ValidationError(format!("Invalid grade '{}' for Swedish grading system (expected A-F, G, VG, MVG, U, or -).", clean)));
             }
         }
         "NO" => {
             // Norwegian: 1-6, or standard Pass/Fail: Bestått (G / B), Ikke bestått (U / IB)
+            // Allow modifiers: +, -, or combined like 5/6
+            let mut base = clean.clone();
+            if base.ends_with('+') || base.ends_with('-') {
+                base.pop();
+            } else if base.contains('/') {
+                let parts: Vec<&str> = base.split('/').collect();
+                if parts.len() == 2 {
+                    let valid_grades = ["1", "2", "3", "4", "5", "6"];
+                    if valid_grades.contains(&parts[0]) && valid_grades.contains(&parts[1]) {
+                        return Ok(());
+                    }
+                }
+            }
             let valid_grades = ["1", "2", "3", "4", "5", "6", "B", "b", "IB", "ib", "G", "g", "U", "u"];
-            if !valid_grades.contains(&clean.as_str()) {
-                return Err(YntraError::ValidationError(format!("Invalid grade '{}' for Norwegian grading system (expected 1-6 or B/IB).", clean)));
+            if !valid_grades.contains(&base.as_str()) {
+                return Err(YntraError::ValidationError(format!("Invalid grade '{}' for Norwegian grading system (expected 1-6 or B/IB with optional modifiers).", clean)));
             }
         }
         "DK" => {
@@ -36,12 +49,19 @@ fn validate_grade_for_region(grade: &str, region: &str) -> Result<(), YntraError
         }
         "FI" => {
             // Finnish: 4-10 (comprehensive), 0-5 (university), S/H (suoritettu/hylätty), HYV/HYL (hyväksytty/hylätty)
+            // Allow modifiers: +, -, ½, .5
+            let mut base = clean.clone();
+            if base.ends_with('+') || base.ends_with('-') || base.ends_with('½') {
+                base.pop();
+            } else if base.ends_with(".5") {
+                base = base[..base.len()-2].to_string();
+            }
             let valid_grades = [
                 "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10",
                 "S", "H", "s", "h", "HYV", "HYL", "hyv", "hyl"
             ];
-            if !valid_grades.contains(&clean.as_str()) {
-                return Err(YntraError::ValidationError(format!("Invalid grade '{}' for Finnish grading system (expected 4-10, 0-5, S, H, HYV, or HYL).", clean)));
+            if !valid_grades.contains(&base.as_str()) {
+                return Err(YntraError::ValidationError(format!("Invalid grade '{}' for Finnish grading system (expected 4-10, 0-5, S, H, HYV, or HYL with optional modifier).", clean)));
             }
         }
         r if r.starts_with("US") => {
@@ -52,11 +72,18 @@ fn validate_grade_for_region(grade: &str, region: &str) -> Result<(), YntraError
                 return Ok(());
             }
             
+            // Allow US percentage grade (numeric score between 0.0 and 100.0)
+            if let Ok(pct) = upper_clean.parse::<f64>() {
+                if pct >= 0.0 && pct <= 100.0 {
+                    return Ok(());
+                }
+            }
+            
             let first_char = upper_clean.chars().next().unwrap_or(' ');
             // US grades allow A-E (some districts use E) and F
             let valid_letters = ['A', 'B', 'C', 'D', 'E', 'F'];
             if !valid_letters.contains(&first_char) {
-                return Err(YntraError::ValidationError(format!("Invalid grade '{}' for US grading system (expected A-F or non-punitive codes like I, P, W).", clean)));
+                return Err(YntraError::ValidationError(format!("Invalid grade '{}' for US grading system (expected A-F, percentage, or non-punitive codes like I, P, W).", clean)));
             }
             if upper_clean.len() > 2 {
                 return Err(YntraError::ValidationError(format!("Invalid grade '{}' for US grading system (too long).", clean)));
@@ -633,7 +660,17 @@ pub async fn calculate_and_save_gpa(
     let mut stmt = conn.prepare("SELECT final_grade FROM term_grades WHERE student_id = ?1 AND term_name = ?2").await?;
     let grades: Vec<Option<String>> = stmt.query_map(crate::params![&student_id, &term_name], |row| row.get(0)).await?;
     
-    let gpa = calculate_gpa(&grades);
+    // Determine target region from workspace settings
+    let settings_json: String = conn.query_row(
+        "SELECT settings FROM workspaces WHERE id = ?1",
+        crate::params![&workspace_id],
+        |r| r.get(0)
+    ).await.unwrap_or_else(|_| "{}".to_string());
+    let settings: serde_json::Value = serde_json::from_str(&settings_json).unwrap_or(serde_json::Value::Null);
+    let target_region_raw = settings.get("target_region").and_then(|v| v.as_str()).unwrap_or("EU");
+    let target_region = target_region_raw.to_uppercase();
+
+    let gpa = calculate_gpa(&grades, &target_region);
     
     let existing_id: Option<String> = conn.query_row(
         "SELECT id FROM report_cards WHERE student_id = ?1 AND term_name = ?2",
@@ -693,34 +730,132 @@ pub async fn calculate_and_save_gpa(
     Ok(record)
 }
 
-pub(crate) fn calculate_gpa(grades: &[Option<String>]) -> f64 {
+pub(crate) fn calculate_gpa(grades: &[Option<String>], region: &str) -> f64 {
     let mut total_points = 0.0;
     let mut count = 0;
+    let upper_region = region.to_uppercase();
+    
+    let mut use_fi_university = false;
+    if upper_region == "FI" {
+        for g_opt in grades {
+            if let Some(g) = g_opt {
+                let clean = g.trim().to_uppercase();
+                if ["0", "1", "2", "3", "L", "E", "M", "C", "B", "A"].contains(&clean.as_str()) {
+                    use_fi_university = true;
+                    break;
+                }
+            }
+        }
+    }
+    
     for g_opt in grades {
         if let Some(g) = g_opt {
-            let pts = match g.trim().to_uppercase().as_str() {
-                // US / ECTS / Swedish standard
-                "A" => Some(4.0),
-                "B" => Some(3.0),
-                "C" => Some(2.0),
-                "D" => Some(1.0),
-                "E" => Some(1.0),
-                "F" => Some(0.0),
-                // Norwegian scale (1 to 6)
-                "6" => Some(4.0),
-                "5" => Some(3.0),
-                "4" => Some(2.0),
-                "3" => Some(1.5),
-                "2" => Some(1.0),
-                "1" => Some(0.0),
-                // Danish scale (12, 10, 7, 4, 02, 00, -3)
-                "12" => Some(4.0),
-                "10" => Some(3.5),
-                "7" => Some(3.0),
-                "02" => Some(1.0),
-                "00" | "0" => Some(0.0),
-                "-3" => Some(0.0),
-                _ => None,
+            let clean = g.trim().to_uppercase();
+            if clean.is_empty() {
+                continue;
+            }
+            let pts = match upper_region.as_str() {
+                "SE" => match clean.as_str() {
+                    "A" => Some(4.0),
+                    "B" => Some(3.0),
+                    "C" => Some(2.0),
+                    "D" => Some(1.5),
+                    "E" => Some(1.0),
+                    "F" | "U" | "IG" => Some(0.0),
+                    "G" => Some(2.0),
+                    "VG" => Some(3.5),
+                    "MVG" => Some(4.0),
+                    _ => None,
+                },
+                "NO" => match clean.as_str() {
+                    "6" => Some(4.0),
+                    "5" => Some(3.0),
+                    "4" => Some(2.0),
+                    "3" => Some(1.5),
+                    "2" => Some(1.0),
+                    "1" | "U" | "IB" => Some(0.0),
+                    "G" | "B" => Some(3.0),
+                    _ => None,
+                },
+                "DK" => match clean.as_str() {
+                    "12" => Some(4.0),
+                    "10" => Some(3.5),
+                    "7" => Some(3.0),
+                    "4" => Some(2.0),
+                    "02" => Some(1.0),
+                    "00" | "0" | "-3" => Some(0.0),
+                    _ => None,
+                },
+                "FI" => {
+                    if use_fi_university {
+                        match clean.as_str() {
+                            "5" => Some(4.0),
+                            "4" => Some(3.5),
+                            "3" => Some(3.0),
+                            "2" => Some(2.0),
+                            "1" => Some(1.0),
+                            "0" | "H" | "HYL" | "I" => Some(0.0),
+                            "S" | "HYV" => Some(3.0),
+                            "L" => Some(4.0),
+                            "E" => Some(3.5),
+                            "M" => Some(3.0),
+                            "C" => Some(2.5),
+                            "B" => Some(2.0),
+                            "A" => Some(1.0),
+                            _ => None,
+                        }
+                    } else {
+                        match clean.as_str() {
+                            "10" => Some(4.0),
+                            "9" => Some(3.5),
+                            "8" => Some(3.0),
+                            "7" => Some(2.0),
+                            "6" => Some(1.5),
+                            "5" => Some(1.0),
+                            "4" | "H" | "HYL" | "I" => Some(0.0),
+                            "S" | "HYV" => Some(3.0),
+                            "L" => Some(4.0),
+                            "E" => Some(3.5),
+                            "M" => Some(3.0),
+                            "C" => Some(2.5),
+                            "B" => Some(2.0),
+                            "A" => Some(1.0),
+                            _ => None,
+                        }
+                    }
+                }
+                r if r.starts_with("US") => {
+                    if clean == "A" || clean == "A+" || clean == "A-" { Some(4.0) }
+                    else if clean == "B" || clean == "B+" || clean == "B-" { Some(3.0) }
+                    else if clean == "C" || clean == "C+" || clean == "C-" { Some(2.0) }
+                    else if clean == "D" || clean == "D+" || clean == "D-" { Some(1.0) }
+                    else if clean == "E" || clean == "E+" || clean == "E-" { Some(1.0) }
+                    else if clean == "F" { Some(0.0) }
+                    else {
+                        // Check if it's a numeric percentage grade
+                        if let Ok(pct) = clean.parse::<f64>() {
+                            if pct >= 90.0 { Some(4.0) }
+                            else if pct >= 80.0 { Some(3.0) }
+                            else if pct >= 70.0 { Some(2.0) }
+                            else if pct >= 60.0 { Some(1.0) }
+                            else { Some(0.0) }
+                        } else {
+                            None
+                        }
+                    }
+                },
+                _ => {
+                    // Default EU ECTS scale
+                    match clean.as_str() {
+                        "A" => Some(4.0),
+                        "B" => Some(3.0),
+                        "C" => Some(2.0),
+                        "D" => Some(1.0),
+                        "E" => Some(1.0),
+                        "FX" | "F" => Some(0.0),
+                        _ => None,
+                    }
+                }
             };
             if let Some(p) = pts {
                 total_points += p;
@@ -738,27 +873,39 @@ mod tests {
     #[test]
     fn test_calculate_gpa_all_cases() {
         // Test standard values
-        assert_eq!(calculate_gpa(&[Some("A".to_string())]), 4.0);
-        assert_eq!(calculate_gpa(&[Some("B".to_string())]), 3.0);
-        assert_eq!(calculate_gpa(&[Some("C".to_string())]), 2.0);
-        assert_eq!(calculate_gpa(&[Some("D".to_string())]), 1.0);
-        assert_eq!(calculate_gpa(&[Some("E".to_string())]), 1.0);
-        assert_eq!(calculate_gpa(&[Some("F".to_string())]), 0.0);
+        assert_eq!(calculate_gpa(&[Some("A".to_string())], "US"), 4.0);
+        assert_eq!(calculate_gpa(&[Some("B".to_string())], "US"), 3.0);
+        assert_eq!(calculate_gpa(&[Some("C".to_string())], "US"), 2.0);
+        assert_eq!(calculate_gpa(&[Some("D".to_string())], "US"), 1.0);
+        assert_eq!(calculate_gpa(&[Some("E".to_string())], "US"), 1.0);
+        assert_eq!(calculate_gpa(&[Some("F".to_string())], "US"), 0.0);
 
         // Test Norwegian grades
-        assert_eq!(calculate_gpa(&[Some("6".to_string()), Some("5".to_string())]), 3.5);
-        assert_eq!(calculate_gpa(&[Some("2".to_string()), Some("1".to_string())]), 0.5);
+        assert_eq!(calculate_gpa(&[Some("6".to_string()), Some("5".to_string())], "NO"), 3.5);
+        assert_eq!(calculate_gpa(&[Some("2".to_string()), Some("1".to_string())], "NO"), 0.5);
 
-        // Test Danish grades
-        assert_eq!(calculate_gpa(&[Some("12".to_string()), Some("10".to_string())]), 3.75);
-        assert_eq!(calculate_gpa(&[Some("02".to_string()), Some("-3".to_string())]), 0.5);
+        // Test Danish grades (including Danish 4)
+        assert_eq!(calculate_gpa(&[Some("12".to_string()), Some("4".to_string())], "DK"), 3.0);
+        assert_eq!(calculate_gpa(&[Some("02".to_string()), Some("-3".to_string())], "DK"), 0.5);
+
+        // Test Finnish grades (comprehensive & university)
+        assert_eq!(calculate_gpa(&[Some("10".to_string()), Some("8".to_string())], "FI"), 3.5);
+        assert_eq!(calculate_gpa(&[Some("3".to_string()), Some("1".to_string())], "FI"), 2.0);
+        assert_eq!(calculate_gpa(&[Some("5".to_string()), Some("4".to_string())], "FI"), 3.75);
+        assert_eq!(calculate_gpa(&[Some("10".to_string()), Some("5".to_string()), Some("4".to_string())], "FI"), 5.0 / 3.0);
+
+        // Test Swedish old scale fail grade IG
+        assert_eq!(calculate_gpa(&[Some("MVG".to_string()), Some("IG".to_string())], "SE"), 2.0);
+
+        // Test US percentage grades
+        assert_eq!(calculate_gpa(&[Some("95".to_string()), Some("85".to_string())], "US-CA"), 3.5);
 
         // Test average calculations
-        assert_eq!(calculate_gpa(&[Some("A".to_string()), Some("B".to_string())]), 3.5);
-        assert_eq!(calculate_gpa(&[Some("A".to_string()), Some("F".to_string())]), 2.0);
+        assert_eq!(calculate_gpa(&[Some("A".to_string()), Some("B".to_string())], "US"), 3.5);
+        assert_eq!(calculate_gpa(&[Some("A".to_string()), Some("F".to_string())], "US"), 2.0);
 
         // Test lowercase and whitespaces
-        assert_eq!(calculate_gpa(&[Some("  a  ".to_string()), Some("b\n".to_string())]), 3.5);
+        assert_eq!(calculate_gpa(&[Some("  a  ".to_string()), Some("b\n".to_string())], "US"), 3.5);
 
         // Test invalid and None grades ignored
         assert_eq!(
@@ -767,13 +914,13 @@ mod tests {
                 None,
                 Some("INVALID".to_string()),
                 Some("B".to_string())
-            ]),
+            ], "US"),
             3.5
         );
 
         // Test empty/only invalid inputs
-        assert_eq!(calculate_gpa(&[]), 0.0);
-        assert_eq!(calculate_gpa(&[None, Some("X".to_string())]), 0.0);
+        assert_eq!(calculate_gpa(&[], "US"), 0.0);
+        assert_eq!(calculate_gpa(&[None, Some("X".to_string())], "US"), 0.0);
     }
 
     #[test]

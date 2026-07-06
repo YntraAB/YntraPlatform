@@ -2,17 +2,7 @@ use crate::database;
 use crate::observer::notify_observers;
 use crate::{DailyNote, EditHistoryEntry, YntraError};
 
-fn decode_content(raw_content: &str) -> String {
-    if raw_content.starts_with("loro:") {
-        if let Some(bytes) = crate::infra::crypto::hex_decode(&raw_content[5..]) {
-            let doc = loro::LoroDoc::new();
-            if doc.import(&bytes).is_ok() {
-                return doc.get_text("content").to_string();
-            }
-        }
-    }
-    raw_content.to_string()
-}
+
 
 fn apply_diff_to_loro(text: &loro::LoroText, old_str: &str, new_str: &str) -> Result<(), YntraError> {
     let old_chars: Vec<char> = old_str.chars().collect();
@@ -20,25 +10,25 @@ fn apply_diff_to_loro(text: &loro::LoroText, old_str: &str, new_str: &str) -> Re
     
     let diffs = diff::slice(&old_chars, &new_chars);
     
-    let mut pos = 0;
+    let mut pos_utf16 = 0;
     let mut i = 0;
     while i < diffs.len() {
         match diffs[i] {
-            diff::Result::Both(_, _) => {
-                pos += 1;
+            diff::Result::Both(c, _) => {
+                pos_utf16 += c.len_utf16();
                 i += 1;
             }
             diff::Result::Left(_) => {
-                let mut del_count = 0;
+                let mut del_utf16_len = 0;
                 while i < diffs.len() {
-                    if let diff::Result::Left(_) = diffs[i] {
-                        del_count += 1;
+                    if let diff::Result::Left(c) = diffs[i] {
+                        del_utf16_len += c.len_utf16();
                         i += 1;
                     } else {
                         break;
                     }
                 }
-                text.delete(pos, del_count).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                text.delete(pos_utf16, del_utf16_len).map_err(|e| YntraError::SerializationError(e.to_string()))?;
             }
             diff::Result::Right(_) => {
                 let mut ins_str = String::new();
@@ -50,9 +40,9 @@ fn apply_diff_to_loro(text: &loro::LoroText, old_str: &str, new_str: &str) -> Re
                         break;
                     }
                 }
-                let ins_len = ins_str.chars().count();
-                text.insert(pos, &ins_str).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                pos += ins_len;
+                let ins_utf16_len = ins_str.encode_utf16().count();
+                text.insert(pos_utf16, &ins_str).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                pos_utf16 += ins_utf16_len;
             }
         }
     }
@@ -116,21 +106,35 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
     };
 
     let mut stmt = conn.prepare(&query).await?;
-    let list = stmt.query_map(params, |row| {
-        let raw_content: String = row.get(5)?;
-        Ok(DailyNote {
-            id: row.get(0)?,
-            workspace_id: row.get(1)?,
-            team_id: row.get(2)?,
-            author_id: row.get(3)?,
-            subject: row.get(4)?,
-            content: decode_content(&raw_content),
-            edit_history: row.get(6)?,
-            created_at: row.get(7)?,
-            updated_at: row.get(8)?,
-            sync_status: row.get(9)?,
-        })
-    }).await?;
+    let mut rows = stmt.query(params).await?;
+    let mut list = Vec::new();
+    while let Some(row) = rows.next().await? {
+        let id: String = row.get(0)?;
+        let workspace_id: String = row.get(1)?;
+        let team_id: String = row.get(2)?;
+        let author_id: Option<String> = row.get(3)?;
+        let subject: String = row.get(4)?;
+        let edit_history: String = row.get(6)?;
+        let created_at: String = row.get(7)?;
+        let updated_at: i64 = row.get(8)?;
+        let sync_status: String = row.get(9)?;
+
+        let doc = get_merged_loro_doc(&conn, &id).await?;
+        let content = doc.get_text("content").to_string();
+
+        list.push(DailyNote {
+            id,
+            workspace_id,
+            team_id,
+            author_id,
+            subject,
+            content,
+            edit_history,
+            created_at,
+            updated_at,
+            sync_status,
+        });
+    }
 
     Ok(list)
 }
@@ -138,22 +142,22 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
 async fn get_merged_loro_doc(conn: &database::DbConnection, note_id: &str) -> Result<loro::LoroDoc, YntraError> {
     let doc = loro::LoroDoc::new();
     
-    // 1. Fetch base note content snapshot
+    // Fetch base note content snapshot
     let base_content: String = conn.query_row(
         "SELECT content FROM notes WHERE id = ?1",
         crate::params![note_id],
         |r| r.get(0)
-    ).await.unwrap_or_else(|_| "".to_string());
+    ).await.map_err(|_| YntraError::NotFoundError(format!("Note not found: {}", note_id)))?;
     
     if base_content.starts_with("loro:") {
         if let Some(bytes) = crate::infra::crypto::hex_decode(&base_content[5..]) {
             doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
         }
-    } else if !base_content.is_empty() {
+    } else {
         doc.get_text("content").insert(0, &base_content).map_err(|e| YntraError::SerializationError(e.to_string()))?;
     }
     
-    // 2. Fetch and import all append-only updates
+    // Fetch and import all append-only updates
     let mut stmt = conn.prepare(
         "SELECT update_data FROM note_updates WHERE note_id = ?1 ORDER BY seq ASC, created_at ASC"
     ).await?;
@@ -301,6 +305,7 @@ pub async fn update_note(
     // 2. Build fully merged Loro document state
     let doc = get_merged_loro_doc(&conn, &note_id).await?;
     let old_content_plain = doc.get_text("content").to_string();
+    let vv = doc.oplog_vv();
 
     // Compute history entry using plain content
     let mut history: Vec<EditHistoryEntry> = serde_json::from_str(&old_note.edit_history)
@@ -335,8 +340,11 @@ pub async fn update_note(
 
     let text = doc.get_text("content");
     apply_diff_to_loro(&text, &old_content_plain, &content)?;
-    let loro_bytes = doc.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-    let loro_content = format!("loro:{}", crate::infra::crypto::hex_encode(&loro_bytes));
+    
+    let snapshot_bytes = doc.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    let incremental_bytes = doc.export(loro::ExportMode::updates(&vv)).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    let loro_content = format!("loro:{}", crate::infra::crypto::hex_encode(&snapshot_bytes));
+    let update_data_hex = crate::infra::crypto::hex_encode(&incremental_bytes);
 
     // Append update to the event-sourced updates table
     let update_id = uuid::Uuid::new_v4().to_string();
@@ -346,7 +354,6 @@ pub async fn update_note(
         |r| r.get(0)
     ).await.unwrap_or(1);
 
-    let update_data_hex = crate::infra::crypto::hex_encode(&loro_bytes);
     conn.execute(
         "INSERT INTO note_updates (id, note_id, client_id, seq, update_data, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -464,6 +471,8 @@ pub async fn apply_note_loro_update(note_id: String, update_bytes: Vec<u8>) -> R
 
     // 2. Build fully merged state and update the database projection cache
     let doc = get_merged_loro_doc(&conn, &note_id).await?;
+    doc.import(&update_bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    
     let loro_bytes = doc.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
     let loro_content = format!("loro:{}", crate::infra::crypto::hex_encode(&loro_bytes));
 
