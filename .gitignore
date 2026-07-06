@@ -12,6 +12,7 @@ pnpm-debug.log*
 .env
 .env.local
 .env.*.local
+yntra_client_pepper.bin
 
 # IDEs and Tools
 .idea/
