@@ -58,6 +58,9 @@ pub(crate) async fn check_permission(
         || auth.role.contains("helsesykepleier")
         || auth.role.contains("helsesøster")
         || auth.role.contains("sundhedsplejerske")
+        || auth.role.contains("terveydenhoitaja")
+        || auth.role.contains("kouluterveydenhoitaja")
+        || auth.role.contains("hoitaja")
     {
         return Ok(permission == "can_access_health_records" || permission == "can_submit_reports");
     }

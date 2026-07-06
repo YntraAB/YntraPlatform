@@ -2,6 +2,85 @@ use crate::database;
 use crate::observer::notify_observers;
 use crate::{Course, Assignment, Submission, TermGrade, ReportCard, YntraError};
 
+fn validate_grade_for_region(grade: &str, region: &str) -> Result<(), YntraError> {
+    let mut clean = grade.trim().to_string();
+    if clean.is_empty() {
+        return Ok(());
+    }
+    match region {
+        "SE" => {
+            // Swedish grades: A-F (and lowercase), - (streck), G (Godkänd), VG (Väl godkänd), U (Underkänd)
+            let valid_grades = ["A", "B", "C", "D", "E", "F", "a", "b", "c", "d", "e", "f", "-", "G", "VG", "U", "g", "vg", "u"];
+            if !valid_grades.contains(&clean.as_str()) {
+                return Err(YntraError::ValidationError(format!("Invalid grade '{}' for Swedish grading system (expected A-F, G, VG, U, or -).", clean)));
+            }
+        }
+        "NO" => {
+            // Norwegian: 1-6, or standard Pass/Fail: Bestått (G / B), Ikke bestått (U / IB)
+            let valid_grades = ["1", "2", "3", "4", "5", "6", "B", "b", "IB", "ib", "G", "g", "U", "u"];
+            if !valid_grades.contains(&clean.as_str()) {
+                return Err(YntraError::ValidationError(format!("Invalid grade '{}' for Norwegian grading system (expected 1-6 or B/IB).", clean)));
+            }
+        }
+        "DK" => {
+            // Normalize: "2" -> "02", "0" -> "00"
+            if clean == "2" {
+                clean = "02".to_string();
+            } else if clean == "0" {
+                clean = "00".to_string();
+            }
+            let valid_grades = ["-3", "00", "02", "4", "7", "10", "12"];
+            if !valid_grades.contains(&clean.as_str()) {
+                return Err(YntraError::ValidationError(format!("Invalid grade '{}' for Danish grading system (expected -3, 00, 02, 4, 7, 10, or 12).", clean)));
+            }
+        }
+        "FI" => {
+            // Finnish: 4-10 (comprehensive), 0-5 (university), S/H (suoritettu/hylätty), HYV/HYL (hyväksytty/hylätty)
+            let valid_grades = [
+                "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10",
+                "S", "H", "s", "h", "HYV", "HYL", "hyv", "hyl"
+            ];
+            if !valid_grades.contains(&clean.as_str()) {
+                return Err(YntraError::ValidationError(format!("Invalid grade '{}' for Finnish grading system (expected 4-10, 0-5, S, H, HYV, or HYL).", clean)));
+            }
+        }
+        r if r.starts_with("US") => {
+            let upper_clean = clean.to_uppercase();
+            // Non-punitive US codes
+            let non_punitive = ["I", "INC", "P", "NP", "W", "AU"];
+            if non_punitive.contains(&upper_clean.as_str()) {
+                return Ok(());
+            }
+            
+            let first_char = upper_clean.chars().next().unwrap_or(' ');
+            // US grades allow A-E (some districts use E) and F
+            let valid_letters = ['A', 'B', 'C', 'D', 'E', 'F'];
+            if !valid_letters.contains(&first_char) {
+                return Err(YntraError::ValidationError(format!("Invalid grade '{}' for US grading system (expected A-F or non-punitive codes like I, P, W).", clean)));
+            }
+            if upper_clean.len() > 2 {
+                return Err(YntraError::ValidationError(format!("Invalid grade '{}' for US grading system (too long).", clean)));
+            }
+            if upper_clean.len() == 2 {
+                let second_char = upper_clean.chars().nth(1).unwrap_or(' ');
+                if second_char != '+' && second_char != '-' {
+                    return Err(YntraError::ValidationError(format!("Invalid modifier in US grade '{}' (expected + or -).", clean)));
+                }
+            }
+        }
+        "EU" => {
+            // Default EU ECTS grades: A, B, C, D, E, FX, F
+            let upper_clean = clean.to_uppercase();
+            let valid_grades = ["A", "B", "C", "D", "E", "FX", "F"];
+            if !valid_grades.contains(&upper_clean.as_str()) {
+                return Err(YntraError::ValidationError(format!("Invalid grade '{}' for ECTS grading system.", clean)));
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 #[uniffi::export]
 pub async fn get_courses(requester_user_id: String) -> Result<Vec<Course>, YntraError> {
     let conn = database::acquire_connection().await?;
@@ -310,6 +389,20 @@ pub async fn update_submission_grade(
         |r| r.get(0)
     ).await.map_err(|_| YntraError::NotFoundError("Submission not found".to_string()))?;
 
+    // Determine target region from workspace settings
+    let settings_json: String = conn.query_row(
+        "SELECT settings FROM workspaces WHERE id = ?1",
+        crate::params![&submission_ws],
+        |r| r.get(0)
+    ).await.unwrap_or_else(|_| "{}".to_string());
+    let settings: serde_json::Value = serde_json::from_str(&settings_json).unwrap_or(serde_json::Value::Null);
+    let target_region_raw = settings.get("target_region").and_then(|v| v.as_str()).unwrap_or("EU");
+    let target_region = target_region_raw.to_uppercase();
+
+    if let Some(ref g) = grade {
+        validate_grade_for_region(g, &target_region)?;
+    }
+
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != submission_ws {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
@@ -370,6 +463,20 @@ pub async fn save_term_grade(
     teacher_comments: Option<String>,
 ) -> Result<TermGrade, YntraError> {
     let conn = database::acquire_connection().await?;
+
+    // Determine target region from workspace settings
+    let settings_json: String = conn.query_row(
+        "SELECT settings FROM workspaces WHERE id = ?1",
+        crate::params![&workspace_id],
+        |r| r.get(0)
+    ).await.unwrap_or_else(|_| "{}".to_string());
+    let settings: serde_json::Value = serde_json::from_str(&settings_json).unwrap_or(serde_json::Value::Null);
+    let target_region_raw = settings.get("target_region").and_then(|v| v.as_str()).unwrap_or("EU");
+    let target_region = target_region_raw.to_uppercase();
+
+    if let Some(ref g) = final_grade {
+        validate_grade_for_region(g, &target_region)?;
+    }
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
@@ -667,6 +774,49 @@ mod tests {
         // Test empty/only invalid inputs
         assert_eq!(calculate_gpa(&[]), 0.0);
         assert_eq!(calculate_gpa(&[None, Some("X".to_string())]), 0.0);
+    }
+
+    #[test]
+    fn test_validate_grade_for_region_all_cases() {
+        assert!(validate_grade_for_region("A", "SE").is_ok());
+        assert!(validate_grade_for_region("F", "SE").is_ok());
+        assert!(validate_grade_for_region("a", "SE").is_ok());
+        assert!(validate_grade_for_region("-", "SE").is_ok());
+        assert!(validate_grade_for_region("G", "SE").is_ok());
+        assert!(validate_grade_for_region("VG", "SE").is_ok());
+        assert!(validate_grade_for_region("X", "SE").is_err());
+
+        assert!(validate_grade_for_region("6", "NO").is_ok());
+        assert!(validate_grade_for_region("1", "NO").is_ok());
+        assert!(validate_grade_for_region("B", "NO").is_ok());
+        assert!(validate_grade_for_region("X", "NO").is_err());
+
+        assert!(validate_grade_for_region("12", "DK").is_ok());
+        assert!(validate_grade_for_region("-3", "DK").is_ok());
+        assert!(validate_grade_for_region("02", "DK").is_ok());
+        assert!(validate_grade_for_region("2", "DK").is_ok()); // Normalizes to 02
+        assert!(validate_grade_for_region("A", "DK").is_err());
+
+        assert!(validate_grade_for_region("10", "FI").is_ok());
+        assert!(validate_grade_for_region("4", "FI").is_ok());
+        assert!(validate_grade_for_region("5", "FI").is_ok()); // University scale
+        assert!(validate_grade_for_region("S", "FI").is_ok());
+        assert!(validate_grade_for_region("HYV", "FI").is_ok());
+        assert!(validate_grade_for_region("A", "FI").is_err());
+
+        assert!(validate_grade_for_region("A+", "US-CA").is_ok());
+        assert!(validate_grade_for_region("B-", "US-FED").is_ok());
+        assert!(validate_grade_for_region("F", "US-NY").is_ok());
+        assert!(validate_grade_for_region("E", "US-NY").is_ok()); // Some US school districts use E
+        assert!(validate_grade_for_region("I", "US-CA").is_ok());  // Incomplete
+        assert!(validate_grade_for_region("INC", "US-CA").is_ok());
+        assert!(validate_grade_for_region("W", "US-CA").is_ok());  // Withdrawn
+        assert!(validate_grade_for_region("A++", "US-CA").is_err());
+        assert!(validate_grade_for_region("X", "US-CA").is_err());
+
+        assert!(validate_grade_for_region("A", "EU").is_ok());
+        assert!(validate_grade_for_region("FX", "EU").is_ok());
+        assert!(validate_grade_for_region("X", "EU").is_err());
     }
 }
 
