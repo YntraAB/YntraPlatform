@@ -399,6 +399,38 @@ fileprivate class UniffiHandleMap<T> {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
+    typealias FfiType = UInt32
+    typealias SwiftType = UInt32
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt32 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterInt32: FfiConverterPrimitive {
+    typealias FfiType = Int32
+    typealias SwiftType = Int32
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Int32 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: Int32, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterInt64: FfiConverterPrimitive {
     typealias FfiType = Int64
     typealias SwiftType = Int64
@@ -493,6 +525,382 @@ fileprivate struct FfiConverterString: FfiConverter {
     }
 }
 
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterData: FfiConverterRustBuffer {
+    typealias SwiftType = Data
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Data {
+        let len: Int32 = try readInt(&buf)
+        return Data(try readBytes(&buf, count: Int(len)))
+    }
+
+    public static func write(_ value: Data, into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        writeBytes(&buf, value)
+    }
+}
+
+
+public struct Assignment {
+    public var id: String
+    public var workspaceId: String
+    public var courseId: String
+    public var title: String
+    public var description: String
+    public var dueDate: String
+    public var maxPoints: Int32
+    public var updatedAt: Int64
+    public var syncStatus: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, workspaceId: String, courseId: String, title: String, description: String, dueDate: String, maxPoints: Int32, updatedAt: Int64, syncStatus: String) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.courseId = courseId
+        self.title = title
+        self.description = description
+        self.dueDate = dueDate
+        self.maxPoints = maxPoints
+        self.updatedAt = updatedAt
+        self.syncStatus = syncStatus
+    }
+}
+
+
+
+extension Assignment: Equatable, Hashable {
+    public static func ==(lhs: Assignment, rhs: Assignment) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.workspaceId != rhs.workspaceId {
+            return false
+        }
+        if lhs.courseId != rhs.courseId {
+            return false
+        }
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.description != rhs.description {
+            return false
+        }
+        if lhs.dueDate != rhs.dueDate {
+            return false
+        }
+        if lhs.maxPoints != rhs.maxPoints {
+            return false
+        }
+        if lhs.updatedAt != rhs.updatedAt {
+            return false
+        }
+        if lhs.syncStatus != rhs.syncStatus {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(workspaceId)
+        hasher.combine(courseId)
+        hasher.combine(title)
+        hasher.combine(description)
+        hasher.combine(dueDate)
+        hasher.combine(maxPoints)
+        hasher.combine(updatedAt)
+        hasher.combine(syncStatus)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAssignment: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Assignment {
+        return
+            try Assignment(
+                id: FfiConverterString.read(from: &buf), 
+                workspaceId: FfiConverterString.read(from: &buf), 
+                courseId: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                description: FfiConverterString.read(from: &buf), 
+                dueDate: FfiConverterString.read(from: &buf), 
+                maxPoints: FfiConverterInt32.read(from: &buf), 
+                updatedAt: FfiConverterInt64.read(from: &buf), 
+                syncStatus: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: Assignment, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.workspaceId, into: &buf)
+        FfiConverterString.write(value.courseId, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.description, into: &buf)
+        FfiConverterString.write(value.dueDate, into: &buf)
+        FfiConverterInt32.write(value.maxPoints, into: &buf)
+        FfiConverterInt64.write(value.updatedAt, into: &buf)
+        FfiConverterString.write(value.syncStatus, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAssignment_lift(_ buf: RustBuffer) throws -> Assignment {
+    return try FfiConverterTypeAssignment.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAssignment_lower(_ value: Assignment) -> RustBuffer {
+    return FfiConverterTypeAssignment.lower(value)
+}
+
+
+public struct AttendanceRecord {
+    public var id: String
+    public var workspaceId: String
+    public var studentId: String
+    public var courseId: String
+    public var date: String
+    public var status: String
+    public var notes: String?
+    public var updatedAt: Int64
+    public var syncStatus: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, workspaceId: String, studentId: String, courseId: String, date: String, status: String, notes: String?, updatedAt: Int64, syncStatus: String) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.studentId = studentId
+        self.courseId = courseId
+        self.date = date
+        self.status = status
+        self.notes = notes
+        self.updatedAt = updatedAt
+        self.syncStatus = syncStatus
+    }
+}
+
+
+
+extension AttendanceRecord: Equatable, Hashable {
+    public static func ==(lhs: AttendanceRecord, rhs: AttendanceRecord) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.workspaceId != rhs.workspaceId {
+            return false
+        }
+        if lhs.studentId != rhs.studentId {
+            return false
+        }
+        if lhs.courseId != rhs.courseId {
+            return false
+        }
+        if lhs.date != rhs.date {
+            return false
+        }
+        if lhs.status != rhs.status {
+            return false
+        }
+        if lhs.notes != rhs.notes {
+            return false
+        }
+        if lhs.updatedAt != rhs.updatedAt {
+            return false
+        }
+        if lhs.syncStatus != rhs.syncStatus {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(workspaceId)
+        hasher.combine(studentId)
+        hasher.combine(courseId)
+        hasher.combine(date)
+        hasher.combine(status)
+        hasher.combine(notes)
+        hasher.combine(updatedAt)
+        hasher.combine(syncStatus)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAttendanceRecord: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AttendanceRecord {
+        return
+            try AttendanceRecord(
+                id: FfiConverterString.read(from: &buf), 
+                workspaceId: FfiConverterString.read(from: &buf), 
+                studentId: FfiConverterString.read(from: &buf), 
+                courseId: FfiConverterString.read(from: &buf), 
+                date: FfiConverterString.read(from: &buf), 
+                status: FfiConverterString.read(from: &buf), 
+                notes: FfiConverterOptionString.read(from: &buf), 
+                updatedAt: FfiConverterInt64.read(from: &buf), 
+                syncStatus: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AttendanceRecord, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.workspaceId, into: &buf)
+        FfiConverterString.write(value.studentId, into: &buf)
+        FfiConverterString.write(value.courseId, into: &buf)
+        FfiConverterString.write(value.date, into: &buf)
+        FfiConverterString.write(value.status, into: &buf)
+        FfiConverterOptionString.write(value.notes, into: &buf)
+        FfiConverterInt64.write(value.updatedAt, into: &buf)
+        FfiConverterString.write(value.syncStatus, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAttendanceRecord_lift(_ buf: RustBuffer) throws -> AttendanceRecord {
+    return try FfiConverterTypeAttendanceRecord.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAttendanceRecord_lower(_ value: AttendanceRecord) -> RustBuffer {
+    return FfiConverterTypeAttendanceRecord.lower(value)
+}
+
+
+public struct AuditLogEntry {
+    public var id: String
+    public var actorId: String
+    public var targetClientId: String?
+    public var actionType: String
+    public var timestamp: Int64
+    public var prevHash: String
+    public var currHash: String
+    public var seq: Int64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, actorId: String, targetClientId: String?, actionType: String, timestamp: Int64, prevHash: String, currHash: String, seq: Int64) {
+        self.id = id
+        self.actorId = actorId
+        self.targetClientId = targetClientId
+        self.actionType = actionType
+        self.timestamp = timestamp
+        self.prevHash = prevHash
+        self.currHash = currHash
+        self.seq = seq
+    }
+}
+
+
+
+extension AuditLogEntry: Equatable, Hashable {
+    public static func ==(lhs: AuditLogEntry, rhs: AuditLogEntry) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.actorId != rhs.actorId {
+            return false
+        }
+        if lhs.targetClientId != rhs.targetClientId {
+            return false
+        }
+        if lhs.actionType != rhs.actionType {
+            return false
+        }
+        if lhs.timestamp != rhs.timestamp {
+            return false
+        }
+        if lhs.prevHash != rhs.prevHash {
+            return false
+        }
+        if lhs.currHash != rhs.currHash {
+            return false
+        }
+        if lhs.seq != rhs.seq {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(actorId)
+        hasher.combine(targetClientId)
+        hasher.combine(actionType)
+        hasher.combine(timestamp)
+        hasher.combine(prevHash)
+        hasher.combine(currHash)
+        hasher.combine(seq)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAuditLogEntry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AuditLogEntry {
+        return
+            try AuditLogEntry(
+                id: FfiConverterString.read(from: &buf), 
+                actorId: FfiConverterString.read(from: &buf), 
+                targetClientId: FfiConverterOptionString.read(from: &buf), 
+                actionType: FfiConverterString.read(from: &buf), 
+                timestamp: FfiConverterInt64.read(from: &buf), 
+                prevHash: FfiConverterString.read(from: &buf), 
+                currHash: FfiConverterString.read(from: &buf), 
+                seq: FfiConverterInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AuditLogEntry, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.actorId, into: &buf)
+        FfiConverterOptionString.write(value.targetClientId, into: &buf)
+        FfiConverterString.write(value.actionType, into: &buf)
+        FfiConverterInt64.write(value.timestamp, into: &buf)
+        FfiConverterString.write(value.prevHash, into: &buf)
+        FfiConverterString.write(value.currHash, into: &buf)
+        FfiConverterInt64.write(value.seq, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAuditLogEntry_lift(_ buf: RustBuffer) throws -> AuditLogEntry {
+    return try FfiConverterTypeAuditLogEntry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAuditLogEntry_lower(_ value: AuditLogEntry) -> RustBuffer {
+    return FfiConverterTypeAuditLogEntry.lower(value)
+}
+
 
 public struct BankIdAuthSession {
     public var id: String
@@ -504,10 +912,11 @@ public struct BankIdAuthSession {
     public var progress: Double
     public var authenticatedUserId: String?
     public var createdAt: String
+    public var challenge: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, targetRole: String, provider: String, status: String, pin: String, qrData: String, progress: Double, authenticatedUserId: String?, createdAt: String) {
+    public init(id: String, targetRole: String, provider: String, status: String, pin: String, qrData: String, progress: Double, authenticatedUserId: String?, createdAt: String, challenge: String?) {
         self.id = id
         self.targetRole = targetRole
         self.provider = provider
@@ -517,6 +926,7 @@ public struct BankIdAuthSession {
         self.progress = progress
         self.authenticatedUserId = authenticatedUserId
         self.createdAt = createdAt
+        self.challenge = challenge
     }
 }
 
@@ -551,6 +961,9 @@ extension BankIdAuthSession: Equatable, Hashable {
         if lhs.createdAt != rhs.createdAt {
             return false
         }
+        if lhs.challenge != rhs.challenge {
+            return false
+        }
         return true
     }
 
@@ -564,6 +977,7 @@ extension BankIdAuthSession: Equatable, Hashable {
         hasher.combine(progress)
         hasher.combine(authenticatedUserId)
         hasher.combine(createdAt)
+        hasher.combine(challenge)
     }
 }
 
@@ -583,7 +997,8 @@ public struct FfiConverterTypeBankIdAuthSession: FfiConverterRustBuffer {
                 qrData: FfiConverterString.read(from: &buf), 
                 progress: FfiConverterDouble.read(from: &buf), 
                 authenticatedUserId: FfiConverterOptionString.read(from: &buf), 
-                createdAt: FfiConverterString.read(from: &buf)
+                createdAt: FfiConverterString.read(from: &buf), 
+                challenge: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -597,6 +1012,7 @@ public struct FfiConverterTypeBankIdAuthSession: FfiConverterRustBuffer {
         FfiConverterDouble.write(value.progress, into: &buf)
         FfiConverterOptionString.write(value.authenticatedUserId, into: &buf)
         FfiConverterString.write(value.createdAt, into: &buf)
+        FfiConverterOptionString.write(value.challenge, into: &buf)
     }
 }
 
@@ -852,6 +1268,120 @@ public func FfiConverterTypeClientProfile_lower(_ value: ClientProfile) -> RustB
 }
 
 
+public struct Course {
+    public var id: String
+    public var workspaceId: String
+    public var name: String
+    public var subject: String
+    public var teacherId: String?
+    public var classroom: String?
+    public var updatedAt: Int64
+    public var syncStatus: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, workspaceId: String, name: String, subject: String, teacherId: String?, classroom: String?, updatedAt: Int64, syncStatus: String) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.name = name
+        self.subject = subject
+        self.teacherId = teacherId
+        self.classroom = classroom
+        self.updatedAt = updatedAt
+        self.syncStatus = syncStatus
+    }
+}
+
+
+
+extension Course: Equatable, Hashable {
+    public static func ==(lhs: Course, rhs: Course) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.workspaceId != rhs.workspaceId {
+            return false
+        }
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.subject != rhs.subject {
+            return false
+        }
+        if lhs.teacherId != rhs.teacherId {
+            return false
+        }
+        if lhs.classroom != rhs.classroom {
+            return false
+        }
+        if lhs.updatedAt != rhs.updatedAt {
+            return false
+        }
+        if lhs.syncStatus != rhs.syncStatus {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(workspaceId)
+        hasher.combine(name)
+        hasher.combine(subject)
+        hasher.combine(teacherId)
+        hasher.combine(classroom)
+        hasher.combine(updatedAt)
+        hasher.combine(syncStatus)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCourse: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Course {
+        return
+            try Course(
+                id: FfiConverterString.read(from: &buf), 
+                workspaceId: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                subject: FfiConverterString.read(from: &buf), 
+                teacherId: FfiConverterOptionString.read(from: &buf), 
+                classroom: FfiConverterOptionString.read(from: &buf), 
+                updatedAt: FfiConverterInt64.read(from: &buf), 
+                syncStatus: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: Course, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.workspaceId, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterString.write(value.subject, into: &buf)
+        FfiConverterOptionString.write(value.teacherId, into: &buf)
+        FfiConverterOptionString.write(value.classroom, into: &buf)
+        FfiConverterInt64.write(value.updatedAt, into: &buf)
+        FfiConverterString.write(value.syncStatus, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCourse_lift(_ buf: RustBuffer) throws -> Course {
+    return try FfiConverterTypeCourse.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCourse_lower(_ value: Course) -> RustBuffer {
+    return FfiConverterTypeCourse.lower(value)
+}
+
+
 public struct DailyNote {
     public var id: String
     public var workspaceId: String
@@ -982,6 +1512,250 @@ public func FfiConverterTypeDailyNote_lower(_ value: DailyNote) -> RustBuffer {
 }
 
 
+public struct HealthIncident {
+    public var id: String
+    public var workspaceId: String
+    public var studentId: String
+    public var visitReason: String
+    public var treatment: String
+    public var checkedInAt: String
+    public var checkedOutAt: String?
+    public var notes: String?
+    public var updatedAt: Int64
+    public var syncStatus: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, workspaceId: String, studentId: String, visitReason: String, treatment: String, checkedInAt: String, checkedOutAt: String?, notes: String?, updatedAt: Int64, syncStatus: String) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.studentId = studentId
+        self.visitReason = visitReason
+        self.treatment = treatment
+        self.checkedInAt = checkedInAt
+        self.checkedOutAt = checkedOutAt
+        self.notes = notes
+        self.updatedAt = updatedAt
+        self.syncStatus = syncStatus
+    }
+}
+
+
+
+extension HealthIncident: Equatable, Hashable {
+    public static func ==(lhs: HealthIncident, rhs: HealthIncident) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.workspaceId != rhs.workspaceId {
+            return false
+        }
+        if lhs.studentId != rhs.studentId {
+            return false
+        }
+        if lhs.visitReason != rhs.visitReason {
+            return false
+        }
+        if lhs.treatment != rhs.treatment {
+            return false
+        }
+        if lhs.checkedInAt != rhs.checkedInAt {
+            return false
+        }
+        if lhs.checkedOutAt != rhs.checkedOutAt {
+            return false
+        }
+        if lhs.notes != rhs.notes {
+            return false
+        }
+        if lhs.updatedAt != rhs.updatedAt {
+            return false
+        }
+        if lhs.syncStatus != rhs.syncStatus {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(workspaceId)
+        hasher.combine(studentId)
+        hasher.combine(visitReason)
+        hasher.combine(treatment)
+        hasher.combine(checkedInAt)
+        hasher.combine(checkedOutAt)
+        hasher.combine(notes)
+        hasher.combine(updatedAt)
+        hasher.combine(syncStatus)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHealthIncident: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HealthIncident {
+        return
+            try HealthIncident(
+                id: FfiConverterString.read(from: &buf), 
+                workspaceId: FfiConverterString.read(from: &buf), 
+                studentId: FfiConverterString.read(from: &buf), 
+                visitReason: FfiConverterString.read(from: &buf), 
+                treatment: FfiConverterString.read(from: &buf), 
+                checkedInAt: FfiConverterString.read(from: &buf), 
+                checkedOutAt: FfiConverterOptionString.read(from: &buf), 
+                notes: FfiConverterOptionString.read(from: &buf), 
+                updatedAt: FfiConverterInt64.read(from: &buf), 
+                syncStatus: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HealthIncident, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.workspaceId, into: &buf)
+        FfiConverterString.write(value.studentId, into: &buf)
+        FfiConverterString.write(value.visitReason, into: &buf)
+        FfiConverterString.write(value.treatment, into: &buf)
+        FfiConverterString.write(value.checkedInAt, into: &buf)
+        FfiConverterOptionString.write(value.checkedOutAt, into: &buf)
+        FfiConverterOptionString.write(value.notes, into: &buf)
+        FfiConverterInt64.write(value.updatedAt, into: &buf)
+        FfiConverterString.write(value.syncStatus, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHealthIncident_lift(_ buf: RustBuffer) throws -> HealthIncident {
+    return try FfiConverterTypeHealthIncident.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHealthIncident_lower(_ value: HealthIncident) -> RustBuffer {
+    return FfiConverterTypeHealthIncident.lower(value)
+}
+
+
+public struct HealthRecord {
+    public var id: String
+    public var workspaceId: String
+    public var studentId: String
+    public var vaccineName: String
+    public var status: String
+    public var administeredAt: String?
+    public var updatedAt: Int64
+    public var syncStatus: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, workspaceId: String, studentId: String, vaccineName: String, status: String, administeredAt: String?, updatedAt: Int64, syncStatus: String) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.studentId = studentId
+        self.vaccineName = vaccineName
+        self.status = status
+        self.administeredAt = administeredAt
+        self.updatedAt = updatedAt
+        self.syncStatus = syncStatus
+    }
+}
+
+
+
+extension HealthRecord: Equatable, Hashable {
+    public static func ==(lhs: HealthRecord, rhs: HealthRecord) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.workspaceId != rhs.workspaceId {
+            return false
+        }
+        if lhs.studentId != rhs.studentId {
+            return false
+        }
+        if lhs.vaccineName != rhs.vaccineName {
+            return false
+        }
+        if lhs.status != rhs.status {
+            return false
+        }
+        if lhs.administeredAt != rhs.administeredAt {
+            return false
+        }
+        if lhs.updatedAt != rhs.updatedAt {
+            return false
+        }
+        if lhs.syncStatus != rhs.syncStatus {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(workspaceId)
+        hasher.combine(studentId)
+        hasher.combine(vaccineName)
+        hasher.combine(status)
+        hasher.combine(administeredAt)
+        hasher.combine(updatedAt)
+        hasher.combine(syncStatus)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHealthRecord: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HealthRecord {
+        return
+            try HealthRecord(
+                id: FfiConverterString.read(from: &buf), 
+                workspaceId: FfiConverterString.read(from: &buf), 
+                studentId: FfiConverterString.read(from: &buf), 
+                vaccineName: FfiConverterString.read(from: &buf), 
+                status: FfiConverterString.read(from: &buf), 
+                administeredAt: FfiConverterOptionString.read(from: &buf), 
+                updatedAt: FfiConverterInt64.read(from: &buf), 
+                syncStatus: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HealthRecord, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.workspaceId, into: &buf)
+        FfiConverterString.write(value.studentId, into: &buf)
+        FfiConverterString.write(value.vaccineName, into: &buf)
+        FfiConverterString.write(value.status, into: &buf)
+        FfiConverterOptionString.write(value.administeredAt, into: &buf)
+        FfiConverterInt64.write(value.updatedAt, into: &buf)
+        FfiConverterString.write(value.syncStatus, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHealthRecord_lift(_ buf: RustBuffer) throws -> HealthRecord {
+    return try FfiConverterTypeHealthRecord.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHealthRecord_lower(_ value: HealthRecord) -> RustBuffer {
+    return FfiConverterTypeHealthRecord.lower(value)
+}
+
+
 public struct JobTicket {
     public var id: String
     public var workspaceId: String
@@ -997,10 +1771,18 @@ public struct JobTicket {
     public var createdAt: String
     public var updatedAt: Int64
     public var syncStatus: String
+    public var originAddress: String?
+    public var destinationAddress: String?
+    public var originFloor: Int32
+    public var destinationFloor: Int32
+    public var originHasElevator: Bool
+    public var destinationHasElevator: Bool
+    public var originParkingPermitNeeded: Bool
+    public var destinationParkingPermitNeeded: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, workspaceId: String, title: String, description: String, locationAddress: String, priority: String, status: String, assignedUserId: String?, scheduledDate: String, checklistJson: String, completionReport: String?, createdAt: String, updatedAt: Int64, syncStatus: String) {
+    public init(id: String, workspaceId: String, title: String, description: String, locationAddress: String, priority: String, status: String, assignedUserId: String?, scheduledDate: String, checklistJson: String, completionReport: String?, createdAt: String, updatedAt: Int64, syncStatus: String, originAddress: String?, destinationAddress: String?, originFloor: Int32, destinationFloor: Int32, originHasElevator: Bool, destinationHasElevator: Bool, originParkingPermitNeeded: Bool, destinationParkingPermitNeeded: Bool) {
         self.id = id
         self.workspaceId = workspaceId
         self.title = title
@@ -1015,6 +1797,14 @@ public struct JobTicket {
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.syncStatus = syncStatus
+        self.originAddress = originAddress
+        self.destinationAddress = destinationAddress
+        self.originFloor = originFloor
+        self.destinationFloor = destinationFloor
+        self.originHasElevator = originHasElevator
+        self.destinationHasElevator = destinationHasElevator
+        self.originParkingPermitNeeded = originParkingPermitNeeded
+        self.destinationParkingPermitNeeded = destinationParkingPermitNeeded
     }
 }
 
@@ -1064,6 +1854,30 @@ extension JobTicket: Equatable, Hashable {
         if lhs.syncStatus != rhs.syncStatus {
             return false
         }
+        if lhs.originAddress != rhs.originAddress {
+            return false
+        }
+        if lhs.destinationAddress != rhs.destinationAddress {
+            return false
+        }
+        if lhs.originFloor != rhs.originFloor {
+            return false
+        }
+        if lhs.destinationFloor != rhs.destinationFloor {
+            return false
+        }
+        if lhs.originHasElevator != rhs.originHasElevator {
+            return false
+        }
+        if lhs.destinationHasElevator != rhs.destinationHasElevator {
+            return false
+        }
+        if lhs.originParkingPermitNeeded != rhs.originParkingPermitNeeded {
+            return false
+        }
+        if lhs.destinationParkingPermitNeeded != rhs.destinationParkingPermitNeeded {
+            return false
+        }
         return true
     }
 
@@ -1082,6 +1896,14 @@ extension JobTicket: Equatable, Hashable {
         hasher.combine(createdAt)
         hasher.combine(updatedAt)
         hasher.combine(syncStatus)
+        hasher.combine(originAddress)
+        hasher.combine(destinationAddress)
+        hasher.combine(originFloor)
+        hasher.combine(destinationFloor)
+        hasher.combine(originHasElevator)
+        hasher.combine(destinationHasElevator)
+        hasher.combine(originParkingPermitNeeded)
+        hasher.combine(destinationParkingPermitNeeded)
     }
 }
 
@@ -1106,7 +1928,15 @@ public struct FfiConverterTypeJobTicket: FfiConverterRustBuffer {
                 completionReport: FfiConverterOptionString.read(from: &buf), 
                 createdAt: FfiConverterString.read(from: &buf), 
                 updatedAt: FfiConverterInt64.read(from: &buf), 
-                syncStatus: FfiConverterString.read(from: &buf)
+                syncStatus: FfiConverterString.read(from: &buf), 
+                originAddress: FfiConverterOptionString.read(from: &buf), 
+                destinationAddress: FfiConverterOptionString.read(from: &buf), 
+                originFloor: FfiConverterInt32.read(from: &buf), 
+                destinationFloor: FfiConverterInt32.read(from: &buf), 
+                originHasElevator: FfiConverterBool.read(from: &buf), 
+                destinationHasElevator: FfiConverterBool.read(from: &buf), 
+                originParkingPermitNeeded: FfiConverterBool.read(from: &buf), 
+                destinationParkingPermitNeeded: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -1125,6 +1955,14 @@ public struct FfiConverterTypeJobTicket: FfiConverterRustBuffer {
         FfiConverterString.write(value.createdAt, into: &buf)
         FfiConverterInt64.write(value.updatedAt, into: &buf)
         FfiConverterString.write(value.syncStatus, into: &buf)
+        FfiConverterOptionString.write(value.originAddress, into: &buf)
+        FfiConverterOptionString.write(value.destinationAddress, into: &buf)
+        FfiConverterInt32.write(value.originFloor, into: &buf)
+        FfiConverterInt32.write(value.destinationFloor, into: &buf)
+        FfiConverterBool.write(value.originHasElevator, into: &buf)
+        FfiConverterBool.write(value.destinationHasElevator, into: &buf)
+        FfiConverterBool.write(value.originParkingPermitNeeded, into: &buf)
+        FfiConverterBool.write(value.destinationParkingPermitNeeded, into: &buf)
     }
 }
 
@@ -1255,6 +2093,258 @@ public func FfiConverterTypeJournalEntry_lift(_ buf: RustBuffer) throws -> Journ
 #endif
 public func FfiConverterTypeJournalEntry_lower(_ value: JournalEntry) -> RustBuffer {
     return FfiConverterTypeJournalEntry.lower(value)
+}
+
+
+public struct LibraryBook {
+    public var id: String
+    public var workspaceId: String
+    public var title: String
+    public var author: String
+    public var isbn: String
+    public var copiesAvailable: Int32
+    public var totalCopies: Int32
+    public var updatedAt: Int64
+    public var syncStatus: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, workspaceId: String, title: String, author: String, isbn: String, copiesAvailable: Int32, totalCopies: Int32, updatedAt: Int64, syncStatus: String) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.title = title
+        self.author = author
+        self.isbn = isbn
+        self.copiesAvailable = copiesAvailable
+        self.totalCopies = totalCopies
+        self.updatedAt = updatedAt
+        self.syncStatus = syncStatus
+    }
+}
+
+
+
+extension LibraryBook: Equatable, Hashable {
+    public static func ==(lhs: LibraryBook, rhs: LibraryBook) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.workspaceId != rhs.workspaceId {
+            return false
+        }
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.author != rhs.author {
+            return false
+        }
+        if lhs.isbn != rhs.isbn {
+            return false
+        }
+        if lhs.copiesAvailable != rhs.copiesAvailable {
+            return false
+        }
+        if lhs.totalCopies != rhs.totalCopies {
+            return false
+        }
+        if lhs.updatedAt != rhs.updatedAt {
+            return false
+        }
+        if lhs.syncStatus != rhs.syncStatus {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(workspaceId)
+        hasher.combine(title)
+        hasher.combine(author)
+        hasher.combine(isbn)
+        hasher.combine(copiesAvailable)
+        hasher.combine(totalCopies)
+        hasher.combine(updatedAt)
+        hasher.combine(syncStatus)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLibraryBook: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LibraryBook {
+        return
+            try LibraryBook(
+                id: FfiConverterString.read(from: &buf), 
+                workspaceId: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                author: FfiConverterString.read(from: &buf), 
+                isbn: FfiConverterString.read(from: &buf), 
+                copiesAvailable: FfiConverterInt32.read(from: &buf), 
+                totalCopies: FfiConverterInt32.read(from: &buf), 
+                updatedAt: FfiConverterInt64.read(from: &buf), 
+                syncStatus: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LibraryBook, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.workspaceId, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.author, into: &buf)
+        FfiConverterString.write(value.isbn, into: &buf)
+        FfiConverterInt32.write(value.copiesAvailable, into: &buf)
+        FfiConverterInt32.write(value.totalCopies, into: &buf)
+        FfiConverterInt64.write(value.updatedAt, into: &buf)
+        FfiConverterString.write(value.syncStatus, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLibraryBook_lift(_ buf: RustBuffer) throws -> LibraryBook {
+    return try FfiConverterTypeLibraryBook.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLibraryBook_lower(_ value: LibraryBook) -> RustBuffer {
+    return FfiConverterTypeLibraryBook.lower(value)
+}
+
+
+public struct LibraryLendingLog {
+    public var id: String
+    public var workspaceId: String
+    public var bookId: String
+    public var studentId: String
+    public var checkedOutAt: String
+    public var dueDate: String
+    public var returnedAt: String?
+    public var status: String
+    public var updatedAt: Int64
+    public var syncStatus: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, workspaceId: String, bookId: String, studentId: String, checkedOutAt: String, dueDate: String, returnedAt: String?, status: String, updatedAt: Int64, syncStatus: String) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.bookId = bookId
+        self.studentId = studentId
+        self.checkedOutAt = checkedOutAt
+        self.dueDate = dueDate
+        self.returnedAt = returnedAt
+        self.status = status
+        self.updatedAt = updatedAt
+        self.syncStatus = syncStatus
+    }
+}
+
+
+
+extension LibraryLendingLog: Equatable, Hashable {
+    public static func ==(lhs: LibraryLendingLog, rhs: LibraryLendingLog) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.workspaceId != rhs.workspaceId {
+            return false
+        }
+        if lhs.bookId != rhs.bookId {
+            return false
+        }
+        if lhs.studentId != rhs.studentId {
+            return false
+        }
+        if lhs.checkedOutAt != rhs.checkedOutAt {
+            return false
+        }
+        if lhs.dueDate != rhs.dueDate {
+            return false
+        }
+        if lhs.returnedAt != rhs.returnedAt {
+            return false
+        }
+        if lhs.status != rhs.status {
+            return false
+        }
+        if lhs.updatedAt != rhs.updatedAt {
+            return false
+        }
+        if lhs.syncStatus != rhs.syncStatus {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(workspaceId)
+        hasher.combine(bookId)
+        hasher.combine(studentId)
+        hasher.combine(checkedOutAt)
+        hasher.combine(dueDate)
+        hasher.combine(returnedAt)
+        hasher.combine(status)
+        hasher.combine(updatedAt)
+        hasher.combine(syncStatus)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLibraryLendingLog: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LibraryLendingLog {
+        return
+            try LibraryLendingLog(
+                id: FfiConverterString.read(from: &buf), 
+                workspaceId: FfiConverterString.read(from: &buf), 
+                bookId: FfiConverterString.read(from: &buf), 
+                studentId: FfiConverterString.read(from: &buf), 
+                checkedOutAt: FfiConverterString.read(from: &buf), 
+                dueDate: FfiConverterString.read(from: &buf), 
+                returnedAt: FfiConverterOptionString.read(from: &buf), 
+                status: FfiConverterString.read(from: &buf), 
+                updatedAt: FfiConverterInt64.read(from: &buf), 
+                syncStatus: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LibraryLendingLog, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.workspaceId, into: &buf)
+        FfiConverterString.write(value.bookId, into: &buf)
+        FfiConverterString.write(value.studentId, into: &buf)
+        FfiConverterString.write(value.checkedOutAt, into: &buf)
+        FfiConverterString.write(value.dueDate, into: &buf)
+        FfiConverterOptionString.write(value.returnedAt, into: &buf)
+        FfiConverterString.write(value.status, into: &buf)
+        FfiConverterInt64.write(value.updatedAt, into: &buf)
+        FfiConverterString.write(value.syncStatus, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLibraryLendingLog_lift(_ buf: RustBuffer) throws -> LibraryLendingLog {
+    return try FfiConverterTypeLibraryLendingLog.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLibraryLendingLog_lower(_ value: LibraryLendingLog) -> RustBuffer {
+    return FfiConverterTypeLibraryLendingLog.lower(value)
 }
 
 
@@ -1526,6 +2616,356 @@ public func FfiConverterTypeMessageItem_lower(_ value: MessageItem) -> RustBuffe
 }
 
 
+public struct MoveInventoryItem {
+    public var id: String
+    public var jobTicketId: String
+    public var itemCategory: String
+    public var itemName: String
+    public var quantity: Int32
+    public var estimatedVolumeM3: Double
+    public var handlingNotes: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, jobTicketId: String, itemCategory: String, itemName: String, quantity: Int32, estimatedVolumeM3: Double, handlingNotes: String?) {
+        self.id = id
+        self.jobTicketId = jobTicketId
+        self.itemCategory = itemCategory
+        self.itemName = itemName
+        self.quantity = quantity
+        self.estimatedVolumeM3 = estimatedVolumeM3
+        self.handlingNotes = handlingNotes
+    }
+}
+
+
+
+extension MoveInventoryItem: Equatable, Hashable {
+    public static func ==(lhs: MoveInventoryItem, rhs: MoveInventoryItem) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.jobTicketId != rhs.jobTicketId {
+            return false
+        }
+        if lhs.itemCategory != rhs.itemCategory {
+            return false
+        }
+        if lhs.itemName != rhs.itemName {
+            return false
+        }
+        if lhs.quantity != rhs.quantity {
+            return false
+        }
+        if lhs.estimatedVolumeM3 != rhs.estimatedVolumeM3 {
+            return false
+        }
+        if lhs.handlingNotes != rhs.handlingNotes {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(jobTicketId)
+        hasher.combine(itemCategory)
+        hasher.combine(itemName)
+        hasher.combine(quantity)
+        hasher.combine(estimatedVolumeM3)
+        hasher.combine(handlingNotes)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMoveInventoryItem: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MoveInventoryItem {
+        return
+            try MoveInventoryItem(
+                id: FfiConverterString.read(from: &buf), 
+                jobTicketId: FfiConverterString.read(from: &buf), 
+                itemCategory: FfiConverterString.read(from: &buf), 
+                itemName: FfiConverterString.read(from: &buf), 
+                quantity: FfiConverterInt32.read(from: &buf), 
+                estimatedVolumeM3: FfiConverterDouble.read(from: &buf), 
+                handlingNotes: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MoveInventoryItem, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.jobTicketId, into: &buf)
+        FfiConverterString.write(value.itemCategory, into: &buf)
+        FfiConverterString.write(value.itemName, into: &buf)
+        FfiConverterInt32.write(value.quantity, into: &buf)
+        FfiConverterDouble.write(value.estimatedVolumeM3, into: &buf)
+        FfiConverterOptionString.write(value.handlingNotes, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMoveInventoryItem_lift(_ buf: RustBuffer) throws -> MoveInventoryItem {
+    return try FfiConverterTypeMoveInventoryItem.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMoveInventoryItem_lower(_ value: MoveInventoryItem) -> RustBuffer {
+    return FfiConverterTypeMoveInventoryItem.lower(value)
+}
+
+
+public struct MoveQuote {
+    public var id: String
+    public var jobTicketId: String
+    public var basePrice: Double
+    public var distanceFee: Double
+    public var stairsSurcharge: Double
+    public var packingSuppliesFee: Double
+    public var totalPrice: Double
+    public var status: String
+    public var acceptedAt: Int64?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, jobTicketId: String, basePrice: Double, distanceFee: Double, stairsSurcharge: Double, packingSuppliesFee: Double, totalPrice: Double, status: String, acceptedAt: Int64?) {
+        self.id = id
+        self.jobTicketId = jobTicketId
+        self.basePrice = basePrice
+        self.distanceFee = distanceFee
+        self.stairsSurcharge = stairsSurcharge
+        self.packingSuppliesFee = packingSuppliesFee
+        self.totalPrice = totalPrice
+        self.status = status
+        self.acceptedAt = acceptedAt
+    }
+}
+
+
+
+extension MoveQuote: Equatable, Hashable {
+    public static func ==(lhs: MoveQuote, rhs: MoveQuote) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.jobTicketId != rhs.jobTicketId {
+            return false
+        }
+        if lhs.basePrice != rhs.basePrice {
+            return false
+        }
+        if lhs.distanceFee != rhs.distanceFee {
+            return false
+        }
+        if lhs.stairsSurcharge != rhs.stairsSurcharge {
+            return false
+        }
+        if lhs.packingSuppliesFee != rhs.packingSuppliesFee {
+            return false
+        }
+        if lhs.totalPrice != rhs.totalPrice {
+            return false
+        }
+        if lhs.status != rhs.status {
+            return false
+        }
+        if lhs.acceptedAt != rhs.acceptedAt {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(jobTicketId)
+        hasher.combine(basePrice)
+        hasher.combine(distanceFee)
+        hasher.combine(stairsSurcharge)
+        hasher.combine(packingSuppliesFee)
+        hasher.combine(totalPrice)
+        hasher.combine(status)
+        hasher.combine(acceptedAt)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMoveQuote: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MoveQuote {
+        return
+            try MoveQuote(
+                id: FfiConverterString.read(from: &buf), 
+                jobTicketId: FfiConverterString.read(from: &buf), 
+                basePrice: FfiConverterDouble.read(from: &buf), 
+                distanceFee: FfiConverterDouble.read(from: &buf), 
+                stairsSurcharge: FfiConverterDouble.read(from: &buf), 
+                packingSuppliesFee: FfiConverterDouble.read(from: &buf), 
+                totalPrice: FfiConverterDouble.read(from: &buf), 
+                status: FfiConverterString.read(from: &buf), 
+                acceptedAt: FfiConverterOptionInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MoveQuote, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.jobTicketId, into: &buf)
+        FfiConverterDouble.write(value.basePrice, into: &buf)
+        FfiConverterDouble.write(value.distanceFee, into: &buf)
+        FfiConverterDouble.write(value.stairsSurcharge, into: &buf)
+        FfiConverterDouble.write(value.packingSuppliesFee, into: &buf)
+        FfiConverterDouble.write(value.totalPrice, into: &buf)
+        FfiConverterString.write(value.status, into: &buf)
+        FfiConverterOptionInt64.write(value.acceptedAt, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMoveQuote_lift(_ buf: RustBuffer) throws -> MoveQuote {
+    return try FfiConverterTypeMoveQuote.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMoveQuote_lower(_ value: MoveQuote) -> RustBuffer {
+    return FfiConverterTypeMoveQuote.lower(value)
+}
+
+
+public struct ReportCard {
+    public var id: String
+    public var workspaceId: String
+    public var studentId: String
+    public var termName: String
+    public var gpa: Double
+    public var principalComments: String?
+    public var status: String
+    public var updatedAt: Int64
+    public var syncStatus: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, workspaceId: String, studentId: String, termName: String, gpa: Double, principalComments: String?, status: String, updatedAt: Int64, syncStatus: String) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.studentId = studentId
+        self.termName = termName
+        self.gpa = gpa
+        self.principalComments = principalComments
+        self.status = status
+        self.updatedAt = updatedAt
+        self.syncStatus = syncStatus
+    }
+}
+
+
+
+extension ReportCard: Equatable, Hashable {
+    public static func ==(lhs: ReportCard, rhs: ReportCard) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.workspaceId != rhs.workspaceId {
+            return false
+        }
+        if lhs.studentId != rhs.studentId {
+            return false
+        }
+        if lhs.termName != rhs.termName {
+            return false
+        }
+        if lhs.gpa != rhs.gpa {
+            return false
+        }
+        if lhs.principalComments != rhs.principalComments {
+            return false
+        }
+        if lhs.status != rhs.status {
+            return false
+        }
+        if lhs.updatedAt != rhs.updatedAt {
+            return false
+        }
+        if lhs.syncStatus != rhs.syncStatus {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(workspaceId)
+        hasher.combine(studentId)
+        hasher.combine(termName)
+        hasher.combine(gpa)
+        hasher.combine(principalComments)
+        hasher.combine(status)
+        hasher.combine(updatedAt)
+        hasher.combine(syncStatus)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeReportCard: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ReportCard {
+        return
+            try ReportCard(
+                id: FfiConverterString.read(from: &buf), 
+                workspaceId: FfiConverterString.read(from: &buf), 
+                studentId: FfiConverterString.read(from: &buf), 
+                termName: FfiConverterString.read(from: &buf), 
+                gpa: FfiConverterDouble.read(from: &buf), 
+                principalComments: FfiConverterOptionString.read(from: &buf), 
+                status: FfiConverterString.read(from: &buf), 
+                updatedAt: FfiConverterInt64.read(from: &buf), 
+                syncStatus: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ReportCard, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.workspaceId, into: &buf)
+        FfiConverterString.write(value.studentId, into: &buf)
+        FfiConverterString.write(value.termName, into: &buf)
+        FfiConverterDouble.write(value.gpa, into: &buf)
+        FfiConverterOptionString.write(value.principalComments, into: &buf)
+        FfiConverterString.write(value.status, into: &buf)
+        FfiConverterInt64.write(value.updatedAt, into: &buf)
+        FfiConverterString.write(value.syncStatus, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeReportCard_lift(_ buf: RustBuffer) throws -> ReportCard {
+    return try FfiConverterTypeReportCard.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeReportCard_lower(_ value: ReportCard) -> RustBuffer {
+    return FfiConverterTypeReportCard.lower(value)
+}
+
+
 public struct ReportItem {
     public var id: String
     public var workspaceId: String
@@ -1653,6 +3093,502 @@ public func FfiConverterTypeReportItem_lift(_ buf: RustBuffer) throws -> ReportI
 #endif
 public func FfiConverterTypeReportItem_lower(_ value: ReportItem) -> RustBuffer {
     return FfiConverterTypeReportItem.lower(value)
+}
+
+
+public struct SchoolInvoice {
+    public var id: String
+    public var workspaceId: String
+    public var studentId: String
+    public var title: String
+    public var amount: Double
+    public var dueDate: String
+    public var status: String
+    public var paidAt: String?
+    public var updatedAt: Int64
+    public var syncStatus: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, workspaceId: String, studentId: String, title: String, amount: Double, dueDate: String, status: String, paidAt: String?, updatedAt: Int64, syncStatus: String) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.studentId = studentId
+        self.title = title
+        self.amount = amount
+        self.dueDate = dueDate
+        self.status = status
+        self.paidAt = paidAt
+        self.updatedAt = updatedAt
+        self.syncStatus = syncStatus
+    }
+}
+
+
+
+extension SchoolInvoice: Equatable, Hashable {
+    public static func ==(lhs: SchoolInvoice, rhs: SchoolInvoice) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.workspaceId != rhs.workspaceId {
+            return false
+        }
+        if lhs.studentId != rhs.studentId {
+            return false
+        }
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.amount != rhs.amount {
+            return false
+        }
+        if lhs.dueDate != rhs.dueDate {
+            return false
+        }
+        if lhs.status != rhs.status {
+            return false
+        }
+        if lhs.paidAt != rhs.paidAt {
+            return false
+        }
+        if lhs.updatedAt != rhs.updatedAt {
+            return false
+        }
+        if lhs.syncStatus != rhs.syncStatus {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(workspaceId)
+        hasher.combine(studentId)
+        hasher.combine(title)
+        hasher.combine(amount)
+        hasher.combine(dueDate)
+        hasher.combine(status)
+        hasher.combine(paidAt)
+        hasher.combine(updatedAt)
+        hasher.combine(syncStatus)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSchoolInvoice: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SchoolInvoice {
+        return
+            try SchoolInvoice(
+                id: FfiConverterString.read(from: &buf), 
+                workspaceId: FfiConverterString.read(from: &buf), 
+                studentId: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                amount: FfiConverterDouble.read(from: &buf), 
+                dueDate: FfiConverterString.read(from: &buf), 
+                status: FfiConverterString.read(from: &buf), 
+                paidAt: FfiConverterOptionString.read(from: &buf), 
+                updatedAt: FfiConverterInt64.read(from: &buf), 
+                syncStatus: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SchoolInvoice, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.workspaceId, into: &buf)
+        FfiConverterString.write(value.studentId, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterDouble.write(value.amount, into: &buf)
+        FfiConverterString.write(value.dueDate, into: &buf)
+        FfiConverterString.write(value.status, into: &buf)
+        FfiConverterOptionString.write(value.paidAt, into: &buf)
+        FfiConverterInt64.write(value.updatedAt, into: &buf)
+        FfiConverterString.write(value.syncStatus, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSchoolInvoice_lift(_ buf: RustBuffer) throws -> SchoolInvoice {
+    return try FfiConverterTypeSchoolInvoice.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSchoolInvoice_lower(_ value: SchoolInvoice) -> RustBuffer {
+    return FfiConverterTypeSchoolInvoice.lower(value)
+}
+
+
+public struct SchoolPayment {
+    public var id: String
+    public var workspaceId: String
+    public var invoiceId: String
+    public var amount: Double
+    public var paymentMethod: String
+    public var paidAt: String
+    public var updatedAt: Int64
+    public var syncStatus: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, workspaceId: String, invoiceId: String, amount: Double, paymentMethod: String, paidAt: String, updatedAt: Int64, syncStatus: String) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.invoiceId = invoiceId
+        self.amount = amount
+        self.paymentMethod = paymentMethod
+        self.paidAt = paidAt
+        self.updatedAt = updatedAt
+        self.syncStatus = syncStatus
+    }
+}
+
+
+
+extension SchoolPayment: Equatable, Hashable {
+    public static func ==(lhs: SchoolPayment, rhs: SchoolPayment) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.workspaceId != rhs.workspaceId {
+            return false
+        }
+        if lhs.invoiceId != rhs.invoiceId {
+            return false
+        }
+        if lhs.amount != rhs.amount {
+            return false
+        }
+        if lhs.paymentMethod != rhs.paymentMethod {
+            return false
+        }
+        if lhs.paidAt != rhs.paidAt {
+            return false
+        }
+        if lhs.updatedAt != rhs.updatedAt {
+            return false
+        }
+        if lhs.syncStatus != rhs.syncStatus {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(workspaceId)
+        hasher.combine(invoiceId)
+        hasher.combine(amount)
+        hasher.combine(paymentMethod)
+        hasher.combine(paidAt)
+        hasher.combine(updatedAt)
+        hasher.combine(syncStatus)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSchoolPayment: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SchoolPayment {
+        return
+            try SchoolPayment(
+                id: FfiConverterString.read(from: &buf), 
+                workspaceId: FfiConverterString.read(from: &buf), 
+                invoiceId: FfiConverterString.read(from: &buf), 
+                amount: FfiConverterDouble.read(from: &buf), 
+                paymentMethod: FfiConverterString.read(from: &buf), 
+                paidAt: FfiConverterString.read(from: &buf), 
+                updatedAt: FfiConverterInt64.read(from: &buf), 
+                syncStatus: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SchoolPayment, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.workspaceId, into: &buf)
+        FfiConverterString.write(value.invoiceId, into: &buf)
+        FfiConverterDouble.write(value.amount, into: &buf)
+        FfiConverterString.write(value.paymentMethod, into: &buf)
+        FfiConverterString.write(value.paidAt, into: &buf)
+        FfiConverterInt64.write(value.updatedAt, into: &buf)
+        FfiConverterString.write(value.syncStatus, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSchoolPayment_lift(_ buf: RustBuffer) throws -> SchoolPayment {
+    return try FfiConverterTypeSchoolPayment.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSchoolPayment_lower(_ value: SchoolPayment) -> RustBuffer {
+    return FfiConverterTypeSchoolPayment.lower(value)
+}
+
+
+public struct StudentProfile {
+    public var id: String
+    public var workspaceId: String
+    public var userId: String?
+    public var firstName: String
+    public var lastName: String
+    public var gradeLevel: String
+    public var parentContact: String?
+    public var updatedAt: Int64
+    public var syncStatus: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, workspaceId: String, userId: String?, firstName: String, lastName: String, gradeLevel: String, parentContact: String?, updatedAt: Int64, syncStatus: String) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.userId = userId
+        self.firstName = firstName
+        self.lastName = lastName
+        self.gradeLevel = gradeLevel
+        self.parentContact = parentContact
+        self.updatedAt = updatedAt
+        self.syncStatus = syncStatus
+    }
+}
+
+
+
+extension StudentProfile: Equatable, Hashable {
+    public static func ==(lhs: StudentProfile, rhs: StudentProfile) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.workspaceId != rhs.workspaceId {
+            return false
+        }
+        if lhs.userId != rhs.userId {
+            return false
+        }
+        if lhs.firstName != rhs.firstName {
+            return false
+        }
+        if lhs.lastName != rhs.lastName {
+            return false
+        }
+        if lhs.gradeLevel != rhs.gradeLevel {
+            return false
+        }
+        if lhs.parentContact != rhs.parentContact {
+            return false
+        }
+        if lhs.updatedAt != rhs.updatedAt {
+            return false
+        }
+        if lhs.syncStatus != rhs.syncStatus {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(workspaceId)
+        hasher.combine(userId)
+        hasher.combine(firstName)
+        hasher.combine(lastName)
+        hasher.combine(gradeLevel)
+        hasher.combine(parentContact)
+        hasher.combine(updatedAt)
+        hasher.combine(syncStatus)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeStudentProfile: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> StudentProfile {
+        return
+            try StudentProfile(
+                id: FfiConverterString.read(from: &buf), 
+                workspaceId: FfiConverterString.read(from: &buf), 
+                userId: FfiConverterOptionString.read(from: &buf), 
+                firstName: FfiConverterString.read(from: &buf), 
+                lastName: FfiConverterString.read(from: &buf), 
+                gradeLevel: FfiConverterString.read(from: &buf), 
+                parentContact: FfiConverterOptionString.read(from: &buf), 
+                updatedAt: FfiConverterInt64.read(from: &buf), 
+                syncStatus: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: StudentProfile, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.workspaceId, into: &buf)
+        FfiConverterOptionString.write(value.userId, into: &buf)
+        FfiConverterString.write(value.firstName, into: &buf)
+        FfiConverterString.write(value.lastName, into: &buf)
+        FfiConverterString.write(value.gradeLevel, into: &buf)
+        FfiConverterOptionString.write(value.parentContact, into: &buf)
+        FfiConverterInt64.write(value.updatedAt, into: &buf)
+        FfiConverterString.write(value.syncStatus, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStudentProfile_lift(_ buf: RustBuffer) throws -> StudentProfile {
+    return try FfiConverterTypeStudentProfile.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStudentProfile_lower(_ value: StudentProfile) -> RustBuffer {
+    return FfiConverterTypeStudentProfile.lower(value)
+}
+
+
+public struct Submission {
+    public var id: String
+    public var workspaceId: String
+    public var assignmentId: String
+    public var studentId: String
+    public var content: String
+    public var grade: String?
+    public var feedback: String?
+    public var submittedAt: String
+    public var updatedAt: Int64
+    public var syncStatus: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, workspaceId: String, assignmentId: String, studentId: String, content: String, grade: String?, feedback: String?, submittedAt: String, updatedAt: Int64, syncStatus: String) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.assignmentId = assignmentId
+        self.studentId = studentId
+        self.content = content
+        self.grade = grade
+        self.feedback = feedback
+        self.submittedAt = submittedAt
+        self.updatedAt = updatedAt
+        self.syncStatus = syncStatus
+    }
+}
+
+
+
+extension Submission: Equatable, Hashable {
+    public static func ==(lhs: Submission, rhs: Submission) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.workspaceId != rhs.workspaceId {
+            return false
+        }
+        if lhs.assignmentId != rhs.assignmentId {
+            return false
+        }
+        if lhs.studentId != rhs.studentId {
+            return false
+        }
+        if lhs.content != rhs.content {
+            return false
+        }
+        if lhs.grade != rhs.grade {
+            return false
+        }
+        if lhs.feedback != rhs.feedback {
+            return false
+        }
+        if lhs.submittedAt != rhs.submittedAt {
+            return false
+        }
+        if lhs.updatedAt != rhs.updatedAt {
+            return false
+        }
+        if lhs.syncStatus != rhs.syncStatus {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(workspaceId)
+        hasher.combine(assignmentId)
+        hasher.combine(studentId)
+        hasher.combine(content)
+        hasher.combine(grade)
+        hasher.combine(feedback)
+        hasher.combine(submittedAt)
+        hasher.combine(updatedAt)
+        hasher.combine(syncStatus)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSubmission: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Submission {
+        return
+            try Submission(
+                id: FfiConverterString.read(from: &buf), 
+                workspaceId: FfiConverterString.read(from: &buf), 
+                assignmentId: FfiConverterString.read(from: &buf), 
+                studentId: FfiConverterString.read(from: &buf), 
+                content: FfiConverterString.read(from: &buf), 
+                grade: FfiConverterOptionString.read(from: &buf), 
+                feedback: FfiConverterOptionString.read(from: &buf), 
+                submittedAt: FfiConverterString.read(from: &buf), 
+                updatedAt: FfiConverterInt64.read(from: &buf), 
+                syncStatus: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: Submission, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.workspaceId, into: &buf)
+        FfiConverterString.write(value.assignmentId, into: &buf)
+        FfiConverterString.write(value.studentId, into: &buf)
+        FfiConverterString.write(value.content, into: &buf)
+        FfiConverterOptionString.write(value.grade, into: &buf)
+        FfiConverterOptionString.write(value.feedback, into: &buf)
+        FfiConverterString.write(value.submittedAt, into: &buf)
+        FfiConverterInt64.write(value.updatedAt, into: &buf)
+        FfiConverterString.write(value.syncStatus, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSubmission_lift(_ buf: RustBuffer) throws -> Submission {
+    return try FfiConverterTypeSubmission.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSubmission_lower(_ value: Submission) -> RustBuffer {
+    return FfiConverterTypeSubmission.lower(value)
 }
 
 
@@ -1884,6 +3820,136 @@ public func FfiConverterTypeTeamEvent_lower(_ value: TeamEvent) -> RustBuffer {
 }
 
 
+public struct TermGrade {
+    public var id: String
+    public var workspaceId: String
+    public var studentId: String
+    public var courseId: String
+    public var termName: String
+    public var finalGrade: String?
+    public var finalPoints: Int32?
+    public var teacherComments: String?
+    public var updatedAt: Int64
+    public var syncStatus: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, workspaceId: String, studentId: String, courseId: String, termName: String, finalGrade: String?, finalPoints: Int32?, teacherComments: String?, updatedAt: Int64, syncStatus: String) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.studentId = studentId
+        self.courseId = courseId
+        self.termName = termName
+        self.finalGrade = finalGrade
+        self.finalPoints = finalPoints
+        self.teacherComments = teacherComments
+        self.updatedAt = updatedAt
+        self.syncStatus = syncStatus
+    }
+}
+
+
+
+extension TermGrade: Equatable, Hashable {
+    public static func ==(lhs: TermGrade, rhs: TermGrade) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.workspaceId != rhs.workspaceId {
+            return false
+        }
+        if lhs.studentId != rhs.studentId {
+            return false
+        }
+        if lhs.courseId != rhs.courseId {
+            return false
+        }
+        if lhs.termName != rhs.termName {
+            return false
+        }
+        if lhs.finalGrade != rhs.finalGrade {
+            return false
+        }
+        if lhs.finalPoints != rhs.finalPoints {
+            return false
+        }
+        if lhs.teacherComments != rhs.teacherComments {
+            return false
+        }
+        if lhs.updatedAt != rhs.updatedAt {
+            return false
+        }
+        if lhs.syncStatus != rhs.syncStatus {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(workspaceId)
+        hasher.combine(studentId)
+        hasher.combine(courseId)
+        hasher.combine(termName)
+        hasher.combine(finalGrade)
+        hasher.combine(finalPoints)
+        hasher.combine(teacherComments)
+        hasher.combine(updatedAt)
+        hasher.combine(syncStatus)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTermGrade: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TermGrade {
+        return
+            try TermGrade(
+                id: FfiConverterString.read(from: &buf), 
+                workspaceId: FfiConverterString.read(from: &buf), 
+                studentId: FfiConverterString.read(from: &buf), 
+                courseId: FfiConverterString.read(from: &buf), 
+                termName: FfiConverterString.read(from: &buf), 
+                finalGrade: FfiConverterOptionString.read(from: &buf), 
+                finalPoints: FfiConverterOptionInt32.read(from: &buf), 
+                teacherComments: FfiConverterOptionString.read(from: &buf), 
+                updatedAt: FfiConverterInt64.read(from: &buf), 
+                syncStatus: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TermGrade, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.workspaceId, into: &buf)
+        FfiConverterString.write(value.studentId, into: &buf)
+        FfiConverterString.write(value.courseId, into: &buf)
+        FfiConverterString.write(value.termName, into: &buf)
+        FfiConverterOptionString.write(value.finalGrade, into: &buf)
+        FfiConverterOptionInt32.write(value.finalPoints, into: &buf)
+        FfiConverterOptionString.write(value.teacherComments, into: &buf)
+        FfiConverterInt64.write(value.updatedAt, into: &buf)
+        FfiConverterString.write(value.syncStatus, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTermGrade_lift(_ buf: RustBuffer) throws -> TermGrade {
+    return try FfiConverterTypeTermGrade.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTermGrade_lower(_ value: TermGrade) -> RustBuffer {
+    return FfiConverterTypeTermGrade.lower(value)
+}
+
+
 public struct TimeReport {
     public var id: String
     public var workspaceId: String
@@ -2035,6 +4101,128 @@ public func FfiConverterTypeTimeReport_lift(_ buf: RustBuffer) throws -> TimeRep
 #endif
 public func FfiConverterTypeTimeReport_lower(_ value: TimeReport) -> RustBuffer {
     return FfiConverterTypeTimeReport.lower(value)
+}
+
+
+public struct TimetableSlot {
+    public var id: String
+    public var workspaceId: String
+    public var courseId: String
+    public var dayOfWeek: Int32
+    public var startTime: String
+    public var endTime: String
+    public var classroom: String?
+    public var updatedAt: Int64
+    public var syncStatus: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, workspaceId: String, courseId: String, dayOfWeek: Int32, startTime: String, endTime: String, classroom: String?, updatedAt: Int64, syncStatus: String) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.courseId = courseId
+        self.dayOfWeek = dayOfWeek
+        self.startTime = startTime
+        self.endTime = endTime
+        self.classroom = classroom
+        self.updatedAt = updatedAt
+        self.syncStatus = syncStatus
+    }
+}
+
+
+
+extension TimetableSlot: Equatable, Hashable {
+    public static func ==(lhs: TimetableSlot, rhs: TimetableSlot) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.workspaceId != rhs.workspaceId {
+            return false
+        }
+        if lhs.courseId != rhs.courseId {
+            return false
+        }
+        if lhs.dayOfWeek != rhs.dayOfWeek {
+            return false
+        }
+        if lhs.startTime != rhs.startTime {
+            return false
+        }
+        if lhs.endTime != rhs.endTime {
+            return false
+        }
+        if lhs.classroom != rhs.classroom {
+            return false
+        }
+        if lhs.updatedAt != rhs.updatedAt {
+            return false
+        }
+        if lhs.syncStatus != rhs.syncStatus {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(workspaceId)
+        hasher.combine(courseId)
+        hasher.combine(dayOfWeek)
+        hasher.combine(startTime)
+        hasher.combine(endTime)
+        hasher.combine(classroom)
+        hasher.combine(updatedAt)
+        hasher.combine(syncStatus)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTimetableSlot: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TimetableSlot {
+        return
+            try TimetableSlot(
+                id: FfiConverterString.read(from: &buf), 
+                workspaceId: FfiConverterString.read(from: &buf), 
+                courseId: FfiConverterString.read(from: &buf), 
+                dayOfWeek: FfiConverterInt32.read(from: &buf), 
+                startTime: FfiConverterString.read(from: &buf), 
+                endTime: FfiConverterString.read(from: &buf), 
+                classroom: FfiConverterOptionString.read(from: &buf), 
+                updatedAt: FfiConverterInt64.read(from: &buf), 
+                syncStatus: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TimetableSlot, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.workspaceId, into: &buf)
+        FfiConverterString.write(value.courseId, into: &buf)
+        FfiConverterInt32.write(value.dayOfWeek, into: &buf)
+        FfiConverterString.write(value.startTime, into: &buf)
+        FfiConverterString.write(value.endTime, into: &buf)
+        FfiConverterOptionString.write(value.classroom, into: &buf)
+        FfiConverterInt64.write(value.updatedAt, into: &buf)
+        FfiConverterString.write(value.syncStatus, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTimetableSlot_lift(_ buf: RustBuffer) throws -> TimetableSlot {
+    return try FfiConverterTypeTimetableSlot.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTimetableSlot_lower(_ value: TimetableSlot) -> RustBuffer {
+    return FfiConverterTypeTimetableSlot.lower(value)
 }
 
 
@@ -2254,10 +4442,11 @@ public struct WorkspaceUser {
     public var nfcBadgeUid: String?
     public var updatedAt: Int64
     public var syncStatus: String
+    public var personalNumber: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, workspaceId: String?, email: String, fullName: String?, phone: String?, role: String, preferences: String, sithsCardId: String?, nfcBadgeUid: String?, updatedAt: Int64, syncStatus: String) {
+    public init(id: String, workspaceId: String?, email: String, fullName: String?, phone: String?, role: String, preferences: String, sithsCardId: String?, nfcBadgeUid: String?, updatedAt: Int64, syncStatus: String, personalNumber: String?) {
         self.id = id
         self.workspaceId = workspaceId
         self.email = email
@@ -2269,6 +4458,7 @@ public struct WorkspaceUser {
         self.nfcBadgeUid = nfcBadgeUid
         self.updatedAt = updatedAt
         self.syncStatus = syncStatus
+        self.personalNumber = personalNumber
     }
 }
 
@@ -2309,6 +4499,9 @@ extension WorkspaceUser: Equatable, Hashable {
         if lhs.syncStatus != rhs.syncStatus {
             return false
         }
+        if lhs.personalNumber != rhs.personalNumber {
+            return false
+        }
         return true
     }
 
@@ -2324,6 +4517,7 @@ extension WorkspaceUser: Equatable, Hashable {
         hasher.combine(nfcBadgeUid)
         hasher.combine(updatedAt)
         hasher.combine(syncStatus)
+        hasher.combine(personalNumber)
     }
 }
 
@@ -2345,7 +4539,8 @@ public struct FfiConverterTypeWorkspaceUser: FfiConverterRustBuffer {
                 sithsCardId: FfiConverterOptionString.read(from: &buf), 
                 nfcBadgeUid: FfiConverterOptionString.read(from: &buf), 
                 updatedAt: FfiConverterInt64.read(from: &buf), 
-                syncStatus: FfiConverterString.read(from: &buf)
+                syncStatus: FfiConverterString.read(from: &buf), 
+                personalNumber: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -2361,6 +4556,7 @@ public struct FfiConverterTypeWorkspaceUser: FfiConverterRustBuffer {
         FfiConverterOptionString.write(value.nfcBadgeUid, into: &buf)
         FfiConverterInt64.write(value.updatedAt, into: &buf)
         FfiConverterString.write(value.syncStatus, into: &buf)
+        FfiConverterOptionString.write(value.personalNumber, into: &buf)
     }
 }
 
@@ -2378,6 +4574,84 @@ public func FfiConverterTypeWorkspaceUser_lift(_ buf: RustBuffer) throws -> Work
 public func FfiConverterTypeWorkspaceUser_lower(_ value: WorkspaceUser) -> RustBuffer {
     return FfiConverterTypeWorkspaceUser.lower(value)
 }
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum WorkspaceTemplateType {
+    
+    case care
+    case movingCompany
+    case school
+    case general
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWorkspaceTemplateType: FfiConverterRustBuffer {
+    typealias SwiftType = WorkspaceTemplateType
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorkspaceTemplateType {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .care
+        
+        case 2: return .movingCompany
+        
+        case 3: return .school
+        
+        case 4: return .general
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: WorkspaceTemplateType, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .care:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .movingCompany:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .school:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .general:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceTemplateType_lift(_ buf: RustBuffer) throws -> WorkspaceTemplateType {
+    return try FfiConverterTypeWorkspaceTemplateType.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceTemplateType_lower(_ value: WorkspaceTemplateType) -> RustBuffer {
+    return FfiConverterTypeWorkspaceTemplateType.lower(value)
+}
+
+
+
+extension WorkspaceTemplateType: Equatable, Hashable {}
+
+
 
 
 public enum YntraError {
@@ -2401,6 +4675,8 @@ public enum YntraError {
     case NetworkError(String
     )
     case InvitationError(String
+    )
+    case CryptoError(String
     )
 }
 
@@ -2443,6 +4719,9 @@ public struct FfiConverterTypeYntraError: FfiConverterRustBuffer {
             try FfiConverterString.read(from: &buf)
             )
         case 9: return .InvitationError(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 10: return .CryptoError(
             try FfiConverterString.read(from: &buf)
             )
 
@@ -2501,6 +4780,11 @@ public struct FfiConverterTypeYntraError: FfiConverterRustBuffer {
             writeInt(&buf, Int32(9))
             FfiConverterString.write(v1, into: &buf)
             
+        
+        case let .CryptoError(v1):
+            writeInt(&buf, Int32(10))
+            FfiConverterString.write(v1, into: &buf)
+            
         }
     }
 }
@@ -2520,6 +4804,8 @@ extension YntraError: Foundation.LocalizedError {
 public protocol DatabaseObserver : AnyObject {
     
     func onDatabaseChanged() 
+    
+    func onTableChanged(table: String) 
     
 }
 
@@ -2548,6 +4834,30 @@ fileprivate struct UniffiCallbackInterfaceDatabaseObserver {
                     throw UniffiInternalError.unexpectedStaleHandle
                 }
                 return uniffiObj.onDatabaseChanged(
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onTableChanged: { (
+            uniffiHandle: UInt64,
+            table: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceDatabaseObserver.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onTableChanged(
+                     table: try FfiConverterString.lift(table)
                 )
             }
 
@@ -2620,6 +4930,54 @@ extension FfiConverterCallbackInterfaceDatabaseObserver : FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionInt32: FfiConverterRustBuffer {
+    typealias SwiftType = Int32?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterInt32.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterInt32.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionInt64: FfiConverterRustBuffer {
+    typealias SwiftType = Int64?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterInt64.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterInt64.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
     typealias SwiftType = String?
 
@@ -2668,6 +5026,30 @@ fileprivate struct FfiConverterOptionTypeBankIdAuthSession: FfiConverterRustBuff
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeMoveQuote: FfiConverterRustBuffer {
+    typealias SwiftType = MoveQuote?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeMoveQuote.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeMoveQuote.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeWorkspaceUser: FfiConverterRustBuffer {
     typealias SwiftType = WorkspaceUser?
 
@@ -2686,6 +5068,106 @@ fileprivate struct FfiConverterOptionTypeWorkspaceUser: FfiConverterRustBuffer {
         case 1: return try FfiConverterTypeWorkspaceUser.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
+    typealias SwiftType = [String]
+
+    public static func write(_ value: [String], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterString.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [String]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAssignment: FfiConverterRustBuffer {
+    typealias SwiftType = [Assignment]
+
+    public static func write(_ value: [Assignment], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAssignment.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Assignment] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Assignment]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAssignment.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAttendanceRecord: FfiConverterRustBuffer {
+    typealias SwiftType = [AttendanceRecord]
+
+    public static func write(_ value: [AttendanceRecord], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAttendanceRecord.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AttendanceRecord] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AttendanceRecord]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAttendanceRecord.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAuditLogEntry: FfiConverterRustBuffer {
+    typealias SwiftType = [AuditLogEntry]
+
+    public static func write(_ value: [AuditLogEntry], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAuditLogEntry.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AuditLogEntry] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AuditLogEntry]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAuditLogEntry.read(from: &buf))
+        }
+        return seq
     }
 }
 
@@ -2742,6 +5224,31 @@ fileprivate struct FfiConverterSequenceTypeClientProfile: FfiConverterRustBuffer
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeCourse: FfiConverterRustBuffer {
+    typealias SwiftType = [Course]
+
+    public static func write(_ value: [Course], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeCourse.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Course] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Course]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeCourse.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeDailyNote: FfiConverterRustBuffer {
     typealias SwiftType = [DailyNote]
 
@@ -2759,6 +5266,56 @@ fileprivate struct FfiConverterSequenceTypeDailyNote: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeDailyNote.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeHealthIncident: FfiConverterRustBuffer {
+    typealias SwiftType = [HealthIncident]
+
+    public static func write(_ value: [HealthIncident], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeHealthIncident.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [HealthIncident] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [HealthIncident]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeHealthIncident.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeHealthRecord: FfiConverterRustBuffer {
+    typealias SwiftType = [HealthRecord]
+
+    public static func write(_ value: [HealthRecord], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeHealthRecord.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [HealthRecord] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [HealthRecord]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeHealthRecord.read(from: &buf))
         }
         return seq
     }
@@ -2817,6 +5374,56 @@ fileprivate struct FfiConverterSequenceTypeJournalEntry: FfiConverterRustBuffer 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeLibraryBook: FfiConverterRustBuffer {
+    typealias SwiftType = [LibraryBook]
+
+    public static func write(_ value: [LibraryBook], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeLibraryBook.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [LibraryBook] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [LibraryBook]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeLibraryBook.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeLibraryLendingLog: FfiConverterRustBuffer {
+    typealias SwiftType = [LibraryLendingLog]
+
+    public static func write(_ value: [LibraryLendingLog], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeLibraryLendingLog.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [LibraryLendingLog] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [LibraryLendingLog]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeLibraryLendingLog.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeMedicationItem: FfiConverterRustBuffer {
     typealias SwiftType = [MedicationItem]
 
@@ -2867,6 +5474,56 @@ fileprivate struct FfiConverterSequenceTypeMessageItem: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeMoveInventoryItem: FfiConverterRustBuffer {
+    typealias SwiftType = [MoveInventoryItem]
+
+    public static func write(_ value: [MoveInventoryItem], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeMoveInventoryItem.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [MoveInventoryItem] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [MoveInventoryItem]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeMoveInventoryItem.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeReportCard: FfiConverterRustBuffer {
+    typealias SwiftType = [ReportCard]
+
+    public static func write(_ value: [ReportCard], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeReportCard.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ReportCard] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ReportCard]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeReportCard.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeReportItem: FfiConverterRustBuffer {
     typealias SwiftType = [ReportItem]
 
@@ -2884,6 +5541,106 @@ fileprivate struct FfiConverterSequenceTypeReportItem: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeReportItem.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSchoolInvoice: FfiConverterRustBuffer {
+    typealias SwiftType = [SchoolInvoice]
+
+    public static func write(_ value: [SchoolInvoice], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSchoolInvoice.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SchoolInvoice] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SchoolInvoice]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSchoolInvoice.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSchoolPayment: FfiConverterRustBuffer {
+    typealias SwiftType = [SchoolPayment]
+
+    public static func write(_ value: [SchoolPayment], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSchoolPayment.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SchoolPayment] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SchoolPayment]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSchoolPayment.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeStudentProfile: FfiConverterRustBuffer {
+    typealias SwiftType = [StudentProfile]
+
+    public static func write(_ value: [StudentProfile], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeStudentProfile.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [StudentProfile] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [StudentProfile]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeStudentProfile.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSubmission: FfiConverterRustBuffer {
+    typealias SwiftType = [Submission]
+
+    public static func write(_ value: [Submission], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSubmission.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Submission] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Submission]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSubmission.read(from: &buf))
         }
         return seq
     }
@@ -2942,6 +5699,31 @@ fileprivate struct FfiConverterSequenceTypeTeamEvent: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeTermGrade: FfiConverterRustBuffer {
+    typealias SwiftType = [TermGrade]
+
+    public static func write(_ value: [TermGrade], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeTermGrade.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [TermGrade] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [TermGrade]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeTermGrade.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeTimeReport: FfiConverterRustBuffer {
     typealias SwiftType = [TimeReport]
 
@@ -2959,6 +5741,31 @@ fileprivate struct FfiConverterSequenceTypeTimeReport: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeTimeReport.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeTimetableSlot: FfiConverterRustBuffer {
+    typealias SwiftType = [TimetableSlot]
+
+    public static func write(_ value: [TimetableSlot], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeTimetableSlot.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [TimetableSlot] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [TimetableSlot]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeTimetableSlot.read(from: &buf))
         }
         return seq
     }
@@ -3084,6 +5891,20 @@ fileprivate func uniffiFutureContinuationCallback(handle: UInt64, pollResult: In
         print("uniffiFutureContinuationCallback invalid handle")
     }
 }
+public func acceptMoveQuote(requesterUserId: String, quoteId: String)async throws  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_accept_move_quote(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(quoteId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_void,
+            completeFunc: ffi_yntra_core_rust_future_complete_void,
+            freeFunc: ffi_yntra_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
 public func activateInvitationCode(code: String)async throws  -> WorkspaceUser {
     return
         try  await uniffiRustCallAsync(
@@ -3098,11 +5919,25 @@ public func activateInvitationCode(code: String)async throws  -> WorkspaceUser {
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func addClientViaDirectory(workspaceId: String, teamId: String?, firstName: String, lastName: String, personalNumber: String, careLevel: String)async throws  -> ClientProfile {
+public func addAssignment(requesterUserId: String, workspaceId: String, courseId: String, title: String, description: String, dueDate: String, maxPoints: Int32)async throws  -> Assignment {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_add_client_via_directory(FfiConverterString.lower(workspaceId),FfiConverterOptionString.lower(teamId),FfiConverterString.lower(firstName),FfiConverterString.lower(lastName),FfiConverterString.lower(personalNumber),FfiConverterString.lower(careLevel)
+                uniffi_yntra_core_fn_func_add_assignment(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterString.lower(courseId),FfiConverterString.lower(title),FfiConverterString.lower(description),FfiConverterString.lower(dueDate),FfiConverterInt32.lower(maxPoints)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeAssignment.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func addClientViaDirectory(requesterUserId: String, workspaceId: String, teamId: String?, firstName: String, lastName: String, personalNumber: String, careLevel: String)async throws  -> ClientProfile {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_add_client_via_directory(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterOptionString.lower(teamId),FfiConverterString.lower(firstName),FfiConverterString.lower(lastName),FfiConverterString.lower(personalNumber),FfiConverterString.lower(careLevel)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
@@ -3112,11 +5947,25 @@ public func addClientViaDirectory(workspaceId: String, teamId: String?, firstNam
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func addEvent(workspaceId: String, title: String, startTime: String, endTime: String, teamId: String?, assigneeId: String?, recipientId: String?)async throws  -> TeamEvent {
+public func addCourse(requesterUserId: String, workspaceId: String, name: String, subject: String, teacherId: String?, classroom: String?)async throws  -> Course {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_add_event(FfiConverterString.lower(workspaceId),FfiConverterString.lower(title),FfiConverterString.lower(startTime),FfiConverterString.lower(endTime),FfiConverterOptionString.lower(teamId),FfiConverterOptionString.lower(assigneeId),FfiConverterOptionString.lower(recipientId)
+                uniffi_yntra_core_fn_func_add_course(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterString.lower(name),FfiConverterString.lower(subject),FfiConverterOptionString.lower(teacherId),FfiConverterOptionString.lower(classroom)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeCourse.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func addEvent(requesterUserId: String, workspaceId: String, title: String, startTime: String, endTime: String, teamId: String?, assigneeId: String?, recipientId: String?)async throws  -> TeamEvent {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_add_event(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterString.lower(title),FfiConverterString.lower(startTime),FfiConverterString.lower(endTime),FfiConverterOptionString.lower(teamId),FfiConverterOptionString.lower(assigneeId),FfiConverterOptionString.lower(recipientId)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
@@ -3126,11 +5975,11 @@ public func addEvent(workspaceId: String, title: String, startTime: String, endT
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func addEventWithMetadata(workspaceId: String, title: String, startTime: String, endTime: String, teamId: String?, assigneeId: String?, recipientId: String?, metadata: String)async throws  -> TeamEvent {
+public func addEventWithMetadata(requesterUserId: String, workspaceId: String, title: String, startTime: String, endTime: String, teamId: String?, assigneeId: String?, recipientId: String?, metadata: String)async throws  -> TeamEvent {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_add_event_with_metadata(FfiConverterString.lower(workspaceId),FfiConverterString.lower(title),FfiConverterString.lower(startTime),FfiConverterString.lower(endTime),FfiConverterOptionString.lower(teamId),FfiConverterOptionString.lower(assigneeId),FfiConverterOptionString.lower(recipientId),FfiConverterString.lower(metadata)
+                uniffi_yntra_core_fn_func_add_event_with_metadata(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterString.lower(title),FfiConverterString.lower(startTime),FfiConverterString.lower(endTime),FfiConverterOptionString.lower(teamId),FfiConverterOptionString.lower(assigneeId),FfiConverterOptionString.lower(recipientId),FfiConverterString.lower(metadata)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
@@ -3154,11 +6003,11 @@ public func addJournalEntry(workspaceId: String, clientId: String, authorId: Str
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func addMedication(workspaceId: String, clientId: String, name: String, dosage: String, frequency: String, instructions: String)async throws  -> MedicationItem {
+public func addMedication(workspaceId: String, clientId: String, actorId: String, name: String, dosage: String, frequency: String, instructions: String)async throws  -> MedicationItem {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_add_medication(FfiConverterString.lower(workspaceId),FfiConverterString.lower(clientId),FfiConverterString.lower(name),FfiConverterString.lower(dosage),FfiConverterString.lower(frequency),FfiConverterString.lower(instructions)
+                uniffi_yntra_core_fn_func_add_medication(FfiConverterString.lower(workspaceId),FfiConverterString.lower(clientId),FfiConverterString.lower(actorId),FfiConverterString.lower(name),FfiConverterString.lower(dosage),FfiConverterString.lower(frequency),FfiConverterString.lower(instructions)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
@@ -3168,11 +6017,25 @@ public func addMedication(workspaceId: String, clientId: String, name: String, d
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func addNote(workspaceId: String, teamId: String, authorId: String, subject: String, content: String)async throws  -> DailyNote {
+public func addMoveInventoryItem(requesterUserId: String, jobTicketId: String, itemCategory: String, itemName: String, quantity: Int32, estimatedVolumeM3: Double, handlingNotes: String?)async throws  -> MoveInventoryItem {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_add_note(FfiConverterString.lower(workspaceId),FfiConverterString.lower(teamId),FfiConverterString.lower(authorId),FfiConverterString.lower(subject),FfiConverterString.lower(content)
+                uniffi_yntra_core_fn_func_add_move_inventory_item(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(jobTicketId),FfiConverterString.lower(itemCategory),FfiConverterString.lower(itemName),FfiConverterInt32.lower(quantity),FfiConverterDouble.lower(estimatedVolumeM3),FfiConverterOptionString.lower(handlingNotes)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeMoveInventoryItem.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func addNote(requesterUserId: String, workspaceId: String, teamId: String, authorId: String, subject: String, content: String)async throws  -> DailyNote {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_add_note(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterString.lower(teamId),FfiConverterString.lower(authorId),FfiConverterString.lower(subject),FfiConverterString.lower(content)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
@@ -3196,11 +6059,39 @@ public func addReport(workspaceId: String, userId: String, reportType: String, i
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func addTeamViaDirectory(workspaceId: String, name: String)async throws  -> Team {
+public func addStudent(requesterUserId: String, workspaceId: String, userId: String?, firstName: String, lastName: String, gradeLevel: String, parentContact: String?)async throws  -> StudentProfile {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_add_team_via_directory(FfiConverterString.lower(workspaceId),FfiConverterString.lower(name)
+                uniffi_yntra_core_fn_func_add_student(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterOptionString.lower(userId),FfiConverterString.lower(firstName),FfiConverterString.lower(lastName),FfiConverterString.lower(gradeLevel),FfiConverterOptionString.lower(parentContact)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeStudentProfile.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func addSubmission(requesterUserId: String, workspaceId: String, assignmentId: String, studentId: String, content: String, grade: String?, feedback: String?)async throws  -> Submission {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_add_submission(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterString.lower(assignmentId),FfiConverterString.lower(studentId),FfiConverterString.lower(content),FfiConverterOptionString.lower(grade),FfiConverterOptionString.lower(feedback)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeSubmission.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func addTeamViaDirectory(requesterUserId: String, workspaceId: String, name: String)async throws  -> Team {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_add_team_via_directory(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterString.lower(name)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
@@ -3210,11 +6101,11 @@ public func addTeamViaDirectory(workspaceId: String, name: String)async throws  
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func addTimeReport(workspaceId: String, userId: String, teamId: String?, date: String, hours: Double, note: String, startTime: String?, endTime: String?)async throws  -> TimeReport {
+public func addTimeReport(requesterUserId: String, workspaceId: String, userId: String, teamId: String?, date: String, hours: Double, note: String, startTime: String?, endTime: String?)async throws  -> TimeReport {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_add_time_report(FfiConverterString.lower(workspaceId),FfiConverterString.lower(userId),FfiConverterOptionString.lower(teamId),FfiConverterString.lower(date),FfiConverterDouble.lower(hours),FfiConverterString.lower(note),FfiConverterOptionString.lower(startTime),FfiConverterOptionString.lower(endTime)
+                uniffi_yntra_core_fn_func_add_time_report(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterString.lower(userId),FfiConverterOptionString.lower(teamId),FfiConverterString.lower(date),FfiConverterDouble.lower(hours),FfiConverterString.lower(note),FfiConverterOptionString.lower(startTime),FfiConverterOptionString.lower(endTime)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
@@ -3224,11 +6115,11 @@ public func addTimeReport(workspaceId: String, userId: String, teamId: String?, 
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func addTodo(workspaceId: String, text: String)async throws  -> TodoItem {
+public func addTodo(requesterUserId: String, workspaceId: String, text: String)async throws  -> TodoItem {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_add_todo(FfiConverterString.lower(workspaceId),FfiConverterString.lower(text)
+                uniffi_yntra_core_fn_func_add_todo(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterString.lower(text)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
@@ -3238,44 +6129,11 @@ public func addTodo(workspaceId: String, text: String)async throws  -> TodoItem 
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func authenticateWithNfc(badgeUid: String)async throws  -> WorkspaceUser {
+public func applyNoteLoroUpdate(noteId: String, updateBytes: Data)async throws  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_authenticate_with_nfc(FfiConverterString.lower(badgeUid)
-                )
-            },
-            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
-            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
-            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterTypeWorkspaceUser.lift,
-            errorHandler: FfiConverterTypeYntraError.lift
-        )
-}
-public func authenticateWithSiths(cardId: String)async throws  -> WorkspaceUser {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_yntra_core_fn_func_authenticate_with_siths(FfiConverterString.lower(cardId)
-                )
-            },
-            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
-            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
-            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterTypeWorkspaceUser.lift,
-            errorHandler: FfiConverterTypeYntraError.lift
-        )
-}
-public func clearObservers() {try! rustCall() {
-    uniffi_yntra_core_fn_func_clear_observers($0
-    )
-}
-}
-public func completeAuthSession(sessionId: String, userId: String)async throws  {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_yntra_core_fn_func_complete_auth_session(FfiConverterString.lower(sessionId),FfiConverterString.lower(userId)
+                uniffi_yntra_core_fn_func_apply_note_loro_update(FfiConverterString.lower(noteId),FfiConverterData.lower(updateBytes)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_void,
@@ -3285,17 +6143,125 @@ public func completeAuthSession(sessionId: String, userId: String)async throws  
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func createJobTicket(workspaceId: String, title: String, description: String, locationAddress: String, priority: String, assignedUserId: String?, scheduledDate: String, checklistJson: String)async throws  -> JobTicket {
+public func associateParentStudent(requesterUserId: String, studentId: String, parentUserId: String)async throws  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_create_job_ticket(FfiConverterString.lower(workspaceId),FfiConverterString.lower(title),FfiConverterString.lower(description),FfiConverterString.lower(locationAddress),FfiConverterString.lower(priority),FfiConverterOptionString.lower(assignedUserId),FfiConverterString.lower(scheduledDate),FfiConverterString.lower(checklistJson)
+                uniffi_yntra_core_fn_func_associate_parent_student(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(studentId),FfiConverterString.lower(parentUserId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_void,
+            completeFunc: ffi_yntra_core_rust_future_complete_void,
+            freeFunc: ffi_yntra_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func authenticateWithNfc(badgeUid: String, pin: String?)async throws  -> WorkspaceUser {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_authenticate_with_nfc(FfiConverterString.lower(badgeUid),FfiConverterOptionString.lower(pin)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeWorkspaceUser.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func authenticateWithSiths(cardId: String, challenge: String?, signature: String?)async throws  -> WorkspaceUser {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_authenticate_with_siths(FfiConverterString.lower(cardId),FfiConverterOptionString.lower(challenge),FfiConverterOptionString.lower(signature)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeWorkspaceUser.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func calculateAndSaveGpa(requesterUserId: String, workspaceId: String, studentId: String, termName: String)async throws  -> ReportCard {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_calculate_and_save_gpa(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterString.lower(studentId),FfiConverterString.lower(termName)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeReportCard.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func checkoutLibraryBook(requesterUserId: String, workspaceId: String, bookId: String, studentId: String, checkedOutAt: String, dueDate: String)async throws  -> LibraryLendingLog {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_checkout_library_book(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterString.lower(bookId),FfiConverterString.lower(studentId),FfiConverterString.lower(checkedOutAt),FfiConverterString.lower(dueDate)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeLibraryLendingLog.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func clearObservers() {try! rustCall() {
+    uniffi_yntra_core_fn_func_clear_observers($0
+    )
+}
+}
+public func clearSessionKey() {try! rustCall() {
+    uniffi_yntra_core_fn_func_clear_session_key($0
+    )
+}
+}
+public func completeAuthSession(sessionId: String, userId: String, signatureHex: String)async throws  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_complete_auth_session(FfiConverterString.lower(sessionId),FfiConverterString.lower(userId),FfiConverterString.lower(signatureHex)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_void,
+            completeFunc: ffi_yntra_core_rust_future_complete_void,
+            freeFunc: ffi_yntra_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func createJobTicket(requesterUserId: String, workspaceId: String, title: String, description: String, locationAddress: String, priority: String, assignedUserId: String?, scheduledDate: String, checklistJson: String, originAddress: String?, destinationAddress: String?, originFloor: Int32, destinationFloor: Int32, originHasElevator: Bool, destinationHasElevator: Bool, originParkingPermitNeeded: Bool, destinationParkingPermitNeeded: Bool)async throws  -> JobTicket {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_create_job_ticket(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterString.lower(title),FfiConverterString.lower(description),FfiConverterString.lower(locationAddress),FfiConverterString.lower(priority),FfiConverterOptionString.lower(assignedUserId),FfiConverterString.lower(scheduledDate),FfiConverterString.lower(checklistJson),FfiConverterOptionString.lower(originAddress),FfiConverterOptionString.lower(destinationAddress),FfiConverterInt32.lower(originFloor),FfiConverterInt32.lower(destinationFloor),FfiConverterBool.lower(originHasElevator),FfiConverterBool.lower(destinationHasElevator),FfiConverterBool.lower(originParkingPermitNeeded),FfiConverterBool.lower(destinationParkingPermitNeeded)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
             completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeJobTicket.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func createOrUpdateMoveQuote(requesterUserId: String, jobTicketId: String, basePrice: Double, distanceFee: Double, stairsSurcharge: Double, packingSuppliesFee: Double, status: String)async throws  -> MoveQuote {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_create_or_update_move_quote(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(jobTicketId),FfiConverterDouble.lower(basePrice),FfiConverterDouble.lower(distanceFee),FfiConverterDouble.lower(stairsSurcharge),FfiConverterDouble.lower(packingSuppliesFee),FfiConverterString.lower(status)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeMoveQuote.lift,
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
@@ -3313,11 +6279,11 @@ public func createWorkspaceViaHub(name: String, adminEmail: String, modulesActiv
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func deleteEvent(id: String)async throws  {
+public func deleteClient(requesterUserId: String, clientId: String)async throws  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_delete_event(FfiConverterString.lower(id)
+                uniffi_yntra_core_fn_func_delete_client(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(clientId)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_void,
@@ -3327,11 +6293,11 @@ public func deleteEvent(id: String)async throws  {
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func deleteNote(noteId: String)async throws  {
+public func deleteEvent(requesterUserId: String, id: String)async throws  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_delete_note(FfiConverterString.lower(noteId)
+                uniffi_yntra_core_fn_func_delete_event(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(id)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_void,
@@ -3341,11 +6307,11 @@ public func deleteNote(noteId: String)async throws  {
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func deleteTimeReport(id: String)async throws  {
+public func deleteNote(requesterUserId: String, noteId: String)async throws  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_delete_time_report(FfiConverterString.lower(id)
+                uniffi_yntra_core_fn_func_delete_note(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(noteId)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_void,
@@ -3355,11 +6321,53 @@ public func deleteTimeReport(id: String)async throws  {
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func deleteWorkspaceViaHub(workspaceId: String)async throws  {
+public func deleteTimeReport(requesterUserId: String, id: String)async throws  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_delete_workspace_via_hub(FfiConverterString.lower(workspaceId)
+                uniffi_yntra_core_fn_func_delete_time_report(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(id)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_void,
+            completeFunc: ffi_yntra_core_rust_future_complete_void,
+            freeFunc: ffi_yntra_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func deleteTimetableSlot(requesterUserId: String, id: String)async throws  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_delete_timetable_slot(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(id)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_void,
+            completeFunc: ffi_yntra_core_rust_future_complete_void,
+            freeFunc: ffi_yntra_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func deleteUser(requesterUserId: String, userId: String)async throws  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_delete_user(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(userId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_void,
+            completeFunc: ffi_yntra_core_rust_future_complete_void,
+            freeFunc: ffi_yntra_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func deleteWorkspaceViaHub(requesterUserId: String, workspaceId: String)async throws  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_delete_workspace_via_hub(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_void,
@@ -3383,11 +6391,63 @@ public func failAuthSession(sessionId: String, errorMsg: String)async throws  {
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
+public func generateRoleSignature(privateKeyHex: String, userId: String, role: String, workspaceId: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeYntraError.lift) {
+    uniffi_yntra_core_fn_func_generate_role_signature(
+        FfiConverterString.lower(privateKeyHex),
+        FfiConverterString.lower(userId),
+        FfiConverterString.lower(role),
+        FfiConverterString.lower(workspaceId),$0
+    )
+})
+}
 public func generateTotpSecret() -> String {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_yntra_core_fn_func_generate_totp_secret($0
     )
 })
+}
+public func getAssignments(requesterUserId: String, courseId: String)async throws  -> [Assignment] {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_get_assignments(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(courseId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeAssignment.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func getAttendance(requesterUserId: String, courseId: String, date: String)async throws  -> [AttendanceRecord] {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_get_attendance(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(courseId),FfiConverterString.lower(date)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeAttendanceRecord.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func getAuditLogs(requesterUserId: String)async throws  -> [AuditLogEntry] {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_get_audit_logs(FfiConverterString.lower(requesterUserId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeAuditLogEntry.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
 }
 public func getBankidAuthSession(sessionId: String)async throws  -> BankIdAuthSession? {
     return
@@ -3417,11 +6477,11 @@ public func getBlocks()async throws  -> [BlockItem] {
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func getClients()async throws  -> [ClientProfile] {
+public func getClients(requesterUserId: String)async throws  -> [ClientProfile] {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_get_clients(
+                uniffi_yntra_core_fn_func_get_clients(FfiConverterString.lower(requesterUserId)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
@@ -3431,11 +6491,34 @@ public func getClients()async throws  -> [ClientProfile] {
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func getEvents(teamId: String?)async throws  -> [TeamEvent] {
+public func getCourses(requesterUserId: String)async throws  -> [Course] {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_get_events(FfiConverterOptionString.lower(teamId)
+                uniffi_yntra_core_fn_func_get_courses(FfiConverterString.lower(requesterUserId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeCourse.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func getDefaultRolesJson(workspaceType: String, careSubtype: String?, isScandi: Bool)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeYntraError.lift) {
+    uniffi_yntra_core_fn_func_get_default_roles_json(
+        FfiConverterString.lower(workspaceType),
+        FfiConverterOptionString.lower(careSubtype),
+        FfiConverterBool.lower(isScandi),$0
+    )
+})
+}
+public func getEvents(requesterUserId: String, teamId: String?)async throws  -> [TeamEvent] {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_get_events(FfiConverterString.lower(requesterUserId),FfiConverterOptionString.lower(teamId)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
@@ -3445,11 +6528,39 @@ public func getEvents(teamId: String?)async throws  -> [TeamEvent] {
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func getJobTickets()async throws  -> [JobTicket] {
+public func getHealthIncidents(requesterUserId: String, studentId: String)async throws  -> [HealthIncident] {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_get_job_tickets(
+                uniffi_yntra_core_fn_func_get_health_incidents(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(studentId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeHealthIncident.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func getHealthRecords(requesterUserId: String, studentId: String)async throws  -> [HealthRecord] {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_get_health_records(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(studentId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeHealthRecord.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func getJobTickets(requesterUserId: String)async throws  -> [JobTicket] {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_get_job_tickets(FfiConverterString.lower(requesterUserId)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
@@ -3459,11 +6570,11 @@ public func getJobTickets()async throws  -> [JobTicket] {
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func getJournals(clientId: String)async throws  -> [JournalEntry] {
+public func getJournals(clientId: String, actorId: String)async throws  -> [JournalEntry] {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_get_journals(FfiConverterString.lower(clientId)
+                uniffi_yntra_core_fn_func_get_journals(FfiConverterString.lower(clientId),FfiConverterString.lower(actorId)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
@@ -3473,11 +6584,39 @@ public func getJournals(clientId: String)async throws  -> [JournalEntry] {
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func getMedications(clientId: String)async throws  -> [MedicationItem] {
+public func getLibraryBooks(requesterUserId: String)async throws  -> [LibraryBook] {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_get_medications(FfiConverterString.lower(clientId)
+                uniffi_yntra_core_fn_func_get_library_books(FfiConverterString.lower(requesterUserId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeLibraryBook.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func getLibraryLendingLogs(requesterUserId: String, studentId: String?)async throws  -> [LibraryLendingLog] {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_get_library_lending_logs(FfiConverterString.lower(requesterUserId),FfiConverterOptionString.lower(studentId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeLibraryLendingLog.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func getMedications(clientId: String, actorId: String)async throws  -> [MedicationItem] {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_get_medications(FfiConverterString.lower(clientId),FfiConverterString.lower(actorId)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
@@ -3487,11 +6626,11 @@ public func getMedications(clientId: String)async throws  -> [MedicationItem] {
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func getMessages(userId: String)async throws  -> [MessageItem] {
+public func getMessages(requesterUserId: String, userId: String)async throws  -> [MessageItem] {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_get_messages(FfiConverterString.lower(userId)
+                uniffi_yntra_core_fn_func_get_messages(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(userId)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
@@ -3501,11 +6640,53 @@ public func getMessages(userId: String)async throws  -> [MessageItem] {
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func getNotes(teamId: String?)async throws  -> [DailyNote] {
+public func getMoveInventory(requesterUserId: String, jobTicketId: String)async throws  -> [MoveInventoryItem] {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_get_notes(FfiConverterOptionString.lower(teamId)
+                uniffi_yntra_core_fn_func_get_move_inventory(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(jobTicketId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeMoveInventoryItem.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func getMoveQuote(requesterUserId: String, jobTicketId: String)async throws  -> MoveQuote? {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_get_move_quote(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(jobTicketId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterOptionTypeMoveQuote.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func getNoteLoroState(noteId: String)async throws  -> Data {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_get_note_loro_state(FfiConverterString.lower(noteId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterData.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func getNotes(requesterUserId: String, teamId: String?)async throws  -> [DailyNote] {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_get_notes(FfiConverterString.lower(requesterUserId),FfiConverterOptionString.lower(teamId)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
@@ -3515,17 +6696,115 @@ public func getNotes(teamId: String?)async throws  -> [DailyNote] {
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func getReports(isAdmin: Bool, userId: String)async throws  -> [ReportItem] {
+public func getParentStudents(requesterUserId: String, parentUserId: String)async throws  -> [StudentProfile] {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_get_reports(FfiConverterBool.lower(isAdmin),FfiConverterString.lower(userId)
+                uniffi_yntra_core_fn_func_get_parent_students(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(parentUserId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeStudentProfile.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func getReportCards(requesterUserId: String, studentId: String)async throws  -> [ReportCard] {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_get_report_cards(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(studentId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeReportCard.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func getReports(requesterUserId: String, anonymousReportIds: [String])async throws  -> [ReportItem] {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_get_reports(FfiConverterString.lower(requesterUserId),FfiConverterSequenceString.lower(anonymousReportIds)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
             completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterSequenceTypeReportItem.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func getSchoolInvoices(requesterUserId: String, studentId: String)async throws  -> [SchoolInvoice] {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_get_school_invoices(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(studentId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeSchoolInvoice.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func getSchoolPayments(requesterUserId: String, invoiceId: String)async throws  -> [SchoolPayment] {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_get_school_payments(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(invoiceId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeSchoolPayment.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func getStudentAttendance(requesterUserId: String, studentId: String)async throws  -> [AttendanceRecord] {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_get_student_attendance(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(studentId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeAttendanceRecord.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func getStudents(requesterUserId: String)async throws  -> [StudentProfile] {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_get_students(FfiConverterString.lower(requesterUserId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeStudentProfile.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func getSubmissions(requesterUserId: String, assignmentId: String)async throws  -> [Submission] {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_get_submissions(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(assignmentId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeSubmission.lift,
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
@@ -3543,11 +6822,11 @@ public func getSupabaseUserEmail(token: String)async throws  -> String {
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func getTeams()async throws  -> [Team] {
+public func getTeams(requesterUserId: String)async throws  -> [Team] {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_get_teams(
+                uniffi_yntra_core_fn_func_get_teams(FfiConverterString.lower(requesterUserId)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
@@ -3557,11 +6836,25 @@ public func getTeams()async throws  -> [Team] {
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func getTimeReports(userId: String?)async throws  -> [TimeReport] {
+public func getTermGrades(requesterUserId: String, studentId: String, termName: String)async throws  -> [TermGrade] {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_get_time_reports(FfiConverterOptionString.lower(userId)
+                uniffi_yntra_core_fn_func_get_term_grades(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(studentId),FfiConverterString.lower(termName)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeTermGrade.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func getTimeReports(requesterUserId: String, userId: String?)async throws  -> [TimeReport] {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_get_time_reports(FfiConverterString.lower(requesterUserId),FfiConverterOptionString.lower(userId)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
@@ -3571,11 +6864,25 @@ public func getTimeReports(userId: String?)async throws  -> [TimeReport] {
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func getTodos()async throws  -> [TodoItem] {
+public func getTimetableSlots(requesterUserId: String)async throws  -> [TimetableSlot] {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_get_todos(
+                uniffi_yntra_core_fn_func_get_timetable_slots(FfiConverterString.lower(requesterUserId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeTimetableSlot.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func getTodos(requesterUserId: String, workspaceId: String)async throws  -> [TodoItem] {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_get_todos(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
@@ -3585,11 +6892,25 @@ public func getTodos()async throws  -> [TodoItem] {
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func getUsers()async throws  -> [WorkspaceUser] {
+public func getUserByEmail(email: String)async throws  -> WorkspaceUser? {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_get_users(
+                uniffi_yntra_core_fn_func_get_user_by_email(FfiConverterString.lower(email)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterOptionTypeWorkspaceUser.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func getUsers(requesterUserId: String)async throws  -> [WorkspaceUser] {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_get_users(FfiConverterString.lower(requesterUserId)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
@@ -3613,11 +6934,25 @@ public func getWorkspace()async throws  -> Workspace {
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func getWorkspaces()async throws  -> [Workspace] {
+public func getWorkspaceTemplateType(workspaceId: String)async throws  -> WorkspaceTemplateType {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_get_workspaces(
+                uniffi_yntra_core_fn_func_get_workspace_template_type(FfiConverterString.lower(workspaceId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeWorkspaceTemplateType.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func getWorkspaces(requesterUserId: String)async throws  -> [Workspace] {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_get_workspaces(FfiConverterString.lower(requesterUserId)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
@@ -3626,6 +6961,18 @@ public func getWorkspaces()async throws  -> [Workspace] {
             liftFunc: FfiConverterSequenceTypeWorkspace.lift,
             errorHandler: FfiConverterTypeYntraError.lift
         )
+}
+public func initTracing()throws  {try rustCallWithError(FfiConverterTypeYntraError.lift) {
+    uniffi_yntra_core_fn_func_init_tracing($0
+    )
+}
+}
+public func initializeSystemSalt(salt: String) -> Bool {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_yntra_core_fn_func_initialize_system_salt(
+        FfiConverterString.lower(salt),$0
+    )
+})
 }
 public func initiateBankidAuth(targetRole: String, provider: String)async throws  -> BankIdAuthSession {
     return
@@ -3641,11 +6988,11 @@ public func initiateBankidAuth(targetRole: String, provider: String)async throws
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func inviteUserViaDirectory(workspaceId: String, email: String, name: String, role: String)async throws  -> WorkspaceUser {
+public func inviteUserViaDirectory(requesterUserId: String, workspaceId: String, email: String, name: String, role: String)async throws  -> WorkspaceUser {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_invite_user_via_directory(FfiConverterString.lower(workspaceId),FfiConverterString.lower(email),FfiConverterString.lower(name),FfiConverterString.lower(role)
+                uniffi_yntra_core_fn_func_invite_user_via_directory(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterString.lower(email),FfiConverterString.lower(name),FfiConverterString.lower(role)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
@@ -3655,17 +7002,67 @@ public func inviteUserViaDirectory(workspaceId: String, email: String, name: Str
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func markMessageRead(id: String)async throws  {
+public func logAction(actorId: String, targetClientId: String?, actionType: String)async throws  -> AuditLogEntry {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_mark_message_read(FfiConverterString.lower(id)
+                uniffi_yntra_core_fn_func_log_action(FfiConverterString.lower(actorId),FfiConverterOptionString.lower(targetClientId),FfiConverterString.lower(actionType)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeAuditLogEntry.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func markMessageRead(requesterUserId: String, id: String)async throws  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_mark_message_read(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(id)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_void,
             completeFunc: ffi_yntra_core_rust_future_complete_void,
             freeFunc: ffi_yntra_core_rust_future_free_void,
             liftFunc: { $0 },
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func mergeLoroNotes(state1: String, state2: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeYntraError.lift) {
+    uniffi_yntra_core_fn_func_merge_loro_notes(
+        FfiConverterString.lower(state1),
+        FfiConverterString.lower(state2),$0
+    )
+})
+}
+public func publishReportCard(requesterUserId: String, reportCardId: String, principalComments: String?)async throws  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_publish_report_card(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(reportCardId),FfiConverterOptionString.lower(principalComments)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_void,
+            completeFunc: ffi_yntra_core_rust_future_complete_void,
+            freeFunc: ffi_yntra_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func recordSchoolPayment(requesterUserId: String, workspaceId: String, invoiceId: String, amount: Double, paymentMethod: String, paidAt: String)async throws  -> SchoolPayment {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_record_school_payment(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterString.lower(invoiceId),FfiConverterDouble.lower(amount),FfiConverterString.lower(paymentMethod),FfiConverterString.lower(paidAt)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeSchoolPayment.lift,
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
@@ -3675,11 +7072,137 @@ public func registerObserver(observer: DatabaseObserver) {try! rustCall() {
     )
 }
 }
-public func sendMessage(workspaceId: String, senderId: String, receiverId: String?, teamId: String?, subject: String, body: String)async throws  -> MessageItem {
+public func returnLibraryBook(requesterUserId: String, logId: String, returnedAt: String)async throws  -> LibraryLendingLog {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_send_message(FfiConverterString.lower(workspaceId),FfiConverterString.lower(senderId),FfiConverterOptionString.lower(receiverId),FfiConverterOptionString.lower(teamId),FfiConverterString.lower(subject),FfiConverterString.lower(body)
+                uniffi_yntra_core_fn_func_return_library_book(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(logId),FfiConverterString.lower(returnedAt)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeLibraryLendingLog.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func runHardwareAuthSimulation(sessionId: String, provider: String)async throws  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_run_hardware_auth_simulation(FfiConverterString.lower(sessionId),FfiConverterString.lower(provider)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_void,
+            completeFunc: ffi_yntra_core_rust_future_complete_void,
+            freeFunc: ffi_yntra_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func saveAttendanceRecord(requesterUserId: String, workspaceId: String, studentId: String, courseId: String, date: String, status: String, notes: String?)async throws  -> AttendanceRecord {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_save_attendance_record(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterString.lower(studentId),FfiConverterString.lower(courseId),FfiConverterString.lower(date),FfiConverterString.lower(status),FfiConverterOptionString.lower(notes)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeAttendanceRecord.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func saveHealthIncident(requesterUserId: String, id: String?, workspaceId: String, studentId: String, visitReason: String, treatment: String, checkedInAt: String, checkedOutAt: String?, notes: String?)async throws  -> HealthIncident {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_save_health_incident(FfiConverterString.lower(requesterUserId),FfiConverterOptionString.lower(id),FfiConverterString.lower(workspaceId),FfiConverterString.lower(studentId),FfiConverterString.lower(visitReason),FfiConverterString.lower(treatment),FfiConverterString.lower(checkedInAt),FfiConverterOptionString.lower(checkedOutAt),FfiConverterOptionString.lower(notes)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeHealthIncident.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func saveHealthRecord(requesterUserId: String, id: String?, workspaceId: String, studentId: String, vaccineName: String, status: String, administeredAt: String?)async throws  -> HealthRecord {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_save_health_record(FfiConverterString.lower(requesterUserId),FfiConverterOptionString.lower(id),FfiConverterString.lower(workspaceId),FfiConverterString.lower(studentId),FfiConverterString.lower(vaccineName),FfiConverterString.lower(status),FfiConverterOptionString.lower(administeredAt)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeHealthRecord.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func saveLibraryBook(requesterUserId: String, id: String?, workspaceId: String, title: String, author: String, isbn: String, copiesAvailable: Int32, totalCopies: Int32)async throws  -> LibraryBook {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_save_library_book(FfiConverterString.lower(requesterUserId),FfiConverterOptionString.lower(id),FfiConverterString.lower(workspaceId),FfiConverterString.lower(title),FfiConverterString.lower(author),FfiConverterString.lower(isbn),FfiConverterInt32.lower(copiesAvailable),FfiConverterInt32.lower(totalCopies)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeLibraryBook.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func saveSchoolInvoice(requesterUserId: String, id: String?, workspaceId: String, studentId: String, title: String, amount: Double, dueDate: String, status: String, paidAt: String?)async throws  -> SchoolInvoice {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_save_school_invoice(FfiConverterString.lower(requesterUserId),FfiConverterOptionString.lower(id),FfiConverterString.lower(workspaceId),FfiConverterString.lower(studentId),FfiConverterString.lower(title),FfiConverterDouble.lower(amount),FfiConverterString.lower(dueDate),FfiConverterString.lower(status),FfiConverterOptionString.lower(paidAt)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeSchoolInvoice.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func saveTermGrade(requesterUserId: String, workspaceId: String, studentId: String, courseId: String, termName: String, finalGrade: String?, finalPoints: Int32?, teacherComments: String?)async throws  -> TermGrade {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_save_term_grade(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterString.lower(studentId),FfiConverterString.lower(courseId),FfiConverterString.lower(termName),FfiConverterOptionString.lower(finalGrade),FfiConverterOptionInt32.lower(finalPoints),FfiConverterOptionString.lower(teacherComments)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeTermGrade.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func saveTimetableSlot(requesterUserId: String, workspaceId: String, courseId: String, dayOfWeek: Int32, startTime: String, endTime: String, classroom: String?)async throws  -> TimetableSlot {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_save_timetable_slot(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterString.lower(courseId),FfiConverterInt32.lower(dayOfWeek),FfiConverterString.lower(startTime),FfiConverterString.lower(endTime),FfiConverterOptionString.lower(classroom)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeTimetableSlot.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func sendMessage(requesterUserId: String, workspaceId: String, senderId: String, receiverId: String?, teamId: String?, subject: String, body: String)async throws  -> MessageItem {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_send_message(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterString.lower(senderId),FfiConverterOptionString.lower(receiverId),FfiConverterOptionString.lower(teamId),FfiConverterString.lower(subject),FfiConverterString.lower(body)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
@@ -3689,11 +7212,18 @@ public func sendMessage(workspaceId: String, senderId: String, receiverId: Strin
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func setUserPassword(userId: String, password: String)async throws  {
+public func setSessionKey(keyBytes: Data) -> Bool {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_yntra_core_fn_func_set_session_key(
+        FfiConverterData.lower(keyBytes),$0
+    )
+})
+}
+public func setUserPassword(requesterUserId: String, userId: String, password: String)async throws  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_set_user_password(FfiConverterString.lower(userId),FfiConverterString.lower(password)
+                uniffi_yntra_core_fn_func_set_user_password(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(userId),FfiConverterString.lower(password)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_void,
@@ -3702,6 +7232,12 @@ public func setUserPassword(userId: String, password: String)async throws  {
             liftFunc: { $0 },
             errorHandler: FfiConverterTypeYntraError.lift
         )
+}
+public func startBackgroundSync(intervalSecs: UInt32) {try! rustCall() {
+    uniffi_yntra_core_fn_func_start_background_sync(
+        FfiConverterUInt32.lower(intervalSecs),$0
+    )
+}
 }
 public func submitBankidPin(sessionId: String, pin: String)async throws  {
     return
@@ -3717,11 +7253,11 @@ public func submitBankidPin(sessionId: String, pin: String)async throws  {
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func submitJobCompletion(jobId: String, checklistJson: String, completionReport: String)async throws  {
+public func submitJobCompletion(requesterUserId: String, jobId: String, checklistJson: String, completionReport: String)async throws  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_submit_job_completion(FfiConverterString.lower(jobId),FfiConverterString.lower(checklistJson),FfiConverterString.lower(completionReport)
+                uniffi_yntra_core_fn_func_submit_job_completion(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(jobId),FfiConverterString.lower(checklistJson),FfiConverterString.lower(completionReport)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_void,
@@ -3736,11 +7272,25 @@ public func syncDatabase()throws  {try rustCallWithError(FfiConverterTypeYntraEr
     )
 }
 }
-public func toggleTodo(id: String)async throws  {
+public func syncTimetableToCalendar(workspaceId: String, userId: String)async throws  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_toggle_todo(FfiConverterString.lower(id)
+                uniffi_yntra_core_fn_func_sync_timetable_to_calendar(FfiConverterString.lower(workspaceId),FfiConverterString.lower(userId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_void,
+            completeFunc: ffi_yntra_core_rust_future_complete_void,
+            freeFunc: ffi_yntra_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func toggleTodo(requesterUserId: String, id: String)async throws  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_toggle_todo(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(id)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_void,
@@ -3764,11 +7314,11 @@ public func updateAuthSessionStatus(sessionId: String, status: String, progress:
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func updateClientProfile(clientId: String, firstName: String, lastName: String, personalNumber: String?, careLevel: String?)async throws  {
+public func updateClientProfile(requesterUserId: String, clientId: String, firstName: String, lastName: String, personalNumber: String?, careLevel: String?)async throws  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_update_client_profile(FfiConverterString.lower(clientId),FfiConverterString.lower(firstName),FfiConverterString.lower(lastName),FfiConverterOptionString.lower(personalNumber),FfiConverterOptionString.lower(careLevel)
+                uniffi_yntra_core_fn_func_update_client_profile(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(clientId),FfiConverterString.lower(firstName),FfiConverterString.lower(lastName),FfiConverterOptionString.lower(personalNumber),FfiConverterOptionString.lower(careLevel)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_void,
@@ -3778,11 +7328,25 @@ public func updateClientProfile(clientId: String, firstName: String, lastName: S
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func updateEvent(id: String, title: String, startTime: String, endTime: String, teamId: String?, assigneeId: String?, recipientId: String?, metadata: String)async throws  {
+public func updateCourse(requesterUserId: String, id: String, name: String, subject: String, teacherId: String?, classroom: String?)async throws  -> Course {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_update_event(FfiConverterString.lower(id),FfiConverterString.lower(title),FfiConverterString.lower(startTime),FfiConverterString.lower(endTime),FfiConverterOptionString.lower(teamId),FfiConverterOptionString.lower(assigneeId),FfiConverterOptionString.lower(recipientId),FfiConverterString.lower(metadata)
+                uniffi_yntra_core_fn_func_update_course(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(id),FfiConverterString.lower(name),FfiConverterString.lower(subject),FfiConverterOptionString.lower(teacherId),FfiConverterOptionString.lower(classroom)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeCourse.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func updateEvent(requesterUserId: String, id: String, title: String, startTime: String, endTime: String, teamId: String?, assigneeId: String?, recipientId: String?, metadata: String)async throws  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_update_event(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(id),FfiConverterString.lower(title),FfiConverterString.lower(startTime),FfiConverterString.lower(endTime),FfiConverterOptionString.lower(teamId),FfiConverterOptionString.lower(assigneeId),FfiConverterOptionString.lower(recipientId),FfiConverterString.lower(metadata)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_void,
@@ -3792,11 +7356,11 @@ public func updateEvent(id: String, title: String, startTime: String, endTime: S
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func updateEventTime(id: String, startTime: String, endTime: String)async throws  {
+public func updateEventTime(requesterUserId: String, id: String, startTime: String, endTime: String)async throws  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_update_event_time(FfiConverterString.lower(id),FfiConverterString.lower(startTime),FfiConverterString.lower(endTime)
+                uniffi_yntra_core_fn_func_update_event_time(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(id),FfiConverterString.lower(startTime),FfiConverterString.lower(endTime)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_void,
@@ -3806,11 +7370,11 @@ public func updateEventTime(id: String, startTime: String, endTime: String)async
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func updateJobStatus(jobId: String, status: String)async throws  {
+public func updateJobStatus(requesterUserId: String, jobId: String, status: String)async throws  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_update_job_status(FfiConverterString.lower(jobId),FfiConverterString.lower(status)
+                uniffi_yntra_core_fn_func_update_job_status(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(jobId),FfiConverterString.lower(status)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_void,
@@ -3820,11 +7384,11 @@ public func updateJobStatus(jobId: String, status: String)async throws  {
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func updateNote(noteId: String, editedByName: String, subject: String, content: String)async throws  -> DailyNote {
+public func updateNote(requesterUserId: String, noteId: String, editedByName: String, subject: String, content: String)async throws  -> DailyNote {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_update_note(FfiConverterString.lower(noteId),FfiConverterString.lower(editedByName),FfiConverterString.lower(subject),FfiConverterString.lower(content)
+                uniffi_yntra_core_fn_func_update_note(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(noteId),FfiConverterString.lower(editedByName),FfiConverterString.lower(subject),FfiConverterString.lower(content)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
@@ -3834,11 +7398,11 @@ public func updateNote(noteId: String, editedByName: String, subject: String, co
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func updateReportStatus(reportId: String, status: String)async throws  {
+public func updateReportStatus(requesterUserId: String, reportId: String, status: String)async throws  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_update_report_status(FfiConverterString.lower(reportId),FfiConverterString.lower(status)
+                uniffi_yntra_core_fn_func_update_report_status(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(reportId),FfiConverterString.lower(status)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_void,
@@ -3848,11 +7412,11 @@ public func updateReportStatus(reportId: String, status: String)async throws  {
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func updateTimeReportStatus(id: String, status: String)async throws  {
+public func updateSubmissionGrade(requesterUserId: String, submissionId: String, grade: String?, feedback: String?)async throws  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_update_time_report_status(FfiConverterString.lower(id),FfiConverterString.lower(status)
+                uniffi_yntra_core_fn_func_update_submission_grade(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(submissionId),FfiConverterOptionString.lower(grade),FfiConverterOptionString.lower(feedback)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_void,
@@ -3862,11 +7426,11 @@ public func updateTimeReportStatus(id: String, status: String)async throws  {
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func updateUserProfile(userId: String, fullName: String?, phone: String?, preferences: String)async throws  {
+public func updateTimeReportStatus(requesterUserId: String, id: String, status: String)async throws  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_update_user_profile(FfiConverterString.lower(userId),FfiConverterOptionString.lower(fullName),FfiConverterOptionString.lower(phone),FfiConverterString.lower(preferences)
+                uniffi_yntra_core_fn_func_update_time_report_status(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(id),FfiConverterString.lower(status)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_void,
@@ -3876,11 +7440,11 @@ public func updateUserProfile(userId: String, fullName: String?, phone: String?,
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func updateUserRole(userId: String, role: String)async throws  {
+public func updateUserProfile(requesterUserId: String, userId: String, fullName: String?, phone: String?, preferences: String)async throws  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_update_user_role(FfiConverterString.lower(userId),FfiConverterString.lower(role)
+                uniffi_yntra_core_fn_func_update_user_profile(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(userId),FfiConverterOptionString.lower(fullName),FfiConverterOptionString.lower(phone),FfiConverterString.lower(preferences)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_void,
@@ -3890,11 +7454,11 @@ public func updateUserRole(userId: String, role: String)async throws  {
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func updateUserViaDirectory(userId: String, fullName: String?, phone: String?, role: String)async throws  {
+public func updateUserRole(requesterUserId: String, userId: String, role: String)async throws  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_update_user_via_directory(FfiConverterString.lower(userId),FfiConverterOptionString.lower(fullName),FfiConverterOptionString.lower(phone),FfiConverterString.lower(role)
+                uniffi_yntra_core_fn_func_update_user_role(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(userId),FfiConverterString.lower(role)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_void,
@@ -3904,11 +7468,11 @@ public func updateUserViaDirectory(userId: String, fullName: String?, phone: Str
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func updateWorkspaceGeneral(workspaceId: String, name: String, brandColor: String, logoUrl: String?)async throws  {
+public func updateUserViaDirectory(requesterUserId: String, userId: String, fullName: String?, phone: String?, role: String)async throws  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_update_workspace_general(FfiConverterString.lower(workspaceId),FfiConverterString.lower(name),FfiConverterString.lower(brandColor),FfiConverterOptionString.lower(logoUrl)
+                uniffi_yntra_core_fn_func_update_user_via_directory(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(userId),FfiConverterOptionString.lower(fullName),FfiConverterOptionString.lower(phone),FfiConverterString.lower(role)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_void,
@@ -3918,11 +7482,11 @@ public func updateWorkspaceGeneral(workspaceId: String, name: String, brandColor
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func updateWorkspaceModules(workspaceId: String, modulesJson: String)async throws  {
+public func updateWorkspaceBlockSettings(requesterUserId: String, workspaceId: String, blockSettingsJson: String)async throws  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_update_workspace_modules(FfiConverterString.lower(workspaceId),FfiConverterString.lower(modulesJson)
+                uniffi_yntra_core_fn_func_update_workspace_block_settings(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterString.lower(blockSettingsJson)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_void,
@@ -3932,17 +7496,59 @@ public func updateWorkspaceModules(workspaceId: String, modulesJson: String)asyn
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func updateWorkspaceSettings(workspaceId: String, settingsJson: String)async throws  {
+public func updateWorkspaceGeneral(requesterUserId: String, workspaceId: String, name: String, brandColor: String, logoUrl: String?)async throws  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_update_workspace_settings(FfiConverterString.lower(workspaceId),FfiConverterString.lower(settingsJson)
+                uniffi_yntra_core_fn_func_update_workspace_general(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterString.lower(name),FfiConverterString.lower(brandColor),FfiConverterOptionString.lower(logoUrl)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_void,
             completeFunc: ffi_yntra_core_rust_future_complete_void,
             freeFunc: ffi_yntra_core_rust_future_free_void,
             liftFunc: { $0 },
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func updateWorkspaceModules(requesterUserId: String, workspaceId: String, modulesJson: String)async throws  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_update_workspace_modules(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterString.lower(modulesJson)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_void,
+            completeFunc: ffi_yntra_core_rust_future_complete_void,
+            freeFunc: ffi_yntra_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func updateWorkspaceSettings(requesterUserId: String, workspaceId: String, settingsJson: String)async throws  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_update_workspace_settings(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterString.lower(settingsJson)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_void,
+            completeFunc: ffi_yntra_core_rust_future_complete_void,
+            freeFunc: ffi_yntra_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func verifyAuditLogChain()async throws  -> Bool {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_verify_audit_log_chain(
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_i8,
+            completeFunc: ffi_yntra_core_rust_future_complete_i8,
+            freeFunc: ffi_yntra_core_rust_future_free_i8,
+            liftFunc: FfiConverterBool.lift,
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
@@ -3959,6 +7565,31 @@ public func verifyEmailPassword(email: String, password: String)async throws  ->
             liftFunc: FfiConverterOptionTypeWorkspaceUser.lift,
             errorHandler: FfiConverterTypeYntraError.lift
         )
+}
+public func verifyHardwareAuthSignature(sessionId: String, publicKeyHex: String, signatureHex: String)async throws  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_verify_hardware_auth_signature(FfiConverterString.lower(sessionId),FfiConverterString.lower(publicKeyHex),FfiConverterString.lower(signatureHex)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_void,
+            completeFunc: ffi_yntra_core_rust_future_complete_void,
+            freeFunc: ffi_yntra_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func verifyRoleSignature(publicKeyHex: String, userId: String, role: String, workspaceId: String, signatureHex: String) -> Bool {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_yntra_core_fn_func_verify_role_signature(
+        FfiConverterString.lower(publicKeyHex),
+        FfiConverterString.lower(userId),
+        FfiConverterString.lower(role),
+        FfiConverterString.lower(workspaceId),
+        FfiConverterString.lower(signatureHex),$0
+    )
+})
 }
 public func verifyUserTotp(secret: String, code: String) -> Bool {
     return try!  FfiConverterBool.lift(try! rustCall() {
@@ -3984,73 +7615,130 @@ private var initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
+    if (uniffi_yntra_core_checksum_func_accept_move_quote() != 52301) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_yntra_core_checksum_func_activate_invitation_code() != 54514) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_add_client_via_directory() != 12593) {
+    if (uniffi_yntra_core_checksum_func_add_assignment() != 5936) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_add_event() != 19431) {
+    if (uniffi_yntra_core_checksum_func_add_client_via_directory() != 11044) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_add_event_with_metadata() != 26045) {
+    if (uniffi_yntra_core_checksum_func_add_course() != 51095) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_add_event() != 24287) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_add_event_with_metadata() != 31051) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_add_journal_entry() != 5052) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_add_medication() != 49660) {
+    if (uniffi_yntra_core_checksum_func_add_medication() != 4545) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_add_note() != 16415) {
+    if (uniffi_yntra_core_checksum_func_add_move_inventory_item() != 59442) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_add_note() != 49138) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_add_report() != 49257) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_add_team_via_directory() != 45061) {
+    if (uniffi_yntra_core_checksum_func_add_student() != 48821) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_add_time_report() != 30086) {
+    if (uniffi_yntra_core_checksum_func_add_submission() != 80) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_add_todo() != 16569) {
+    if (uniffi_yntra_core_checksum_func_add_team_via_directory() != 9831) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_authenticate_with_nfc() != 2755) {
+    if (uniffi_yntra_core_checksum_func_add_time_report() != 50663) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_authenticate_with_siths() != 11728) {
+    if (uniffi_yntra_core_checksum_func_add_todo() != 4633) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_apply_note_loro_update() != 36212) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_associate_parent_student() != 39434) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_authenticate_with_nfc() != 24600) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_authenticate_with_siths() != 27250) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_calculate_and_save_gpa() != 33488) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_checkout_library_book() != 44918) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_clear_observers() != 4094) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_complete_auth_session() != 27049) {
+    if (uniffi_yntra_core_checksum_func_clear_session_key() != 60262) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_create_job_ticket() != 40189) {
+    if (uniffi_yntra_core_checksum_func_complete_auth_session() != 40585) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_create_job_ticket() != 5431) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_create_or_update_move_quote() != 9349) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_create_workspace_via_hub() != 62473) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_delete_event() != 35879) {
+    if (uniffi_yntra_core_checksum_func_delete_client() != 42354) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_delete_note() != 57537) {
+    if (uniffi_yntra_core_checksum_func_delete_event() != 28823) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_delete_time_report() != 53651) {
+    if (uniffi_yntra_core_checksum_func_delete_note() != 2677) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_delete_workspace_via_hub() != 27292) {
+    if (uniffi_yntra_core_checksum_func_delete_time_report() != 26921) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_delete_timetable_slot() != 18660) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_delete_user() != 11389) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_delete_workspace_via_hub() != 48851) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_fail_auth_session() != 7771) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_yntra_core_checksum_func_generate_role_signature() != 8493) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_yntra_core_checksum_func_generate_totp_secret() != 25335) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_assignments() != 51243) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_attendance() != 38394) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_audit_logs() != 24033) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_get_bankid_auth_session() != 19935) {
@@ -4059,130 +7747,265 @@ private var initializationResult: InitializationResult = {
     if (uniffi_yntra_core_checksum_func_get_blocks() != 21834) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_get_clients() != 24619) {
+    if (uniffi_yntra_core_checksum_func_get_clients() != 23937) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_get_events() != 20406) {
+    if (uniffi_yntra_core_checksum_func_get_courses() != 3988) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_get_job_tickets() != 6024) {
+    if (uniffi_yntra_core_checksum_func_get_default_roles_json() != 11789) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_get_journals() != 9694) {
+    if (uniffi_yntra_core_checksum_func_get_events() != 47064) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_get_medications() != 4347) {
+    if (uniffi_yntra_core_checksum_func_get_health_incidents() != 45033) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_get_messages() != 20145) {
+    if (uniffi_yntra_core_checksum_func_get_health_records() != 40949) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_get_notes() != 20539) {
+    if (uniffi_yntra_core_checksum_func_get_job_tickets() != 46432) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_get_reports() != 13164) {
+    if (uniffi_yntra_core_checksum_func_get_journals() != 34684) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_library_books() != 63603) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_library_lending_logs() != 19257) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_medications() != 49270) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_messages() != 14162) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_move_inventory() != 23669) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_move_quote() != 28906) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_note_loro_state() != 14380) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_notes() != 50646) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_parent_students() != 48336) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_report_cards() != 25073) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_reports() != 558) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_school_invoices() != 16378) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_school_payments() != 1550) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_student_attendance() != 23235) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_students() != 188) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_submissions() != 29776) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_get_supabase_user_email() != 8586) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_get_teams() != 10198) {
+    if (uniffi_yntra_core_checksum_func_get_teams() != 34585) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_get_time_reports() != 16156) {
+    if (uniffi_yntra_core_checksum_func_get_term_grades() != 33142) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_get_todos() != 8902) {
+    if (uniffi_yntra_core_checksum_func_get_time_reports() != 27361) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_get_users() != 259) {
+    if (uniffi_yntra_core_checksum_func_get_timetable_slots() != 33573) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_todos() != 15681) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_user_by_email() != 59023) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_users() != 26940) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_get_workspace() != 50578) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_get_workspaces() != 35291) {
+    if (uniffi_yntra_core_checksum_func_get_workspace_template_type() != 63981) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_workspaces() != 28099) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_init_tracing() != 46438) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_initialize_system_salt() != 41907) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_initiate_bankid_auth() != 1599) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_invite_user_via_directory() != 11621) {
+    if (uniffi_yntra_core_checksum_func_invite_user_via_directory() != 63225) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_mark_message_read() != 36444) {
+    if (uniffi_yntra_core_checksum_func_log_action() != 2222) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_mark_message_read() != 45253) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_merge_loro_notes() != 23008) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_publish_report_card() != 62379) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_record_school_payment() != 24031) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_register_observer() != 31837) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_send_message() != 1435) {
+    if (uniffi_yntra_core_checksum_func_return_library_book() != 36552) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_set_user_password() != 9982) {
+    if (uniffi_yntra_core_checksum_func_run_hardware_auth_simulation() != 45976) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_save_attendance_record() != 62566) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_save_health_incident() != 45365) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_save_health_record() != 142) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_save_library_book() != 458) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_save_school_invoice() != 64934) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_save_term_grade() != 23209) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_save_timetable_slot() != 19408) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_send_message() != 9093) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_set_session_key() != 2383) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_set_user_password() != 18023) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_start_background_sync() != 32647) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_submit_bankid_pin() != 63903) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_submit_job_completion() != 23372) {
+    if (uniffi_yntra_core_checksum_func_submit_job_completion() != 564) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_sync_database() != 52107) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_toggle_todo() != 54967) {
+    if (uniffi_yntra_core_checksum_func_sync_timetable_to_calendar() != 54009) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_toggle_todo() != 64353) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_update_auth_session_status() != 51181) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_update_client_profile() != 15987) {
+    if (uniffi_yntra_core_checksum_func_update_client_profile() != 13544) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_update_event() != 24783) {
+    if (uniffi_yntra_core_checksum_func_update_course() != 12252) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_update_event_time() != 11492) {
+    if (uniffi_yntra_core_checksum_func_update_event() != 25072) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_update_job_status() != 24212) {
+    if (uniffi_yntra_core_checksum_func_update_event_time() != 43993) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_update_note() != 49043) {
+    if (uniffi_yntra_core_checksum_func_update_job_status() != 5437) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_update_report_status() != 53262) {
+    if (uniffi_yntra_core_checksum_func_update_note() != 26451) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_update_time_report_status() != 33588) {
+    if (uniffi_yntra_core_checksum_func_update_report_status() != 5887) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_update_user_profile() != 23456) {
+    if (uniffi_yntra_core_checksum_func_update_submission_grade() != 56412) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_update_user_role() != 60151) {
+    if (uniffi_yntra_core_checksum_func_update_time_report_status() != 17329) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_update_user_via_directory() != 8292) {
+    if (uniffi_yntra_core_checksum_func_update_user_profile() != 45146) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_update_workspace_general() != 27564) {
+    if (uniffi_yntra_core_checksum_func_update_user_role() != 881) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_update_workspace_modules() != 11158) {
+    if (uniffi_yntra_core_checksum_func_update_user_via_directory() != 45626) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_update_workspace_settings() != 18873) {
+    if (uniffi_yntra_core_checksum_func_update_workspace_block_settings() != 37489) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_update_workspace_general() != 8503) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_update_workspace_modules() != 36789) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_update_workspace_settings() != 19723) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_verify_audit_log_chain() != 43145) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_verify_email_password() != 53618) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_verify_hardware_auth_signature() != 52904) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_verify_role_signature() != 21223) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_verify_user_totp() != 9512) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_method_databaseobserver_on_database_changed() != 54827) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_method_databaseobserver_on_table_changed() != 52037) {
         return InitializationResult.apiChecksumMismatch
     }
 

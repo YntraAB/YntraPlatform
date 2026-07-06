@@ -258,10 +258,18 @@ typedef void (*UniffiCallbackInterfaceDatabaseObserverMethod0)(uint64_t, void* _
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_DATABASE_OBSERVER_METHOD1
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_DATABASE_OBSERVER_METHOD1
+typedef void (*UniffiCallbackInterfaceDatabaseObserverMethod1)(uint64_t, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
 #ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_DATABASE_OBSERVER
 #define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_DATABASE_OBSERVER
 typedef struct UniffiVTableCallbackInterfaceDatabaseObserver {
     UniffiCallbackInterfaceDatabaseObserverMethod0 _Nonnull onDatabaseChanged;
+    UniffiCallbackInterfaceDatabaseObserverMethod1 _Nonnull onTableChanged;
     UniffiCallbackInterfaceFree _Nonnull uniffiFree;
 } UniffiVTableCallbackInterfaceDatabaseObserver;
 
@@ -271,24 +279,39 @@ typedef struct UniffiVTableCallbackInterfaceDatabaseObserver {
 void uniffi_yntra_core_fn_init_callback_vtable_databaseobserver(UniffiVTableCallbackInterfaceDatabaseObserver* _Nonnull vtable
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ACCEPT_MOVE_QUOTE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ACCEPT_MOVE_QUOTE
+uint64_t uniffi_yntra_core_fn_func_accept_move_quote(RustBuffer requester_user_id, RustBuffer quote_id
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ACTIVATE_INVITATION_CODE
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ACTIVATE_INVITATION_CODE
 uint64_t uniffi_yntra_core_fn_func_activate_invitation_code(RustBuffer code
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_ASSIGNMENT
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_ASSIGNMENT
+uint64_t uniffi_yntra_core_fn_func_add_assignment(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer course_id, RustBuffer title, RustBuffer description, RustBuffer due_date, int32_t max_points
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_CLIENT_VIA_DIRECTORY
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_CLIENT_VIA_DIRECTORY
-uint64_t uniffi_yntra_core_fn_func_add_client_via_directory(RustBuffer workspace_id, RustBuffer team_id, RustBuffer first_name, RustBuffer last_name, RustBuffer personal_number, RustBuffer care_level
+uint64_t uniffi_yntra_core_fn_func_add_client_via_directory(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer team_id, RustBuffer first_name, RustBuffer last_name, RustBuffer personal_number, RustBuffer care_level
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_COURSE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_COURSE
+uint64_t uniffi_yntra_core_fn_func_add_course(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer name, RustBuffer subject, RustBuffer teacher_id, RustBuffer classroom
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_EVENT
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_EVENT
-uint64_t uniffi_yntra_core_fn_func_add_event(RustBuffer workspace_id, RustBuffer title, RustBuffer start_time, RustBuffer end_time, RustBuffer team_id, RustBuffer assignee_id, RustBuffer recipient_id
+uint64_t uniffi_yntra_core_fn_func_add_event(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer title, RustBuffer start_time, RustBuffer end_time, RustBuffer team_id, RustBuffer assignee_id, RustBuffer recipient_id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_EVENT_WITH_METADATA
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_EVENT_WITH_METADATA
-uint64_t uniffi_yntra_core_fn_func_add_event_with_metadata(RustBuffer workspace_id, RustBuffer title, RustBuffer start_time, RustBuffer end_time, RustBuffer team_id, RustBuffer assignee_id, RustBuffer recipient_id, RustBuffer metadata
+uint64_t uniffi_yntra_core_fn_func_add_event_with_metadata(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer title, RustBuffer start_time, RustBuffer end_time, RustBuffer team_id, RustBuffer assignee_id, RustBuffer recipient_id, RustBuffer metadata
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_JOURNAL_ENTRY
@@ -298,12 +321,17 @@ uint64_t uniffi_yntra_core_fn_func_add_journal_entry(RustBuffer workspace_id, Ru
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_MEDICATION
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_MEDICATION
-uint64_t uniffi_yntra_core_fn_func_add_medication(RustBuffer workspace_id, RustBuffer client_id, RustBuffer name, RustBuffer dosage, RustBuffer frequency, RustBuffer instructions
+uint64_t uniffi_yntra_core_fn_func_add_medication(RustBuffer workspace_id, RustBuffer client_id, RustBuffer actor_id, RustBuffer name, RustBuffer dosage, RustBuffer frequency, RustBuffer instructions
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_MOVE_INVENTORY_ITEM
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_MOVE_INVENTORY_ITEM
+uint64_t uniffi_yntra_core_fn_func_add_move_inventory_item(RustBuffer requester_user_id, RustBuffer job_ticket_id, RustBuffer item_category, RustBuffer item_name, int32_t quantity, double estimated_volume_m3, RustBuffer handling_notes
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_NOTE
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_NOTE
-uint64_t uniffi_yntra_core_fn_func_add_note(RustBuffer workspace_id, RustBuffer team_id, RustBuffer author_id, RustBuffer subject, RustBuffer content
+uint64_t uniffi_yntra_core_fn_func_add_note(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer team_id, RustBuffer author_id, RustBuffer subject, RustBuffer content
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_REPORT
@@ -311,29 +339,59 @@ uint64_t uniffi_yntra_core_fn_func_add_note(RustBuffer workspace_id, RustBuffer 
 uint64_t uniffi_yntra_core_fn_func_add_report(RustBuffer workspace_id, RustBuffer user_id, RustBuffer report_type, int8_t is_anonymous, RustBuffer subject, RustBuffer description, RustBuffer date_of_incident
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_STUDENT
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_STUDENT
+uint64_t uniffi_yntra_core_fn_func_add_student(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer user_id, RustBuffer first_name, RustBuffer last_name, RustBuffer grade_level, RustBuffer parent_contact
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_SUBMISSION
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_SUBMISSION
+uint64_t uniffi_yntra_core_fn_func_add_submission(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer assignment_id, RustBuffer student_id, RustBuffer content, RustBuffer grade, RustBuffer feedback
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_TEAM_VIA_DIRECTORY
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_TEAM_VIA_DIRECTORY
-uint64_t uniffi_yntra_core_fn_func_add_team_via_directory(RustBuffer workspace_id, RustBuffer name
+uint64_t uniffi_yntra_core_fn_func_add_team_via_directory(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer name
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_TIME_REPORT
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_TIME_REPORT
-uint64_t uniffi_yntra_core_fn_func_add_time_report(RustBuffer workspace_id, RustBuffer user_id, RustBuffer team_id, RustBuffer date, double hours, RustBuffer note, RustBuffer start_time, RustBuffer end_time
+uint64_t uniffi_yntra_core_fn_func_add_time_report(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer user_id, RustBuffer team_id, RustBuffer date, double hours, RustBuffer note, RustBuffer start_time, RustBuffer end_time
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_TODO
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ADD_TODO
-uint64_t uniffi_yntra_core_fn_func_add_todo(RustBuffer workspace_id, RustBuffer text
+uint64_t uniffi_yntra_core_fn_func_add_todo(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer text
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_APPLY_NOTE_LORO_UPDATE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_APPLY_NOTE_LORO_UPDATE
+uint64_t uniffi_yntra_core_fn_func_apply_note_loro_update(RustBuffer note_id, RustBuffer update_bytes
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ASSOCIATE_PARENT_STUDENT
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ASSOCIATE_PARENT_STUDENT
+uint64_t uniffi_yntra_core_fn_func_associate_parent_student(RustBuffer requester_user_id, RustBuffer student_id, RustBuffer parent_user_id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_AUTHENTICATE_WITH_NFC
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_AUTHENTICATE_WITH_NFC
-uint64_t uniffi_yntra_core_fn_func_authenticate_with_nfc(RustBuffer badge_uid
+uint64_t uniffi_yntra_core_fn_func_authenticate_with_nfc(RustBuffer badge_uid, RustBuffer pin
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_AUTHENTICATE_WITH_SITHS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_AUTHENTICATE_WITH_SITHS
-uint64_t uniffi_yntra_core_fn_func_authenticate_with_siths(RustBuffer card_id
+uint64_t uniffi_yntra_core_fn_func_authenticate_with_siths(RustBuffer card_id, RustBuffer challenge, RustBuffer signature
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_CALCULATE_AND_SAVE_GPA
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_CALCULATE_AND_SAVE_GPA
+uint64_t uniffi_yntra_core_fn_func_calculate_and_save_gpa(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer student_id, RustBuffer term_name
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_CHECKOUT_LIBRARY_BOOK
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_CHECKOUT_LIBRARY_BOOK
+uint64_t uniffi_yntra_core_fn_func_checkout_library_book(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer book_id, RustBuffer student_id, RustBuffer checked_out_at, RustBuffer due_date
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_CLEAR_OBSERVERS
@@ -342,14 +400,25 @@ void uniffi_yntra_core_fn_func_clear_observers(RustCallStatus *_Nonnull out_stat
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_CLEAR_SESSION_KEY
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_CLEAR_SESSION_KEY
+void uniffi_yntra_core_fn_func_clear_session_key(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_COMPLETE_AUTH_SESSION
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_COMPLETE_AUTH_SESSION
-uint64_t uniffi_yntra_core_fn_func_complete_auth_session(RustBuffer session_id, RustBuffer user_id
+uint64_t uniffi_yntra_core_fn_func_complete_auth_session(RustBuffer session_id, RustBuffer user_id, RustBuffer signature_hex
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_CREATE_JOB_TICKET
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_CREATE_JOB_TICKET
-uint64_t uniffi_yntra_core_fn_func_create_job_ticket(RustBuffer workspace_id, RustBuffer title, RustBuffer description, RustBuffer location_address, RustBuffer priority, RustBuffer assigned_user_id, RustBuffer scheduled_date, RustBuffer checklist_json
+uint64_t uniffi_yntra_core_fn_func_create_job_ticket(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer title, RustBuffer description, RustBuffer location_address, RustBuffer priority, RustBuffer assigned_user_id, RustBuffer scheduled_date, RustBuffer checklist_json, RustBuffer origin_address, RustBuffer destination_address, int32_t origin_floor, int32_t destination_floor, int8_t origin_has_elevator, int8_t destination_has_elevator, int8_t origin_parking_permit_needed, int8_t destination_parking_permit_needed
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_CREATE_OR_UPDATE_MOVE_QUOTE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_CREATE_OR_UPDATE_MOVE_QUOTE
+uint64_t uniffi_yntra_core_fn_func_create_or_update_move_quote(RustBuffer requester_user_id, RustBuffer job_ticket_id, double base_price, double distance_fee, double stairs_surcharge, double packing_supplies_fee, RustBuffer status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_CREATE_WORKSPACE_VIA_HUB
@@ -357,24 +426,39 @@ uint64_t uniffi_yntra_core_fn_func_create_job_ticket(RustBuffer workspace_id, Ru
 uint64_t uniffi_yntra_core_fn_func_create_workspace_via_hub(RustBuffer name, RustBuffer admin_email, RustBuffer modules_active
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_DELETE_CLIENT
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_DELETE_CLIENT
+uint64_t uniffi_yntra_core_fn_func_delete_client(RustBuffer requester_user_id, RustBuffer client_id
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_DELETE_EVENT
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_DELETE_EVENT
-uint64_t uniffi_yntra_core_fn_func_delete_event(RustBuffer id
+uint64_t uniffi_yntra_core_fn_func_delete_event(RustBuffer requester_user_id, RustBuffer id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_DELETE_NOTE
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_DELETE_NOTE
-uint64_t uniffi_yntra_core_fn_func_delete_note(RustBuffer note_id
+uint64_t uniffi_yntra_core_fn_func_delete_note(RustBuffer requester_user_id, RustBuffer note_id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_DELETE_TIME_REPORT
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_DELETE_TIME_REPORT
-uint64_t uniffi_yntra_core_fn_func_delete_time_report(RustBuffer id
+uint64_t uniffi_yntra_core_fn_func_delete_time_report(RustBuffer requester_user_id, RustBuffer id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_DELETE_TIMETABLE_SLOT
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_DELETE_TIMETABLE_SLOT
+uint64_t uniffi_yntra_core_fn_func_delete_timetable_slot(RustBuffer requester_user_id, RustBuffer id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_DELETE_USER
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_DELETE_USER
+uint64_t uniffi_yntra_core_fn_func_delete_user(RustBuffer requester_user_id, RustBuffer user_id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_DELETE_WORKSPACE_VIA_HUB
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_DELETE_WORKSPACE_VIA_HUB
-uint64_t uniffi_yntra_core_fn_func_delete_workspace_via_hub(RustBuffer workspace_id
+uint64_t uniffi_yntra_core_fn_func_delete_workspace_via_hub(RustBuffer requester_user_id, RustBuffer workspace_id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_FAIL_AUTH_SESSION
@@ -382,10 +466,30 @@ uint64_t uniffi_yntra_core_fn_func_delete_workspace_via_hub(RustBuffer workspace
 uint64_t uniffi_yntra_core_fn_func_fail_auth_session(RustBuffer session_id, RustBuffer error_msg
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GENERATE_ROLE_SIGNATURE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GENERATE_ROLE_SIGNATURE
+RustBuffer uniffi_yntra_core_fn_func_generate_role_signature(RustBuffer private_key_hex, RustBuffer user_id, RustBuffer role, RustBuffer workspace_id, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GENERATE_TOTP_SECRET
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GENERATE_TOTP_SECRET
 RustBuffer uniffi_yntra_core_fn_func_generate_totp_secret(RustCallStatus *_Nonnull out_status
     
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_ASSIGNMENTS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_ASSIGNMENTS
+uint64_t uniffi_yntra_core_fn_func_get_assignments(RustBuffer requester_user_id, RustBuffer course_id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_ATTENDANCE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_ATTENDANCE
+uint64_t uniffi_yntra_core_fn_func_get_attendance(RustBuffer requester_user_id, RustBuffer course_id, RustBuffer date
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_AUDIT_LOGS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_AUDIT_LOGS
+uint64_t uniffi_yntra_core_fn_func_get_audit_logs(RustBuffer requester_user_id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_BANKID_AUTH_SESSION
@@ -401,44 +505,122 @@ uint64_t uniffi_yntra_core_fn_func_get_blocks(void
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_CLIENTS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_CLIENTS
-uint64_t uniffi_yntra_core_fn_func_get_clients(void
-    
+uint64_t uniffi_yntra_core_fn_func_get_clients(RustBuffer requester_user_id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_COURSES
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_COURSES
+uint64_t uniffi_yntra_core_fn_func_get_courses(RustBuffer requester_user_id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_DEFAULT_ROLES_JSON
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_DEFAULT_ROLES_JSON
+RustBuffer uniffi_yntra_core_fn_func_get_default_roles_json(RustBuffer workspace_type, RustBuffer care_subtype, int8_t is_scandi, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_EVENTS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_EVENTS
-uint64_t uniffi_yntra_core_fn_func_get_events(RustBuffer team_id
+uint64_t uniffi_yntra_core_fn_func_get_events(RustBuffer requester_user_id, RustBuffer team_id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_HEALTH_INCIDENTS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_HEALTH_INCIDENTS
+uint64_t uniffi_yntra_core_fn_func_get_health_incidents(RustBuffer requester_user_id, RustBuffer student_id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_HEALTH_RECORDS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_HEALTH_RECORDS
+uint64_t uniffi_yntra_core_fn_func_get_health_records(RustBuffer requester_user_id, RustBuffer student_id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_JOB_TICKETS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_JOB_TICKETS
-uint64_t uniffi_yntra_core_fn_func_get_job_tickets(void
-    
+uint64_t uniffi_yntra_core_fn_func_get_job_tickets(RustBuffer requester_user_id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_JOURNALS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_JOURNALS
-uint64_t uniffi_yntra_core_fn_func_get_journals(RustBuffer client_id
+uint64_t uniffi_yntra_core_fn_func_get_journals(RustBuffer client_id, RustBuffer actor_id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_LIBRARY_BOOKS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_LIBRARY_BOOKS
+uint64_t uniffi_yntra_core_fn_func_get_library_books(RustBuffer requester_user_id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_LIBRARY_LENDING_LOGS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_LIBRARY_LENDING_LOGS
+uint64_t uniffi_yntra_core_fn_func_get_library_lending_logs(RustBuffer requester_user_id, RustBuffer student_id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_MEDICATIONS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_MEDICATIONS
-uint64_t uniffi_yntra_core_fn_func_get_medications(RustBuffer client_id
+uint64_t uniffi_yntra_core_fn_func_get_medications(RustBuffer client_id, RustBuffer actor_id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_MESSAGES
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_MESSAGES
-uint64_t uniffi_yntra_core_fn_func_get_messages(RustBuffer user_id
+uint64_t uniffi_yntra_core_fn_func_get_messages(RustBuffer requester_user_id, RustBuffer user_id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_MOVE_INVENTORY
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_MOVE_INVENTORY
+uint64_t uniffi_yntra_core_fn_func_get_move_inventory(RustBuffer requester_user_id, RustBuffer job_ticket_id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_MOVE_QUOTE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_MOVE_QUOTE
+uint64_t uniffi_yntra_core_fn_func_get_move_quote(RustBuffer requester_user_id, RustBuffer job_ticket_id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_NOTE_LORO_STATE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_NOTE_LORO_STATE
+uint64_t uniffi_yntra_core_fn_func_get_note_loro_state(RustBuffer note_id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_NOTES
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_NOTES
-uint64_t uniffi_yntra_core_fn_func_get_notes(RustBuffer team_id
+uint64_t uniffi_yntra_core_fn_func_get_notes(RustBuffer requester_user_id, RustBuffer team_id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_PARENT_STUDENTS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_PARENT_STUDENTS
+uint64_t uniffi_yntra_core_fn_func_get_parent_students(RustBuffer requester_user_id, RustBuffer parent_user_id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_REPORT_CARDS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_REPORT_CARDS
+uint64_t uniffi_yntra_core_fn_func_get_report_cards(RustBuffer requester_user_id, RustBuffer student_id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_REPORTS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_REPORTS
-uint64_t uniffi_yntra_core_fn_func_get_reports(int8_t is_admin, RustBuffer user_id
+uint64_t uniffi_yntra_core_fn_func_get_reports(RustBuffer requester_user_id, RustBuffer anonymous_report_ids
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_SCHOOL_INVOICES
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_SCHOOL_INVOICES
+uint64_t uniffi_yntra_core_fn_func_get_school_invoices(RustBuffer requester_user_id, RustBuffer student_id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_SCHOOL_PAYMENTS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_SCHOOL_PAYMENTS
+uint64_t uniffi_yntra_core_fn_func_get_school_payments(RustBuffer requester_user_id, RustBuffer invoice_id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_STUDENT_ATTENDANCE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_STUDENT_ATTENDANCE
+uint64_t uniffi_yntra_core_fn_func_get_student_attendance(RustBuffer requester_user_id, RustBuffer student_id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_STUDENTS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_STUDENTS
+uint64_t uniffi_yntra_core_fn_func_get_students(RustBuffer requester_user_id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_SUBMISSIONS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_SUBMISSIONS
+uint64_t uniffi_yntra_core_fn_func_get_submissions(RustBuffer requester_user_id, RustBuffer assignment_id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_SUPABASE_USER_EMAIL
@@ -448,25 +630,37 @@ uint64_t uniffi_yntra_core_fn_func_get_supabase_user_email(RustBuffer token
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_TEAMS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_TEAMS
-uint64_t uniffi_yntra_core_fn_func_get_teams(void
-    
+uint64_t uniffi_yntra_core_fn_func_get_teams(RustBuffer requester_user_id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_TERM_GRADES
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_TERM_GRADES
+uint64_t uniffi_yntra_core_fn_func_get_term_grades(RustBuffer requester_user_id, RustBuffer student_id, RustBuffer term_name
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_TIME_REPORTS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_TIME_REPORTS
-uint64_t uniffi_yntra_core_fn_func_get_time_reports(RustBuffer user_id
+uint64_t uniffi_yntra_core_fn_func_get_time_reports(RustBuffer requester_user_id, RustBuffer user_id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_TIMETABLE_SLOTS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_TIMETABLE_SLOTS
+uint64_t uniffi_yntra_core_fn_func_get_timetable_slots(RustBuffer requester_user_id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_TODOS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_TODOS
-uint64_t uniffi_yntra_core_fn_func_get_todos(void
-    
+uint64_t uniffi_yntra_core_fn_func_get_todos(RustBuffer requester_user_id, RustBuffer workspace_id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_USER_BY_EMAIL
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_USER_BY_EMAIL
+uint64_t uniffi_yntra_core_fn_func_get_user_by_email(RustBuffer email
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_USERS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_USERS
-uint64_t uniffi_yntra_core_fn_func_get_users(void
-    
+uint64_t uniffi_yntra_core_fn_func_get_users(RustBuffer requester_user_id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_WORKSPACE
@@ -475,10 +669,25 @@ uint64_t uniffi_yntra_core_fn_func_get_workspace(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_WORKSPACE_TEMPLATE_TYPE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_WORKSPACE_TEMPLATE_TYPE
+uint64_t uniffi_yntra_core_fn_func_get_workspace_template_type(RustBuffer workspace_id
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_WORKSPACES
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_WORKSPACES
-uint64_t uniffi_yntra_core_fn_func_get_workspaces(void
+uint64_t uniffi_yntra_core_fn_func_get_workspaces(RustBuffer requester_user_id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_INIT_TRACING
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_INIT_TRACING
+void uniffi_yntra_core_fn_func_init_tracing(RustCallStatus *_Nonnull out_status
     
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_INITIALIZE_SYSTEM_SALT
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_INITIALIZE_SYSTEM_SALT
+int8_t uniffi_yntra_core_fn_func_initialize_system_salt(RustBuffer salt, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_INITIATE_BANKID_AUTH
@@ -488,12 +697,32 @@ uint64_t uniffi_yntra_core_fn_func_initiate_bankid_auth(RustBuffer target_role, 
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_INVITE_USER_VIA_DIRECTORY
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_INVITE_USER_VIA_DIRECTORY
-uint64_t uniffi_yntra_core_fn_func_invite_user_via_directory(RustBuffer workspace_id, RustBuffer email, RustBuffer name, RustBuffer role
+uint64_t uniffi_yntra_core_fn_func_invite_user_via_directory(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer email, RustBuffer name, RustBuffer role
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_LOG_ACTION
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_LOG_ACTION
+uint64_t uniffi_yntra_core_fn_func_log_action(RustBuffer actor_id, RustBuffer target_client_id, RustBuffer action_type
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_MARK_MESSAGE_READ
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_MARK_MESSAGE_READ
-uint64_t uniffi_yntra_core_fn_func_mark_message_read(RustBuffer id
+uint64_t uniffi_yntra_core_fn_func_mark_message_read(RustBuffer requester_user_id, RustBuffer id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_MERGE_LORO_NOTES
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_MERGE_LORO_NOTES
+RustBuffer uniffi_yntra_core_fn_func_merge_loro_notes(RustBuffer state1, RustBuffer state2, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_PUBLISH_REPORT_CARD
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_PUBLISH_REPORT_CARD
+uint64_t uniffi_yntra_core_fn_func_publish_report_card(RustBuffer requester_user_id, RustBuffer report_card_id, RustBuffer principal_comments
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_RECORD_SCHOOL_PAYMENT
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_RECORD_SCHOOL_PAYMENT
+uint64_t uniffi_yntra_core_fn_func_record_school_payment(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer invoice_id, double amount, RustBuffer payment_method, RustBuffer paid_at
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_REGISTER_OBSERVER
@@ -501,14 +730,69 @@ uint64_t uniffi_yntra_core_fn_func_mark_message_read(RustBuffer id
 void uniffi_yntra_core_fn_func_register_observer(uint64_t observer, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_RETURN_LIBRARY_BOOK
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_RETURN_LIBRARY_BOOK
+uint64_t uniffi_yntra_core_fn_func_return_library_book(RustBuffer requester_user_id, RustBuffer log_id, RustBuffer returned_at
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_RUN_HARDWARE_AUTH_SIMULATION
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_RUN_HARDWARE_AUTH_SIMULATION
+uint64_t uniffi_yntra_core_fn_func_run_hardware_auth_simulation(RustBuffer session_id, RustBuffer provider
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SAVE_ATTENDANCE_RECORD
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SAVE_ATTENDANCE_RECORD
+uint64_t uniffi_yntra_core_fn_func_save_attendance_record(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer student_id, RustBuffer course_id, RustBuffer date, RustBuffer status, RustBuffer notes
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SAVE_HEALTH_INCIDENT
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SAVE_HEALTH_INCIDENT
+uint64_t uniffi_yntra_core_fn_func_save_health_incident(RustBuffer requester_user_id, RustBuffer id, RustBuffer workspace_id, RustBuffer student_id, RustBuffer visit_reason, RustBuffer treatment, RustBuffer checked_in_at, RustBuffer checked_out_at, RustBuffer notes
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SAVE_HEALTH_RECORD
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SAVE_HEALTH_RECORD
+uint64_t uniffi_yntra_core_fn_func_save_health_record(RustBuffer requester_user_id, RustBuffer id, RustBuffer workspace_id, RustBuffer student_id, RustBuffer vaccine_name, RustBuffer status, RustBuffer administered_at
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SAVE_LIBRARY_BOOK
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SAVE_LIBRARY_BOOK
+uint64_t uniffi_yntra_core_fn_func_save_library_book(RustBuffer requester_user_id, RustBuffer id, RustBuffer workspace_id, RustBuffer title, RustBuffer author, RustBuffer isbn, int32_t copies_available, int32_t total_copies
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SAVE_SCHOOL_INVOICE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SAVE_SCHOOL_INVOICE
+uint64_t uniffi_yntra_core_fn_func_save_school_invoice(RustBuffer requester_user_id, RustBuffer id, RustBuffer workspace_id, RustBuffer student_id, RustBuffer title, double amount, RustBuffer due_date, RustBuffer status, RustBuffer paid_at
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SAVE_TERM_GRADE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SAVE_TERM_GRADE
+uint64_t uniffi_yntra_core_fn_func_save_term_grade(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer student_id, RustBuffer course_id, RustBuffer term_name, RustBuffer final_grade, RustBuffer final_points, RustBuffer teacher_comments
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SAVE_TIMETABLE_SLOT
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SAVE_TIMETABLE_SLOT
+uint64_t uniffi_yntra_core_fn_func_save_timetable_slot(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer course_id, int32_t day_of_week, RustBuffer start_time, RustBuffer end_time, RustBuffer classroom
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SEND_MESSAGE
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SEND_MESSAGE
-uint64_t uniffi_yntra_core_fn_func_send_message(RustBuffer workspace_id, RustBuffer sender_id, RustBuffer receiver_id, RustBuffer team_id, RustBuffer subject, RustBuffer body
+uint64_t uniffi_yntra_core_fn_func_send_message(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer sender_id, RustBuffer receiver_id, RustBuffer team_id, RustBuffer subject, RustBuffer body
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SET_SESSION_KEY
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SET_SESSION_KEY
+int8_t uniffi_yntra_core_fn_func_set_session_key(RustBuffer key_bytes, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SET_USER_PASSWORD
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SET_USER_PASSWORD
-uint64_t uniffi_yntra_core_fn_func_set_user_password(RustBuffer user_id, RustBuffer password
+uint64_t uniffi_yntra_core_fn_func_set_user_password(RustBuffer requester_user_id, RustBuffer user_id, RustBuffer password
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_START_BACKGROUND_SYNC
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_START_BACKGROUND_SYNC
+void uniffi_yntra_core_fn_func_start_background_sync(uint32_t interval_secs, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SUBMIT_BANKID_PIN
@@ -518,7 +802,7 @@ uint64_t uniffi_yntra_core_fn_func_submit_bankid_pin(RustBuffer session_id, Rust
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SUBMIT_JOB_COMPLETION
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SUBMIT_JOB_COMPLETION
-uint64_t uniffi_yntra_core_fn_func_submit_job_completion(RustBuffer job_id, RustBuffer checklist_json, RustBuffer completion_report
+uint64_t uniffi_yntra_core_fn_func_submit_job_completion(RustBuffer requester_user_id, RustBuffer job_id, RustBuffer checklist_json, RustBuffer completion_report
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SYNC_DATABASE
@@ -527,9 +811,14 @@ void uniffi_yntra_core_fn_func_sync_database(RustCallStatus *_Nonnull out_status
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SYNC_TIMETABLE_TO_CALENDAR
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SYNC_TIMETABLE_TO_CALENDAR
+uint64_t uniffi_yntra_core_fn_func_sync_timetable_to_calendar(RustBuffer workspace_id, RustBuffer user_id
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_TOGGLE_TODO
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_TOGGLE_TODO
-uint64_t uniffi_yntra_core_fn_func_toggle_todo(RustBuffer id
+uint64_t uniffi_yntra_core_fn_func_toggle_todo(RustBuffer requester_user_id, RustBuffer id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_AUTH_SESSION_STATUS
@@ -539,72 +828,103 @@ uint64_t uniffi_yntra_core_fn_func_update_auth_session_status(RustBuffer session
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_CLIENT_PROFILE
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_CLIENT_PROFILE
-uint64_t uniffi_yntra_core_fn_func_update_client_profile(RustBuffer client_id, RustBuffer first_name, RustBuffer last_name, RustBuffer personal_number, RustBuffer care_level
+uint64_t uniffi_yntra_core_fn_func_update_client_profile(RustBuffer requester_user_id, RustBuffer client_id, RustBuffer first_name, RustBuffer last_name, RustBuffer personal_number, RustBuffer care_level
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_COURSE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_COURSE
+uint64_t uniffi_yntra_core_fn_func_update_course(RustBuffer requester_user_id, RustBuffer id, RustBuffer name, RustBuffer subject, RustBuffer teacher_id, RustBuffer classroom
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_EVENT
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_EVENT
-uint64_t uniffi_yntra_core_fn_func_update_event(RustBuffer id, RustBuffer title, RustBuffer start_time, RustBuffer end_time, RustBuffer team_id, RustBuffer assignee_id, RustBuffer recipient_id, RustBuffer metadata
+uint64_t uniffi_yntra_core_fn_func_update_event(RustBuffer requester_user_id, RustBuffer id, RustBuffer title, RustBuffer start_time, RustBuffer end_time, RustBuffer team_id, RustBuffer assignee_id, RustBuffer recipient_id, RustBuffer metadata
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_EVENT_TIME
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_EVENT_TIME
-uint64_t uniffi_yntra_core_fn_func_update_event_time(RustBuffer id, RustBuffer start_time, RustBuffer end_time
+uint64_t uniffi_yntra_core_fn_func_update_event_time(RustBuffer requester_user_id, RustBuffer id, RustBuffer start_time, RustBuffer end_time
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_JOB_STATUS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_JOB_STATUS
-uint64_t uniffi_yntra_core_fn_func_update_job_status(RustBuffer job_id, RustBuffer status
+uint64_t uniffi_yntra_core_fn_func_update_job_status(RustBuffer requester_user_id, RustBuffer job_id, RustBuffer status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_NOTE
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_NOTE
-uint64_t uniffi_yntra_core_fn_func_update_note(RustBuffer note_id, RustBuffer edited_by_name, RustBuffer subject, RustBuffer content
+uint64_t uniffi_yntra_core_fn_func_update_note(RustBuffer requester_user_id, RustBuffer note_id, RustBuffer edited_by_name, RustBuffer subject, RustBuffer content
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_REPORT_STATUS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_REPORT_STATUS
-uint64_t uniffi_yntra_core_fn_func_update_report_status(RustBuffer report_id, RustBuffer status
+uint64_t uniffi_yntra_core_fn_func_update_report_status(RustBuffer requester_user_id, RustBuffer report_id, RustBuffer status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_SUBMISSION_GRADE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_SUBMISSION_GRADE
+uint64_t uniffi_yntra_core_fn_func_update_submission_grade(RustBuffer requester_user_id, RustBuffer submission_id, RustBuffer grade, RustBuffer feedback
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_TIME_REPORT_STATUS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_TIME_REPORT_STATUS
-uint64_t uniffi_yntra_core_fn_func_update_time_report_status(RustBuffer id, RustBuffer status
+uint64_t uniffi_yntra_core_fn_func_update_time_report_status(RustBuffer requester_user_id, RustBuffer id, RustBuffer status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_USER_PROFILE
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_USER_PROFILE
-uint64_t uniffi_yntra_core_fn_func_update_user_profile(RustBuffer user_id, RustBuffer full_name, RustBuffer phone, RustBuffer preferences
+uint64_t uniffi_yntra_core_fn_func_update_user_profile(RustBuffer requester_user_id, RustBuffer user_id, RustBuffer full_name, RustBuffer phone, RustBuffer preferences
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_USER_ROLE
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_USER_ROLE
-uint64_t uniffi_yntra_core_fn_func_update_user_role(RustBuffer user_id, RustBuffer role
+uint64_t uniffi_yntra_core_fn_func_update_user_role(RustBuffer requester_user_id, RustBuffer user_id, RustBuffer role
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_USER_VIA_DIRECTORY
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_USER_VIA_DIRECTORY
-uint64_t uniffi_yntra_core_fn_func_update_user_via_directory(RustBuffer user_id, RustBuffer full_name, RustBuffer phone, RustBuffer role
+uint64_t uniffi_yntra_core_fn_func_update_user_via_directory(RustBuffer requester_user_id, RustBuffer user_id, RustBuffer full_name, RustBuffer phone, RustBuffer role
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_WORKSPACE_BLOCK_SETTINGS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_WORKSPACE_BLOCK_SETTINGS
+uint64_t uniffi_yntra_core_fn_func_update_workspace_block_settings(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer block_settings_json
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_WORKSPACE_GENERAL
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_WORKSPACE_GENERAL
-uint64_t uniffi_yntra_core_fn_func_update_workspace_general(RustBuffer workspace_id, RustBuffer name, RustBuffer brand_color, RustBuffer logo_url
+uint64_t uniffi_yntra_core_fn_func_update_workspace_general(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer name, RustBuffer brand_color, RustBuffer logo_url
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_WORKSPACE_MODULES
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_WORKSPACE_MODULES
-uint64_t uniffi_yntra_core_fn_func_update_workspace_modules(RustBuffer workspace_id, RustBuffer modules_json
+uint64_t uniffi_yntra_core_fn_func_update_workspace_modules(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer modules_json
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_WORKSPACE_SETTINGS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_WORKSPACE_SETTINGS
-uint64_t uniffi_yntra_core_fn_func_update_workspace_settings(RustBuffer workspace_id, RustBuffer settings_json
+uint64_t uniffi_yntra_core_fn_func_update_workspace_settings(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer settings_json
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_VERIFY_AUDIT_LOG_CHAIN
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_VERIFY_AUDIT_LOG_CHAIN
+uint64_t uniffi_yntra_core_fn_func_verify_audit_log_chain(void
+    
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_VERIFY_EMAIL_PASSWORD
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_VERIFY_EMAIL_PASSWORD
 uint64_t uniffi_yntra_core_fn_func_verify_email_password(RustBuffer email, RustBuffer password
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_VERIFY_HARDWARE_AUTH_SIGNATURE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_VERIFY_HARDWARE_AUTH_SIGNATURE
+uint64_t uniffi_yntra_core_fn_func_verify_hardware_auth_signature(RustBuffer session_id, RustBuffer public_key_hex, RustBuffer signature_hex
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_VERIFY_ROLE_SIGNATURE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_VERIFY_ROLE_SIGNATURE
+int8_t uniffi_yntra_core_fn_func_verify_role_signature(RustBuffer public_key_hex, RustBuffer user_id, RustBuffer role, RustBuffer workspace_id, RustBuffer signature_hex, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_VERIFY_USER_TOTP
@@ -892,15 +1212,33 @@ void ffi_yntra_core_rust_future_free_void(uint64_t handle
 void ffi_yntra_core_rust_future_complete_void(uint64_t handle, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_ACCEPT_MOVE_QUOTE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_ACCEPT_MOVE_QUOTE
+uint16_t uniffi_yntra_core_checksum_func_accept_move_quote(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_ACTIVATE_INVITATION_CODE
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_ACTIVATE_INVITATION_CODE
 uint16_t uniffi_yntra_core_checksum_func_activate_invitation_code(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_ADD_ASSIGNMENT
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_ADD_ASSIGNMENT
+uint16_t uniffi_yntra_core_checksum_func_add_assignment(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_ADD_CLIENT_VIA_DIRECTORY
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_ADD_CLIENT_VIA_DIRECTORY
 uint16_t uniffi_yntra_core_checksum_func_add_client_via_directory(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_ADD_COURSE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_ADD_COURSE
+uint16_t uniffi_yntra_core_checksum_func_add_course(void
     
 );
 #endif
@@ -928,6 +1266,12 @@ uint16_t uniffi_yntra_core_checksum_func_add_medication(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_ADD_MOVE_INVENTORY_ITEM
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_ADD_MOVE_INVENTORY_ITEM
+uint16_t uniffi_yntra_core_checksum_func_add_move_inventory_item(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_ADD_NOTE
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_ADD_NOTE
 uint16_t uniffi_yntra_core_checksum_func_add_note(void
@@ -937,6 +1281,18 @@ uint16_t uniffi_yntra_core_checksum_func_add_note(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_ADD_REPORT
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_ADD_REPORT
 uint16_t uniffi_yntra_core_checksum_func_add_report(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_ADD_STUDENT
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_ADD_STUDENT
+uint16_t uniffi_yntra_core_checksum_func_add_student(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_ADD_SUBMISSION
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_ADD_SUBMISSION
+uint16_t uniffi_yntra_core_checksum_func_add_submission(void
     
 );
 #endif
@@ -958,6 +1314,18 @@ uint16_t uniffi_yntra_core_checksum_func_add_todo(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_APPLY_NOTE_LORO_UPDATE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_APPLY_NOTE_LORO_UPDATE
+uint16_t uniffi_yntra_core_checksum_func_apply_note_loro_update(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_ASSOCIATE_PARENT_STUDENT
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_ASSOCIATE_PARENT_STUDENT
+uint16_t uniffi_yntra_core_checksum_func_associate_parent_student(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_AUTHENTICATE_WITH_NFC
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_AUTHENTICATE_WITH_NFC
 uint16_t uniffi_yntra_core_checksum_func_authenticate_with_nfc(void
@@ -970,9 +1338,27 @@ uint16_t uniffi_yntra_core_checksum_func_authenticate_with_siths(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_CALCULATE_AND_SAVE_GPA
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_CALCULATE_AND_SAVE_GPA
+uint16_t uniffi_yntra_core_checksum_func_calculate_and_save_gpa(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_CHECKOUT_LIBRARY_BOOK
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_CHECKOUT_LIBRARY_BOOK
+uint16_t uniffi_yntra_core_checksum_func_checkout_library_book(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_CLEAR_OBSERVERS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_CLEAR_OBSERVERS
 uint16_t uniffi_yntra_core_checksum_func_clear_observers(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_CLEAR_SESSION_KEY
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_CLEAR_SESSION_KEY
+uint16_t uniffi_yntra_core_checksum_func_clear_session_key(void
     
 );
 #endif
@@ -988,9 +1374,21 @@ uint16_t uniffi_yntra_core_checksum_func_create_job_ticket(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_CREATE_OR_UPDATE_MOVE_QUOTE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_CREATE_OR_UPDATE_MOVE_QUOTE
+uint16_t uniffi_yntra_core_checksum_func_create_or_update_move_quote(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_CREATE_WORKSPACE_VIA_HUB
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_CREATE_WORKSPACE_VIA_HUB
 uint16_t uniffi_yntra_core_checksum_func_create_workspace_via_hub(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_DELETE_CLIENT
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_DELETE_CLIENT
+uint16_t uniffi_yntra_core_checksum_func_delete_client(void
     
 );
 #endif
@@ -1012,6 +1410,18 @@ uint16_t uniffi_yntra_core_checksum_func_delete_time_report(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_DELETE_TIMETABLE_SLOT
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_DELETE_TIMETABLE_SLOT
+uint16_t uniffi_yntra_core_checksum_func_delete_timetable_slot(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_DELETE_USER
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_DELETE_USER
+uint16_t uniffi_yntra_core_checksum_func_delete_user(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_DELETE_WORKSPACE_VIA_HUB
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_DELETE_WORKSPACE_VIA_HUB
 uint16_t uniffi_yntra_core_checksum_func_delete_workspace_via_hub(void
@@ -1024,9 +1434,33 @@ uint16_t uniffi_yntra_core_checksum_func_fail_auth_session(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GENERATE_ROLE_SIGNATURE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GENERATE_ROLE_SIGNATURE
+uint16_t uniffi_yntra_core_checksum_func_generate_role_signature(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GENERATE_TOTP_SECRET
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GENERATE_TOTP_SECRET
 uint16_t uniffi_yntra_core_checksum_func_generate_totp_secret(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_ASSIGNMENTS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_ASSIGNMENTS
+uint16_t uniffi_yntra_core_checksum_func_get_assignments(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_ATTENDANCE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_ATTENDANCE
+uint16_t uniffi_yntra_core_checksum_func_get_attendance(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_AUDIT_LOGS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_AUDIT_LOGS
+uint16_t uniffi_yntra_core_checksum_func_get_audit_logs(void
     
 );
 #endif
@@ -1048,9 +1482,33 @@ uint16_t uniffi_yntra_core_checksum_func_get_clients(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_COURSES
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_COURSES
+uint16_t uniffi_yntra_core_checksum_func_get_courses(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_DEFAULT_ROLES_JSON
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_DEFAULT_ROLES_JSON
+uint16_t uniffi_yntra_core_checksum_func_get_default_roles_json(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_EVENTS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_EVENTS
 uint16_t uniffi_yntra_core_checksum_func_get_events(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_HEALTH_INCIDENTS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_HEALTH_INCIDENTS
+uint16_t uniffi_yntra_core_checksum_func_get_health_incidents(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_HEALTH_RECORDS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_HEALTH_RECORDS
+uint16_t uniffi_yntra_core_checksum_func_get_health_records(void
     
 );
 #endif
@@ -1066,6 +1524,18 @@ uint16_t uniffi_yntra_core_checksum_func_get_journals(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_LIBRARY_BOOKS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_LIBRARY_BOOKS
+uint16_t uniffi_yntra_core_checksum_func_get_library_books(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_LIBRARY_LENDING_LOGS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_LIBRARY_LENDING_LOGS
+uint16_t uniffi_yntra_core_checksum_func_get_library_lending_logs(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_MEDICATIONS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_MEDICATIONS
 uint16_t uniffi_yntra_core_checksum_func_get_medications(void
@@ -1078,15 +1548,75 @@ uint16_t uniffi_yntra_core_checksum_func_get_messages(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_MOVE_INVENTORY
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_MOVE_INVENTORY
+uint16_t uniffi_yntra_core_checksum_func_get_move_inventory(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_MOVE_QUOTE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_MOVE_QUOTE
+uint16_t uniffi_yntra_core_checksum_func_get_move_quote(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_NOTE_LORO_STATE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_NOTE_LORO_STATE
+uint16_t uniffi_yntra_core_checksum_func_get_note_loro_state(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_NOTES
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_NOTES
 uint16_t uniffi_yntra_core_checksum_func_get_notes(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_PARENT_STUDENTS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_PARENT_STUDENTS
+uint16_t uniffi_yntra_core_checksum_func_get_parent_students(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_REPORT_CARDS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_REPORT_CARDS
+uint16_t uniffi_yntra_core_checksum_func_get_report_cards(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_REPORTS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_REPORTS
 uint16_t uniffi_yntra_core_checksum_func_get_reports(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_SCHOOL_INVOICES
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_SCHOOL_INVOICES
+uint16_t uniffi_yntra_core_checksum_func_get_school_invoices(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_SCHOOL_PAYMENTS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_SCHOOL_PAYMENTS
+uint16_t uniffi_yntra_core_checksum_func_get_school_payments(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_STUDENT_ATTENDANCE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_STUDENT_ATTENDANCE
+uint16_t uniffi_yntra_core_checksum_func_get_student_attendance(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_STUDENTS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_STUDENTS
+uint16_t uniffi_yntra_core_checksum_func_get_students(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_SUBMISSIONS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_SUBMISSIONS
+uint16_t uniffi_yntra_core_checksum_func_get_submissions(void
     
 );
 #endif
@@ -1102,15 +1632,33 @@ uint16_t uniffi_yntra_core_checksum_func_get_teams(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_TERM_GRADES
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_TERM_GRADES
+uint16_t uniffi_yntra_core_checksum_func_get_term_grades(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_TIME_REPORTS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_TIME_REPORTS
 uint16_t uniffi_yntra_core_checksum_func_get_time_reports(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_TIMETABLE_SLOTS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_TIMETABLE_SLOTS
+uint16_t uniffi_yntra_core_checksum_func_get_timetable_slots(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_TODOS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_TODOS
 uint16_t uniffi_yntra_core_checksum_func_get_todos(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_USER_BY_EMAIL
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_USER_BY_EMAIL
+uint16_t uniffi_yntra_core_checksum_func_get_user_by_email(void
     
 );
 #endif
@@ -1126,9 +1674,27 @@ uint16_t uniffi_yntra_core_checksum_func_get_workspace(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_WORKSPACE_TEMPLATE_TYPE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_WORKSPACE_TEMPLATE_TYPE
+uint16_t uniffi_yntra_core_checksum_func_get_workspace_template_type(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_WORKSPACES
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_WORKSPACES
 uint16_t uniffi_yntra_core_checksum_func_get_workspaces(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_INIT_TRACING
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_INIT_TRACING
+uint16_t uniffi_yntra_core_checksum_func_init_tracing(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_INITIALIZE_SYSTEM_SALT
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_INITIALIZE_SYSTEM_SALT
+uint16_t uniffi_yntra_core_checksum_func_initialize_system_salt(void
     
 );
 #endif
@@ -1144,9 +1710,33 @@ uint16_t uniffi_yntra_core_checksum_func_invite_user_via_directory(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_LOG_ACTION
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_LOG_ACTION
+uint16_t uniffi_yntra_core_checksum_func_log_action(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_MARK_MESSAGE_READ
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_MARK_MESSAGE_READ
 uint16_t uniffi_yntra_core_checksum_func_mark_message_read(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_MERGE_LORO_NOTES
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_MERGE_LORO_NOTES
+uint16_t uniffi_yntra_core_checksum_func_merge_loro_notes(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_PUBLISH_REPORT_CARD
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_PUBLISH_REPORT_CARD
+uint16_t uniffi_yntra_core_checksum_func_publish_report_card(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_RECORD_SCHOOL_PAYMENT
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_RECORD_SCHOOL_PAYMENT
+uint16_t uniffi_yntra_core_checksum_func_record_school_payment(void
     
 );
 #endif
@@ -1156,15 +1746,81 @@ uint16_t uniffi_yntra_core_checksum_func_register_observer(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_RETURN_LIBRARY_BOOK
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_RETURN_LIBRARY_BOOK
+uint16_t uniffi_yntra_core_checksum_func_return_library_book(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_RUN_HARDWARE_AUTH_SIMULATION
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_RUN_HARDWARE_AUTH_SIMULATION
+uint16_t uniffi_yntra_core_checksum_func_run_hardware_auth_simulation(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SAVE_ATTENDANCE_RECORD
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SAVE_ATTENDANCE_RECORD
+uint16_t uniffi_yntra_core_checksum_func_save_attendance_record(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SAVE_HEALTH_INCIDENT
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SAVE_HEALTH_INCIDENT
+uint16_t uniffi_yntra_core_checksum_func_save_health_incident(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SAVE_HEALTH_RECORD
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SAVE_HEALTH_RECORD
+uint16_t uniffi_yntra_core_checksum_func_save_health_record(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SAVE_LIBRARY_BOOK
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SAVE_LIBRARY_BOOK
+uint16_t uniffi_yntra_core_checksum_func_save_library_book(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SAVE_SCHOOL_INVOICE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SAVE_SCHOOL_INVOICE
+uint16_t uniffi_yntra_core_checksum_func_save_school_invoice(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SAVE_TERM_GRADE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SAVE_TERM_GRADE
+uint16_t uniffi_yntra_core_checksum_func_save_term_grade(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SAVE_TIMETABLE_SLOT
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SAVE_TIMETABLE_SLOT
+uint16_t uniffi_yntra_core_checksum_func_save_timetable_slot(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SEND_MESSAGE
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SEND_MESSAGE
 uint16_t uniffi_yntra_core_checksum_func_send_message(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SET_SESSION_KEY
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SET_SESSION_KEY
+uint16_t uniffi_yntra_core_checksum_func_set_session_key(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SET_USER_PASSWORD
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SET_USER_PASSWORD
 uint16_t uniffi_yntra_core_checksum_func_set_user_password(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_START_BACKGROUND_SYNC
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_START_BACKGROUND_SYNC
+uint16_t uniffi_yntra_core_checksum_func_start_background_sync(void
     
 );
 #endif
@@ -1186,6 +1842,12 @@ uint16_t uniffi_yntra_core_checksum_func_sync_database(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SYNC_TIMETABLE_TO_CALENDAR
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SYNC_TIMETABLE_TO_CALENDAR
+uint16_t uniffi_yntra_core_checksum_func_sync_timetable_to_calendar(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_TOGGLE_TODO
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_TOGGLE_TODO
 uint16_t uniffi_yntra_core_checksum_func_toggle_todo(void
@@ -1201,6 +1863,12 @@ uint16_t uniffi_yntra_core_checksum_func_update_auth_session_status(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_UPDATE_CLIENT_PROFILE
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_UPDATE_CLIENT_PROFILE
 uint16_t uniffi_yntra_core_checksum_func_update_client_profile(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_UPDATE_COURSE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_UPDATE_COURSE
+uint16_t uniffi_yntra_core_checksum_func_update_course(void
     
 );
 #endif
@@ -1234,6 +1902,12 @@ uint16_t uniffi_yntra_core_checksum_func_update_report_status(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_UPDATE_SUBMISSION_GRADE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_UPDATE_SUBMISSION_GRADE
+uint16_t uniffi_yntra_core_checksum_func_update_submission_grade(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_UPDATE_TIME_REPORT_STATUS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_UPDATE_TIME_REPORT_STATUS
 uint16_t uniffi_yntra_core_checksum_func_update_time_report_status(void
@@ -1258,6 +1932,12 @@ uint16_t uniffi_yntra_core_checksum_func_update_user_via_directory(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_UPDATE_WORKSPACE_BLOCK_SETTINGS
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_UPDATE_WORKSPACE_BLOCK_SETTINGS
+uint16_t uniffi_yntra_core_checksum_func_update_workspace_block_settings(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_UPDATE_WORKSPACE_GENERAL
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_UPDATE_WORKSPACE_GENERAL
 uint16_t uniffi_yntra_core_checksum_func_update_workspace_general(void
@@ -1276,9 +1956,27 @@ uint16_t uniffi_yntra_core_checksum_func_update_workspace_settings(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_VERIFY_AUDIT_LOG_CHAIN
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_VERIFY_AUDIT_LOG_CHAIN
+uint16_t uniffi_yntra_core_checksum_func_verify_audit_log_chain(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_VERIFY_EMAIL_PASSWORD
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_VERIFY_EMAIL_PASSWORD
 uint16_t uniffi_yntra_core_checksum_func_verify_email_password(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_VERIFY_HARDWARE_AUTH_SIGNATURE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_VERIFY_HARDWARE_AUTH_SIGNATURE
+uint16_t uniffi_yntra_core_checksum_func_verify_hardware_auth_signature(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_VERIFY_ROLE_SIGNATURE
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_VERIFY_ROLE_SIGNATURE
+uint16_t uniffi_yntra_core_checksum_func_verify_role_signature(void
     
 );
 #endif
@@ -1291,6 +1989,12 @@ uint16_t uniffi_yntra_core_checksum_func_verify_user_totp(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_METHOD_DATABASEOBSERVER_ON_DATABASE_CHANGED
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_METHOD_DATABASEOBSERVER_ON_DATABASE_CHANGED
 uint16_t uniffi_yntra_core_checksum_method_databaseobserver_on_database_changed(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_METHOD_DATABASEOBSERVER_ON_TABLE_CHANGED
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_METHOD_DATABASEOBSERVER_ON_TABLE_CHANGED
+uint16_t uniffi_yntra_core_checksum_method_databaseobserver_on_table_changed(void
     
 );
 #endif

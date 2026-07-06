@@ -663,22 +663,157 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 internal interface UniffiCallbackInterfaceDatabaseObserverMethod0 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
 }
-@Structure.FieldOrder("onDatabaseChanged", "uniffiFree")
+internal interface UniffiCallbackInterfaceDatabaseObserverMethod1 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`table`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+@Structure.FieldOrder("onDatabaseChanged", "onTableChanged", "uniffiFree")
 internal open class UniffiVTableCallbackInterfaceDatabaseObserver(
     @JvmField internal var `onDatabaseChanged`: UniffiCallbackInterfaceDatabaseObserverMethod0? = null,
+    @JvmField internal var `onTableChanged`: UniffiCallbackInterfaceDatabaseObserverMethod1? = null,
     @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
 ) : Structure() {
     class UniffiByValue(
         `onDatabaseChanged`: UniffiCallbackInterfaceDatabaseObserverMethod0? = null,
+        `onTableChanged`: UniffiCallbackInterfaceDatabaseObserverMethod1? = null,
         `uniffiFree`: UniffiCallbackInterfaceFree? = null,
-    ): UniffiVTableCallbackInterfaceDatabaseObserver(`onDatabaseChanged`,`uniffiFree`,), Structure.ByValue
+    ): UniffiVTableCallbackInterfaceDatabaseObserver(`onDatabaseChanged`,`onTableChanged`,`uniffiFree`,), Structure.ByValue
 
    internal fun uniffiSetValue(other: UniffiVTableCallbackInterfaceDatabaseObserver) {
         `onDatabaseChanged` = other.`onDatabaseChanged`
+        `onTableChanged` = other.`onTableChanged`
         `uniffiFree` = other.`uniffiFree`
     }
 
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -887,134 +1022,262 @@ internal interface UniffiLib : Library {
 
     fun uniffi_yntra_core_fn_init_callback_vtable_databaseobserver(`vtable`: UniffiVTableCallbackInterfaceDatabaseObserver,
     ): Unit
+    fun uniffi_yntra_core_fn_func_accept_move_quote(`requesterUserId`: RustBuffer.ByValue,`quoteId`: RustBuffer.ByValue,
+    ): Long
     fun uniffi_yntra_core_fn_func_activate_invitation_code(`code`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_add_client_via_directory(`workspaceId`: RustBuffer.ByValue,`teamId`: RustBuffer.ByValue,`firstName`: RustBuffer.ByValue,`lastName`: RustBuffer.ByValue,`personalNumber`: RustBuffer.ByValue,`careLevel`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_add_assignment(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`courseId`: RustBuffer.ByValue,`title`: RustBuffer.ByValue,`description`: RustBuffer.ByValue,`dueDate`: RustBuffer.ByValue,`maxPoints`: Int,
     ): Long
-    fun uniffi_yntra_core_fn_func_add_event(`workspaceId`: RustBuffer.ByValue,`title`: RustBuffer.ByValue,`startTime`: RustBuffer.ByValue,`endTime`: RustBuffer.ByValue,`teamId`: RustBuffer.ByValue,`assigneeId`: RustBuffer.ByValue,`recipientId`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_add_client_via_directory(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`teamId`: RustBuffer.ByValue,`firstName`: RustBuffer.ByValue,`lastName`: RustBuffer.ByValue,`personalNumber`: RustBuffer.ByValue,`careLevel`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_add_event_with_metadata(`workspaceId`: RustBuffer.ByValue,`title`: RustBuffer.ByValue,`startTime`: RustBuffer.ByValue,`endTime`: RustBuffer.ByValue,`teamId`: RustBuffer.ByValue,`assigneeId`: RustBuffer.ByValue,`recipientId`: RustBuffer.ByValue,`metadata`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_add_course(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,`teacherId`: RustBuffer.ByValue,`classroom`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_add_event(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`title`: RustBuffer.ByValue,`startTime`: RustBuffer.ByValue,`endTime`: RustBuffer.ByValue,`teamId`: RustBuffer.ByValue,`assigneeId`: RustBuffer.ByValue,`recipientId`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_add_event_with_metadata(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`title`: RustBuffer.ByValue,`startTime`: RustBuffer.ByValue,`endTime`: RustBuffer.ByValue,`teamId`: RustBuffer.ByValue,`assigneeId`: RustBuffer.ByValue,`recipientId`: RustBuffer.ByValue,`metadata`: RustBuffer.ByValue,
     ): Long
     fun uniffi_yntra_core_fn_func_add_journal_entry(`workspaceId`: RustBuffer.ByValue,`clientId`: RustBuffer.ByValue,`authorId`: RustBuffer.ByValue,`content`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_add_medication(`workspaceId`: RustBuffer.ByValue,`clientId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`dosage`: RustBuffer.ByValue,`frequency`: RustBuffer.ByValue,`instructions`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_add_medication(`workspaceId`: RustBuffer.ByValue,`clientId`: RustBuffer.ByValue,`actorId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`dosage`: RustBuffer.ByValue,`frequency`: RustBuffer.ByValue,`instructions`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_add_note(`workspaceId`: RustBuffer.ByValue,`teamId`: RustBuffer.ByValue,`authorId`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,`content`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_add_move_inventory_item(`requesterUserId`: RustBuffer.ByValue,`jobTicketId`: RustBuffer.ByValue,`itemCategory`: RustBuffer.ByValue,`itemName`: RustBuffer.ByValue,`quantity`: Int,`estimatedVolumeM3`: Double,`handlingNotes`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_add_note(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`teamId`: RustBuffer.ByValue,`authorId`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,`content`: RustBuffer.ByValue,
     ): Long
     fun uniffi_yntra_core_fn_func_add_report(`workspaceId`: RustBuffer.ByValue,`userId`: RustBuffer.ByValue,`reportType`: RustBuffer.ByValue,`isAnonymous`: Byte,`subject`: RustBuffer.ByValue,`description`: RustBuffer.ByValue,`dateOfIncident`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_add_team_via_directory(`workspaceId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_add_student(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`userId`: RustBuffer.ByValue,`firstName`: RustBuffer.ByValue,`lastName`: RustBuffer.ByValue,`gradeLevel`: RustBuffer.ByValue,`parentContact`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_add_time_report(`workspaceId`: RustBuffer.ByValue,`userId`: RustBuffer.ByValue,`teamId`: RustBuffer.ByValue,`date`: RustBuffer.ByValue,`hours`: Double,`note`: RustBuffer.ByValue,`startTime`: RustBuffer.ByValue,`endTime`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_add_submission(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`assignmentId`: RustBuffer.ByValue,`studentId`: RustBuffer.ByValue,`content`: RustBuffer.ByValue,`grade`: RustBuffer.ByValue,`feedback`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_add_todo(`workspaceId`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_add_team_via_directory(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_authenticate_with_nfc(`badgeUid`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_add_time_report(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`userId`: RustBuffer.ByValue,`teamId`: RustBuffer.ByValue,`date`: RustBuffer.ByValue,`hours`: Double,`note`: RustBuffer.ByValue,`startTime`: RustBuffer.ByValue,`endTime`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_authenticate_with_siths(`cardId`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_add_todo(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_apply_note_loro_update(`noteId`: RustBuffer.ByValue,`updateBytes`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_associate_parent_student(`requesterUserId`: RustBuffer.ByValue,`studentId`: RustBuffer.ByValue,`parentUserId`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_authenticate_with_nfc(`badgeUid`: RustBuffer.ByValue,`pin`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_authenticate_with_siths(`cardId`: RustBuffer.ByValue,`challenge`: RustBuffer.ByValue,`signature`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_calculate_and_save_gpa(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`studentId`: RustBuffer.ByValue,`termName`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_checkout_library_book(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`bookId`: RustBuffer.ByValue,`studentId`: RustBuffer.ByValue,`checkedOutAt`: RustBuffer.ByValue,`dueDate`: RustBuffer.ByValue,
     ): Long
     fun uniffi_yntra_core_fn_func_clear_observers(uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
-    fun uniffi_yntra_core_fn_func_complete_auth_session(`sessionId`: RustBuffer.ByValue,`userId`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_clear_session_key(uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_yntra_core_fn_func_complete_auth_session(`sessionId`: RustBuffer.ByValue,`userId`: RustBuffer.ByValue,`signatureHex`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_create_job_ticket(`workspaceId`: RustBuffer.ByValue,`title`: RustBuffer.ByValue,`description`: RustBuffer.ByValue,`locationAddress`: RustBuffer.ByValue,`priority`: RustBuffer.ByValue,`assignedUserId`: RustBuffer.ByValue,`scheduledDate`: RustBuffer.ByValue,`checklistJson`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_create_job_ticket(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`title`: RustBuffer.ByValue,`description`: RustBuffer.ByValue,`locationAddress`: RustBuffer.ByValue,`priority`: RustBuffer.ByValue,`assignedUserId`: RustBuffer.ByValue,`scheduledDate`: RustBuffer.ByValue,`checklistJson`: RustBuffer.ByValue,`originAddress`: RustBuffer.ByValue,`destinationAddress`: RustBuffer.ByValue,`originFloor`: Int,`destinationFloor`: Int,`originHasElevator`: Byte,`destinationHasElevator`: Byte,`originParkingPermitNeeded`: Byte,`destinationParkingPermitNeeded`: Byte,
+    ): Long
+    fun uniffi_yntra_core_fn_func_create_or_update_move_quote(`requesterUserId`: RustBuffer.ByValue,`jobTicketId`: RustBuffer.ByValue,`basePrice`: Double,`distanceFee`: Double,`stairsSurcharge`: Double,`packingSuppliesFee`: Double,`status`: RustBuffer.ByValue,
     ): Long
     fun uniffi_yntra_core_fn_func_create_workspace_via_hub(`name`: RustBuffer.ByValue,`adminEmail`: RustBuffer.ByValue,`modulesActive`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_delete_event(`id`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_delete_client(`requesterUserId`: RustBuffer.ByValue,`clientId`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_delete_note(`noteId`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_delete_event(`requesterUserId`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_delete_time_report(`id`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_delete_note(`requesterUserId`: RustBuffer.ByValue,`noteId`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_delete_workspace_via_hub(`workspaceId`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_delete_time_report(`requesterUserId`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_delete_timetable_slot(`requesterUserId`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_delete_user(`requesterUserId`: RustBuffer.ByValue,`userId`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_delete_workspace_via_hub(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,
     ): Long
     fun uniffi_yntra_core_fn_func_fail_auth_session(`sessionId`: RustBuffer.ByValue,`errorMsg`: RustBuffer.ByValue,
     ): Long
+    fun uniffi_yntra_core_fn_func_generate_role_signature(`privateKeyHex`: RustBuffer.ByValue,`userId`: RustBuffer.ByValue,`role`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_yntra_core_fn_func_generate_totp_secret(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_yntra_core_fn_func_get_assignments(`requesterUserId`: RustBuffer.ByValue,`courseId`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_get_attendance(`requesterUserId`: RustBuffer.ByValue,`courseId`: RustBuffer.ByValue,`date`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_get_audit_logs(`requesterUserId`: RustBuffer.ByValue,
+    ): Long
     fun uniffi_yntra_core_fn_func_get_bankid_auth_session(`sessionId`: RustBuffer.ByValue,
     ): Long
     fun uniffi_yntra_core_fn_func_get_blocks(
     ): Long
-    fun uniffi_yntra_core_fn_func_get_clients(
+    fun uniffi_yntra_core_fn_func_get_clients(`requesterUserId`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_get_events(`teamId`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_get_courses(`requesterUserId`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_get_job_tickets(
+    fun uniffi_yntra_core_fn_func_get_default_roles_json(`workspaceType`: RustBuffer.ByValue,`careSubtype`: RustBuffer.ByValue,`isScandi`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_yntra_core_fn_func_get_events(`requesterUserId`: RustBuffer.ByValue,`teamId`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_get_journals(`clientId`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_get_health_incidents(`requesterUserId`: RustBuffer.ByValue,`studentId`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_get_medications(`clientId`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_get_health_records(`requesterUserId`: RustBuffer.ByValue,`studentId`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_get_messages(`userId`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_get_job_tickets(`requesterUserId`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_get_notes(`teamId`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_get_journals(`clientId`: RustBuffer.ByValue,`actorId`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_get_reports(`isAdmin`: Byte,`userId`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_get_library_books(`requesterUserId`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_get_teams(
+    fun uniffi_yntra_core_fn_func_get_library_lending_logs(`requesterUserId`: RustBuffer.ByValue,`studentId`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_get_time_reports(`userId`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_get_medications(`clientId`: RustBuffer.ByValue,`actorId`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_get_todos(
+    fun uniffi_yntra_core_fn_func_get_messages(`requesterUserId`: RustBuffer.ByValue,`userId`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_get_users(
+    fun uniffi_yntra_core_fn_func_get_move_inventory(`requesterUserId`: RustBuffer.ByValue,`jobTicketId`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_get_move_quote(`requesterUserId`: RustBuffer.ByValue,`jobTicketId`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_get_note_loro_state(`noteId`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_get_notes(`requesterUserId`: RustBuffer.ByValue,`teamId`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_get_parent_students(`requesterUserId`: RustBuffer.ByValue,`parentUserId`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_get_report_cards(`requesterUserId`: RustBuffer.ByValue,`studentId`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_get_reports(`requesterUserId`: RustBuffer.ByValue,`anonymousReportIds`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_get_school_invoices(`requesterUserId`: RustBuffer.ByValue,`studentId`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_get_school_payments(`requesterUserId`: RustBuffer.ByValue,`invoiceId`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_get_student_attendance(`requesterUserId`: RustBuffer.ByValue,`studentId`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_get_students(`requesterUserId`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_get_submissions(`requesterUserId`: RustBuffer.ByValue,`assignmentId`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_get_supabase_user_email(`token`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_get_teams(`requesterUserId`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_get_term_grades(`requesterUserId`: RustBuffer.ByValue,`studentId`: RustBuffer.ByValue,`termName`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_get_time_reports(`requesterUserId`: RustBuffer.ByValue,`userId`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_get_timetable_slots(`requesterUserId`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_get_todos(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_get_user_by_email(`email`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_get_users(`requesterUserId`: RustBuffer.ByValue,
     ): Long
     fun uniffi_yntra_core_fn_func_get_workspace(
     ): Long
-    fun uniffi_yntra_core_fn_func_get_workspaces(
+    fun uniffi_yntra_core_fn_func_get_workspace_template_type(`workspaceId`: RustBuffer.ByValue,
     ): Long
+    fun uniffi_yntra_core_fn_func_get_workspaces(`requesterUserId`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_init_tracing(uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_yntra_core_fn_func_initialize_system_salt(`salt`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
     fun uniffi_yntra_core_fn_func_initiate_bankid_auth(`targetRole`: RustBuffer.ByValue,`provider`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_invite_user_via_directory(`workspaceId`: RustBuffer.ByValue,`email`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`role`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_invite_user_via_directory(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`email`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`role`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_mark_message_read(`id`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_log_action(`actorId`: RustBuffer.ByValue,`targetClientId`: RustBuffer.ByValue,`actionType`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_mark_message_read(`requesterUserId`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_merge_loro_notes(`state1`: RustBuffer.ByValue,`state2`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_yntra_core_fn_func_publish_report_card(`requesterUserId`: RustBuffer.ByValue,`reportCardId`: RustBuffer.ByValue,`principalComments`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_record_school_payment(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`invoiceId`: RustBuffer.ByValue,`amount`: Double,`paymentMethod`: RustBuffer.ByValue,`paidAt`: RustBuffer.ByValue,
     ): Long
     fun uniffi_yntra_core_fn_func_register_observer(`observer`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
-    fun uniffi_yntra_core_fn_func_send_message(`workspaceId`: RustBuffer.ByValue,`senderId`: RustBuffer.ByValue,`receiverId`: RustBuffer.ByValue,`teamId`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,`body`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_return_library_book(`requesterUserId`: RustBuffer.ByValue,`logId`: RustBuffer.ByValue,`returnedAt`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_set_user_password(`userId`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_run_hardware_auth_simulation(`sessionId`: RustBuffer.ByValue,`provider`: RustBuffer.ByValue,
     ): Long
+    fun uniffi_yntra_core_fn_func_save_attendance_record(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`studentId`: RustBuffer.ByValue,`courseId`: RustBuffer.ByValue,`date`: RustBuffer.ByValue,`status`: RustBuffer.ByValue,`notes`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_save_health_incident(`requesterUserId`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`studentId`: RustBuffer.ByValue,`visitReason`: RustBuffer.ByValue,`treatment`: RustBuffer.ByValue,`checkedInAt`: RustBuffer.ByValue,`checkedOutAt`: RustBuffer.ByValue,`notes`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_save_health_record(`requesterUserId`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`studentId`: RustBuffer.ByValue,`vaccineName`: RustBuffer.ByValue,`status`: RustBuffer.ByValue,`administeredAt`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_save_library_book(`requesterUserId`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`title`: RustBuffer.ByValue,`author`: RustBuffer.ByValue,`isbn`: RustBuffer.ByValue,`copiesAvailable`: Int,`totalCopies`: Int,
+    ): Long
+    fun uniffi_yntra_core_fn_func_save_school_invoice(`requesterUserId`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`studentId`: RustBuffer.ByValue,`title`: RustBuffer.ByValue,`amount`: Double,`dueDate`: RustBuffer.ByValue,`status`: RustBuffer.ByValue,`paidAt`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_save_term_grade(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`studentId`: RustBuffer.ByValue,`courseId`: RustBuffer.ByValue,`termName`: RustBuffer.ByValue,`finalGrade`: RustBuffer.ByValue,`finalPoints`: RustBuffer.ByValue,`teacherComments`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_save_timetable_slot(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`courseId`: RustBuffer.ByValue,`dayOfWeek`: Int,`startTime`: RustBuffer.ByValue,`endTime`: RustBuffer.ByValue,`classroom`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_send_message(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`senderId`: RustBuffer.ByValue,`receiverId`: RustBuffer.ByValue,`teamId`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,`body`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_set_session_key(`keyBytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    fun uniffi_yntra_core_fn_func_set_user_password(`requesterUserId`: RustBuffer.ByValue,`userId`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_start_background_sync(`intervalSecs`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     fun uniffi_yntra_core_fn_func_submit_bankid_pin(`sessionId`: RustBuffer.ByValue,`pin`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_submit_job_completion(`jobId`: RustBuffer.ByValue,`checklistJson`: RustBuffer.ByValue,`completionReport`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_submit_job_completion(`requesterUserId`: RustBuffer.ByValue,`jobId`: RustBuffer.ByValue,`checklistJson`: RustBuffer.ByValue,`completionReport`: RustBuffer.ByValue,
     ): Long
     fun uniffi_yntra_core_fn_func_sync_database(uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
-    fun uniffi_yntra_core_fn_func_toggle_todo(`id`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_sync_timetable_to_calendar(`workspaceId`: RustBuffer.ByValue,`userId`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_toggle_todo(`requesterUserId`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,
     ): Long
     fun uniffi_yntra_core_fn_func_update_auth_session_status(`sessionId`: RustBuffer.ByValue,`status`: RustBuffer.ByValue,`progress`: Double,
     ): Long
-    fun uniffi_yntra_core_fn_func_update_client_profile(`clientId`: RustBuffer.ByValue,`firstName`: RustBuffer.ByValue,`lastName`: RustBuffer.ByValue,`personalNumber`: RustBuffer.ByValue,`careLevel`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_update_client_profile(`requesterUserId`: RustBuffer.ByValue,`clientId`: RustBuffer.ByValue,`firstName`: RustBuffer.ByValue,`lastName`: RustBuffer.ByValue,`personalNumber`: RustBuffer.ByValue,`careLevel`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_update_event(`id`: RustBuffer.ByValue,`title`: RustBuffer.ByValue,`startTime`: RustBuffer.ByValue,`endTime`: RustBuffer.ByValue,`teamId`: RustBuffer.ByValue,`assigneeId`: RustBuffer.ByValue,`recipientId`: RustBuffer.ByValue,`metadata`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_update_course(`requesterUserId`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,`teacherId`: RustBuffer.ByValue,`classroom`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_update_event_time(`id`: RustBuffer.ByValue,`startTime`: RustBuffer.ByValue,`endTime`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_update_event(`requesterUserId`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,`title`: RustBuffer.ByValue,`startTime`: RustBuffer.ByValue,`endTime`: RustBuffer.ByValue,`teamId`: RustBuffer.ByValue,`assigneeId`: RustBuffer.ByValue,`recipientId`: RustBuffer.ByValue,`metadata`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_update_job_status(`jobId`: RustBuffer.ByValue,`status`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_update_event_time(`requesterUserId`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,`startTime`: RustBuffer.ByValue,`endTime`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_update_note(`noteId`: RustBuffer.ByValue,`editedByName`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,`content`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_update_job_status(`requesterUserId`: RustBuffer.ByValue,`jobId`: RustBuffer.ByValue,`status`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_update_report_status(`reportId`: RustBuffer.ByValue,`status`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_update_note(`requesterUserId`: RustBuffer.ByValue,`noteId`: RustBuffer.ByValue,`editedByName`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,`content`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_update_time_report_status(`id`: RustBuffer.ByValue,`status`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_update_report_status(`requesterUserId`: RustBuffer.ByValue,`reportId`: RustBuffer.ByValue,`status`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_update_user_profile(`userId`: RustBuffer.ByValue,`fullName`: RustBuffer.ByValue,`phone`: RustBuffer.ByValue,`preferences`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_update_submission_grade(`requesterUserId`: RustBuffer.ByValue,`submissionId`: RustBuffer.ByValue,`grade`: RustBuffer.ByValue,`feedback`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_update_user_role(`userId`: RustBuffer.ByValue,`role`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_update_time_report_status(`requesterUserId`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,`status`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_update_user_via_directory(`userId`: RustBuffer.ByValue,`fullName`: RustBuffer.ByValue,`phone`: RustBuffer.ByValue,`role`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_update_user_profile(`requesterUserId`: RustBuffer.ByValue,`userId`: RustBuffer.ByValue,`fullName`: RustBuffer.ByValue,`phone`: RustBuffer.ByValue,`preferences`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_update_workspace_general(`workspaceId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`brandColor`: RustBuffer.ByValue,`logoUrl`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_update_user_role(`requesterUserId`: RustBuffer.ByValue,`userId`: RustBuffer.ByValue,`role`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_update_workspace_modules(`workspaceId`: RustBuffer.ByValue,`modulesJson`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_update_user_via_directory(`requesterUserId`: RustBuffer.ByValue,`userId`: RustBuffer.ByValue,`fullName`: RustBuffer.ByValue,`phone`: RustBuffer.ByValue,`role`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_update_workspace_settings(`workspaceId`: RustBuffer.ByValue,`settingsJson`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_update_workspace_block_settings(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`blockSettingsJson`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_update_workspace_general(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`brandColor`: RustBuffer.ByValue,`logoUrl`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_update_workspace_modules(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`modulesJson`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_update_workspace_settings(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`settingsJson`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_verify_audit_log_chain(
     ): Long
     fun uniffi_yntra_core_fn_func_verify_email_password(`email`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,
     ): Long
+    fun uniffi_yntra_core_fn_func_verify_hardware_auth_signature(`sessionId`: RustBuffer.ByValue,`publicKeyHex`: RustBuffer.ByValue,`signatureHex`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_verify_role_signature(`publicKeyHex`: RustBuffer.ByValue,`userId`: RustBuffer.ByValue,`role`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`signatureHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
     fun uniffi_yntra_core_fn_func_verify_user_totp(`secret`: RustBuffer.ByValue,`code`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
     fun ffi_yntra_core_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -1129,9 +1392,15 @@ internal interface UniffiLib : Library {
     ): Unit
     fun ffi_yntra_core_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    fun uniffi_yntra_core_checksum_func_accept_move_quote(
+    ): Short
     fun uniffi_yntra_core_checksum_func_activate_invitation_code(
     ): Short
+    fun uniffi_yntra_core_checksum_func_add_assignment(
+    ): Short
     fun uniffi_yntra_core_checksum_func_add_client_via_directory(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_add_course(
     ): Short
     fun uniffi_yntra_core_checksum_func_add_event(
     ): Short
@@ -1141,9 +1410,15 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_yntra_core_checksum_func_add_medication(
     ): Short
+    fun uniffi_yntra_core_checksum_func_add_move_inventory_item(
+    ): Short
     fun uniffi_yntra_core_checksum_func_add_note(
     ): Short
     fun uniffi_yntra_core_checksum_func_add_report(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_add_student(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_add_submission(
     ): Short
     fun uniffi_yntra_core_checksum_func_add_team_via_directory(
     ): Short
@@ -1151,17 +1426,31 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_yntra_core_checksum_func_add_todo(
     ): Short
+    fun uniffi_yntra_core_checksum_func_apply_note_loro_update(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_associate_parent_student(
+    ): Short
     fun uniffi_yntra_core_checksum_func_authenticate_with_nfc(
     ): Short
     fun uniffi_yntra_core_checksum_func_authenticate_with_siths(
     ): Short
+    fun uniffi_yntra_core_checksum_func_calculate_and_save_gpa(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_checkout_library_book(
+    ): Short
     fun uniffi_yntra_core_checksum_func_clear_observers(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_clear_session_key(
     ): Short
     fun uniffi_yntra_core_checksum_func_complete_auth_session(
     ): Short
     fun uniffi_yntra_core_checksum_func_create_job_ticket(
     ): Short
+    fun uniffi_yntra_core_checksum_func_create_or_update_move_quote(
+    ): Short
     fun uniffi_yntra_core_checksum_func_create_workspace_via_hub(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_delete_client(
     ): Short
     fun uniffi_yntra_core_checksum_func_delete_event(
     ): Short
@@ -1169,11 +1458,23 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_yntra_core_checksum_func_delete_time_report(
     ): Short
+    fun uniffi_yntra_core_checksum_func_delete_timetable_slot(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_delete_user(
+    ): Short
     fun uniffi_yntra_core_checksum_func_delete_workspace_via_hub(
     ): Short
     fun uniffi_yntra_core_checksum_func_fail_auth_session(
     ): Short
+    fun uniffi_yntra_core_checksum_func_generate_role_signature(
+    ): Short
     fun uniffi_yntra_core_checksum_func_generate_totp_secret(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_get_assignments(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_get_attendance(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_get_audit_logs(
     ): Short
     fun uniffi_yntra_core_checksum_func_get_bankid_auth_session(
     ): Short
@@ -1181,43 +1482,119 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_yntra_core_checksum_func_get_clients(
     ): Short
+    fun uniffi_yntra_core_checksum_func_get_courses(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_get_default_roles_json(
+    ): Short
     fun uniffi_yntra_core_checksum_func_get_events(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_get_health_incidents(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_get_health_records(
     ): Short
     fun uniffi_yntra_core_checksum_func_get_job_tickets(
     ): Short
     fun uniffi_yntra_core_checksum_func_get_journals(
     ): Short
+    fun uniffi_yntra_core_checksum_func_get_library_books(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_get_library_lending_logs(
+    ): Short
     fun uniffi_yntra_core_checksum_func_get_medications(
     ): Short
     fun uniffi_yntra_core_checksum_func_get_messages(
     ): Short
+    fun uniffi_yntra_core_checksum_func_get_move_inventory(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_get_move_quote(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_get_note_loro_state(
+    ): Short
     fun uniffi_yntra_core_checksum_func_get_notes(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_get_parent_students(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_get_report_cards(
     ): Short
     fun uniffi_yntra_core_checksum_func_get_reports(
     ): Short
+    fun uniffi_yntra_core_checksum_func_get_school_invoices(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_get_school_payments(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_get_student_attendance(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_get_students(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_get_submissions(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_get_supabase_user_email(
+    ): Short
     fun uniffi_yntra_core_checksum_func_get_teams(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_get_term_grades(
     ): Short
     fun uniffi_yntra_core_checksum_func_get_time_reports(
     ): Short
+    fun uniffi_yntra_core_checksum_func_get_timetable_slots(
+    ): Short
     fun uniffi_yntra_core_checksum_func_get_todos(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_get_user_by_email(
     ): Short
     fun uniffi_yntra_core_checksum_func_get_users(
     ): Short
     fun uniffi_yntra_core_checksum_func_get_workspace(
     ): Short
+    fun uniffi_yntra_core_checksum_func_get_workspace_template_type(
+    ): Short
     fun uniffi_yntra_core_checksum_func_get_workspaces(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_init_tracing(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_initialize_system_salt(
     ): Short
     fun uniffi_yntra_core_checksum_func_initiate_bankid_auth(
     ): Short
     fun uniffi_yntra_core_checksum_func_invite_user_via_directory(
     ): Short
+    fun uniffi_yntra_core_checksum_func_log_action(
+    ): Short
     fun uniffi_yntra_core_checksum_func_mark_message_read(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_merge_loro_notes(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_publish_report_card(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_record_school_payment(
     ): Short
     fun uniffi_yntra_core_checksum_func_register_observer(
     ): Short
+    fun uniffi_yntra_core_checksum_func_return_library_book(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_run_hardware_auth_simulation(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_save_attendance_record(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_save_health_incident(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_save_health_record(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_save_library_book(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_save_school_invoice(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_save_term_grade(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_save_timetable_slot(
+    ): Short
     fun uniffi_yntra_core_checksum_func_send_message(
     ): Short
+    fun uniffi_yntra_core_checksum_func_set_session_key(
+    ): Short
     fun uniffi_yntra_core_checksum_func_set_user_password(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_start_background_sync(
     ): Short
     fun uniffi_yntra_core_checksum_func_submit_bankid_pin(
     ): Short
@@ -1225,11 +1602,15 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_yntra_core_checksum_func_sync_database(
     ): Short
+    fun uniffi_yntra_core_checksum_func_sync_timetable_to_calendar(
+    ): Short
     fun uniffi_yntra_core_checksum_func_toggle_todo(
     ): Short
     fun uniffi_yntra_core_checksum_func_update_auth_session_status(
     ): Short
     fun uniffi_yntra_core_checksum_func_update_client_profile(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_update_course(
     ): Short
     fun uniffi_yntra_core_checksum_func_update_event(
     ): Short
@@ -1241,6 +1622,8 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_yntra_core_checksum_func_update_report_status(
     ): Short
+    fun uniffi_yntra_core_checksum_func_update_submission_grade(
+    ): Short
     fun uniffi_yntra_core_checksum_func_update_time_report_status(
     ): Short
     fun uniffi_yntra_core_checksum_func_update_user_profile(
@@ -1249,17 +1632,27 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_yntra_core_checksum_func_update_user_via_directory(
     ): Short
+    fun uniffi_yntra_core_checksum_func_update_workspace_block_settings(
+    ): Short
     fun uniffi_yntra_core_checksum_func_update_workspace_general(
     ): Short
     fun uniffi_yntra_core_checksum_func_update_workspace_modules(
     ): Short
     fun uniffi_yntra_core_checksum_func_update_workspace_settings(
     ): Short
+    fun uniffi_yntra_core_checksum_func_verify_audit_log_chain(
+    ): Short
     fun uniffi_yntra_core_checksum_func_verify_email_password(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_verify_hardware_auth_signature(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_verify_role_signature(
     ): Short
     fun uniffi_yntra_core_checksum_func_verify_user_totp(
     ): Short
     fun uniffi_yntra_core_checksum_method_databaseobserver_on_database_changed(
+    ): Short
+    fun uniffi_yntra_core_checksum_method_databaseobserver_on_table_changed(
     ): Short
     fun ffi_yntra_core_uniffi_contract_version(
     ): Int
@@ -1278,73 +1671,130 @@ private fun uniffiCheckContractApiVersion(lib: UniffiLib) {
 
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: UniffiLib) {
+    if (lib.uniffi_yntra_core_checksum_func_accept_move_quote() != 52301.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_yntra_core_checksum_func_activate_invitation_code() != 54514.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_add_client_via_directory() != 12593.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_add_assignment() != 5936.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_add_event() != 19431.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_add_client_via_directory() != 11044.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_add_event_with_metadata() != 26045.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_add_course() != 51095.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_add_event() != 24287.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_add_event_with_metadata() != 31051.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_add_journal_entry() != 5052.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_add_medication() != 49660.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_add_medication() != 4545.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_add_note() != 16415.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_add_move_inventory_item() != 59442.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_add_note() != 49138.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_add_report() != 49257.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_add_team_via_directory() != 45061.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_add_student() != 48821.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_add_time_report() != 30086.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_add_submission() != 80.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_add_todo() != 16569.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_add_team_via_directory() != 9831.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_authenticate_with_nfc() != 2755.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_add_time_report() != 50663.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_authenticate_with_siths() != 11728.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_add_todo() != 4633.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_apply_note_loro_update() != 36212.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_associate_parent_student() != 39434.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_authenticate_with_nfc() != 24600.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_authenticate_with_siths() != 27250.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_calculate_and_save_gpa() != 33488.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_checkout_library_book() != 44918.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_clear_observers() != 4094.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_complete_auth_session() != 27049.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_clear_session_key() != 60262.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_create_job_ticket() != 40189.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_complete_auth_session() != 40585.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_create_job_ticket() != 5431.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_create_or_update_move_quote() != 9349.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_create_workspace_via_hub() != 62473.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_delete_event() != 35879.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_delete_client() != 42354.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_delete_note() != 57537.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_delete_event() != 28823.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_delete_time_report() != 53651.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_delete_note() != 2677.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_delete_workspace_via_hub() != 27292.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_delete_time_report() != 26921.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_delete_timetable_slot() != 18660.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_delete_user() != 11389.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_delete_workspace_via_hub() != 48851.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_fail_auth_session() != 7771.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_yntra_core_checksum_func_generate_role_signature() != 8493.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_yntra_core_checksum_func_generate_totp_secret() != 25335.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_assignments() != 51243.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_attendance() != 38394.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_audit_logs() != 24033.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_get_bankid_auth_session() != 19935.toShort()) {
@@ -1353,127 +1803,265 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_yntra_core_checksum_func_get_blocks() != 21834.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_get_clients() != 24619.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_get_clients() != 23937.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_get_events() != 20406.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_get_courses() != 3988.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_get_job_tickets() != 6024.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_get_default_roles_json() != 11789.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_get_journals() != 9694.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_get_events() != 47064.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_get_medications() != 4347.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_get_health_incidents() != 45033.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_get_messages() != 20145.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_get_health_records() != 40949.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_get_notes() != 20539.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_get_job_tickets() != 46432.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_get_reports() != 13164.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_get_journals() != 34684.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_get_teams() != 10198.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_get_library_books() != 63603.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_get_time_reports() != 16156.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_get_library_lending_logs() != 19257.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_get_todos() != 8902.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_get_medications() != 49270.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_get_users() != 259.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_get_messages() != 14162.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_move_inventory() != 23669.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_move_quote() != 28906.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_note_loro_state() != 14380.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_notes() != 50646.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_parent_students() != 48336.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_report_cards() != 25073.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_reports() != 558.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_school_invoices() != 16378.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_school_payments() != 1550.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_student_attendance() != 23235.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_students() != 188.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_submissions() != 29776.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_supabase_user_email() != 8586.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_teams() != 34585.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_term_grades() != 33142.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_time_reports() != 27361.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_timetable_slots() != 33573.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_todos() != 15681.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_user_by_email() != 59023.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_users() != 26940.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_get_workspace() != 50578.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_get_workspaces() != 35291.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_get_workspace_template_type() != 63981.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_workspaces() != 28099.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_init_tracing() != 46438.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_initialize_system_salt() != 41907.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_initiate_bankid_auth() != 1599.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_invite_user_via_directory() != 11621.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_invite_user_via_directory() != 63225.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_mark_message_read() != 36444.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_log_action() != 2222.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_mark_message_read() != 45253.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_merge_loro_notes() != 23008.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_publish_report_card() != 62379.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_record_school_payment() != 24031.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_register_observer() != 31837.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_send_message() != 1435.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_return_library_book() != 36552.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_set_user_password() != 9982.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_run_hardware_auth_simulation() != 45976.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_save_attendance_record() != 62566.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_save_health_incident() != 45365.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_save_health_record() != 142.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_save_library_book() != 458.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_save_school_invoice() != 64934.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_save_term_grade() != 23209.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_save_timetable_slot() != 19408.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_send_message() != 9093.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_set_session_key() != 2383.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_set_user_password() != 18023.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_start_background_sync() != 32647.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_submit_bankid_pin() != 63903.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_submit_job_completion() != 23372.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_submit_job_completion() != 564.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_sync_database() != 52107.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_toggle_todo() != 54967.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_sync_timetable_to_calendar() != 54009.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_toggle_todo() != 64353.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_update_auth_session_status() != 51181.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_update_client_profile() != 15987.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_update_client_profile() != 13544.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_update_event() != 24783.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_update_course() != 12252.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_update_event_time() != 11492.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_update_event() != 25072.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_update_job_status() != 24212.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_update_event_time() != 43993.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_update_note() != 49043.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_update_job_status() != 5437.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_update_report_status() != 53262.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_update_note() != 26451.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_update_time_report_status() != 33588.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_update_report_status() != 5887.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_update_user_profile() != 23456.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_update_submission_grade() != 56412.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_update_user_role() != 60151.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_update_time_report_status() != 17329.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_update_user_via_directory() != 8292.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_update_user_profile() != 45146.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_update_workspace_general() != 27564.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_update_user_role() != 881.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_update_workspace_modules() != 11158.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_update_user_via_directory() != 45626.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_update_workspace_settings() != 18873.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_update_workspace_block_settings() != 37489.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_update_workspace_general() != 8503.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_update_workspace_modules() != 36789.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_update_workspace_settings() != 19723.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_verify_audit_log_chain() != 43145.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_verify_email_password() != 53618.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_verify_hardware_auth_signature() != 52904.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_verify_role_signature() != 21223.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_verify_user_totp() != 9512.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_method_databaseobserver_on_database_changed() != 54827.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_method_databaseobserver_on_table_changed() != 52037.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -1562,6 +2150,52 @@ inline fun <T : Disposable?, R> T.use(block: (T) -> R) =
  * @suppress
  * */
 object NoPointer
+
+/**
+ * @suppress
+ */
+public object FfiConverterUInt: FfiConverter<UInt, Int> {
+    override fun lift(value: Int): UInt {
+        return value.toUInt()
+    }
+
+    override fun read(buf: ByteBuffer): UInt {
+        return lift(buf.getInt())
+    }
+
+    override fun lower(value: UInt): Int {
+        return value.toInt()
+    }
+
+    override fun allocationSize(value: UInt) = 4UL
+
+    override fun write(value: UInt, buf: ByteBuffer) {
+        buf.putInt(value.toInt())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterInt: FfiConverter<Int, Int> {
+    override fun lift(value: Int): Int {
+        return value
+    }
+
+    override fun read(buf: ByteBuffer): Int {
+        return buf.getInt()
+    }
+
+    override fun lower(value: Int): Int {
+        return value
+    }
+
+    override fun allocationSize(value: Int) = 4UL
+
+    override fun write(value: Int, buf: ByteBuffer) {
+        buf.putInt(value)
+    }
+}
 
 /**
  * @suppress
@@ -1689,6 +2323,201 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
     }
 }
 
+/**
+ * @suppress
+ */
+public object FfiConverterByteArray: FfiConverterRustBuffer<ByteArray> {
+    override fun read(buf: ByteBuffer): ByteArray {
+        val len = buf.getInt()
+        val byteArr = ByteArray(len)
+        buf.get(byteArr)
+        return byteArr
+    }
+    override fun allocationSize(value: ByteArray): ULong {
+        return 4UL + value.size.toULong()
+    }
+    override fun write(value: ByteArray, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        buf.put(value)
+    }
+}
+
+
+
+data class Assignment (
+    var `id`: kotlin.String, 
+    var `workspaceId`: kotlin.String, 
+    var `courseId`: kotlin.String, 
+    var `title`: kotlin.String, 
+    var `description`: kotlin.String, 
+    var `dueDate`: kotlin.String, 
+    var `maxPoints`: kotlin.Int, 
+    var `updatedAt`: kotlin.Long, 
+    var `syncStatus`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAssignment: FfiConverterRustBuffer<Assignment> {
+    override fun read(buf: ByteBuffer): Assignment {
+        return Assignment(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: Assignment) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`workspaceId`) +
+            FfiConverterString.allocationSize(value.`courseId`) +
+            FfiConverterString.allocationSize(value.`title`) +
+            FfiConverterString.allocationSize(value.`description`) +
+            FfiConverterString.allocationSize(value.`dueDate`) +
+            FfiConverterInt.allocationSize(value.`maxPoints`) +
+            FfiConverterLong.allocationSize(value.`updatedAt`) +
+            FfiConverterString.allocationSize(value.`syncStatus`)
+    )
+
+    override fun write(value: Assignment, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`workspaceId`, buf)
+            FfiConverterString.write(value.`courseId`, buf)
+            FfiConverterString.write(value.`title`, buf)
+            FfiConverterString.write(value.`description`, buf)
+            FfiConverterString.write(value.`dueDate`, buf)
+            FfiConverterInt.write(value.`maxPoints`, buf)
+            FfiConverterLong.write(value.`updatedAt`, buf)
+            FfiConverterString.write(value.`syncStatus`, buf)
+    }
+}
+
+
+
+data class AttendanceRecord (
+    var `id`: kotlin.String, 
+    var `workspaceId`: kotlin.String, 
+    var `studentId`: kotlin.String, 
+    var `courseId`: kotlin.String, 
+    var `date`: kotlin.String, 
+    var `status`: kotlin.String, 
+    var `notes`: kotlin.String?, 
+    var `updatedAt`: kotlin.Long, 
+    var `syncStatus`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAttendanceRecord: FfiConverterRustBuffer<AttendanceRecord> {
+    override fun read(buf: ByteBuffer): AttendanceRecord {
+        return AttendanceRecord(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: AttendanceRecord) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`workspaceId`) +
+            FfiConverterString.allocationSize(value.`studentId`) +
+            FfiConverterString.allocationSize(value.`courseId`) +
+            FfiConverterString.allocationSize(value.`date`) +
+            FfiConverterString.allocationSize(value.`status`) +
+            FfiConverterOptionalString.allocationSize(value.`notes`) +
+            FfiConverterLong.allocationSize(value.`updatedAt`) +
+            FfiConverterString.allocationSize(value.`syncStatus`)
+    )
+
+    override fun write(value: AttendanceRecord, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`workspaceId`, buf)
+            FfiConverterString.write(value.`studentId`, buf)
+            FfiConverterString.write(value.`courseId`, buf)
+            FfiConverterString.write(value.`date`, buf)
+            FfiConverterString.write(value.`status`, buf)
+            FfiConverterOptionalString.write(value.`notes`, buf)
+            FfiConverterLong.write(value.`updatedAt`, buf)
+            FfiConverterString.write(value.`syncStatus`, buf)
+    }
+}
+
+
+
+data class AuditLogEntry (
+    var `id`: kotlin.String, 
+    var `actorId`: kotlin.String, 
+    var `targetClientId`: kotlin.String?, 
+    var `actionType`: kotlin.String, 
+    var `timestamp`: kotlin.Long, 
+    var `prevHash`: kotlin.String, 
+    var `currHash`: kotlin.String, 
+    var `seq`: kotlin.Long
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAuditLogEntry: FfiConverterRustBuffer<AuditLogEntry> {
+    override fun read(buf: ByteBuffer): AuditLogEntry {
+        return AuditLogEntry(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: AuditLogEntry) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`actorId`) +
+            FfiConverterOptionalString.allocationSize(value.`targetClientId`) +
+            FfiConverterString.allocationSize(value.`actionType`) +
+            FfiConverterLong.allocationSize(value.`timestamp`) +
+            FfiConverterString.allocationSize(value.`prevHash`) +
+            FfiConverterString.allocationSize(value.`currHash`) +
+            FfiConverterLong.allocationSize(value.`seq`)
+    )
+
+    override fun write(value: AuditLogEntry, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`actorId`, buf)
+            FfiConverterOptionalString.write(value.`targetClientId`, buf)
+            FfiConverterString.write(value.`actionType`, buf)
+            FfiConverterLong.write(value.`timestamp`, buf)
+            FfiConverterString.write(value.`prevHash`, buf)
+            FfiConverterString.write(value.`currHash`, buf)
+            FfiConverterLong.write(value.`seq`, buf)
+    }
+}
+
 
 
 data class BankIdAuthSession (
@@ -1700,7 +2529,8 @@ data class BankIdAuthSession (
     var `qrData`: kotlin.String, 
     var `progress`: kotlin.Double, 
     var `authenticatedUserId`: kotlin.String?, 
-    var `createdAt`: kotlin.String
+    var `createdAt`: kotlin.String, 
+    var `challenge`: kotlin.String?
 ) {
     
     companion object
@@ -1721,6 +2551,7 @@ public object FfiConverterTypeBankIdAuthSession: FfiConverterRustBuffer<BankIdAu
             FfiConverterDouble.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
         )
     }
 
@@ -1733,7 +2564,8 @@ public object FfiConverterTypeBankIdAuthSession: FfiConverterRustBuffer<BankIdAu
             FfiConverterString.allocationSize(value.`qrData`) +
             FfiConverterDouble.allocationSize(value.`progress`) +
             FfiConverterOptionalString.allocationSize(value.`authenticatedUserId`) +
-            FfiConverterString.allocationSize(value.`createdAt`)
+            FfiConverterString.allocationSize(value.`createdAt`) +
+            FfiConverterOptionalString.allocationSize(value.`challenge`)
     )
 
     override fun write(value: BankIdAuthSession, buf: ByteBuffer) {
@@ -1746,6 +2578,7 @@ public object FfiConverterTypeBankIdAuthSession: FfiConverterRustBuffer<BankIdAu
             FfiConverterDouble.write(value.`progress`, buf)
             FfiConverterOptionalString.write(value.`authenticatedUserId`, buf)
             FfiConverterString.write(value.`createdAt`, buf)
+            FfiConverterOptionalString.write(value.`challenge`, buf)
     }
 }
 
@@ -1867,6 +2700,62 @@ public object FfiConverterTypeClientProfile: FfiConverterRustBuffer<ClientProfil
 
 
 
+data class Course (
+    var `id`: kotlin.String, 
+    var `workspaceId`: kotlin.String, 
+    var `name`: kotlin.String, 
+    var `subject`: kotlin.String, 
+    var `teacherId`: kotlin.String?, 
+    var `classroom`: kotlin.String?, 
+    var `updatedAt`: kotlin.Long, 
+    var `syncStatus`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCourse: FfiConverterRustBuffer<Course> {
+    override fun read(buf: ByteBuffer): Course {
+        return Course(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: Course) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`workspaceId`) +
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterString.allocationSize(value.`subject`) +
+            FfiConverterOptionalString.allocationSize(value.`teacherId`) +
+            FfiConverterOptionalString.allocationSize(value.`classroom`) +
+            FfiConverterLong.allocationSize(value.`updatedAt`) +
+            FfiConverterString.allocationSize(value.`syncStatus`)
+    )
+
+    override fun write(value: Course, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`workspaceId`, buf)
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterString.write(value.`subject`, buf)
+            FfiConverterOptionalString.write(value.`teacherId`, buf)
+            FfiConverterOptionalString.write(value.`classroom`, buf)
+            FfiConverterLong.write(value.`updatedAt`, buf)
+            FfiConverterString.write(value.`syncStatus`, buf)
+    }
+}
+
+
+
 data class DailyNote (
     var `id`: kotlin.String, 
     var `workspaceId`: kotlin.String, 
@@ -1931,6 +2820,126 @@ public object FfiConverterTypeDailyNote: FfiConverterRustBuffer<DailyNote> {
 
 
 
+data class HealthIncident (
+    var `id`: kotlin.String, 
+    var `workspaceId`: kotlin.String, 
+    var `studentId`: kotlin.String, 
+    var `visitReason`: kotlin.String, 
+    var `treatment`: kotlin.String, 
+    var `checkedInAt`: kotlin.String, 
+    var `checkedOutAt`: kotlin.String?, 
+    var `notes`: kotlin.String?, 
+    var `updatedAt`: kotlin.Long, 
+    var `syncStatus`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeHealthIncident: FfiConverterRustBuffer<HealthIncident> {
+    override fun read(buf: ByteBuffer): HealthIncident {
+        return HealthIncident(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: HealthIncident) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`workspaceId`) +
+            FfiConverterString.allocationSize(value.`studentId`) +
+            FfiConverterString.allocationSize(value.`visitReason`) +
+            FfiConverterString.allocationSize(value.`treatment`) +
+            FfiConverterString.allocationSize(value.`checkedInAt`) +
+            FfiConverterOptionalString.allocationSize(value.`checkedOutAt`) +
+            FfiConverterOptionalString.allocationSize(value.`notes`) +
+            FfiConverterLong.allocationSize(value.`updatedAt`) +
+            FfiConverterString.allocationSize(value.`syncStatus`)
+    )
+
+    override fun write(value: HealthIncident, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`workspaceId`, buf)
+            FfiConverterString.write(value.`studentId`, buf)
+            FfiConverterString.write(value.`visitReason`, buf)
+            FfiConverterString.write(value.`treatment`, buf)
+            FfiConverterString.write(value.`checkedInAt`, buf)
+            FfiConverterOptionalString.write(value.`checkedOutAt`, buf)
+            FfiConverterOptionalString.write(value.`notes`, buf)
+            FfiConverterLong.write(value.`updatedAt`, buf)
+            FfiConverterString.write(value.`syncStatus`, buf)
+    }
+}
+
+
+
+data class HealthRecord (
+    var `id`: kotlin.String, 
+    var `workspaceId`: kotlin.String, 
+    var `studentId`: kotlin.String, 
+    var `vaccineName`: kotlin.String, 
+    var `status`: kotlin.String, 
+    var `administeredAt`: kotlin.String?, 
+    var `updatedAt`: kotlin.Long, 
+    var `syncStatus`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeHealthRecord: FfiConverterRustBuffer<HealthRecord> {
+    override fun read(buf: ByteBuffer): HealthRecord {
+        return HealthRecord(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: HealthRecord) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`workspaceId`) +
+            FfiConverterString.allocationSize(value.`studentId`) +
+            FfiConverterString.allocationSize(value.`vaccineName`) +
+            FfiConverterString.allocationSize(value.`status`) +
+            FfiConverterOptionalString.allocationSize(value.`administeredAt`) +
+            FfiConverterLong.allocationSize(value.`updatedAt`) +
+            FfiConverterString.allocationSize(value.`syncStatus`)
+    )
+
+    override fun write(value: HealthRecord, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`workspaceId`, buf)
+            FfiConverterString.write(value.`studentId`, buf)
+            FfiConverterString.write(value.`vaccineName`, buf)
+            FfiConverterString.write(value.`status`, buf)
+            FfiConverterOptionalString.write(value.`administeredAt`, buf)
+            FfiConverterLong.write(value.`updatedAt`, buf)
+            FfiConverterString.write(value.`syncStatus`, buf)
+    }
+}
+
+
+
 data class JobTicket (
     var `id`: kotlin.String, 
     var `workspaceId`: kotlin.String, 
@@ -1945,7 +2954,15 @@ data class JobTicket (
     var `completionReport`: kotlin.String?, 
     var `createdAt`: kotlin.String, 
     var `updatedAt`: kotlin.Long, 
-    var `syncStatus`: kotlin.String
+    var `syncStatus`: kotlin.String, 
+    var `originAddress`: kotlin.String?, 
+    var `destinationAddress`: kotlin.String?, 
+    var `originFloor`: kotlin.Int, 
+    var `destinationFloor`: kotlin.Int, 
+    var `originHasElevator`: kotlin.Boolean, 
+    var `destinationHasElevator`: kotlin.Boolean, 
+    var `originParkingPermitNeeded`: kotlin.Boolean, 
+    var `destinationParkingPermitNeeded`: kotlin.Boolean
 ) {
     
     companion object
@@ -1971,6 +2988,14 @@ public object FfiConverterTypeJobTicket: FfiConverterRustBuffer<JobTicket> {
             FfiConverterString.read(buf),
             FfiConverterLong.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
         )
     }
 
@@ -1988,7 +3013,15 @@ public object FfiConverterTypeJobTicket: FfiConverterRustBuffer<JobTicket> {
             FfiConverterOptionalString.allocationSize(value.`completionReport`) +
             FfiConverterString.allocationSize(value.`createdAt`) +
             FfiConverterLong.allocationSize(value.`updatedAt`) +
-            FfiConverterString.allocationSize(value.`syncStatus`)
+            FfiConverterString.allocationSize(value.`syncStatus`) +
+            FfiConverterOptionalString.allocationSize(value.`originAddress`) +
+            FfiConverterOptionalString.allocationSize(value.`destinationAddress`) +
+            FfiConverterInt.allocationSize(value.`originFloor`) +
+            FfiConverterInt.allocationSize(value.`destinationFloor`) +
+            FfiConverterBoolean.allocationSize(value.`originHasElevator`) +
+            FfiConverterBoolean.allocationSize(value.`destinationHasElevator`) +
+            FfiConverterBoolean.allocationSize(value.`originParkingPermitNeeded`) +
+            FfiConverterBoolean.allocationSize(value.`destinationParkingPermitNeeded`)
     )
 
     override fun write(value: JobTicket, buf: ByteBuffer) {
@@ -2006,6 +3039,14 @@ public object FfiConverterTypeJobTicket: FfiConverterRustBuffer<JobTicket> {
             FfiConverterString.write(value.`createdAt`, buf)
             FfiConverterLong.write(value.`updatedAt`, buf)
             FfiConverterString.write(value.`syncStatus`, buf)
+            FfiConverterOptionalString.write(value.`originAddress`, buf)
+            FfiConverterOptionalString.write(value.`destinationAddress`, buf)
+            FfiConverterInt.write(value.`originFloor`, buf)
+            FfiConverterInt.write(value.`destinationFloor`, buf)
+            FfiConverterBoolean.write(value.`originHasElevator`, buf)
+            FfiConverterBoolean.write(value.`destinationHasElevator`, buf)
+            FfiConverterBoolean.write(value.`originParkingPermitNeeded`, buf)
+            FfiConverterBoolean.write(value.`destinationParkingPermitNeeded`, buf)
     }
 }
 
@@ -2060,6 +3101,130 @@ public object FfiConverterTypeJournalEntry: FfiConverterRustBuffer<JournalEntry>
             FfiConverterString.write(value.`content`, buf)
             FfiConverterString.write(value.`createdAt`, buf)
             FfiConverterString.write(value.`workspaceId`, buf)
+            FfiConverterLong.write(value.`updatedAt`, buf)
+            FfiConverterString.write(value.`syncStatus`, buf)
+    }
+}
+
+
+
+data class LibraryBook (
+    var `id`: kotlin.String, 
+    var `workspaceId`: kotlin.String, 
+    var `title`: kotlin.String, 
+    var `author`: kotlin.String, 
+    var `isbn`: kotlin.String, 
+    var `copiesAvailable`: kotlin.Int, 
+    var `totalCopies`: kotlin.Int, 
+    var `updatedAt`: kotlin.Long, 
+    var `syncStatus`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeLibraryBook: FfiConverterRustBuffer<LibraryBook> {
+    override fun read(buf: ByteBuffer): LibraryBook {
+        return LibraryBook(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: LibraryBook) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`workspaceId`) +
+            FfiConverterString.allocationSize(value.`title`) +
+            FfiConverterString.allocationSize(value.`author`) +
+            FfiConverterString.allocationSize(value.`isbn`) +
+            FfiConverterInt.allocationSize(value.`copiesAvailable`) +
+            FfiConverterInt.allocationSize(value.`totalCopies`) +
+            FfiConverterLong.allocationSize(value.`updatedAt`) +
+            FfiConverterString.allocationSize(value.`syncStatus`)
+    )
+
+    override fun write(value: LibraryBook, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`workspaceId`, buf)
+            FfiConverterString.write(value.`title`, buf)
+            FfiConverterString.write(value.`author`, buf)
+            FfiConverterString.write(value.`isbn`, buf)
+            FfiConverterInt.write(value.`copiesAvailable`, buf)
+            FfiConverterInt.write(value.`totalCopies`, buf)
+            FfiConverterLong.write(value.`updatedAt`, buf)
+            FfiConverterString.write(value.`syncStatus`, buf)
+    }
+}
+
+
+
+data class LibraryLendingLog (
+    var `id`: kotlin.String, 
+    var `workspaceId`: kotlin.String, 
+    var `bookId`: kotlin.String, 
+    var `studentId`: kotlin.String, 
+    var `checkedOutAt`: kotlin.String, 
+    var `dueDate`: kotlin.String, 
+    var `returnedAt`: kotlin.String?, 
+    var `status`: kotlin.String, 
+    var `updatedAt`: kotlin.Long, 
+    var `syncStatus`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeLibraryLendingLog: FfiConverterRustBuffer<LibraryLendingLog> {
+    override fun read(buf: ByteBuffer): LibraryLendingLog {
+        return LibraryLendingLog(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: LibraryLendingLog) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`workspaceId`) +
+            FfiConverterString.allocationSize(value.`bookId`) +
+            FfiConverterString.allocationSize(value.`studentId`) +
+            FfiConverterString.allocationSize(value.`checkedOutAt`) +
+            FfiConverterString.allocationSize(value.`dueDate`) +
+            FfiConverterOptionalString.allocationSize(value.`returnedAt`) +
+            FfiConverterString.allocationSize(value.`status`) +
+            FfiConverterLong.allocationSize(value.`updatedAt`) +
+            FfiConverterString.allocationSize(value.`syncStatus`)
+    )
+
+    override fun write(value: LibraryLendingLog, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`workspaceId`, buf)
+            FfiConverterString.write(value.`bookId`, buf)
+            FfiConverterString.write(value.`studentId`, buf)
+            FfiConverterString.write(value.`checkedOutAt`, buf)
+            FfiConverterString.write(value.`dueDate`, buf)
+            FfiConverterOptionalString.write(value.`returnedAt`, buf)
+            FfiConverterString.write(value.`status`, buf)
             FfiConverterLong.write(value.`updatedAt`, buf)
             FfiConverterString.write(value.`syncStatus`, buf)
     }
@@ -2199,6 +3364,178 @@ public object FfiConverterTypeMessageItem: FfiConverterRustBuffer<MessageItem> {
 
 
 
+data class MoveInventoryItem (
+    var `id`: kotlin.String, 
+    var `jobTicketId`: kotlin.String, 
+    var `itemCategory`: kotlin.String, 
+    var `itemName`: kotlin.String, 
+    var `quantity`: kotlin.Int, 
+    var `estimatedVolumeM3`: kotlin.Double, 
+    var `handlingNotes`: kotlin.String?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMoveInventoryItem: FfiConverterRustBuffer<MoveInventoryItem> {
+    override fun read(buf: ByteBuffer): MoveInventoryItem {
+        return MoveInventoryItem(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: MoveInventoryItem) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`jobTicketId`) +
+            FfiConverterString.allocationSize(value.`itemCategory`) +
+            FfiConverterString.allocationSize(value.`itemName`) +
+            FfiConverterInt.allocationSize(value.`quantity`) +
+            FfiConverterDouble.allocationSize(value.`estimatedVolumeM3`) +
+            FfiConverterOptionalString.allocationSize(value.`handlingNotes`)
+    )
+
+    override fun write(value: MoveInventoryItem, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`jobTicketId`, buf)
+            FfiConverterString.write(value.`itemCategory`, buf)
+            FfiConverterString.write(value.`itemName`, buf)
+            FfiConverterInt.write(value.`quantity`, buf)
+            FfiConverterDouble.write(value.`estimatedVolumeM3`, buf)
+            FfiConverterOptionalString.write(value.`handlingNotes`, buf)
+    }
+}
+
+
+
+data class MoveQuote (
+    var `id`: kotlin.String, 
+    var `jobTicketId`: kotlin.String, 
+    var `basePrice`: kotlin.Double, 
+    var `distanceFee`: kotlin.Double, 
+    var `stairsSurcharge`: kotlin.Double, 
+    var `packingSuppliesFee`: kotlin.Double, 
+    var `totalPrice`: kotlin.Double, 
+    var `status`: kotlin.String, 
+    var `acceptedAt`: kotlin.Long?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMoveQuote: FfiConverterRustBuffer<MoveQuote> {
+    override fun read(buf: ByteBuffer): MoveQuote {
+        return MoveQuote(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalLong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: MoveQuote) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`jobTicketId`) +
+            FfiConverterDouble.allocationSize(value.`basePrice`) +
+            FfiConverterDouble.allocationSize(value.`distanceFee`) +
+            FfiConverterDouble.allocationSize(value.`stairsSurcharge`) +
+            FfiConverterDouble.allocationSize(value.`packingSuppliesFee`) +
+            FfiConverterDouble.allocationSize(value.`totalPrice`) +
+            FfiConverterString.allocationSize(value.`status`) +
+            FfiConverterOptionalLong.allocationSize(value.`acceptedAt`)
+    )
+
+    override fun write(value: MoveQuote, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`jobTicketId`, buf)
+            FfiConverterDouble.write(value.`basePrice`, buf)
+            FfiConverterDouble.write(value.`distanceFee`, buf)
+            FfiConverterDouble.write(value.`stairsSurcharge`, buf)
+            FfiConverterDouble.write(value.`packingSuppliesFee`, buf)
+            FfiConverterDouble.write(value.`totalPrice`, buf)
+            FfiConverterString.write(value.`status`, buf)
+            FfiConverterOptionalLong.write(value.`acceptedAt`, buf)
+    }
+}
+
+
+
+data class ReportCard (
+    var `id`: kotlin.String, 
+    var `workspaceId`: kotlin.String, 
+    var `studentId`: kotlin.String, 
+    var `termName`: kotlin.String, 
+    var `gpa`: kotlin.Double, 
+    var `principalComments`: kotlin.String?, 
+    var `status`: kotlin.String, 
+    var `updatedAt`: kotlin.Long, 
+    var `syncStatus`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeReportCard: FfiConverterRustBuffer<ReportCard> {
+    override fun read(buf: ByteBuffer): ReportCard {
+        return ReportCard(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ReportCard) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`workspaceId`) +
+            FfiConverterString.allocationSize(value.`studentId`) +
+            FfiConverterString.allocationSize(value.`termName`) +
+            FfiConverterDouble.allocationSize(value.`gpa`) +
+            FfiConverterOptionalString.allocationSize(value.`principalComments`) +
+            FfiConverterString.allocationSize(value.`status`) +
+            FfiConverterLong.allocationSize(value.`updatedAt`) +
+            FfiConverterString.allocationSize(value.`syncStatus`)
+    )
+
+    override fun write(value: ReportCard, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`workspaceId`, buf)
+            FfiConverterString.write(value.`studentId`, buf)
+            FfiConverterString.write(value.`termName`, buf)
+            FfiConverterDouble.write(value.`gpa`, buf)
+            FfiConverterOptionalString.write(value.`principalComments`, buf)
+            FfiConverterString.write(value.`status`, buf)
+            FfiConverterLong.write(value.`updatedAt`, buf)
+            FfiConverterString.write(value.`syncStatus`, buf)
+    }
+}
+
+
+
 data class ReportItem (
     var `id`: kotlin.String, 
     var `workspaceId`: kotlin.String, 
@@ -2256,6 +3593,250 @@ public object FfiConverterTypeReportItem: FfiConverterRustBuffer<ReportItem> {
             FfiConverterString.write(value.`content`, buf)
             FfiConverterString.write(value.`status`, buf)
             FfiConverterString.write(value.`createdAt`, buf)
+            FfiConverterLong.write(value.`updatedAt`, buf)
+            FfiConverterString.write(value.`syncStatus`, buf)
+    }
+}
+
+
+
+data class SchoolInvoice (
+    var `id`: kotlin.String, 
+    var `workspaceId`: kotlin.String, 
+    var `studentId`: kotlin.String, 
+    var `title`: kotlin.String, 
+    var `amount`: kotlin.Double, 
+    var `dueDate`: kotlin.String, 
+    var `status`: kotlin.String, 
+    var `paidAt`: kotlin.String?, 
+    var `updatedAt`: kotlin.Long, 
+    var `syncStatus`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSchoolInvoice: FfiConverterRustBuffer<SchoolInvoice> {
+    override fun read(buf: ByteBuffer): SchoolInvoice {
+        return SchoolInvoice(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: SchoolInvoice) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`workspaceId`) +
+            FfiConverterString.allocationSize(value.`studentId`) +
+            FfiConverterString.allocationSize(value.`title`) +
+            FfiConverterDouble.allocationSize(value.`amount`) +
+            FfiConverterString.allocationSize(value.`dueDate`) +
+            FfiConverterString.allocationSize(value.`status`) +
+            FfiConverterOptionalString.allocationSize(value.`paidAt`) +
+            FfiConverterLong.allocationSize(value.`updatedAt`) +
+            FfiConverterString.allocationSize(value.`syncStatus`)
+    )
+
+    override fun write(value: SchoolInvoice, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`workspaceId`, buf)
+            FfiConverterString.write(value.`studentId`, buf)
+            FfiConverterString.write(value.`title`, buf)
+            FfiConverterDouble.write(value.`amount`, buf)
+            FfiConverterString.write(value.`dueDate`, buf)
+            FfiConverterString.write(value.`status`, buf)
+            FfiConverterOptionalString.write(value.`paidAt`, buf)
+            FfiConverterLong.write(value.`updatedAt`, buf)
+            FfiConverterString.write(value.`syncStatus`, buf)
+    }
+}
+
+
+
+data class SchoolPayment (
+    var `id`: kotlin.String, 
+    var `workspaceId`: kotlin.String, 
+    var `invoiceId`: kotlin.String, 
+    var `amount`: kotlin.Double, 
+    var `paymentMethod`: kotlin.String, 
+    var `paidAt`: kotlin.String, 
+    var `updatedAt`: kotlin.Long, 
+    var `syncStatus`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSchoolPayment: FfiConverterRustBuffer<SchoolPayment> {
+    override fun read(buf: ByteBuffer): SchoolPayment {
+        return SchoolPayment(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: SchoolPayment) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`workspaceId`) +
+            FfiConverterString.allocationSize(value.`invoiceId`) +
+            FfiConverterDouble.allocationSize(value.`amount`) +
+            FfiConverterString.allocationSize(value.`paymentMethod`) +
+            FfiConverterString.allocationSize(value.`paidAt`) +
+            FfiConverterLong.allocationSize(value.`updatedAt`) +
+            FfiConverterString.allocationSize(value.`syncStatus`)
+    )
+
+    override fun write(value: SchoolPayment, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`workspaceId`, buf)
+            FfiConverterString.write(value.`invoiceId`, buf)
+            FfiConverterDouble.write(value.`amount`, buf)
+            FfiConverterString.write(value.`paymentMethod`, buf)
+            FfiConverterString.write(value.`paidAt`, buf)
+            FfiConverterLong.write(value.`updatedAt`, buf)
+            FfiConverterString.write(value.`syncStatus`, buf)
+    }
+}
+
+
+
+data class StudentProfile (
+    var `id`: kotlin.String, 
+    var `workspaceId`: kotlin.String, 
+    var `userId`: kotlin.String?, 
+    var `firstName`: kotlin.String, 
+    var `lastName`: kotlin.String, 
+    var `gradeLevel`: kotlin.String, 
+    var `parentContact`: kotlin.String?, 
+    var `updatedAt`: kotlin.Long, 
+    var `syncStatus`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeStudentProfile: FfiConverterRustBuffer<StudentProfile> {
+    override fun read(buf: ByteBuffer): StudentProfile {
+        return StudentProfile(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: StudentProfile) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`workspaceId`) +
+            FfiConverterOptionalString.allocationSize(value.`userId`) +
+            FfiConverterString.allocationSize(value.`firstName`) +
+            FfiConverterString.allocationSize(value.`lastName`) +
+            FfiConverterString.allocationSize(value.`gradeLevel`) +
+            FfiConverterOptionalString.allocationSize(value.`parentContact`) +
+            FfiConverterLong.allocationSize(value.`updatedAt`) +
+            FfiConverterString.allocationSize(value.`syncStatus`)
+    )
+
+    override fun write(value: StudentProfile, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`workspaceId`, buf)
+            FfiConverterOptionalString.write(value.`userId`, buf)
+            FfiConverterString.write(value.`firstName`, buf)
+            FfiConverterString.write(value.`lastName`, buf)
+            FfiConverterString.write(value.`gradeLevel`, buf)
+            FfiConverterOptionalString.write(value.`parentContact`, buf)
+            FfiConverterLong.write(value.`updatedAt`, buf)
+            FfiConverterString.write(value.`syncStatus`, buf)
+    }
+}
+
+
+
+data class Submission (
+    var `id`: kotlin.String, 
+    var `workspaceId`: kotlin.String, 
+    var `assignmentId`: kotlin.String, 
+    var `studentId`: kotlin.String, 
+    var `content`: kotlin.String, 
+    var `grade`: kotlin.String?, 
+    var `feedback`: kotlin.String?, 
+    var `submittedAt`: kotlin.String, 
+    var `updatedAt`: kotlin.Long, 
+    var `syncStatus`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSubmission: FfiConverterRustBuffer<Submission> {
+    override fun read(buf: ByteBuffer): Submission {
+        return Submission(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: Submission) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`workspaceId`) +
+            FfiConverterString.allocationSize(value.`assignmentId`) +
+            FfiConverterString.allocationSize(value.`studentId`) +
+            FfiConverterString.allocationSize(value.`content`) +
+            FfiConverterOptionalString.allocationSize(value.`grade`) +
+            FfiConverterOptionalString.allocationSize(value.`feedback`) +
+            FfiConverterString.allocationSize(value.`submittedAt`) +
+            FfiConverterLong.allocationSize(value.`updatedAt`) +
+            FfiConverterString.allocationSize(value.`syncStatus`)
+    )
+
+    override fun write(value: Submission, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`workspaceId`, buf)
+            FfiConverterString.write(value.`assignmentId`, buf)
+            FfiConverterString.write(value.`studentId`, buf)
+            FfiConverterString.write(value.`content`, buf)
+            FfiConverterOptionalString.write(value.`grade`, buf)
+            FfiConverterOptionalString.write(value.`feedback`, buf)
+            FfiConverterString.write(value.`submittedAt`, buf)
             FfiConverterLong.write(value.`updatedAt`, buf)
             FfiConverterString.write(value.`syncStatus`, buf)
     }
@@ -2375,6 +3956,70 @@ public object FfiConverterTypeTeamEvent: FfiConverterRustBuffer<TeamEvent> {
 
 
 
+data class TermGrade (
+    var `id`: kotlin.String, 
+    var `workspaceId`: kotlin.String, 
+    var `studentId`: kotlin.String, 
+    var `courseId`: kotlin.String, 
+    var `termName`: kotlin.String, 
+    var `finalGrade`: kotlin.String?, 
+    var `finalPoints`: kotlin.Int?, 
+    var `teacherComments`: kotlin.String?, 
+    var `updatedAt`: kotlin.Long, 
+    var `syncStatus`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTermGrade: FfiConverterRustBuffer<TermGrade> {
+    override fun read(buf: ByteBuffer): TermGrade {
+        return TermGrade(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalInt.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: TermGrade) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`workspaceId`) +
+            FfiConverterString.allocationSize(value.`studentId`) +
+            FfiConverterString.allocationSize(value.`courseId`) +
+            FfiConverterString.allocationSize(value.`termName`) +
+            FfiConverterOptionalString.allocationSize(value.`finalGrade`) +
+            FfiConverterOptionalInt.allocationSize(value.`finalPoints`) +
+            FfiConverterOptionalString.allocationSize(value.`teacherComments`) +
+            FfiConverterLong.allocationSize(value.`updatedAt`) +
+            FfiConverterString.allocationSize(value.`syncStatus`)
+    )
+
+    override fun write(value: TermGrade, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`workspaceId`, buf)
+            FfiConverterString.write(value.`studentId`, buf)
+            FfiConverterString.write(value.`courseId`, buf)
+            FfiConverterString.write(value.`termName`, buf)
+            FfiConverterOptionalString.write(value.`finalGrade`, buf)
+            FfiConverterOptionalInt.write(value.`finalPoints`, buf)
+            FfiConverterOptionalString.write(value.`teacherComments`, buf)
+            FfiConverterLong.write(value.`updatedAt`, buf)
+            FfiConverterString.write(value.`syncStatus`, buf)
+    }
+}
+
+
+
 data class TimeReport (
     var `id`: kotlin.String, 
     var `workspaceId`: kotlin.String, 
@@ -2444,6 +4089,66 @@ public object FfiConverterTypeTimeReport: FfiConverterRustBuffer<TimeReport> {
             FfiConverterOptionalString.write(value.`note`, buf)
             FfiConverterString.write(value.`status`, buf)
             FfiConverterString.write(value.`createdAt`, buf)
+            FfiConverterLong.write(value.`updatedAt`, buf)
+            FfiConverterString.write(value.`syncStatus`, buf)
+    }
+}
+
+
+
+data class TimetableSlot (
+    var `id`: kotlin.String, 
+    var `workspaceId`: kotlin.String, 
+    var `courseId`: kotlin.String, 
+    var `dayOfWeek`: kotlin.Int, 
+    var `startTime`: kotlin.String, 
+    var `endTime`: kotlin.String, 
+    var `classroom`: kotlin.String?, 
+    var `updatedAt`: kotlin.Long, 
+    var `syncStatus`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTimetableSlot: FfiConverterRustBuffer<TimetableSlot> {
+    override fun read(buf: ByteBuffer): TimetableSlot {
+        return TimetableSlot(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: TimetableSlot) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`workspaceId`) +
+            FfiConverterString.allocationSize(value.`courseId`) +
+            FfiConverterInt.allocationSize(value.`dayOfWeek`) +
+            FfiConverterString.allocationSize(value.`startTime`) +
+            FfiConverterString.allocationSize(value.`endTime`) +
+            FfiConverterOptionalString.allocationSize(value.`classroom`) +
+            FfiConverterLong.allocationSize(value.`updatedAt`) +
+            FfiConverterString.allocationSize(value.`syncStatus`)
+    )
+
+    override fun write(value: TimetableSlot, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`workspaceId`, buf)
+            FfiConverterString.write(value.`courseId`, buf)
+            FfiConverterInt.write(value.`dayOfWeek`, buf)
+            FfiConverterString.write(value.`startTime`, buf)
+            FfiConverterString.write(value.`endTime`, buf)
+            FfiConverterOptionalString.write(value.`classroom`, buf)
             FfiConverterLong.write(value.`updatedAt`, buf)
             FfiConverterString.write(value.`syncStatus`, buf)
     }
@@ -2562,7 +4267,8 @@ data class WorkspaceUser (
     var `sithsCardId`: kotlin.String?, 
     var `nfcBadgeUid`: kotlin.String?, 
     var `updatedAt`: kotlin.Long, 
-    var `syncStatus`: kotlin.String
+    var `syncStatus`: kotlin.String, 
+    var `personalNumber`: kotlin.String?
 ) {
     
     companion object
@@ -2585,6 +4291,7 @@ public object FfiConverterTypeWorkspaceUser: FfiConverterRustBuffer<WorkspaceUse
             FfiConverterOptionalString.read(buf),
             FfiConverterLong.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
         )
     }
 
@@ -2599,7 +4306,8 @@ public object FfiConverterTypeWorkspaceUser: FfiConverterRustBuffer<WorkspaceUse
             FfiConverterOptionalString.allocationSize(value.`sithsCardId`) +
             FfiConverterOptionalString.allocationSize(value.`nfcBadgeUid`) +
             FfiConverterLong.allocationSize(value.`updatedAt`) +
-            FfiConverterString.allocationSize(value.`syncStatus`)
+            FfiConverterString.allocationSize(value.`syncStatus`) +
+            FfiConverterOptionalString.allocationSize(value.`personalNumber`)
     )
 
     override fun write(value: WorkspaceUser, buf: ByteBuffer) {
@@ -2614,8 +4322,41 @@ public object FfiConverterTypeWorkspaceUser: FfiConverterRustBuffer<WorkspaceUse
             FfiConverterOptionalString.write(value.`nfcBadgeUid`, buf)
             FfiConverterLong.write(value.`updatedAt`, buf)
             FfiConverterString.write(value.`syncStatus`, buf)
+            FfiConverterOptionalString.write(value.`personalNumber`, buf)
     }
 }
+
+
+
+
+enum class WorkspaceTemplateType {
+    
+    CARE,
+    MOVING_COMPANY,
+    SCHOOL,
+    GENERAL;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeWorkspaceTemplateType: FfiConverterRustBuffer<WorkspaceTemplateType> {
+    override fun read(buf: ByteBuffer) = try {
+        WorkspaceTemplateType.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: WorkspaceTemplateType) = 4UL
+
+    override fun write(value: WorkspaceTemplateType, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
 
 
 
@@ -2640,6 +4381,62 @@ sealed class YntraException: kotlin.Exception() {
     }
     
     class AuthException(
+        
+        val v1: kotlin.String
+        ) : YntraException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+    
+    class ConstraintException(
+        
+        val v1: kotlin.String
+        ) : YntraException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+    
+    class SerializationException(
+        
+        val v1: kotlin.String
+        ) : YntraException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+    
+    class NotFoundException(
+        
+        val v1: kotlin.String
+        ) : YntraException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+    
+    class ValidationException(
+        
+        val v1: kotlin.String
+        ) : YntraException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+    
+    class NetworkException(
+        
+        val v1: kotlin.String
+        ) : YntraException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+    
+    class InvitationException(
+        
+        val v1: kotlin.String
+        ) : YntraException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+    
+    class CryptoException(
         
         val v1: kotlin.String
         ) : YntraException() {
@@ -2672,6 +4469,27 @@ public object FfiConverterTypeYntraError : FfiConverterRustBuffer<YntraException
             3 -> YntraException.AuthException(
                 FfiConverterString.read(buf),
                 )
+            4 -> YntraException.ConstraintException(
+                FfiConverterString.read(buf),
+                )
+            5 -> YntraException.SerializationException(
+                FfiConverterString.read(buf),
+                )
+            6 -> YntraException.NotFoundException(
+                FfiConverterString.read(buf),
+                )
+            7 -> YntraException.ValidationException(
+                FfiConverterString.read(buf),
+                )
+            8 -> YntraException.NetworkException(
+                FfiConverterString.read(buf),
+                )
+            9 -> YntraException.InvitationException(
+                FfiConverterString.read(buf),
+                )
+            10 -> YntraException.CryptoException(
+                FfiConverterString.read(buf),
+                )
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
         }
     }
@@ -2689,6 +4507,41 @@ public object FfiConverterTypeYntraError : FfiConverterRustBuffer<YntraException
                 + FfiConverterString.allocationSize(value.v1)
             )
             is YntraException.AuthException -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+            is YntraException.ConstraintException -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+            is YntraException.SerializationException -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+            is YntraException.NotFoundException -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+            is YntraException.ValidationException -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+            is YntraException.NetworkException -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+            is YntraException.InvitationException -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+            is YntraException.CryptoException -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
                 + FfiConverterString.allocationSize(value.v1)
@@ -2713,6 +4566,41 @@ public object FfiConverterTypeYntraError : FfiConverterRustBuffer<YntraException
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
+            is YntraException.ConstraintException -> {
+                buf.putInt(4)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is YntraException.SerializationException -> {
+                buf.putInt(5)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is YntraException.NotFoundException -> {
+                buf.putInt(6)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is YntraException.ValidationException -> {
+                buf.putInt(7)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is YntraException.NetworkException -> {
+                buf.putInt(8)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is YntraException.InvitationException -> {
+                buf.putInt(9)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is YntraException.CryptoException -> {
+                buf.putInt(10)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
     }
 
@@ -2725,6 +4613,8 @@ public object FfiConverterTypeYntraError : FfiConverterRustBuffer<YntraException
 public interface DatabaseObserver {
     
     fun `onDatabaseChanged`()
+    
+    fun `onTableChanged`(`table`: kotlin.String)
     
     companion object
 }
@@ -2775,6 +4665,18 @@ internal object uniffiCallbackInterfaceDatabaseObserver {
             uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
         }
     }
+    internal object `onTableChanged`: UniffiCallbackInterfaceDatabaseObserverMethod1 {
+        override fun callback(`uniffiHandle`: Long,`table`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeDatabaseObserver.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`onTableChanged`(
+                    FfiConverterString.lift(`table`),
+                )
+            }
+            val writeReturn = { _: Unit -> Unit }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
 
     internal object uniffiFree: UniffiCallbackInterfaceFree {
         override fun callback(handle: Long) {
@@ -2784,6 +4686,7 @@ internal object uniffiCallbackInterfaceDatabaseObserver {
 
     internal var vtable = UniffiVTableCallbackInterfaceDatabaseObserver.UniffiByValue(
         `onDatabaseChanged`,
+        `onTableChanged`,
         uniffiFree,
     )
 
@@ -2800,6 +4703,70 @@ internal object uniffiCallbackInterfaceDatabaseObserver {
  * @suppress
  */
 public object FfiConverterTypeDatabaseObserver: FfiConverterCallbackInterface<DatabaseObserver>()
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalInt: FfiConverterRustBuffer<kotlin.Int?> {
+    override fun read(buf: ByteBuffer): kotlin.Int? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterInt.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.Int?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterInt.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.Int?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterInt.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalLong: FfiConverterRustBuffer<kotlin.Long?> {
+    override fun read(buf: ByteBuffer): kotlin.Long? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterLong.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.Long?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterLong.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.Long?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterLong.write(value, buf)
+        }
+    }
+}
 
 
 
@@ -2871,6 +4838,38 @@ public object FfiConverterOptionalTypeBankIdAuthSession: FfiConverterRustBuffer<
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeMoveQuote: FfiConverterRustBuffer<MoveQuote?> {
+    override fun read(buf: ByteBuffer): MoveQuote? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeMoveQuote.read(buf)
+    }
+
+    override fun allocationSize(value: MoveQuote?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeMoveQuote.allocationSize(value)
+        }
+    }
+
+    override fun write(value: MoveQuote?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeMoveQuote.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeWorkspaceUser: FfiConverterRustBuffer<WorkspaceUser?> {
     override fun read(buf: ByteBuffer): WorkspaceUser? {
         if (buf.get().toInt() == 0) {
@@ -2893,6 +4892,118 @@ public object FfiConverterOptionalTypeWorkspaceUser: FfiConverterRustBuffer<Work
         } else {
             buf.put(1)
             FfiConverterTypeWorkspaceUser.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.String>> {
+    override fun read(buf: ByteBuffer): List<kotlin.String> {
+        val len = buf.getInt()
+        return List<kotlin.String>(len) {
+            FfiConverterString.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<kotlin.String>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterString.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<kotlin.String>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterString.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeAssignment: FfiConverterRustBuffer<List<Assignment>> {
+    override fun read(buf: ByteBuffer): List<Assignment> {
+        val len = buf.getInt()
+        return List<Assignment>(len) {
+            FfiConverterTypeAssignment.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<Assignment>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeAssignment.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<Assignment>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeAssignment.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeAttendanceRecord: FfiConverterRustBuffer<List<AttendanceRecord>> {
+    override fun read(buf: ByteBuffer): List<AttendanceRecord> {
+        val len = buf.getInt()
+        return List<AttendanceRecord>(len) {
+            FfiConverterTypeAttendanceRecord.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<AttendanceRecord>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeAttendanceRecord.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<AttendanceRecord>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeAttendanceRecord.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeAuditLogEntry: FfiConverterRustBuffer<List<AuditLogEntry>> {
+    override fun read(buf: ByteBuffer): List<AuditLogEntry> {
+        val len = buf.getInt()
+        return List<AuditLogEntry>(len) {
+            FfiConverterTypeAuditLogEntry.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<AuditLogEntry>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeAuditLogEntry.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<AuditLogEntry>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeAuditLogEntry.write(it, buf)
         }
     }
 }
@@ -2959,6 +5070,34 @@ public object FfiConverterSequenceTypeClientProfile: FfiConverterRustBuffer<List
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeCourse: FfiConverterRustBuffer<List<Course>> {
+    override fun read(buf: ByteBuffer): List<Course> {
+        val len = buf.getInt()
+        return List<Course>(len) {
+            FfiConverterTypeCourse.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<Course>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeCourse.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<Course>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeCourse.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeDailyNote: FfiConverterRustBuffer<List<DailyNote>> {
     override fun read(buf: ByteBuffer): List<DailyNote> {
         val len = buf.getInt()
@@ -2977,6 +5116,62 @@ public object FfiConverterSequenceTypeDailyNote: FfiConverterRustBuffer<List<Dai
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeDailyNote.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeHealthIncident: FfiConverterRustBuffer<List<HealthIncident>> {
+    override fun read(buf: ByteBuffer): List<HealthIncident> {
+        val len = buf.getInt()
+        return List<HealthIncident>(len) {
+            FfiConverterTypeHealthIncident.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<HealthIncident>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeHealthIncident.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<HealthIncident>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeHealthIncident.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeHealthRecord: FfiConverterRustBuffer<List<HealthRecord>> {
+    override fun read(buf: ByteBuffer): List<HealthRecord> {
+        val len = buf.getInt()
+        return List<HealthRecord>(len) {
+            FfiConverterTypeHealthRecord.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<HealthRecord>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeHealthRecord.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<HealthRecord>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeHealthRecord.write(it, buf)
         }
     }
 }
@@ -3043,6 +5238,62 @@ public object FfiConverterSequenceTypeJournalEntry: FfiConverterRustBuffer<List<
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeLibraryBook: FfiConverterRustBuffer<List<LibraryBook>> {
+    override fun read(buf: ByteBuffer): List<LibraryBook> {
+        val len = buf.getInt()
+        return List<LibraryBook>(len) {
+            FfiConverterTypeLibraryBook.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<LibraryBook>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeLibraryBook.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<LibraryBook>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeLibraryBook.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeLibraryLendingLog: FfiConverterRustBuffer<List<LibraryLendingLog>> {
+    override fun read(buf: ByteBuffer): List<LibraryLendingLog> {
+        val len = buf.getInt()
+        return List<LibraryLendingLog>(len) {
+            FfiConverterTypeLibraryLendingLog.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<LibraryLendingLog>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeLibraryLendingLog.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<LibraryLendingLog>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeLibraryLendingLog.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeMedicationItem: FfiConverterRustBuffer<List<MedicationItem>> {
     override fun read(buf: ByteBuffer): List<MedicationItem> {
         val len = buf.getInt()
@@ -3099,6 +5350,62 @@ public object FfiConverterSequenceTypeMessageItem: FfiConverterRustBuffer<List<M
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeMoveInventoryItem: FfiConverterRustBuffer<List<MoveInventoryItem>> {
+    override fun read(buf: ByteBuffer): List<MoveInventoryItem> {
+        val len = buf.getInt()
+        return List<MoveInventoryItem>(len) {
+            FfiConverterTypeMoveInventoryItem.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<MoveInventoryItem>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeMoveInventoryItem.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<MoveInventoryItem>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeMoveInventoryItem.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeReportCard: FfiConverterRustBuffer<List<ReportCard>> {
+    override fun read(buf: ByteBuffer): List<ReportCard> {
+        val len = buf.getInt()
+        return List<ReportCard>(len) {
+            FfiConverterTypeReportCard.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<ReportCard>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeReportCard.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<ReportCard>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeReportCard.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeReportItem: FfiConverterRustBuffer<List<ReportItem>> {
     override fun read(buf: ByteBuffer): List<ReportItem> {
         val len = buf.getInt()
@@ -3117,6 +5424,118 @@ public object FfiConverterSequenceTypeReportItem: FfiConverterRustBuffer<List<Re
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeReportItem.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeSchoolInvoice: FfiConverterRustBuffer<List<SchoolInvoice>> {
+    override fun read(buf: ByteBuffer): List<SchoolInvoice> {
+        val len = buf.getInt()
+        return List<SchoolInvoice>(len) {
+            FfiConverterTypeSchoolInvoice.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<SchoolInvoice>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeSchoolInvoice.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<SchoolInvoice>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeSchoolInvoice.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeSchoolPayment: FfiConverterRustBuffer<List<SchoolPayment>> {
+    override fun read(buf: ByteBuffer): List<SchoolPayment> {
+        val len = buf.getInt()
+        return List<SchoolPayment>(len) {
+            FfiConverterTypeSchoolPayment.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<SchoolPayment>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeSchoolPayment.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<SchoolPayment>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeSchoolPayment.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeStudentProfile: FfiConverterRustBuffer<List<StudentProfile>> {
+    override fun read(buf: ByteBuffer): List<StudentProfile> {
+        val len = buf.getInt()
+        return List<StudentProfile>(len) {
+            FfiConverterTypeStudentProfile.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<StudentProfile>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeStudentProfile.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<StudentProfile>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeStudentProfile.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeSubmission: FfiConverterRustBuffer<List<Submission>> {
+    override fun read(buf: ByteBuffer): List<Submission> {
+        val len = buf.getInt()
+        return List<Submission>(len) {
+            FfiConverterTypeSubmission.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<Submission>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeSubmission.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<Submission>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeSubmission.write(it, buf)
         }
     }
 }
@@ -3183,6 +5602,34 @@ public object FfiConverterSequenceTypeTeamEvent: FfiConverterRustBuffer<List<Tea
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeTermGrade: FfiConverterRustBuffer<List<TermGrade>> {
+    override fun read(buf: ByteBuffer): List<TermGrade> {
+        val len = buf.getInt()
+        return List<TermGrade>(len) {
+            FfiConverterTypeTermGrade.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<TermGrade>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeTermGrade.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<TermGrade>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeTermGrade.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeTimeReport: FfiConverterRustBuffer<List<TimeReport>> {
     override fun read(buf: ByteBuffer): List<TimeReport> {
         val len = buf.getInt()
@@ -3201,6 +5648,34 @@ public object FfiConverterSequenceTypeTimeReport: FfiConverterRustBuffer<List<Ti
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeTimeReport.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeTimetableSlot: FfiConverterRustBuffer<List<TimetableSlot>> {
+    override fun read(buf: ByteBuffer): List<TimetableSlot> {
+        val len = buf.getInt()
+        return List<TimetableSlot>(len) {
+            FfiConverterTypeTimetableSlot.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<TimetableSlot>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeTimetableSlot.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<TimetableSlot>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeTimetableSlot.write(it, buf)
         }
     }
 }
@@ -3298,6 +5773,22 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `acceptMoveQuote`(`requesterUserId`: kotlin.String, `quoteId`: kotlin.String) {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_accept_move_quote(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`quoteId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
      suspend fun `activateInvitationCode`(`code`: kotlin.String) : WorkspaceUser {
         return uniffiRustCallAsync(
         UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_activate_invitation_code(FfiConverterString.lower(`code`),),
@@ -3313,9 +5804,24 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `addClientViaDirectory`(`workspaceId`: kotlin.String, `teamId`: kotlin.String?, `firstName`: kotlin.String, `lastName`: kotlin.String, `personalNumber`: kotlin.String, `careLevel`: kotlin.String) : ClientProfile {
+     suspend fun `addAssignment`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `courseId`: kotlin.String, `title`: kotlin.String, `description`: kotlin.String, `dueDate`: kotlin.String, `maxPoints`: kotlin.Int) : Assignment {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_add_client_via_directory(FfiConverterString.lower(`workspaceId`),FfiConverterOptionalString.lower(`teamId`),FfiConverterString.lower(`firstName`),FfiConverterString.lower(`lastName`),FfiConverterString.lower(`personalNumber`),FfiConverterString.lower(`careLevel`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_add_assignment(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`courseId`),FfiConverterString.lower(`title`),FfiConverterString.lower(`description`),FfiConverterString.lower(`dueDate`),FfiConverterInt.lower(`maxPoints`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeAssignment.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `addClientViaDirectory`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `teamId`: kotlin.String?, `firstName`: kotlin.String, `lastName`: kotlin.String, `personalNumber`: kotlin.String, `careLevel`: kotlin.String) : ClientProfile {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_add_client_via_directory(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterOptionalString.lower(`teamId`),FfiConverterString.lower(`firstName`),FfiConverterString.lower(`lastName`),FfiConverterString.lower(`personalNumber`),FfiConverterString.lower(`careLevel`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
@@ -3328,9 +5834,24 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `addEvent`(`workspaceId`: kotlin.String, `title`: kotlin.String, `startTime`: kotlin.String, `endTime`: kotlin.String, `teamId`: kotlin.String?, `assigneeId`: kotlin.String?, `recipientId`: kotlin.String?) : TeamEvent {
+     suspend fun `addCourse`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `name`: kotlin.String, `subject`: kotlin.String, `teacherId`: kotlin.String?, `classroom`: kotlin.String?) : Course {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_add_event(FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`title`),FfiConverterString.lower(`startTime`),FfiConverterString.lower(`endTime`),FfiConverterOptionalString.lower(`teamId`),FfiConverterOptionalString.lower(`assigneeId`),FfiConverterOptionalString.lower(`recipientId`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_add_course(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`name`),FfiConverterString.lower(`subject`),FfiConverterOptionalString.lower(`teacherId`),FfiConverterOptionalString.lower(`classroom`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeCourse.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `addEvent`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `title`: kotlin.String, `startTime`: kotlin.String, `endTime`: kotlin.String, `teamId`: kotlin.String?, `assigneeId`: kotlin.String?, `recipientId`: kotlin.String?) : TeamEvent {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_add_event(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`title`),FfiConverterString.lower(`startTime`),FfiConverterString.lower(`endTime`),FfiConverterOptionalString.lower(`teamId`),FfiConverterOptionalString.lower(`assigneeId`),FfiConverterOptionalString.lower(`recipientId`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
@@ -3343,9 +5864,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `addEventWithMetadata`(`workspaceId`: kotlin.String, `title`: kotlin.String, `startTime`: kotlin.String, `endTime`: kotlin.String, `teamId`: kotlin.String?, `assigneeId`: kotlin.String?, `recipientId`: kotlin.String?, `metadata`: kotlin.String) : TeamEvent {
+     suspend fun `addEventWithMetadata`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `title`: kotlin.String, `startTime`: kotlin.String, `endTime`: kotlin.String, `teamId`: kotlin.String?, `assigneeId`: kotlin.String?, `recipientId`: kotlin.String?, `metadata`: kotlin.String) : TeamEvent {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_add_event_with_metadata(FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`title`),FfiConverterString.lower(`startTime`),FfiConverterString.lower(`endTime`),FfiConverterOptionalString.lower(`teamId`),FfiConverterOptionalString.lower(`assigneeId`),FfiConverterOptionalString.lower(`recipientId`),FfiConverterString.lower(`metadata`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_add_event_with_metadata(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`title`),FfiConverterString.lower(`startTime`),FfiConverterString.lower(`endTime`),FfiConverterOptionalString.lower(`teamId`),FfiConverterOptionalString.lower(`assigneeId`),FfiConverterOptionalString.lower(`recipientId`),FfiConverterString.lower(`metadata`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
@@ -3373,9 +5894,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `addMedication`(`workspaceId`: kotlin.String, `clientId`: kotlin.String, `name`: kotlin.String, `dosage`: kotlin.String, `frequency`: kotlin.String, `instructions`: kotlin.String) : MedicationItem {
+     suspend fun `addMedication`(`workspaceId`: kotlin.String, `clientId`: kotlin.String, `actorId`: kotlin.String, `name`: kotlin.String, `dosage`: kotlin.String, `frequency`: kotlin.String, `instructions`: kotlin.String) : MedicationItem {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_add_medication(FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`clientId`),FfiConverterString.lower(`name`),FfiConverterString.lower(`dosage`),FfiConverterString.lower(`frequency`),FfiConverterString.lower(`instructions`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_add_medication(FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`clientId`),FfiConverterString.lower(`actorId`),FfiConverterString.lower(`name`),FfiConverterString.lower(`dosage`),FfiConverterString.lower(`frequency`),FfiConverterString.lower(`instructions`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
@@ -3388,9 +5909,24 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `addNote`(`workspaceId`: kotlin.String, `teamId`: kotlin.String, `authorId`: kotlin.String, `subject`: kotlin.String, `content`: kotlin.String) : DailyNote {
+     suspend fun `addMoveInventoryItem`(`requesterUserId`: kotlin.String, `jobTicketId`: kotlin.String, `itemCategory`: kotlin.String, `itemName`: kotlin.String, `quantity`: kotlin.Int, `estimatedVolumeM3`: kotlin.Double, `handlingNotes`: kotlin.String?) : MoveInventoryItem {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_add_note(FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`teamId`),FfiConverterString.lower(`authorId`),FfiConverterString.lower(`subject`),FfiConverterString.lower(`content`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_add_move_inventory_item(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`jobTicketId`),FfiConverterString.lower(`itemCategory`),FfiConverterString.lower(`itemName`),FfiConverterInt.lower(`quantity`),FfiConverterDouble.lower(`estimatedVolumeM3`),FfiConverterOptionalString.lower(`handlingNotes`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeMoveInventoryItem.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `addNote`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `teamId`: kotlin.String, `authorId`: kotlin.String, `subject`: kotlin.String, `content`: kotlin.String) : DailyNote {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_add_note(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`teamId`),FfiConverterString.lower(`authorId`),FfiConverterString.lower(`subject`),FfiConverterString.lower(`content`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
@@ -3418,9 +5954,39 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `addTeamViaDirectory`(`workspaceId`: kotlin.String, `name`: kotlin.String) : Team {
+     suspend fun `addStudent`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `userId`: kotlin.String?, `firstName`: kotlin.String, `lastName`: kotlin.String, `gradeLevel`: kotlin.String, `parentContact`: kotlin.String?) : StudentProfile {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_add_team_via_directory(FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`name`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_add_student(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterOptionalString.lower(`userId`),FfiConverterString.lower(`firstName`),FfiConverterString.lower(`lastName`),FfiConverterString.lower(`gradeLevel`),FfiConverterOptionalString.lower(`parentContact`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeStudentProfile.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `addSubmission`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `assignmentId`: kotlin.String, `studentId`: kotlin.String, `content`: kotlin.String, `grade`: kotlin.String?, `feedback`: kotlin.String?) : Submission {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_add_submission(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`assignmentId`),FfiConverterString.lower(`studentId`),FfiConverterString.lower(`content`),FfiConverterOptionalString.lower(`grade`),FfiConverterOptionalString.lower(`feedback`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeSubmission.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `addTeamViaDirectory`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `name`: kotlin.String) : Team {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_add_team_via_directory(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`name`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
@@ -3433,9 +5999,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `addTimeReport`(`workspaceId`: kotlin.String, `userId`: kotlin.String, `teamId`: kotlin.String?, `date`: kotlin.String, `hours`: kotlin.Double, `note`: kotlin.String, `startTime`: kotlin.String?, `endTime`: kotlin.String?) : TimeReport {
+     suspend fun `addTimeReport`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `userId`: kotlin.String, `teamId`: kotlin.String?, `date`: kotlin.String, `hours`: kotlin.Double, `note`: kotlin.String, `startTime`: kotlin.String?, `endTime`: kotlin.String?) : TimeReport {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_add_time_report(FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`userId`),FfiConverterOptionalString.lower(`teamId`),FfiConverterString.lower(`date`),FfiConverterDouble.lower(`hours`),FfiConverterString.lower(`note`),FfiConverterOptionalString.lower(`startTime`),FfiConverterOptionalString.lower(`endTime`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_add_time_report(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`userId`),FfiConverterOptionalString.lower(`teamId`),FfiConverterString.lower(`date`),FfiConverterDouble.lower(`hours`),FfiConverterString.lower(`note`),FfiConverterOptionalString.lower(`startTime`),FfiConverterOptionalString.lower(`endTime`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
@@ -3448,9 +6014,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `addTodo`(`workspaceId`: kotlin.String, `text`: kotlin.String) : TodoItem {
+     suspend fun `addTodo`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `text`: kotlin.String) : TodoItem {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_add_todo(FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`text`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_add_todo(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`text`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
@@ -3463,47 +6029,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `authenticateWithNfc`(`badgeUid`: kotlin.String) : WorkspaceUser {
+     suspend fun `applyNoteLoroUpdate`(`noteId`: kotlin.String, `updateBytes`: kotlin.ByteArray) {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_authenticate_with_nfc(FfiConverterString.lower(`badgeUid`),),
-        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
-        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
-        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
-        // lift function
-        { FfiConverterTypeWorkspaceUser.lift(it) },
-        // Error FFI converter
-        YntraException.ErrorHandler,
-    )
-    }
-
-    @Throws(YntraException::class)
-    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `authenticateWithSiths`(`cardId`: kotlin.String) : WorkspaceUser {
-        return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_authenticate_with_siths(FfiConverterString.lower(`cardId`),),
-        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
-        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
-        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
-        // lift function
-        { FfiConverterTypeWorkspaceUser.lift(it) },
-        // Error FFI converter
-        YntraException.ErrorHandler,
-    )
-    }
- fun `clearObservers`()
-        = 
-    uniffiRustCall() { _status ->
-    UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_clear_observers(
-        _status)
-}
-    
-    
-
-    @Throws(YntraException::class)
-    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `completeAuthSession`(`sessionId`: kotlin.String, `userId`: kotlin.String) {
-        return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_complete_auth_session(FfiConverterString.lower(`sessionId`),FfiConverterString.lower(`userId`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_apply_note_loro_update(FfiConverterString.lower(`noteId`),FfiConverterByteArray.lower(`updateBytes`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
@@ -3517,14 +6045,137 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `createJobTicket`(`workspaceId`: kotlin.String, `title`: kotlin.String, `description`: kotlin.String, `locationAddress`: kotlin.String, `priority`: kotlin.String, `assignedUserId`: kotlin.String?, `scheduledDate`: kotlin.String, `checklistJson`: kotlin.String) : JobTicket {
+     suspend fun `associateParentStudent`(`requesterUserId`: kotlin.String, `studentId`: kotlin.String, `parentUserId`: kotlin.String) {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_create_job_ticket(FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`title`),FfiConverterString.lower(`description`),FfiConverterString.lower(`locationAddress`),FfiConverterString.lower(`priority`),FfiConverterOptionalString.lower(`assignedUserId`),FfiConverterString.lower(`scheduledDate`),FfiConverterString.lower(`checklistJson`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_associate_parent_student(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`studentId`),FfiConverterString.lower(`parentUserId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `authenticateWithNfc`(`badgeUid`: kotlin.String, `pin`: kotlin.String?) : WorkspaceUser {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_authenticate_with_nfc(FfiConverterString.lower(`badgeUid`),FfiConverterOptionalString.lower(`pin`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeWorkspaceUser.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `authenticateWithSiths`(`cardId`: kotlin.String, `challenge`: kotlin.String?, `signature`: kotlin.String?) : WorkspaceUser {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_authenticate_with_siths(FfiConverterString.lower(`cardId`),FfiConverterOptionalString.lower(`challenge`),FfiConverterOptionalString.lower(`signature`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeWorkspaceUser.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `calculateAndSaveGpa`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `studentId`: kotlin.String, `termName`: kotlin.String) : ReportCard {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_calculate_and_save_gpa(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`studentId`),FfiConverterString.lower(`termName`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeReportCard.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `checkoutLibraryBook`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `bookId`: kotlin.String, `studentId`: kotlin.String, `checkedOutAt`: kotlin.String, `dueDate`: kotlin.String) : LibraryLendingLog {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_checkout_library_book(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`bookId`),FfiConverterString.lower(`studentId`),FfiConverterString.lower(`checkedOutAt`),FfiConverterString.lower(`dueDate`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeLibraryLendingLog.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+ fun `clearObservers`()
+        = 
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_clear_observers(
+        _status)
+}
+    
+    
+ fun `clearSessionKey`()
+        = 
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_clear_session_key(
+        _status)
+}
+    
+    
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `completeAuthSession`(`sessionId`: kotlin.String, `userId`: kotlin.String, `signatureHex`: kotlin.String) {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_complete_auth_session(FfiConverterString.lower(`sessionId`),FfiConverterString.lower(`userId`),FfiConverterString.lower(`signatureHex`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `createJobTicket`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `title`: kotlin.String, `description`: kotlin.String, `locationAddress`: kotlin.String, `priority`: kotlin.String, `assignedUserId`: kotlin.String?, `scheduledDate`: kotlin.String, `checklistJson`: kotlin.String, `originAddress`: kotlin.String?, `destinationAddress`: kotlin.String?, `originFloor`: kotlin.Int, `destinationFloor`: kotlin.Int, `originHasElevator`: kotlin.Boolean, `destinationHasElevator`: kotlin.Boolean, `originParkingPermitNeeded`: kotlin.Boolean, `destinationParkingPermitNeeded`: kotlin.Boolean) : JobTicket {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_create_job_ticket(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`title`),FfiConverterString.lower(`description`),FfiConverterString.lower(`locationAddress`),FfiConverterString.lower(`priority`),FfiConverterOptionalString.lower(`assignedUserId`),FfiConverterString.lower(`scheduledDate`),FfiConverterString.lower(`checklistJson`),FfiConverterOptionalString.lower(`originAddress`),FfiConverterOptionalString.lower(`destinationAddress`),FfiConverterInt.lower(`originFloor`),FfiConverterInt.lower(`destinationFloor`),FfiConverterBoolean.lower(`originHasElevator`),FfiConverterBoolean.lower(`destinationHasElevator`),FfiConverterBoolean.lower(`originParkingPermitNeeded`),FfiConverterBoolean.lower(`destinationParkingPermitNeeded`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
         // lift function
         { FfiConverterTypeJobTicket.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `createOrUpdateMoveQuote`(`requesterUserId`: kotlin.String, `jobTicketId`: kotlin.String, `basePrice`: kotlin.Double, `distanceFee`: kotlin.Double, `stairsSurcharge`: kotlin.Double, `packingSuppliesFee`: kotlin.Double, `status`: kotlin.String) : MoveQuote {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_create_or_update_move_quote(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`jobTicketId`),FfiConverterDouble.lower(`basePrice`),FfiConverterDouble.lower(`distanceFee`),FfiConverterDouble.lower(`stairsSurcharge`),FfiConverterDouble.lower(`packingSuppliesFee`),FfiConverterString.lower(`status`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeMoveQuote.lift(it) },
         // Error FFI converter
         YntraException.ErrorHandler,
     )
@@ -3548,9 +6199,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `deleteEvent`(`id`: kotlin.String) {
+     suspend fun `deleteClient`(`requesterUserId`: kotlin.String, `clientId`: kotlin.String) {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_delete_event(FfiConverterString.lower(`id`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_delete_client(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`clientId`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
@@ -3564,9 +6215,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `deleteNote`(`noteId`: kotlin.String) {
+     suspend fun `deleteEvent`(`requesterUserId`: kotlin.String, `id`: kotlin.String) {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_delete_note(FfiConverterString.lower(`noteId`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_delete_event(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`id`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
@@ -3580,9 +6231,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `deleteTimeReport`(`id`: kotlin.String) {
+     suspend fun `deleteNote`(`requesterUserId`: kotlin.String, `noteId`: kotlin.String) {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_delete_time_report(FfiConverterString.lower(`id`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_delete_note(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`noteId`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
@@ -3596,9 +6247,57 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `deleteWorkspaceViaHub`(`workspaceId`: kotlin.String) {
+     suspend fun `deleteTimeReport`(`requesterUserId`: kotlin.String, `id`: kotlin.String) {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_delete_workspace_via_hub(FfiConverterString.lower(`workspaceId`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_delete_time_report(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`id`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `deleteTimetableSlot`(`requesterUserId`: kotlin.String, `id`: kotlin.String) {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_delete_timetable_slot(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`id`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `deleteUser`(`requesterUserId`: kotlin.String, `userId`: kotlin.String) {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_delete_user(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`userId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `deleteWorkspaceViaHub`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String) {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_delete_workspace_via_hub(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
@@ -3625,6 +6324,16 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
         YntraException.ErrorHandler,
     )
     }
+
+    @Throws(YntraException::class) fun `generateRoleSignature`(`privateKeyHex`: kotlin.String, `userId`: kotlin.String, `role`: kotlin.String, `workspaceId`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(YntraException) { _status ->
+    UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_generate_role_signature(
+        FfiConverterString.lower(`privateKeyHex`),FfiConverterString.lower(`userId`),FfiConverterString.lower(`role`),FfiConverterString.lower(`workspaceId`),_status)
+}
+    )
+    }
+    
  fun `generateTotpSecret`(): kotlin.String {
             return FfiConverterString.lift(
     uniffiRustCall() { _status ->
@@ -3634,6 +6343,51 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
     )
     }
     
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getAssignments`(`requesterUserId`: kotlin.String, `courseId`: kotlin.String) : List<Assignment> {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_assignments(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`courseId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterSequenceTypeAssignment.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getAttendance`(`requesterUserId`: kotlin.String, `courseId`: kotlin.String, `date`: kotlin.String) : List<AttendanceRecord> {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_attendance(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`courseId`),FfiConverterString.lower(`date`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterSequenceTypeAttendanceRecord.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getAuditLogs`(`requesterUserId`: kotlin.String) : List<AuditLogEntry> {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_audit_logs(FfiConverterString.lower(`requesterUserId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterSequenceTypeAuditLogEntry.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
@@ -3667,9 +6421,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `getClients`() : List<ClientProfile> {
+     suspend fun `getClients`(`requesterUserId`: kotlin.String) : List<ClientProfile> {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_clients(),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_clients(FfiConverterString.lower(`requesterUserId`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
@@ -3682,9 +6436,34 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `getEvents`(`teamId`: kotlin.String?) : List<TeamEvent> {
+     suspend fun `getCourses`(`requesterUserId`: kotlin.String) : List<Course> {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_events(FfiConverterOptionalString.lower(`teamId`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_courses(FfiConverterString.lower(`requesterUserId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterSequenceTypeCourse.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class) fun `getDefaultRolesJson`(`workspaceType`: kotlin.String, `careSubtype`: kotlin.String?, `isScandi`: kotlin.Boolean): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(YntraException) { _status ->
+    UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_default_roles_json(
+        FfiConverterString.lower(`workspaceType`),FfiConverterOptionalString.lower(`careSubtype`),FfiConverterBoolean.lower(`isScandi`),_status)
+}
+    )
+    }
+    
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getEvents`(`requesterUserId`: kotlin.String, `teamId`: kotlin.String?) : List<TeamEvent> {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_events(FfiConverterString.lower(`requesterUserId`),FfiConverterOptionalString.lower(`teamId`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
@@ -3697,9 +6476,39 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `getJobTickets`() : List<JobTicket> {
+     suspend fun `getHealthIncidents`(`requesterUserId`: kotlin.String, `studentId`: kotlin.String) : List<HealthIncident> {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_job_tickets(),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_health_incidents(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`studentId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterSequenceTypeHealthIncident.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getHealthRecords`(`requesterUserId`: kotlin.String, `studentId`: kotlin.String) : List<HealthRecord> {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_health_records(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`studentId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterSequenceTypeHealthRecord.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getJobTickets`(`requesterUserId`: kotlin.String) : List<JobTicket> {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_job_tickets(FfiConverterString.lower(`requesterUserId`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
@@ -3712,9 +6521,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `getJournals`(`clientId`: kotlin.String) : List<JournalEntry> {
+     suspend fun `getJournals`(`clientId`: kotlin.String, `actorId`: kotlin.String) : List<JournalEntry> {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_journals(FfiConverterString.lower(`clientId`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_journals(FfiConverterString.lower(`clientId`),FfiConverterString.lower(`actorId`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
@@ -3727,9 +6536,39 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `getMedications`(`clientId`: kotlin.String) : List<MedicationItem> {
+     suspend fun `getLibraryBooks`(`requesterUserId`: kotlin.String) : List<LibraryBook> {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_medications(FfiConverterString.lower(`clientId`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_library_books(FfiConverterString.lower(`requesterUserId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterSequenceTypeLibraryBook.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getLibraryLendingLogs`(`requesterUserId`: kotlin.String, `studentId`: kotlin.String?) : List<LibraryLendingLog> {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_library_lending_logs(FfiConverterString.lower(`requesterUserId`),FfiConverterOptionalString.lower(`studentId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterSequenceTypeLibraryLendingLog.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getMedications`(`clientId`: kotlin.String, `actorId`: kotlin.String) : List<MedicationItem> {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_medications(FfiConverterString.lower(`clientId`),FfiConverterString.lower(`actorId`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
@@ -3742,9 +6581,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `getMessages`(`userId`: kotlin.String) : List<MessageItem> {
+     suspend fun `getMessages`(`requesterUserId`: kotlin.String, `userId`: kotlin.String) : List<MessageItem> {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_messages(FfiConverterString.lower(`userId`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_messages(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`userId`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
@@ -3757,9 +6596,54 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `getNotes`(`teamId`: kotlin.String?) : List<DailyNote> {
+     suspend fun `getMoveInventory`(`requesterUserId`: kotlin.String, `jobTicketId`: kotlin.String) : List<MoveInventoryItem> {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_notes(FfiConverterOptionalString.lower(`teamId`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_move_inventory(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`jobTicketId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterSequenceTypeMoveInventoryItem.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getMoveQuote`(`requesterUserId`: kotlin.String, `jobTicketId`: kotlin.String) : MoveQuote? {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_move_quote(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`jobTicketId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterOptionalTypeMoveQuote.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getNoteLoroState`(`noteId`: kotlin.String) : kotlin.ByteArray {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_note_loro_state(FfiConverterString.lower(`noteId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterByteArray.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getNotes`(`requesterUserId`: kotlin.String, `teamId`: kotlin.String?) : List<DailyNote> {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_notes(FfiConverterString.lower(`requesterUserId`),FfiConverterOptionalString.lower(`teamId`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
@@ -3772,9 +6656,39 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `getReports`(`isAdmin`: kotlin.Boolean, `userId`: kotlin.String) : List<ReportItem> {
+     suspend fun `getParentStudents`(`requesterUserId`: kotlin.String, `parentUserId`: kotlin.String) : List<StudentProfile> {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_reports(FfiConverterBoolean.lower(`isAdmin`),FfiConverterString.lower(`userId`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_parent_students(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`parentUserId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterSequenceTypeStudentProfile.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getReportCards`(`requesterUserId`: kotlin.String, `studentId`: kotlin.String) : List<ReportCard> {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_report_cards(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`studentId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterSequenceTypeReportCard.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getReports`(`requesterUserId`: kotlin.String, `anonymousReportIds`: List<kotlin.String>) : List<ReportItem> {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_reports(FfiConverterString.lower(`requesterUserId`),FfiConverterSequenceString.lower(`anonymousReportIds`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
@@ -3787,9 +6701,99 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `getTeams`() : List<Team> {
+     suspend fun `getSchoolInvoices`(`requesterUserId`: kotlin.String, `studentId`: kotlin.String) : List<SchoolInvoice> {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_teams(),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_school_invoices(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`studentId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterSequenceTypeSchoolInvoice.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getSchoolPayments`(`requesterUserId`: kotlin.String, `invoiceId`: kotlin.String) : List<SchoolPayment> {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_school_payments(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`invoiceId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterSequenceTypeSchoolPayment.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getStudentAttendance`(`requesterUserId`: kotlin.String, `studentId`: kotlin.String) : List<AttendanceRecord> {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_student_attendance(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`studentId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterSequenceTypeAttendanceRecord.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getStudents`(`requesterUserId`: kotlin.String) : List<StudentProfile> {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_students(FfiConverterString.lower(`requesterUserId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterSequenceTypeStudentProfile.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getSubmissions`(`requesterUserId`: kotlin.String, `assignmentId`: kotlin.String) : List<Submission> {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_submissions(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`assignmentId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterSequenceTypeSubmission.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getSupabaseUserEmail`(`token`: kotlin.String) : kotlin.String {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_supabase_user_email(FfiConverterString.lower(`token`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterString.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getTeams`(`requesterUserId`: kotlin.String) : List<Team> {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_teams(FfiConverterString.lower(`requesterUserId`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
@@ -3802,9 +6806,24 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `getTimeReports`(`userId`: kotlin.String?) : List<TimeReport> {
+     suspend fun `getTermGrades`(`requesterUserId`: kotlin.String, `studentId`: kotlin.String, `termName`: kotlin.String) : List<TermGrade> {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_time_reports(FfiConverterOptionalString.lower(`userId`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_term_grades(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`studentId`),FfiConverterString.lower(`termName`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterSequenceTypeTermGrade.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getTimeReports`(`requesterUserId`: kotlin.String, `userId`: kotlin.String?) : List<TimeReport> {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_time_reports(FfiConverterString.lower(`requesterUserId`),FfiConverterOptionalString.lower(`userId`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
@@ -3817,9 +6836,24 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `getTodos`() : List<TodoItem> {
+     suspend fun `getTimetableSlots`(`requesterUserId`: kotlin.String) : List<TimetableSlot> {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_todos(),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_timetable_slots(FfiConverterString.lower(`requesterUserId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterSequenceTypeTimetableSlot.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getTodos`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String) : List<TodoItem> {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_todos(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
@@ -3832,9 +6866,24 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `getUsers`() : List<WorkspaceUser> {
+     suspend fun `getUserByEmail`(`email`: kotlin.String) : WorkspaceUser? {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_users(),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_user_by_email(FfiConverterString.lower(`email`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterOptionalTypeWorkspaceUser.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getUsers`(`requesterUserId`: kotlin.String) : List<WorkspaceUser> {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_users(FfiConverterString.lower(`requesterUserId`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
@@ -3862,9 +6911,24 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `getWorkspaces`() : List<Workspace> {
+     suspend fun `getWorkspaceTemplateType`(`workspaceId`: kotlin.String) : WorkspaceTemplateType {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_workspaces(),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_workspace_template_type(FfiConverterString.lower(`workspaceId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeWorkspaceTemplateType.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getWorkspaces`(`requesterUserId`: kotlin.String) : List<Workspace> {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_workspaces(FfiConverterString.lower(`requesterUserId`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
@@ -3874,6 +6938,24 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
         YntraException.ErrorHandler,
     )
     }
+
+    @Throws(YntraException::class) fun `initTracing`()
+        = 
+    uniffiRustCallWithError(YntraException) { _status ->
+    UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_init_tracing(
+        _status)
+}
+    
+    
+ fun `initializeSystemSalt`(`salt`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_initialize_system_salt(
+        FfiConverterString.lower(`salt`),_status)
+}
+    )
+    }
+    
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
@@ -3892,9 +6974,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `inviteUserViaDirectory`(`workspaceId`: kotlin.String, `email`: kotlin.String, `name`: kotlin.String, `role`: kotlin.String) : WorkspaceUser {
+     suspend fun `inviteUserViaDirectory`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `email`: kotlin.String, `name`: kotlin.String, `role`: kotlin.String) : WorkspaceUser {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_invite_user_via_directory(FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`email`),FfiConverterString.lower(`name`),FfiConverterString.lower(`role`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_invite_user_via_directory(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`email`),FfiConverterString.lower(`name`),FfiConverterString.lower(`role`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
@@ -3907,15 +6989,71 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `markMessageRead`(`id`: kotlin.String) {
+     suspend fun `logAction`(`actorId`: kotlin.String, `targetClientId`: kotlin.String?, `actionType`: kotlin.String) : AuditLogEntry {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_mark_message_read(FfiConverterString.lower(`id`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_log_action(FfiConverterString.lower(`actorId`),FfiConverterOptionalString.lower(`targetClientId`),FfiConverterString.lower(`actionType`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeAuditLogEntry.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `markMessageRead`(`requesterUserId`: kotlin.String, `id`: kotlin.String) {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_mark_message_read(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`id`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
         // lift function
         { Unit },
         
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class) fun `mergeLoroNotes`(`state1`: kotlin.String, `state2`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(YntraException) { _status ->
+    UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_merge_loro_notes(
+        FfiConverterString.lower(`state1`),FfiConverterString.lower(`state2`),_status)
+}
+    )
+    }
+    
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `publishReportCard`(`requesterUserId`: kotlin.String, `reportCardId`: kotlin.String, `principalComments`: kotlin.String?) {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_publish_report_card(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`reportCardId`),FfiConverterOptionalString.lower(`principalComments`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `recordSchoolPayment`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `invoiceId`: kotlin.String, `amount`: kotlin.Double, `paymentMethod`: kotlin.String, `paidAt`: kotlin.String) : SchoolPayment {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_record_school_payment(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`invoiceId`),FfiConverterDouble.lower(`amount`),FfiConverterString.lower(`paymentMethod`),FfiConverterString.lower(`paidAt`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeSchoolPayment.lift(it) },
         // Error FFI converter
         YntraException.ErrorHandler,
     )
@@ -3931,14 +7069,14 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `sendMessage`(`workspaceId`: kotlin.String, `senderId`: kotlin.String, `receiverId`: kotlin.String?, `teamId`: kotlin.String?, `subject`: kotlin.String, `body`: kotlin.String) : MessageItem {
+     suspend fun `returnLibraryBook`(`requesterUserId`: kotlin.String, `logId`: kotlin.String, `returnedAt`: kotlin.String) : LibraryLendingLog {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_send_message(FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`senderId`),FfiConverterOptionalString.lower(`receiverId`),FfiConverterOptionalString.lower(`teamId`),FfiConverterString.lower(`subject`),FfiConverterString.lower(`body`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_return_library_book(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`logId`),FfiConverterString.lower(`returnedAt`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
         // lift function
-        { FfiConverterTypeMessageItem.lift(it) },
+        { FfiConverterTypeLibraryLendingLog.lift(it) },
         // Error FFI converter
         YntraException.ErrorHandler,
     )
@@ -3946,9 +7084,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `setUserPassword`(`userId`: kotlin.String, `password`: kotlin.String) {
+     suspend fun `runHardwareAuthSimulation`(`sessionId`: kotlin.String, `provider`: kotlin.String) {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_set_user_password(FfiConverterString.lower(`userId`),FfiConverterString.lower(`password`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_run_hardware_auth_simulation(FfiConverterString.lower(`sessionId`),FfiConverterString.lower(`provider`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
@@ -3959,6 +7097,159 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
         YntraException.ErrorHandler,
     )
     }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `saveAttendanceRecord`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `studentId`: kotlin.String, `courseId`: kotlin.String, `date`: kotlin.String, `status`: kotlin.String, `notes`: kotlin.String?) : AttendanceRecord {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_save_attendance_record(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`studentId`),FfiConverterString.lower(`courseId`),FfiConverterString.lower(`date`),FfiConverterString.lower(`status`),FfiConverterOptionalString.lower(`notes`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeAttendanceRecord.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `saveHealthIncident`(`requesterUserId`: kotlin.String, `id`: kotlin.String?, `workspaceId`: kotlin.String, `studentId`: kotlin.String, `visitReason`: kotlin.String, `treatment`: kotlin.String, `checkedInAt`: kotlin.String, `checkedOutAt`: kotlin.String?, `notes`: kotlin.String?) : HealthIncident {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_save_health_incident(FfiConverterString.lower(`requesterUserId`),FfiConverterOptionalString.lower(`id`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`studentId`),FfiConverterString.lower(`visitReason`),FfiConverterString.lower(`treatment`),FfiConverterString.lower(`checkedInAt`),FfiConverterOptionalString.lower(`checkedOutAt`),FfiConverterOptionalString.lower(`notes`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeHealthIncident.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `saveHealthRecord`(`requesterUserId`: kotlin.String, `id`: kotlin.String?, `workspaceId`: kotlin.String, `studentId`: kotlin.String, `vaccineName`: kotlin.String, `status`: kotlin.String, `administeredAt`: kotlin.String?) : HealthRecord {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_save_health_record(FfiConverterString.lower(`requesterUserId`),FfiConverterOptionalString.lower(`id`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`studentId`),FfiConverterString.lower(`vaccineName`),FfiConverterString.lower(`status`),FfiConverterOptionalString.lower(`administeredAt`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeHealthRecord.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `saveLibraryBook`(`requesterUserId`: kotlin.String, `id`: kotlin.String?, `workspaceId`: kotlin.String, `title`: kotlin.String, `author`: kotlin.String, `isbn`: kotlin.String, `copiesAvailable`: kotlin.Int, `totalCopies`: kotlin.Int) : LibraryBook {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_save_library_book(FfiConverterString.lower(`requesterUserId`),FfiConverterOptionalString.lower(`id`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`title`),FfiConverterString.lower(`author`),FfiConverterString.lower(`isbn`),FfiConverterInt.lower(`copiesAvailable`),FfiConverterInt.lower(`totalCopies`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeLibraryBook.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `saveSchoolInvoice`(`requesterUserId`: kotlin.String, `id`: kotlin.String?, `workspaceId`: kotlin.String, `studentId`: kotlin.String, `title`: kotlin.String, `amount`: kotlin.Double, `dueDate`: kotlin.String, `status`: kotlin.String, `paidAt`: kotlin.String?) : SchoolInvoice {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_save_school_invoice(FfiConverterString.lower(`requesterUserId`),FfiConverterOptionalString.lower(`id`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`studentId`),FfiConverterString.lower(`title`),FfiConverterDouble.lower(`amount`),FfiConverterString.lower(`dueDate`),FfiConverterString.lower(`status`),FfiConverterOptionalString.lower(`paidAt`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeSchoolInvoice.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `saveTermGrade`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `studentId`: kotlin.String, `courseId`: kotlin.String, `termName`: kotlin.String, `finalGrade`: kotlin.String?, `finalPoints`: kotlin.Int?, `teacherComments`: kotlin.String?) : TermGrade {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_save_term_grade(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`studentId`),FfiConverterString.lower(`courseId`),FfiConverterString.lower(`termName`),FfiConverterOptionalString.lower(`finalGrade`),FfiConverterOptionalInt.lower(`finalPoints`),FfiConverterOptionalString.lower(`teacherComments`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeTermGrade.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `saveTimetableSlot`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `courseId`: kotlin.String, `dayOfWeek`: kotlin.Int, `startTime`: kotlin.String, `endTime`: kotlin.String, `classroom`: kotlin.String?) : TimetableSlot {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_save_timetable_slot(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`courseId`),FfiConverterInt.lower(`dayOfWeek`),FfiConverterString.lower(`startTime`),FfiConverterString.lower(`endTime`),FfiConverterOptionalString.lower(`classroom`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeTimetableSlot.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `sendMessage`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `senderId`: kotlin.String, `receiverId`: kotlin.String?, `teamId`: kotlin.String?, `subject`: kotlin.String, `body`: kotlin.String) : MessageItem {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_send_message(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`senderId`),FfiConverterOptionalString.lower(`receiverId`),FfiConverterOptionalString.lower(`teamId`),FfiConverterString.lower(`subject`),FfiConverterString.lower(`body`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeMessageItem.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+ fun `setSessionKey`(`keyBytes`: kotlin.ByteArray): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_set_session_key(
+        FfiConverterByteArray.lower(`keyBytes`),_status)
+}
+    )
+    }
+    
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `setUserPassword`(`requesterUserId`: kotlin.String, `userId`: kotlin.String, `password`: kotlin.String) {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_set_user_password(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`userId`),FfiConverterString.lower(`password`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+ fun `startBackgroundSync`(`intervalSecs`: kotlin.UInt)
+        = 
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_start_background_sync(
+        FfiConverterUInt.lower(`intervalSecs`),_status)
+}
+    
+    
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
@@ -3978,9 +7269,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `submitJobCompletion`(`jobId`: kotlin.String, `checklistJson`: kotlin.String, `completionReport`: kotlin.String) {
+     suspend fun `submitJobCompletion`(`requesterUserId`: kotlin.String, `jobId`: kotlin.String, `checklistJson`: kotlin.String, `completionReport`: kotlin.String) {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_submit_job_completion(FfiConverterString.lower(`jobId`),FfiConverterString.lower(`checklistJson`),FfiConverterString.lower(`completionReport`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_submit_job_completion(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`jobId`),FfiConverterString.lower(`checklistJson`),FfiConverterString.lower(`completionReport`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
@@ -4003,9 +7294,25 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `toggleTodo`(`id`: kotlin.String) {
+     suspend fun `syncTimetableToCalendar`(`workspaceId`: kotlin.String, `userId`: kotlin.String) {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_toggle_todo(FfiConverterString.lower(`id`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_sync_timetable_to_calendar(FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`userId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `toggleTodo`(`requesterUserId`: kotlin.String, `id`: kotlin.String) {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_toggle_todo(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`id`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
@@ -4035,9 +7342,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `updateClientProfile`(`clientId`: kotlin.String, `firstName`: kotlin.String, `lastName`: kotlin.String, `personalNumber`: kotlin.String?, `careLevel`: kotlin.String?) {
+     suspend fun `updateClientProfile`(`requesterUserId`: kotlin.String, `clientId`: kotlin.String, `firstName`: kotlin.String, `lastName`: kotlin.String, `personalNumber`: kotlin.String?, `careLevel`: kotlin.String?) {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_client_profile(FfiConverterString.lower(`clientId`),FfiConverterString.lower(`firstName`),FfiConverterString.lower(`lastName`),FfiConverterOptionalString.lower(`personalNumber`),FfiConverterOptionalString.lower(`careLevel`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_client_profile(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`clientId`),FfiConverterString.lower(`firstName`),FfiConverterString.lower(`lastName`),FfiConverterOptionalString.lower(`personalNumber`),FfiConverterOptionalString.lower(`careLevel`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
@@ -4051,9 +7358,24 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `updateEvent`(`id`: kotlin.String, `title`: kotlin.String, `startTime`: kotlin.String, `endTime`: kotlin.String, `teamId`: kotlin.String?, `assigneeId`: kotlin.String?, `recipientId`: kotlin.String?, `metadata`: kotlin.String) {
+     suspend fun `updateCourse`(`requesterUserId`: kotlin.String, `id`: kotlin.String, `name`: kotlin.String, `subject`: kotlin.String, `teacherId`: kotlin.String?, `classroom`: kotlin.String?) : Course {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_event(FfiConverterString.lower(`id`),FfiConverterString.lower(`title`),FfiConverterString.lower(`startTime`),FfiConverterString.lower(`endTime`),FfiConverterOptionalString.lower(`teamId`),FfiConverterOptionalString.lower(`assigneeId`),FfiConverterOptionalString.lower(`recipientId`),FfiConverterString.lower(`metadata`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_course(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`id`),FfiConverterString.lower(`name`),FfiConverterString.lower(`subject`),FfiConverterOptionalString.lower(`teacherId`),FfiConverterOptionalString.lower(`classroom`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeCourse.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `updateEvent`(`requesterUserId`: kotlin.String, `id`: kotlin.String, `title`: kotlin.String, `startTime`: kotlin.String, `endTime`: kotlin.String, `teamId`: kotlin.String?, `assigneeId`: kotlin.String?, `recipientId`: kotlin.String?, `metadata`: kotlin.String) {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_event(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`id`),FfiConverterString.lower(`title`),FfiConverterString.lower(`startTime`),FfiConverterString.lower(`endTime`),FfiConverterOptionalString.lower(`teamId`),FfiConverterOptionalString.lower(`assigneeId`),FfiConverterOptionalString.lower(`recipientId`),FfiConverterString.lower(`metadata`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
@@ -4067,9 +7389,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `updateEventTime`(`id`: kotlin.String, `startTime`: kotlin.String, `endTime`: kotlin.String) {
+     suspend fun `updateEventTime`(`requesterUserId`: kotlin.String, `id`: kotlin.String, `startTime`: kotlin.String, `endTime`: kotlin.String) {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_event_time(FfiConverterString.lower(`id`),FfiConverterString.lower(`startTime`),FfiConverterString.lower(`endTime`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_event_time(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`id`),FfiConverterString.lower(`startTime`),FfiConverterString.lower(`endTime`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
@@ -4083,9 +7405,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `updateJobStatus`(`jobId`: kotlin.String, `status`: kotlin.String) {
+     suspend fun `updateJobStatus`(`requesterUserId`: kotlin.String, `jobId`: kotlin.String, `status`: kotlin.String) {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_job_status(FfiConverterString.lower(`jobId`),FfiConverterString.lower(`status`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_job_status(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`jobId`),FfiConverterString.lower(`status`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
@@ -4099,9 +7421,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `updateNote`(`noteId`: kotlin.String, `editedByName`: kotlin.String, `subject`: kotlin.String, `content`: kotlin.String) : DailyNote {
+     suspend fun `updateNote`(`requesterUserId`: kotlin.String, `noteId`: kotlin.String, `editedByName`: kotlin.String, `subject`: kotlin.String, `content`: kotlin.String) : DailyNote {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_note(FfiConverterString.lower(`noteId`),FfiConverterString.lower(`editedByName`),FfiConverterString.lower(`subject`),FfiConverterString.lower(`content`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_note(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`noteId`),FfiConverterString.lower(`editedByName`),FfiConverterString.lower(`subject`),FfiConverterString.lower(`content`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
@@ -4114,9 +7436,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `updateReportStatus`(`reportId`: kotlin.String, `status`: kotlin.String) {
+     suspend fun `updateReportStatus`(`requesterUserId`: kotlin.String, `reportId`: kotlin.String, `status`: kotlin.String) {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_report_status(FfiConverterString.lower(`reportId`),FfiConverterString.lower(`status`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_report_status(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`reportId`),FfiConverterString.lower(`status`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
@@ -4130,9 +7452,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `updateTimeReportStatus`(`id`: kotlin.String, `status`: kotlin.String) {
+     suspend fun `updateSubmissionGrade`(`requesterUserId`: kotlin.String, `submissionId`: kotlin.String, `grade`: kotlin.String?, `feedback`: kotlin.String?) {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_time_report_status(FfiConverterString.lower(`id`),FfiConverterString.lower(`status`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_submission_grade(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`submissionId`),FfiConverterOptionalString.lower(`grade`),FfiConverterOptionalString.lower(`feedback`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
@@ -4146,9 +7468,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `updateUserProfile`(`userId`: kotlin.String, `fullName`: kotlin.String?, `phone`: kotlin.String?, `preferences`: kotlin.String) {
+     suspend fun `updateTimeReportStatus`(`requesterUserId`: kotlin.String, `id`: kotlin.String, `status`: kotlin.String) {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_user_profile(FfiConverterString.lower(`userId`),FfiConverterOptionalString.lower(`fullName`),FfiConverterOptionalString.lower(`phone`),FfiConverterString.lower(`preferences`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_time_report_status(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`id`),FfiConverterString.lower(`status`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
@@ -4162,9 +7484,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `updateUserRole`(`userId`: kotlin.String, `role`: kotlin.String) {
+     suspend fun `updateUserProfile`(`requesterUserId`: kotlin.String, `userId`: kotlin.String, `fullName`: kotlin.String?, `phone`: kotlin.String?, `preferences`: kotlin.String) {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_user_role(FfiConverterString.lower(`userId`),FfiConverterString.lower(`role`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_user_profile(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`userId`),FfiConverterOptionalString.lower(`fullName`),FfiConverterOptionalString.lower(`phone`),FfiConverterString.lower(`preferences`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
@@ -4178,9 +7500,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `updateUserViaDirectory`(`userId`: kotlin.String, `fullName`: kotlin.String?, `phone`: kotlin.String?, `role`: kotlin.String) {
+     suspend fun `updateUserRole`(`requesterUserId`: kotlin.String, `userId`: kotlin.String, `role`: kotlin.String) {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_user_via_directory(FfiConverterString.lower(`userId`),FfiConverterOptionalString.lower(`fullName`),FfiConverterOptionalString.lower(`phone`),FfiConverterString.lower(`role`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_user_role(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`userId`),FfiConverterString.lower(`role`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
@@ -4194,9 +7516,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `updateWorkspaceGeneral`(`workspaceId`: kotlin.String, `name`: kotlin.String, `brandColor`: kotlin.String, `logoUrl`: kotlin.String?) {
+     suspend fun `updateUserViaDirectory`(`requesterUserId`: kotlin.String, `userId`: kotlin.String, `fullName`: kotlin.String?, `phone`: kotlin.String?, `role`: kotlin.String) {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_workspace_general(FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`name`),FfiConverterString.lower(`brandColor`),FfiConverterOptionalString.lower(`logoUrl`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_user_via_directory(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`userId`),FfiConverterOptionalString.lower(`fullName`),FfiConverterOptionalString.lower(`phone`),FfiConverterString.lower(`role`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
@@ -4210,9 +7532,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `updateWorkspaceModules`(`workspaceId`: kotlin.String, `modulesJson`: kotlin.String) {
+     suspend fun `updateWorkspaceBlockSettings`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `blockSettingsJson`: kotlin.String) {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_workspace_modules(FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`modulesJson`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_workspace_block_settings(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`blockSettingsJson`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
@@ -4226,15 +7548,62 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `updateWorkspaceSettings`(`workspaceId`: kotlin.String, `settingsJson`: kotlin.String) {
+     suspend fun `updateWorkspaceGeneral`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `name`: kotlin.String, `brandColor`: kotlin.String, `logoUrl`: kotlin.String?) {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_workspace_settings(FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`settingsJson`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_workspace_general(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`name`),FfiConverterString.lower(`brandColor`),FfiConverterOptionalString.lower(`logoUrl`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
         // lift function
         { Unit },
         
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `updateWorkspaceModules`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `modulesJson`: kotlin.String) {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_workspace_modules(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`modulesJson`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `updateWorkspaceSettings`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `settingsJson`: kotlin.String) {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_workspace_settings(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`settingsJson`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `verifyAuditLogChain`() : kotlin.Boolean {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_verify_audit_log_chain(),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_i8(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_i8(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_i8(future) },
+        // lift function
+        { FfiConverterBoolean.lift(it) },
         // Error FFI converter
         YntraException.ErrorHandler,
     )
@@ -4254,6 +7623,31 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
         YntraException.ErrorHandler,
     )
     }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `verifyHardwareAuthSignature`(`sessionId`: kotlin.String, `publicKeyHex`: kotlin.String, `signatureHex`: kotlin.String) {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_verify_hardware_auth_signature(FfiConverterString.lower(`sessionId`),FfiConverterString.lower(`publicKeyHex`),FfiConverterString.lower(`signatureHex`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+ fun `verifyRoleSignature`(`publicKeyHex`: kotlin.String, `userId`: kotlin.String, `role`: kotlin.String, `workspaceId`: kotlin.String, `signatureHex`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_verify_role_signature(
+        FfiConverterString.lower(`publicKeyHex`),FfiConverterString.lower(`userId`),FfiConverterString.lower(`role`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`signatureHex`),_status)
+}
+    )
+    }
+    
  fun `verifyUserTotp`(`secret`: kotlin.String, `code`: kotlin.String): kotlin.Boolean {
             return FfiConverterBoolean.lift(
     uniffiRustCall() { _status ->
