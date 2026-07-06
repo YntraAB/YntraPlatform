@@ -8,6 +8,14 @@ pub struct InputProps {
     pub oninput: EventHandler<FormEvent>,
     #[props(default = String::new())]
     pub class: String,
+    #[props(default = String::new())]
+    pub id: String,
+    #[props(default = "text".to_string())]
+    pub r#type: String,
+    #[props(default = String::new())]
+    pub aria_label: String,
+    #[props(default = String::new())]
+    pub aria_describedby: String,
 }
 
 #[component]
@@ -15,10 +23,13 @@ pub fn Input(props: InputProps) -> Element {
     rsx! {
         input {
             class: "yntra-input {props.class}",
-            r#type: "text",
+            r#type: "{props.r#type}",
             placeholder: "{props.placeholder}",
             value: "{props.value}",
             oninput: move |evt| props.oninput.call(evt),
+            id: if props.id.is_empty() { None } else { Some(props.id.clone()) },
+            aria_label: if props.aria_label.is_empty() { None } else { Some(props.aria_label.clone()) },
+            aria_describedby: if props.aria_describedby.is_empty() { None } else { Some(props.aria_describedby.clone()) },
             style {
                 r#"
                 .yntra-input {{

@@ -128,10 +128,13 @@ pub fn SetupView(props: SetupViewProps) -> Element {
 
                 div { class: "flex flex-col gap-3.5 mt-4",
                     div {
-                        label { class: "text-xs font-bold text-muted-foreground mb-1 block",
+                        label { 
+                            class: "text-xs font-bold text-muted-foreground mb-1 block",
+                            r#for: "setup-full-name",
                             "{t(\"auth-setup-full-name\", &region)}"
                         }
                         components::Input {
+                            id: "setup-full-name".to_string(),
                             placeholder: t("auth-setup-full-name", &region).to_string(),
                             value: full_name.read().clone(),
                             oninput: move |e: FormEvent| full_name.set(e.value()),
@@ -139,10 +142,13 @@ pub fn SetupView(props: SetupViewProps) -> Element {
                     }
 
                     div {
-                        label { class: "text-xs font-bold text-muted-foreground mb-1 block",
+                        label { 
+                            class: "text-xs font-bold text-muted-foreground mb-1 block",
+                            r#for: "setup-phone",
                             "{t(\"auth-setup-phone-optional\", &region)}"
                         }
                         components::Input {
+                            id: "setup-phone".to_string(),
                             placeholder: "+46 70 123 45 67".to_string(),
                             value: phone.read().clone(),
                             oninput: move |e: FormEvent| phone.set(e.value()),
@@ -150,26 +156,30 @@ pub fn SetupView(props: SetupViewProps) -> Element {
                     }
 
                     div {
-                        label { class: "text-xs font-bold text-muted-foreground mb-1 block",
+                        label { 
+                            class: "text-xs font-bold text-muted-foreground mb-1 block",
+                            r#for: "setup-password",
                             "{pin_label}"
                         }
-                        input {
-                            r#type: "password",
-                            class: "yntra-input",
-                            placeholder: "••••",
+                        components::Input {
+                            id: "setup-password".to_string(),
+                            r#type: "password".to_string(),
+                            placeholder: "••••".to_string(),
                             value: password.read().clone(),
                             oninput: move |e: FormEvent| password.set(e.value()),
                         }
                     }
 
                     div {
-                        label { class: "text-xs font-bold text-muted-foreground mb-1 block",
+                        label { 
+                            class: "text-xs font-bold text-muted-foreground mb-1 block",
+                            r#for: "setup-confirm-password",
                             "{confirm_pin_label}"
                         }
-                        input {
-                            r#type: "password",
-                            class: "yntra-input",
-                            placeholder: "••••",
+                        components::Input {
+                            id: "setup-confirm-password".to_string(),
+                            r#type: "password".to_string(),
+                            placeholder: "••••".to_string(),
                             value: confirm_password.read().clone(),
                             oninput: move |e: FormEvent| confirm_password.set(e.value()),
                         }
