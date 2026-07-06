@@ -45,9 +45,12 @@ pub use skeleton::Skeleton;
 pub use switch::Switch;
 pub use tabs::{Tabs, TabItem, TabRoot, TabList, TabTrigger, TabContent};
 pub use textarea::TextArea;
-pub use toast::Toast;
+pub use toast::ToastProvider;
 pub use tooltip::Tooltip;
 pub use visual_effects::VisualEffectHandler;
 pub use combobox::{Combobox, ComboboxEmpty, ComboboxOption};
 pub mod color_picker;
 pub use color_picker::{ColorPicker, HexColorPicker};
+pub mod virtual_list;
+pub use virtual_list::VirtualList;
+

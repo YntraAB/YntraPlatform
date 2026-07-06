@@ -4,6 +4,7 @@ use tokio::sync::mpsc;
 use yntra_core::{
     get_clients, get_events, get_messages, get_notes, get_reports, get_teams,
     get_time_reports, get_users, get_workspace, get_workspaces, register_observer,
+    clear_observers,
     get_user_by_email, init_wasm_db, init_tracing, start_background_sync,
     Workspace, WorkspaceUser, Team, TeamEvent, MessageItem, DailyNote, TimeReport,
     ClientProfile, ReportItem,
@@ -153,6 +154,7 @@ pub struct AppState {
 
     // Desktop OAuth flow triggers
     pub on_desktop_oauth: Callback<String>,
+    pub background_error: Signal<Option<yntra_core::YntraError>>,
 }
 
 pub fn use_init_app_state() -> AppState {
@@ -172,6 +174,7 @@ pub fn use_init_app_state() -> AppState {
     let active_section = use_signal(|| "dashboard".to_string());
     let needs_setup = use_signal(|| false);
     let two_factor_user = use_signal(|| Option::<WorkspaceUser>::None);
+    let background_error = use_signal(|| Option::<yntra_core::YntraError>::None);
 
     // Login & Auth State Signals
     let logged_in = use_signal(|| false);
@@ -357,79 +360,163 @@ pub fn use_init_app_state() -> AppState {
     // Dynamic database query outputs (resources)
     let workspace = use_resource(move || {
         let _trig = trigger_workspaces.read();
+        let mut bg_err = background_error;
         async move {
-            get_workspace().await.unwrap_or_else(|_| Workspace {
-                id: "workspace-1".to_string(),
-                name: "Yntra Operations Ltd".to_string(),
-                modules_active: "{\"messaging\":true,\"scheduling\":true,\"notes\":true,\"time\":true,\"assistance\":true,\"directory\":true,\"reporting\":true}".to_string(),
-                settings: "{}".to_string(),
-                brand_color: "hsl(217.2, 91.2%, 59.8%)".to_string(),
-                logo_url: None,
-                block_settings: "{}".to_string(),
-            })
+            match get_workspace().await {
+                Ok(w) => w,
+                Err(e) => {
+                    bg_err.set(Some(e));
+                    Workspace {
+                        id: "workspace-1".to_string(),
+                        name: "Yntra Operations Ltd".to_string(),
+                        modules_active: "{\"messaging\":true,\"scheduling\":true,\"notes\":true,\"time\":true,\"assistance\":true,\"directory\":true,\"reporting\":true}".to_string(),
+                        settings: "{}".to_string(),
+                        brand_color: "hsl(217.2, 91.2%, 59.8%)".to_string(),
+                        logo_url: None,
+                        block_settings: "{}".to_string(),
+                    }
+                }
+            }
         }
     });
     let users = use_resource(move || {
         let _trig = trigger_users.read();
         let uid = active_user_id.read().clone();
+        let mut bg_err = background_error;
         async move {
-            get_users(uid).await.unwrap_or_default()
+            match get_users(uid).await {
+                Ok(list) => list,
+                Err(e) => {
+                    bg_err.set(Some(e));
+                    Vec::new()
+                }
+            }
         }
     });
     let teams = use_resource(move || {
         let _trig = trigger_teams.read();
         let uid = active_user_id.read().clone();
+        let mut bg_err = background_error;
         async move {
-            get_teams(uid).await.unwrap_or_default()
+            match get_teams(uid).await {
+                Ok(list) => list,
+                Err(e) => {
+                    bg_err.set(Some(e));
+                    Vec::new()
+                }
+            }
         }
     });
     let events = use_resource(move || {
         let _trig = trigger_events.read();
         let uid = active_user_id.read().clone();
+        let mut bg_err = background_error;
         async move {
-            get_events(uid, None).await.unwrap_or_default()
+            match get_events(uid, None).await {
+                Ok(list) => list,
+                Err(e) => {
+                    bg_err.set(Some(e));
+                    Vec::new()
+                }
+            }
         }
     });
     let messages = use_resource(move || {
         let _trig = trigger_messages.read();
         let uid = active_user_id.read().clone();
+        let mut bg_err = background_error;
         async move {
-            get_messages(uid.clone(), uid).await.unwrap_or_default()
+            match get_messages(uid.clone(), uid).await {
+                Ok(list) => list,
+                Err(e) => {
+                    bg_err.set(Some(e));
+                    Vec::new()
+                }
+            }
         }
     });
     let notes = use_resource(move || {
         let _trig = trigger_notes.read();
         let uid = active_user_id.read().clone();
+        let mut bg_err = background_error;
         async move {
-            get_notes(uid, None).await.unwrap_or_default()
+            match get_notes(uid, None).await {
+                Ok(list) => list,
+                Err(e) => {
+                    bg_err.set(Some(e));
+                    Vec::new()
+                }
+            }
         }
     });
     let time_reports = use_resource(move || {
         let _trig = trigger_time.read();
         let uid = active_user_id.read().clone();
+        let mut bg_err = background_error;
         async move {
-            get_time_reports(uid, None).await.unwrap_or_default()
+            match get_time_reports(uid, None).await {
+                Ok(list) => list,
+                Err(e) => {
+                    bg_err.set(Some(e));
+                    Vec::new()
+                }
+            }
         }
     });
     let clients = use_resource(move || {
         let _trig = trigger_clients.read();
         let uid = active_user_id.read().clone();
+        let mut bg_err = background_error;
         async move {
-            get_clients(uid).await.unwrap_or_default()
+            match get_clients(uid).await {
+                Ok(list) => list,
+                Err(e) => {
+                    bg_err.set(Some(e));
+                    Vec::new()
+                }
+            }
         }
     });
     let reports = use_resource(move || {
         let _trig = trigger_reports.read();
         let uid = active_user_id.read().clone();
+        let mut bg_err = background_error;
         async move {
-            get_reports(uid).await.unwrap_or_default()
+            let mut eval = dioxus::document::eval(
+                r#"
+                try {
+                    let ids = JSON.parse(localStorage.getItem("yntra_anon_report_ids") || "[]");
+                    dioxus.send(ids);
+                } catch(e) {
+                    dioxus.send([]);
+                }
+                "#
+            );
+            let anon_ids = match eval.recv::<Vec<String>>().await {
+                Ok(ids) => ids,
+                Err(_) => Vec::new(),
+            };
+            match get_reports(uid, anon_ids).await {
+                Ok(list) => list,
+                Err(e) => {
+                    bg_err.set(Some(e));
+                    Vec::new()
+                }
+            }
         }
     });
     let workspaces = use_resource(move || {
         let _trig = trigger_workspaces.read();
         let uid = active_user_id.read().clone();
+        let mut bg_err = background_error;
         async move {
-            get_workspaces(uid).await.unwrap_or_default()
+            match get_workspaces(uid).await {
+                Ok(list) => list,
+                Err(e) => {
+                    bg_err.set(Some(e));
+                    Vec::new()
+                }
+            }
         }
     });
 
@@ -524,6 +611,7 @@ pub fn use_init_app_state() -> AppState {
         }
 
         let tx = channel.0.clone();
+        clear_observers();
         let observer = Box::new(DioxusDbObserver { tx });
         register_observer(observer);
     });
@@ -669,10 +757,10 @@ pub fn use_init_app_state() -> AppState {
             }
     });
 
-    let users_list = users.read().clone().unwrap_or_default();
     let active_user_id_for_effect = active_user_id;
     use_effect(move || {
         let uid = active_user_id_for_effect.read().clone();
+        let users_list = users.read().clone().unwrap_or_default();
         if let Some(user) = users_list.iter().find(|u| u.id == uid) {
             let user_prefs: serde_json::Value = serde_json::from_str(&user.preferences).unwrap_or_default();
             let mut lang_opt = user_prefs.get("language").and_then(|l| l.as_str()).map(|s| s.to_string());
@@ -816,5 +904,6 @@ pub fn use_init_app_state() -> AppState {
         reports,
         workspaces,
         on_desktop_oauth,
+        background_error,
     }
 }
