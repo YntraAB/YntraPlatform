@@ -278,7 +278,8 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             action_type TEXT NOT NULL,
             timestamp INTEGER NOT NULL,
             prev_hash TEXT NOT NULL,
-            curr_hash TEXT NOT NULL
+            curr_hash TEXT NOT NULL,
+            seq INTEGER NOT NULL DEFAULT 0
         );
         
         CREATE INDEX IF NOT EXISTS idx_users_workspace ON users(workspace_id);

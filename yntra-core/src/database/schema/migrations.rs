@@ -325,5 +325,14 @@ pub async fn run_schema_migrations(conn: &DbConnection, current_version: i32) ->
         execute_migration_sql(conn, "CREATE INDEX IF NOT EXISTS idx_audit_logs_workspace ON audit_logs(workspace_id)").await?;
         version = 3;
     }
+    if version < 4 {
+        execute_migration_sql(conn, "ALTER TABLE audit_logs ADD COLUMN seq INTEGER NOT NULL DEFAULT 0").await?;
+        version = 4;
+    }
+    if version < 5 {
+        execute_migration_sql(conn, "ALTER TABLE workspaces ADD COLUMN creator_public_key TEXT").await?;
+        execute_migration_sql(conn, "ALTER TABLE users ADD COLUMN role_signature TEXT").await?;
+        version = 5;
+    }
     Ok(version)
 }

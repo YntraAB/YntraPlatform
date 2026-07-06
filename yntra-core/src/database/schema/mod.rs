@@ -23,10 +23,25 @@ pub async fn setup_schema(conn: &DbConnection) -> Result<(), YntraError> {
     // 2. Set up initial tables and migrations if version is 0
     let mut current_version: i32 = conn.query_row("PRAGMA user_version", (), |r| r.get(0)).await.unwrap_or(0);
     if current_version == 0 {
-        tables::create_initial_tables(conn).await?;
-        seeds::seed_mock_data(conn).await;
-        conn.execute("PRAGMA user_version = 1", ()).await?;
-        current_version = 1;
+        let has_users_table = conn.query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='users'",
+            (),
+            |r| r.get::<i64>(0),
+        )
+        .await
+        .unwrap_or(0) > 0;
+
+        if has_users_table {
+            // The database is not fresh but user_version was 0.
+            // Baseline tables exist, so we skip initial setup and treat it as version 1.
+            conn.execute("PRAGMA user_version = 1", ()).await?;
+            current_version = 1;
+        } else {
+            tables::create_initial_tables(conn).await?;
+            seeds::seed_mock_data(conn).await;
+            conn.execute("PRAGMA user_version = 1", ()).await?;
+            current_version = 1;
+        }
     }
 
     // Run migrations incrementally
@@ -37,6 +52,12 @@ pub async fn setup_schema(conn: &DbConnection) -> Result<(), YntraError> {
 
     // 3. Initialize system salt from database settings
     initialize_salt_from_db(conn).await?;
+
+    // In debug mode, automatically clear creator_public_key for workspace-1 to recover from previous runs
+    #[cfg(debug_assertions)]
+    {
+        let _ = conn.execute("UPDATE workspaces SET creator_public_key = NULL WHERE id = 'workspace-1'", ()).await;
+    }
 
     Ok(())
 }

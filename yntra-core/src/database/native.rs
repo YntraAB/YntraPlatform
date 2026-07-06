@@ -155,14 +155,6 @@ impl Drop for DbConnection {
      }
 
      pub async fn execute<P: libsql::params::IntoParams + Send>(&self, sql: &str, params: P) -> Result<u64, YntraError> {
-         let sql_upper = sql.to_uppercase();
-         if sql_upper.contains("BEGIN") {
-             self.in_transaction.store(true, std::sync::atomic::Ordering::SeqCst);
-         }
-         if sql_upper.contains("COMMIT") || sql_upper.contains("ROLLBACK") {
-             self.in_transaction.store(false, std::sync::atomic::Ordering::SeqCst);
-         }
-
          let conn = self.get_conn()?;
          let res = conn.execute(sql, params).await
              .map_err(|e| YntraError::DbError(e.to_string()));
@@ -175,15 +167,7 @@ impl Drop for DbConnection {
      }
  
      pub async fn execute_batch(&self, sql: &str) -> Result<(), YntraError> {
-        let sql_upper = sql.to_uppercase();
-        if sql_upper.contains("BEGIN") {
-            self.in_transaction.store(true, std::sync::atomic::Ordering::SeqCst);
-        }
-        if sql_upper.contains("COMMIT") || sql_upper.contains("ROLLBACK") {
-            self.in_transaction.store(false, std::sync::atomic::Ordering::SeqCst);
-        }
-
-        let conn = self.get_conn()?;
+         let conn = self.get_conn()?;
         conn.execute_batch(sql).await
             .map_err(|e| YntraError::DbError(e.to_string()))?;
         for stmt in crate::infra::observer::split_sql_statements(sql) {
