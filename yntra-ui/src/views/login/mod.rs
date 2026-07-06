@@ -96,7 +96,7 @@ pub fn LoginView(props: LoginViewProps) -> Element {
 
 
 
-    let mut show_hardware_modal = use_signal(|| false);
+    let show_hardware_modal = use_signal(|| false);
     let mut hardware_auth_type = use_signal(|| "siths".to_string()); // "siths" | "nfc"
     let mut hardware_reader_status = use_signal(|| "connecting".to_string()); // "connecting" | "polling" | "reading" | "error" | "success"
     let mut hardware_error_msg = use_signal(|| Option::<String>::None);
@@ -127,7 +127,25 @@ pub fn LoginView(props: LoginViewProps) -> Element {
 
         spawn(async move {
             if let Ok(serde_json::Value::String(badge_uid)) = ev.recv().await {
-                if let Ok(user) = yntra_core::authenticate_with_nfc(badge_uid).await {
+                let mut auth_res = yntra_core::authenticate_with_nfc(badge_uid.clone(), None).await;
+                if let Err(yntra_core::YntraError::AuthError(ref msg)) = auth_res {
+                    if msg.contains("PIN") {
+                        let mut eval_prompt = dioxus::document::eval(r#"
+                            try {
+                                let pin = prompt("Vänligen ange din NFC-PIN / Please enter your NFC PIN:");
+                                dioxus.send(pin || "");
+                            } catch(e) {
+                                dioxus.send("");
+                            }
+                        "#);
+                        if let Ok(serde_json::Value::String(provided_pin)) = eval_prompt.recv().await {
+                            if !provided_pin.is_empty() {
+                                auth_res = yntra_core::authenticate_with_nfc(badge_uid, Some(provided_pin)).await;
+                            }
+                        }
+                    }
+                }
+                if let Ok(user) = auth_res {
                     let prefs: serde_json::Value = serde_json::from_str(&user.preferences).unwrap_or_default();
                     let mfa_enabled = prefs.get("two_factor_enabled").and_then(|v| v.as_bool()).unwrap_or(false);
                     if mfa_enabled {

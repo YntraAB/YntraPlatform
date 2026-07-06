@@ -68,6 +68,7 @@ pub fn NoteCompose(props: NoteComposeProps) -> Element {
                                 let user_id = active_user.id.clone();
                                 spawn(async move {
                                     let _ = add_note(
+                                        user_id.clone(),
                                         workspace_id,
                                         team_id,
                                         user_id,

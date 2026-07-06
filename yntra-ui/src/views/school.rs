@@ -125,13 +125,15 @@ pub fn SchoolView(props: SchoolViewProps) -> Element {
     // Selected Course ID for detail view
     let mut selected_course_id = use_signal(|| Option::<String>::None);
 
+    let uid_for_assignments = active_user.id.clone();
     // Fetch assignments for selected course
     let assignments_res = use_resource(move || {
         let _ = db_trig;
         let c_id = selected_course_id.read().clone();
+        let uid = uid_for_assignments.clone();
         async move {
             if let Some(id) = c_id {
-                yntra_core::get_assignments(id).await.unwrap_or_default()
+                yntra_core::get_assignments(uid, id).await.unwrap_or_default()
             } else {
                 Vec::new()
             }
@@ -175,7 +177,7 @@ pub fn SchoolView(props: SchoolViewProps) -> Element {
             let courses_list = yntra_core::get_courses(uid.clone()).await.unwrap_or_default();
             let mut all_assigns = Vec::new();
             for c in courses_list.iter() {
-                if let Ok(assigns) = yntra_core::get_assignments(c.id.clone()).await {
+                if let Ok(assigns) = yntra_core::get_assignments(uid.clone(), c.id.clone()).await {
                     all_assigns.extend(assigns);
                 }
             }

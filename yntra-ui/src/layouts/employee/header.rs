@@ -24,6 +24,7 @@ impl PartialEq for LayoutHeaderProps {
 
 #[component]
 pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
+    let runner = crate::utils::use_action_runner();
     let active_user = props.active_user.clone();
     let breadcrumbs = props.breadcrumbs.clone();
     let current_role = active_user.role.clone();
@@ -82,18 +83,20 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                         label: "Platform Admin".to_string(),
                         onclick: {
                             let user_id = active_user_id.read().clone();
+                            let runner = runner.clone();
                             move |_| {
                                 let user_id = user_id.clone();
-                                spawn(async move {
-                                    if yntra_core::update_user_role(user_id.clone(), user_id.clone(), "platform_admin".to_string()).await.is_ok() {
-                                        if *active_section.read() == "client_portal" || *active_section.read() == "jobs" {
-                                            active_section.set("dashboard".to_string());
-                                        }
-                                        let current = *db_trigger.read();
-                                        db_trigger.set(current + 1);
+                                let runner = runner.clone();
+                                runner.run(async move {
+                                    yntra_core::update_user_role(user_id.clone(), user_id.clone(), "platform_admin".to_string()).await?;
+                                    if *active_section.read() == "client_portal" || *active_section.read() == "jobs" {
+                                        active_section.set("dashboard".to_string());
                                     }
-                                    header_role_open.set(false);
+                                    let current = *db_trigger.read();
+                                    db_trigger.set(current + 1);
+                                    Ok(())
                                 });
+                                header_role_open.set(false);
                             }
                         }
                     }
@@ -101,18 +104,20 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                         label: "Admin View".to_string(),
                         onclick: {
                             let user_id = active_user_id.read().clone();
+                            let runner = runner.clone();
                             move |_| {
                                 let user_id = user_id.clone();
-                                spawn(async move {
-                                    if yntra_core::update_user_role(user_id.clone(), user_id.clone(), "admin".to_string()).await.is_ok() {
-                                        if *active_section.read() == "client_portal" || *active_section.read() == "jobs" {
-                                            active_section.set("dashboard".to_string());
-                                        }
-                                        let current = *db_trigger.read();
-                                        db_trigger.set(current + 1);
+                                let runner = runner.clone();
+                                runner.run(async move {
+                                    yntra_core::update_user_role(user_id.clone(), user_id.clone(), "admin".to_string()).await?;
+                                    if *active_section.read() == "client_portal" || *active_section.read() == "jobs" {
+                                        active_section.set("dashboard".to_string());
                                     }
-                                    header_role_open.set(false);
+                                    let current = *db_trigger.read();
+                                    db_trigger.set(current + 1);
+                                    Ok(())
                                 });
+                                header_role_open.set(false);
                             }
                         }
                     }
@@ -120,18 +125,20 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                         label: "Assistant View".to_string(),
                         onclick: {
                             let user_id = active_user_id.read().clone();
+                            let runner = runner.clone();
                             move |_| {
                                 let user_id = user_id.clone();
-                                spawn(async move {
-                                    if yntra_core::update_user_role(user_id.clone(), user_id.clone(), "assistant".to_string()).await.is_ok() {
-                                        if *active_section.read() == "client_portal" || *active_section.read() == "jobs" {
-                                            active_section.set("dashboard".to_string());
-                                        }
-                                        let current = *db_trigger.read();
-                                        db_trigger.set(current + 1);
+                                let runner = runner.clone();
+                                runner.run(async move {
+                                    yntra_core::update_user_role(user_id.clone(), user_id.clone(), "assistant".to_string()).await?;
+                                    if *active_section.read() == "client_portal" || *active_section.read() == "jobs" {
+                                        active_section.set("dashboard".to_string());
                                     }
-                                    header_role_open.set(false);
+                                    let current = *db_trigger.read();
+                                    db_trigger.set(current + 1);
+                                    Ok(())
                                 });
+                                header_role_open.set(false);
                             }
                         }
                     }
@@ -139,18 +146,20 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                         label: "User View".to_string(),
                         onclick: {
                             let user_id = active_user_id.read().clone();
+                            let runner = runner.clone();
                             move |_| {
                                 let user_id = user_id.clone();
-                                spawn(async move {
-                                    if yntra_core::update_user_role(user_id.clone(), user_id.clone(), "user".to_string()).await.is_ok() {
-                                        if *active_section.read() == "client_portal" || *active_section.read() == "jobs" {
-                                            active_section.set("dashboard".to_string());
-                                        }
-                                        let current = *db_trigger.read();
-                                        db_trigger.set(current + 1);
+                                let runner = runner.clone();
+                                runner.run(async move {
+                                    yntra_core::update_user_role(user_id.clone(), user_id.clone(), "user".to_string()).await?;
+                                    if *active_section.read() == "client_portal" || *active_section.read() == "jobs" {
+                                        active_section.set("dashboard".to_string());
                                     }
-                                    header_role_open.set(false);
+                                    let current = *db_trigger.read();
+                                    db_trigger.set(current + 1);
+                                    Ok(())
                                 });
+                                header_role_open.set(false);
                             }
                         }
                     }
@@ -158,16 +167,18 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                         label: "Client Portal".to_string(),
                         onclick: {
                             let user_id = active_user_id.read().clone();
+                            let runner = runner.clone();
                             move |_| {
                                 let user_id = user_id.clone();
-                                spawn(async move {
-                                    if yntra_core::update_user_role(user_id.clone(), user_id.clone(), "client".to_string()).await.is_ok() {
-                                        active_section.set("client_portal".to_string());
-                                        let current = *db_trigger.read();
-                                        db_trigger.set(current + 1);
-                                    }
-                                    header_role_open.set(false);
+                                let runner = runner.clone();
+                                runner.run(async move {
+                                    yntra_core::update_user_role(user_id.clone(), user_id.clone(), "client".to_string()).await?;
+                                    active_section.set("client_portal".to_string());
+                                    let current = *db_trigger.read();
+                                    db_trigger.set(current + 1);
+                                    Ok(())
                                 });
+                                header_role_open.set(false);
                             }
                         }
                     }
@@ -175,16 +186,18 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                         label: "Technician View".to_string(),
                         onclick: {
                             let user_id = active_user_id.read().clone();
+                            let runner = runner.clone();
                             move |_| {
                                 let user_id = user_id.clone();
-                                spawn(async move {
-                                    if yntra_core::update_user_role(user_id.clone(), user_id.clone(), "technician".to_string()).await.is_ok() {
-                                        active_section.set("jobs".to_string());
-                                        let current = *db_trigger.read();
-                                        db_trigger.set(current + 1);
-                                    }
-                                    header_role_open.set(false);
+                                let runner = runner.clone();
+                                runner.run(async move {
+                                    yntra_core::update_user_role(user_id.clone(), user_id.clone(), "technician".to_string()).await?;
+                                    active_section.set("jobs".to_string());
+                                    let current = *db_trigger.read();
+                                    db_trigger.set(current + 1);
+                                    Ok(())
                                 });
+                                header_role_open.set(false);
                             }
                         }
                     }

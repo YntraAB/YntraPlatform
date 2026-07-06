@@ -546,6 +546,7 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                 let date_val = report_date.read().clone();
                                 spawn(async move {
                                     let _ = yntra_core::add_time_report(
+                                        user_id.clone(),
                                         workspace_id,
                                         user_id,
                                         clean_team_id,

@@ -215,7 +215,7 @@ pub fn ParentPortal(props: ParentPortalProps) -> Element {
             let courses_list = yntra_core::get_courses(uid.clone()).await.unwrap_or_default();
             let mut all_assigns = Vec::new();
             for c in courses_list.iter() {
-                if let Ok(assigns) = yntra_core::get_assignments(c.id.clone()).await {
+                if let Ok(assigns) = yntra_core::get_assignments(uid.clone(), c.id.clone()).await {
                     all_assigns.extend(assigns);
                 }
             }
@@ -560,6 +560,7 @@ pub fn ParentPortal(props: ParentPortalProps) -> Element {
                                                 
                                                 spawn(async move {
                                                     if yntra_core::send_message(
+                                                        sender_clone.clone(),
                                                         ws_clone,
                                                         sender_clone,
                                                         Some(receiver_clone),

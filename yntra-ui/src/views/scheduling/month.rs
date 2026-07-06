@@ -26,6 +26,7 @@ impl PartialEq for MonthViewProps {
 
 #[component]
 pub fn MonthView(props: MonthViewProps) -> Element {
+    let state = use_context::<crate::state::AppState>();
     let mut selected_calendar_date = props.selected_calendar_date;
     let mut dragged_event_id = props.dragged_event_id;
     let mut show_event_detail_modal = props.show_event_detail_modal;
@@ -119,8 +120,10 @@ pub fn MonthView(props: MonthViewProps) -> Element {
                                                      update_date_in_time_str(&ev.end_time, &cell_date_c)
                                                  };
                                                  let mut db_trig = db_trigger;
+                                                 let active_uid_sig = state.active_user_id;
                                                  spawn(async move {
-                                                     if yntra_core::update_event_time(event_id, new_start, new_end).await.is_ok() {
+                                                     let active_uid = active_uid_sig.read().clone();
+                                                     if yntra_core::update_event_time(active_uid, event_id, new_start, new_end).await.is_ok() {
                                                          let val = *db_trig.read();
                                                          db_trig.set(val + 1);
                                                      }
@@ -185,19 +188,21 @@ pub fn MonthView(props: MonthViewProps) -> Element {
                                                         button {
                                                             r#type: "button",
                                                             class: "text-muted-foreground hover:text-destructive bg-transparent border-0 cursor-pointer p-0 rounded transition-colors shrink-0",
-                                                            onclick: {
-                                                                let ev_id = item.1.clone();
-                                                                let mut db_trig = db_trigger;
-                                                                move |evt| {
-                                                                    evt.stop_propagation();
-                                                                    let target_ev_id = ev_id.clone();
-                                                                    spawn(async move {
-                                                                        let _ = yntra_core::delete_event(target_ev_id).await;
-                                                                        let val = *db_trig.read();
-                                                                        db_trig.set(val + 1);
-                                                                    });
-                                                                }
-                                                            },
+                                                                 onclick: {
+                                                                     let ev_id = item.1.clone();
+                                                                     let mut db_trig = db_trigger;
+                                                                     let active_uid_sig = state.active_user_id;
+                                                                     move |evt| {
+                                                                         evt.stop_propagation();
+                                                                         let target_ev_id = ev_id.clone();
+                                                                         spawn(async move {
+                                                                             let active_uid = active_uid_sig.read().clone();
+                                                                             let _ = yntra_core::delete_event(active_uid, target_ev_id).await;
+                                                                             let val = *db_trig.read();
+                                                                             db_trig.set(val + 1);
+                                                                         });
+                                                                     }
+                                                                 },
                                                             components::LucideIcon { name: "trash-2", class: "h-2.5 w-2.5" }
                                                         }
                                                     }

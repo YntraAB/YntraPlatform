@@ -31,6 +31,8 @@ impl PartialEq for DayViewProps {
 
 #[component]
 pub fn DayView(props: DayViewProps) -> Element {
+    let state = use_context::<crate::state::AppState>();
+    let active_user_id = state.active_user_id.read().clone();
     let selected_calendar_date = props.selected_calendar_date;
     let mut dragged_event_id = props.dragged_event_id;
     let mut show_event_detail_modal = props.show_event_detail_modal;
@@ -108,13 +110,14 @@ pub fn DayView(props: DayViewProps) -> Element {
                                     } else {
                                         update_date_in_time_str(&ev.end_time, &cell_date_c)
                                     };
-                                    let mut db_trig = db_trigger;
-                                    spawn(async move {
-                                         if yntra_core::update_event_time(event_id, new_start, new_end).await.is_ok() {
-                                             let val = *db_trig.read();
-                                             db_trig.set(val + 1);
-                                         }
-                                    });
+                                     let mut db_trig = db_trigger;
+                                     let active_uid = active_user_id.clone();
+                                     spawn(async move {
+                                          if yntra_core::update_event_time(active_uid, event_id, new_start, new_end).await.is_ok() {
+                                              let val = *db_trig.read();
+                                              db_trig.set(val + 1);
+                                          }
+                                     });
                                 }
                             }
                         }
@@ -194,19 +197,21 @@ pub fn DayView(props: DayViewProps) -> Element {
                                         button {
                                             r#type: "button",
                                             class: "text-muted-foreground hover:text-destructive bg-transparent border-0 cursor-pointer p-0.5 rounded transition-colors shrink-0",
-                                            onclick: {
-                                                let ev_id = item.1.clone();
-                                                let mut db_trig = db_trigger;
-                                                move |evt| {
-                                                    evt.stop_propagation();
-                                                    let target_ev_id = ev_id.clone();
-                                                    spawn(async move {
-                                                        let _ = yntra_core::delete_event(target_ev_id).await;
-                                                        let val = *db_trig.read();
-                                                        db_trig.set(val + 1);
-                                                    });
-                                                }
-                                            },
+                                             onclick: {
+                                                 let ev_id = item.1.clone();
+                                                 let mut db_trig = db_trigger;
+                                                 let active_uid = active_user_id.clone();
+                                                 move |evt| {
+                                                     evt.stop_propagation();
+                                                     let target_ev_id = ev_id.clone();
+                                                     let active_uid = active_uid.clone();
+                                                     spawn(async move {
+                                                         let _ = yntra_core::delete_event(active_uid, target_ev_id).await;
+                                                         let val = *db_trig.read();
+                                                         db_trig.set(val + 1);
+                                                     });
+                                                 }
+                                             },
                                             components::LucideIcon { name: "trash-2", class: "h-3 w-3" }
                                         }
                                     }

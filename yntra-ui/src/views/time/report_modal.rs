@@ -137,6 +137,7 @@ pub fn TimeReportModal(props: TimeReportModalProps) -> Element {
                              let end_val = time_end.read().clone();
                              spawn(async move {
                                  let _ = add_time_report(
+                                     u_id.clone(),
                                      w_id,
                                      u_id,
                                      Some(t_id),

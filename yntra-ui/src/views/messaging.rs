@@ -201,8 +201,10 @@ pub fn MessagingView(props: MessagingViewProps) -> Element {
                                     let workspace_id = active_user.workspace_id.clone().unwrap_or_else(|| "workspace-1".to_string());
                                     let sender_id = active_user.id.clone();
                                     let recipient = Some(recipient_id);
+                                    let requester_id = active_user.id.clone();
                                     spawn(async move {
                                         let _ = send_message(
+                                            requester_id,
                                             workspace_id,
                                             sender_id,
                                             recipient,
@@ -329,78 +331,96 @@ pub fn MessagingView(props: MessagingViewProps) -> Element {
                             components::LucideIcon { name: "mail", class: "h-12 w-12 mx-auto mb-3 opacity-20" }
                             p { class: "text-sm m-0", "{t(\"messages-empty-state\", &region)}" }
                         }
-                    }
-                    for msg in filtered_messages.iter() {
+                    } else {
                         {
-                            let msg_id = msg.id.clone();
-                            let is_unread = !msg.is_read && msg.receiver_id == Some(active_user.id.clone());
-
-                            let display_name = if current_tab == "inbox" {
-                                let sender_id = msg.sender_id.clone().unwrap_or_default();
-                                users_for_messaging
-                                    .iter()
-                                    .find(|u| u.id == sender_id)
-                                    .and_then(|u| u.full_name.clone())
-                                    .unwrap_or_else(|| t("messages-system", &region))
-                            } else {
-                                let receiver_id = msg.receiver_id.clone().unwrap_or_default();
-                                users_for_messaging
-                                    .iter()
-                                    .find(|u| u.id == receiver_id)
-                                    .and_then(|u| u.full_name.clone())
-                                    .unwrap_or_else(|| t("messages-person", &region))
-                            };
-                            let subject_str = msg
-                                .subject
-                                .clone()
-                                .unwrap_or_else(|| t("messages-no-header", &region));
-                            let snippet = msg.body.clone().unwrap_or_default();
-                            let snippet_truncated = if snippet.len() > 80 {
-                                format!("{}...", &snippet[0..80])
-                            } else {
-                                snippet
-                            };
-                            
-                            let icon_name = if is_unread { "mail" } else { "mail-open" };
-                            let class_sender = if is_unread { "font-bold text-foreground" } else { "font-semibold text-foreground/80" };
-                            let class_subject = if is_unread { "font-bold text-foreground" } else { "text-foreground/90" };
-
+                            let buffer_sig = use_signal(|| 5_usize);
+                            let msgs = filtered_messages.clone();
+                            let active_u = active_user.clone();
+                            let cur_tab = current_tab.clone();
+                            let users_list = users_for_messaging.clone();
+                            let reg = region.clone();
                             rsx! {
-                                div {
-                                    key: "{msg_id}",
-                                    onclick: move |_| {
-                                        active_message_id.set(Some(msg_id.clone()));
-                                        if is_unread {
-                                            let m_id = msg_id.clone();
-                                            spawn(async move {
-                                                let _ = mark_message_read(m_id).await;
-                                            });
-                                            let current_trig = *db_trigger.read();
-                                            db_trigger.set(current_trig + 1);
+                                components::VirtualList {
+                                    count: msgs.len(),
+                                    buffer: buffer_sig,
+                                    estimate_size: move |_| 72_u32,
+                                    render_item: move |idx: usize| {
+                                        let msg = &msgs[idx];
+                                        let msg_id = msg.id.clone();
+                                        let is_unread = !msg.is_read && msg.receiver_id == Some(active_u.id.clone());
+
+                                        let display_name = if cur_tab == "inbox" {
+                                            let sender_id = msg.sender_id.clone().unwrap_or_default();
+                                            users_list
+                                                .iter()
+                                                .find(|u| u.id == sender_id)
+                                                .and_then(|u| u.full_name.clone())
+                                                .unwrap_or_else(|| t("messages-system", &reg))
+                                        } else {
+                                            let receiver_id = msg.receiver_id.clone().unwrap_or_default();
+                                            users_list
+                                                .iter()
+                                                .find(|u| u.id == receiver_id)
+                                                .and_then(|u| u.full_name.clone())
+                                                .unwrap_or_else(|| t("messages-person", &reg))
+                                        };
+                                        let subject_str = msg
+                                            .subject
+                                            .clone()
+                                            .unwrap_or_else(|| t("messages-no-header", &reg));
+                                        let snippet = msg.body.clone().unwrap_or_default();
+                                        let snippet_truncated = if snippet.len() > 80 {
+                                            format!("{}...", &snippet[0..80])
+                                        } else {
+                                            snippet
+                                        };
+                                        
+                                        let icon_name = if is_unread { "mail" } else { "mail-open" };
+                                        let class_sender = if is_unread { "font-bold text-foreground" } else { "font-semibold text-foreground/80" };
+                                        let class_subject = if is_unread { "font-bold text-foreground" } else { "text-foreground/90" };
+
+                                        let requester_id = active_u.id.clone();
+
+                                        rsx! {
+                                            div {
+                                                key: "{msg_id}",
+                                                onclick: move |_| {
+                                                    active_message_id.set(Some(msg_id.clone()));
+                                                    if is_unread {
+                                                        let m_id = msg_id.clone();
+                                                        let r_id = requester_id.clone();
+                                                        spawn(async move {
+                                                            let _ = mark_message_read(r_id, m_id).await;
+                                                        });
+                                                        let current_trig = *db_trigger.read();
+                                                        db_trigger.set(current_trig + 1);
+                                                    }
+                                                },
+                                                class: "group flex items-center border-b border-border/30 px-8 py-4 transition-colors hover:bg-white/[0.015] list-item-hover cursor-pointer",
+                                                
+                                                div { class: "mr-4 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.04] text-primary transition-colors group-hover:bg-primary/10",
+                                                    components::LucideIcon { name: icon_name, class: "h-4 w-4 text-primary" }
+                                                }
+                                                
+                                                div { class: "w-48 shrink-0 truncate pr-4 text-sm font-semibold text-foreground md:w-64",
+                                                    span { class: "{class_sender}",
+                                                        "{display_name}"
+                                                    }
+                                                    if is_unread {
+                                                        span { class: "ml-2 h-1.5 w-1.5 rounded-full bg-primary inline-block" }
+                                                    }
+                                                }
+                                                
+                                                div { class: "flex min-w-0 flex-1 items-center gap-2 truncate pr-4 text-sm",
+                                                    span { class: "{class_subject}", "{subject_str}" }
+                                                    span { class: "truncate text-muted-foreground/60 font-light", "- {snippet_truncated}" }
+                                                }
+                                                
+                                                div { class: "w-32 shrink-0 text-right text-xs font-mono text-muted-foreground/60 pr-2",
+                                                    "{msg.created_at}"
+                                                }
+                                            }
                                         }
-                                    },
-                                    class: "group flex items-center border-b border-border/30 px-8 py-4 transition-colors hover:bg-white/[0.015] list-item-hover cursor-pointer",
-                                    
-                                    div { class: "mr-4 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.04] text-primary transition-colors group-hover:bg-primary/10",
-                                        components::LucideIcon { name: icon_name, class: "h-4 w-4 text-primary" }
-                                    }
-                                    
-                                    div { class: "w-48 shrink-0 truncate pr-4 text-sm font-semibold text-foreground md:w-64",
-                                        span { class: "{class_sender}",
-                                            "{display_name}"
-                                        }
-                                        if is_unread {
-                                            span { class: "ml-2 h-1.5 w-1.5 rounded-full bg-primary inline-block" }
-                                        }
-                                    }
-                                    
-                                    div { class: "flex min-w-0 flex-1 items-center gap-2 truncate pr-4 text-sm",
-                                        span { class: "{class_subject}", "{subject_str}" }
-                                        span { class: "truncate text-muted-foreground/60 font-light", "- {snippet_truncated}" }
-                                    }
-                                    
-                                    div { class: "w-32 shrink-0 text-right text-xs font-mono text-muted-foreground/60 pr-2",
-                                        "{msg.created_at}"
                                     }
                                 }
                             }

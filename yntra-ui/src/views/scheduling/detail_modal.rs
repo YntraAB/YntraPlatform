@@ -23,6 +23,8 @@ impl PartialEq for EventDetailModalProps {
 
 #[component]
 pub fn EventDetailModal(props: EventDetailModalProps) -> Element {
+    let state = use_context::<crate::state::AppState>();
+    let active_user_id = state.active_user_id.read().clone();
     let mut show_event_detail_modal = props.show_event_detail_modal;
     let mut editing_event = props.editing_event;
     let mut db_trigger = props.db_trigger;
@@ -232,8 +234,9 @@ pub fn EventDetailModal(props: EventDetailModalProps) -> Element {
                                 class: "yntra-btn btn-danger text-xs px-3.5 py-2 flex items-center gap-1.5 cursor-pointer bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border-0",
                                 onclick: move |_| {
                                     let event_id = ev_id.clone();
+                                    let active_uid = active_user_id.clone();
                                     spawn(async move {
-                                        let _ = delete_event(event_id).await;
+                                        let _ = delete_event(active_uid, event_id).await;
                                     });
                                     let current_val = *db_trigger.read();
                                     db_trigger.set(current_val + 1);

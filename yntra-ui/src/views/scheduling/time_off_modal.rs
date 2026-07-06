@@ -190,6 +190,7 @@ pub fn TimeOffModal(props: TimeOffModalProps) -> Element {
 
                                         for admin in admins {
                                             let _ = send_message(
+                                                user_id.clone(),
                                                 workspace_id.clone(),
                                                 user_id.clone(),
                                                 Some(admin.id.clone()),

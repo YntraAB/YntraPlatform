@@ -393,7 +393,7 @@ pub fn DirectoryView(props: DirectoryViewProps) -> Element {
                                             let requester_uid_outside = active_user.id.clone();
 
                                             spawn(async move {
-                                                if let Ok(team) = add_team_via_directory(ws_id_clone.clone(), name).await {
+                                                if let Ok(team) = add_team_via_directory(requester_uid_outside.clone(), ws_id_clone.clone(), name).await {
                                                     let team_id = team.id;
                                                     if !current_first.is_empty() && !current_last.is_empty() {
                                                         list.push(WizardClientForm {

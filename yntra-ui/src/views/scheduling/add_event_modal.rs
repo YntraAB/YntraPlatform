@@ -832,12 +832,15 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
                                 t(&format!("scheduler-categories-{}", cat_val), &props.locale)
                             };
 
+                            let state = use_context::<crate::state::AppState>();
+                            let active_user_id = state.active_user_id.read().clone();
                             let mut db_trig = db_trigger;
                             let edit_opt = editing_event.read().clone();
                             let workspace_id = props.workspace_id.clone();
                             spawn(async move {
                                 if let Some(ref ev) = edit_opt {
                                     if yntra_core::update_event(
+                                        active_user_id,
                                         ev.id.clone(),
                                         title_val,
                                         start_dt,
@@ -852,6 +855,7 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
                                     }
                                 } else {
                                     if yntra_core::add_event_with_metadata(
+                                        active_user_id,
                                         workspace_id,
                                         title_val,
                                         start_dt,

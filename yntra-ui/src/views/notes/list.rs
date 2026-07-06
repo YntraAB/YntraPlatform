@@ -84,47 +84,55 @@ pub fn NoteList(props: NoteListProps) -> Element {
                         p { class: "text-sm m-0", "{t(\"notes-list-empty-state\", &locale)}" }
                     }
                 } else {
-                    div {
-                        class: "flex flex-col w-full",
-                        for note in filtered_notes.iter() {
-                            {
-                                let author = users
-                                    .iter()
-                                    .find(|u| Some(u.id.clone()) == note.author_id)
-                                    .and_then(|u| u.full_name.clone())
-                                    .unwrap_or_else(|| "Unknown".to_string());
-                                let note_id = note.id.clone();
-                                let note_subj = note.subject.clone();
-                                let note_content_snippet = if note.content.len() > 60 { format!("{}...", &note.content[..60]) } else { note.content.clone() };
-                                let date_str = if note.created_at.len() >= 10 { note.created_at[..10].to_string() } else { note.created_at.clone() };
+                    {
+                        let buffer_sig = use_signal(|| 5_usize);
+                        let notes = filtered_notes.clone();
+                        let users_list = users.clone();
+                        rsx! {
+                            components::VirtualList {
+                                count: notes.len(),
+                                buffer: buffer_sig,
+                                estimate_size: move |_| 60_u32,
+                                render_item: move |idx: usize| {
+                                    let note = &notes[idx];
+                                    let author = users_list
+                                        .iter()
+                                        .find(|u| Some(u.id.clone()) == note.author_id)
+                                        .and_then(|u| u.full_name.clone())
+                                        .unwrap_or_else(|| "Unknown".to_string());
+                                    let note_id = note.id.clone();
+                                    let note_subj = note.subject.clone();
+                                    let note_content_snippet = if note.content.len() > 60 { format!("{}...", &note.content[..60]) } else { note.content.clone() };
+                                    let date_str = if note.created_at.len() >= 10 { note.created_at[..10].to_string() } else { note.created_at.clone() };
 
-                                rsx! {
-                                    div {
-                                        key: "{note_id}",
-                                        onclick: move |_| {
-                                            active_note_id.set(Some(note_id.clone()));
-                                            is_composing.set(false);
-                                            edit_mode.set(false);
-                                        },
-                                        class: "flex flex-row items-center justify-between border-b border-border px-8 py-5 cursor-pointer bg-white/[0.01] list-item-hover transition-colors duration-150 text-sm",
-                                        
-                                        // Author column
+                                    rsx! {
                                         div {
-                                            class: "shrink-0 font-semibold text-foreground w-40 truncate pr-4 box-border",
-                                            "{author}"
-                                        }
+                                            key: "{note_id}",
+                                            onclick: move |_| {
+                                                active_note_id.set(Some(note_id.clone()));
+                                                is_composing.set(false);
+                                                edit_mode.set(false);
+                                            },
+                                            class: "flex flex-row items-center justify-between border-b border-border px-8 py-5 cursor-pointer bg-white/[0.01] list-item-hover transition-colors duration-150 text-sm",
+                                            
+                                            // Author column
+                                            div {
+                                                class: "shrink-0 font-semibold text-foreground w-40 truncate pr-4 box-border",
+                                                "{author}"
+                                            }
 
-                                        // Subject and snippet content
-                                        div {
-                                            class: "flex-1 flex items-center gap-2 min-w-0 truncate pr-4 box-border",
-                                            span { class: "font-semibold text-foreground", "{note_subj}" }
-                                            span { class: "text-muted-foreground/60", "- {note_content_snippet}" }
-                                        }
+                                            // Subject and snippet content
+                                            div {
+                                                class: "flex-1 flex items-center gap-2 min-w-0 truncate pr-4 box-border",
+                                                span { class: "font-semibold text-foreground", "{note_subj}" }
+                                                span { class: "text-muted-foreground/60", "- {note_content_snippet}" }
+                                            }
 
-                                        // Date column
-                                        div {
-                                            class: "shrink-0 text-right text-muted-foreground/60 text-xs w-32",
-                                            "{date_str}"
+                                            // Date column
+                                            div {
+                                                class: "shrink-0 text-right text-muted-foreground/60 text-xs w-32",
+                                                "{date_str}"
+                                            }
                                         }
                                     }
                                 }

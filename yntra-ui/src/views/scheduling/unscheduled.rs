@@ -24,6 +24,7 @@ impl PartialEq for UnscheduledBucketProps {
 
 #[component]
 pub fn UnscheduledBucket(props: UnscheduledBucketProps) -> Element {
+    let state = use_context::<crate::state::AppState>();
     let mut dragged_event_id = props.dragged_event_id;
     let mut show_event_detail_modal = props.show_event_detail_modal;
     let db_trigger = props.db_trigger;
@@ -43,11 +44,13 @@ pub fn UnscheduledBucket(props: UnscheduledBucketProps) -> Element {
             },
             ondrop: {
                 let mut db_trig = db_trigger;
+                let active_uid_sig = state.active_user_id;
                 move |e| {
                     e.prevent_default();
                     if let Some(event_id) = dragged_event_id.read().clone() {
                         spawn(async move {
-                            if yntra_core::update_event_time(event_id, "unscheduled".to_string(), "unscheduled".to_string()).await.is_ok() {
+                            let active_uid = active_uid_sig.read().clone();
+                            if yntra_core::update_event_time(active_uid, event_id, "unscheduled".to_string(), "unscheduled".to_string()).await.is_ok() {
                                 let val = *db_trig.read();
                                 db_trig.set(val + 1);
                             }
@@ -117,11 +120,13 @@ pub fn UnscheduledBucket(props: UnscheduledBucketProps) -> Element {
                                         onclick: {
                                             let ev_id = item.1.clone();
                                             let mut db_trig = db_trigger;
+                                            let active_uid_sig = state.active_user_id;
                                             move |evt| {
                                                 evt.stop_propagation();
                                                 let target_ev_id = ev_id.clone();
                                                 spawn(async move {
-                                                    let _ = yntra_core::delete_event(target_ev_id).await;
+                                                    let active_uid = active_uid_sig.read().clone();
+                                                    let _ = yntra_core::delete_event(active_uid, target_ev_id).await;
                                                     let val = *db_trig.read();
                                                     db_trig.set(val + 1);
                                                 });
@@ -147,29 +152,35 @@ pub fn UnscheduledBucket(props: UnscheduledBucketProps) -> Element {
                     button {
                         class: "yntra-btn secondary w-full text-xs font-bold py-2 flex items-center justify-center gap-1.5 cursor-pointer hover:border-primary transition-all",
                         style: "border: 1px dashed rgba(255,255,255,0.1);",
-                        onclick: move |_| {
+                        onclick: {
                             let mut db_trig = db_trigger;
                             let workspace_id = props.workspace_id.clone();
-                            spawn(async move {
-                                let meta_obj = EventMetadata {
-                                    category: Some("assistance_time".to_string()),
-                                    ..Default::default()
-                                };
-                                let meta_str = serde_json::to_string(&meta_obj).unwrap_or_else(|_| "{}".to_string());
-                                if yntra_core::add_event_with_metadata(
-                                    workspace_id,
-                                    "Unscheduled Shift".to_string(),
-                                    "unscheduled".to_string(),
-                                    "unscheduled".to_string(),
-                                    None,
-                                    None,
-                                    None,
-                                    meta_str,
-                                ).await.is_ok() {
-                                    let val = *db_trig.read();
-                                    db_trig.set(val + 1);
-                                }
-                            });
+                            let active_uid_sig = state.active_user_id;
+                            move |_| {
+                                let workspace_id = workspace_id.clone();
+                                spawn(async move {
+                                    let active_uid = active_uid_sig.read().clone();
+                                    let meta_obj = EventMetadata {
+                                        category: Some("assistance_time".to_string()),
+                                        ..Default::default()
+                                    };
+                                    let meta_str = serde_json::to_string(&meta_obj).unwrap_or_else(|_| "{}".to_string());
+                                    if yntra_core::add_event_with_metadata(
+                                        active_uid,
+                                        workspace_id,
+                                        "Unscheduled Shift".to_string(),
+                                        "unscheduled".to_string(),
+                                        "unscheduled".to_string(),
+                                        None,
+                                        None,
+                                        None,
+                                        meta_str,
+                                    ).await.is_ok() {
+                                        let val = *db_trig.read();
+                                        db_trig.set(val + 1);
+                                    }
+                                });
+                            }
                         },
                         components::LucideIcon { name: "plus", class: "h-3.5 w-3.5" }
                         "{t(\"scheduler-new-shift-button\", &props.locale)}"

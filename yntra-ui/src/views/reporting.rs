@@ -239,7 +239,7 @@ pub fn ReportingView(props: ReportingViewProps) -> Element {
                                     let is_anon = *report_is_anonymous.read();
                                     let date_val = report_date.read().clone();
                                     spawn(async move {
-                                        let _ = add_report(
+                                        if let Ok(report) = add_report(
                                             workspace_id,
                                             user_id,
                                             r_type,
@@ -247,7 +247,21 @@ pub fn ReportingView(props: ReportingViewProps) -> Element {
                                             sub,
                                             desc,
                                             date_val,
-                                        ).await;
+                                        ).await {
+                                            if is_anon {
+                                                let js = format!(
+                                                    r#"
+                                                    try {{
+                                                        let ids = JSON.parse(localStorage.getItem("yntra_anon_report_ids") || "[]");
+                                                        ids.push("{}");
+                                                        localStorage.setItem("yntra_anon_report_ids", JSON.stringify(ids));
+                                                    }} catch(e) {{}}
+                                                    "#,
+                                                    report.id
+                                                );
+                                                let _ = dioxus::document::eval(&js);
+                                            }
+                                        }
                                     });
                                     report_subject.set(String::new());
                                     report_description.set(String::new());

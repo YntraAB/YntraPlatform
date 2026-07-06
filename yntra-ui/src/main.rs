@@ -113,57 +113,92 @@ fn App() -> Element {
         // Load SQLite Web Worker Bridge
         script { src: "/db-bridge.js" }
 
-        components::VisualEffectHandler {
-            account_preferences,
-            workspace_brand_color: workspace_val.brand_color.clone(),
-        }
-        components::OfflineIndicator {}
-        components::GlobalSearch {
-            open: globalsearch_open,
-            active_section,
-            settings_tab,
-            report_tab,
-            report_type,
-            selected_note_team_id,
-            active_message_id,
-            users: users_data,
-            teams: teams_data,
-            notes: notes_data,
-            messages: messages_data,
-        }
+        components::ToastProvider {
+            BackgroundErrorListener {}
+            components::VisualEffectHandler {
+                account_preferences,
+                workspace_brand_color: workspace_val.brand_color.clone(),
+            }
+            components::OfflineIndicator {}
+            components::GlobalSearch {
+                open: globalsearch_open,
+                active_section,
+                settings_tab,
+                report_tab,
+                report_type,
+                selected_note_team_id,
+                active_message_id,
+                users: users_data,
+                teams: teams_data,
+                notes: notes_data,
+                messages: messages_data,
+            }
 
-        if !*logged_in.read() {
-            views::LoginView {
-                scanning_state: scanning_state,
-                show_bankid_modal: show_bankid_modal,
-                login_error: login_error,
-                login_tab: login_tab,
-                auth_region: auth_region,
-                logged_in: logged_in,
-                active_user_id: active_user_id,
-                active_section: active_section,
-                login_email: login_email,
-                login_password: login_password,
-                workspace: workspace_val.clone(),
-                users: state.users.read().clone().unwrap_or_default(),
-                needs_setup: needs_setup,
-                db_trigger: db_trigger,
-                two_factor_user: two_factor_user,
-                on_desktop_oauth: move |provider| on_desktop_oauth_callback.call(provider),
+            if !*logged_in.read() {
+                views::LoginView {
+                    scanning_state: scanning_state,
+                    show_bankid_modal: show_bankid_modal,
+                    login_error: login_error,
+                    login_tab: login_tab,
+                    auth_region: auth_region,
+                    logged_in: logged_in,
+                    active_user_id: active_user_id,
+                    active_section: active_section,
+                    login_email: login_email,
+                    login_password: login_password,
+                    workspace: workspace_val.clone(),
+                    needs_setup: needs_setup,
+                    users: state.users.read().clone().unwrap_or_default(),
+                    db_trigger: db_trigger,
+                    two_factor_user: two_factor_user,
+                    on_desktop_oauth: move |provider| on_desktop_oauth_callback.call(provider),
+                }
+            } else if state.users.read().is_none() || state.workspace.read().is_none() {
+                div {
+                    class: "flex h-screen w-screen items-center justify-center bg-gray-50 dark:bg-zinc-900",
+                    div {
+                        class: "flex flex-col items-center space-y-4",
+                        div { class: "h-12 w-12 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" }
+                        p { class: "text-gray-500 dark:text-zinc-400 font-medium", "Laddar Yntra..." }
+                    }
+                }
+            } else if *needs_setup.read() {
+                views::SetupView {
+                    active_user_id: active_user_id,
+                    needs_setup: needs_setup,
+                    logged_in: logged_in,
+                    auth_region: auth_region,
+                    db_trigger: db_trigger,
+                    users: state.users.read().clone().unwrap_or_default(),
+                }
+            } else if is_client {
+                layouts::ClientLayout {}
+            } else {
+                layouts::EmployeeLayout {}
             }
-        } else if *needs_setup.read() {
-            views::SetupView {
-                active_user_id: active_user_id,
-                needs_setup: needs_setup,
-                logged_in: logged_in,
-                auth_region: auth_region,
-                db_trigger: db_trigger,
-                users: state.users.read().clone().unwrap_or_default(),
-            }
-        } else if is_client {
-            layouts::ClientLayout {}
-        } else {
-            layouts::EmployeeLayout {}
         }
     }
+}
+
+#[component]
+fn BackgroundErrorListener() -> Element {
+    let state = use_context::<state::AppState>();
+    let toast = dioxus_primitives::toast::use_toast();
+    let mut bg_err = state.background_error;
+
+    use_effect(move || {
+        if let Some(err) = bg_err.read().as_ref() {
+            let user_err = crate::utils::map_error(err);
+            toast.error(
+                user_err.title,
+                dioxus_primitives::toast::ToastOptions::new().description(user_err.description),
+            );
+            // Clear the error so it doesn't fire repeatedly
+            spawn(async move {
+                bg_err.set(None);
+            });
+        }
+    });
+
+    rsx! {}
 }
