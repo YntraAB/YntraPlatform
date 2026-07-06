@@ -18,14 +18,74 @@ where
     }
 }
 
+fn verify_finnish_checksum(pnum: &str) -> bool {
+    let clean = pnum.trim();
+    if clean.len() != 11 {
+        return false;
+    }
+    let first_9 = match format!("{}{}", &clean[0..6], &clean[7..10]).parse::<u64>() {
+        Ok(n) => n,
+        Err(_) => return false,
+    };
+    let rem = (first_9 % 31) as usize;
+    let checksum_chars = "0123456789ABCDEFHJKLMNPRSTUVWXY";
+    let expected_char = checksum_chars.chars().nth(rem).unwrap_or(' ');
+    let actual_char = clean.chars().nth(10).unwrap_or(' ');
+    actual_char == expected_char
+}
+
 #[allow(dead_code)]
 fn check_birthdate_match(personal_number: &str, birthdate_ddmmyy: &str) -> bool {
+    check_birthdate_match_impl(personal_number, birthdate_ddmmyy, None)
+}
+
+fn check_birthdate_match_impl(personal_number: &str, birthdate_ddmmyy: &str, provider: Option<&str>) -> bool {
     if birthdate_ddmmyy.len() != 6 {
         return false;
     }
+    
+    let clean_pnum = personal_number.trim();
+
+    let mut enforce_se = false;
+    let mut enforce_no = false;
+    let mut enforce_dk = false;
+    let mut enforce_fi = false;
+
+    if let Some(prov) = provider {
+        match prov {
+            "se_bankid" | "siths" => enforce_se = true,
+            "no_bankid" => enforce_no = true,
+            "dk_mitid" => enforce_dk = true,
+            "fi_tunnistus" => enforce_fi = true,
+            _ => {}
+        }
+    }
+
+    // Handle Finnish Personal Identity Code (Format: DDMMYYCZZZQ)
+    let is_finnish_format = if clean_pnum.len() == 11 {
+        let separator = clean_pnum.chars().nth(6).unwrap_or(' ');
+        let last_char = clean_pnum.chars().nth(10).unwrap_or(' ');
+        let valid_finnish_separators = ['+', '-', 'A', 'B', 'C', 'D', 'E', 'F', 'Y', 'X', 'W', 'V', 'U'];
+        valid_finnish_separators.contains(&separator) && (separator.is_alphabetic() || !last_char.is_ascii_digit() || verify_finnish_checksum(clean_pnum))
+    } else {
+        false
+    };
+
+    if is_finnish_format || enforce_fi {
+        if enforce_se || enforce_no || enforce_dk {
+            return false;
+        }
+        return clean_pnum.starts_with(birthdate_ddmmyy);
+    }
+    
     let mut digits: String = personal_number.chars().filter(|c| c.is_ascii_digit()).collect();
     let matches = if digits.len() == 11 {
         // DDMMYYXXXXX (Norwegian)
+        if enforce_se || enforce_dk || enforce_fi {
+            use zeroize::Zeroize;
+            digits.zeroize();
+            return false;
+        }
         if digits.len() >= 6 {
             let mut dd = digits[0..2].parse::<i32>().unwrap_or(0);
             if dd > 40 {
@@ -42,7 +102,12 @@ fn check_birthdate_match(personal_number: &str, birthdate_ddmmyy: &str) -> bool 
             false
         }
     } else if digits.len() == 12 {
-        // YYYYMMDDXXXX
+        // YYYYMMDDXXXX (Swedish 12-digit)
+        if enforce_no || enforce_dk || enforce_fi {
+            use zeroize::Zeroize;
+            digits.zeroize();
+            return false;
+        }
         if digits.len() < 8 {
             use zeroize::Zeroize;
             digits.zeroize();
@@ -63,16 +128,36 @@ fn check_birthdate_match(personal_number: &str, birthdate_ddmmyy: &str) -> bool 
             digits.zeroize();
             return false;
         }
-        let yy = &digits[0..2];
-        let mm = &digits[2..4];
-        let mut dd = digits[4..6].parse::<i32>().unwrap_or(0);
-        if dd > 60 {
-            dd -= 60;
+        if enforce_dk {
+            digits[0..6] == *birthdate_ddmmyy
+        } else if enforce_se {
+            let yy = &digits[0..2];
+            let mm = &digits[2..4];
+            let mut dd = digits[4..6].parse::<i32>().unwrap_or(0);
+            if dd > 60 {
+                dd -= 60;
+            }
+            let expected_ddmmyy = format!("{:02}{}{}", dd, mm, yy);
+            expected_ddmmyy == birthdate_ddmmyy
+        } else {
+            // Fallback (tests or unspecified provider)
+            let yy = &digits[0..2];
+            let mm = &digits[2..4];
+            let mut dd = digits[4..6].parse::<i32>().unwrap_or(0);
+            if dd > 60 {
+                dd -= 60;
+            }
+            let expected_ddmmyy = format!("{:02}{}{}", dd, mm, yy);
+            expected_ddmmyy == birthdate_ddmmyy || digits[0..6] == *birthdate_ddmmyy
         }
-        let expected_ddmmyy = format!("{:02}{}{}", dd, mm, yy);
-        expected_ddmmyy == birthdate_ddmmyy || digits[0..6] == *birthdate_ddmmyy
     } else {
-        digits.contains(birthdate_ddmmyy)
+        // Fallback containment check
+        if enforce_se || enforce_no || enforce_dk || enforce_fi {
+            use zeroize::Zeroize;
+            digits.zeroize();
+            return false;
+        }
+        digits.len() >= 6 && digits.contains(birthdate_ddmmyy)
     };
     use zeroize::Zeroize;
     digits.zeroize();
@@ -300,7 +385,7 @@ pub async fn submit_bankid_pin(session_id: String, pin: String) -> Result<(), Yn
 
     #[cfg(not(debug_assertions))]
     {
-        let zeroizing_pin = zeroize::Zeroizing::new(pin);
+        let _zeroizing_pin = zeroize::Zeroizing::new(pin);
         
         // Transition status to verifying
         {
@@ -312,68 +397,8 @@ pub async fn submit_bankid_pin(session_id: String, pin: String) -> Result<(), Yn
         }
         notify_observers();
 
-        // Retrieve provider to decide validation
-        let provider = {
-            let conn = database::acquire_connection().await?;
-            let mut stmt = conn.prepare("SELECT provider FROM bankid_auth_sessions WHERE id = ?1").await?;
-            let mut rows = stmt.query(crate::params![&session_id]).await?;
-            if let Some(row) = rows.next().await? {
-                row.get::<String>(0)?
-            } else {
-                return Err(YntraError::NotFoundError("Session not found".to_string()));
-            }
-        };
-
-        if provider == "no_bankid" {
-            if !zeroizing_pin.contains('|') {
-                let conn = database::acquire_connection().await?;
-                let _ = conn.execute("UPDATE bankid_auth_sessions SET status = 'error', progress = 0.0, error_message = '' WHERE id = ?1", crate::params![&session_id]).await;
-                notify_observers();
-                return Err(YntraError::ValidationError("Invalid Norwegian BankID payload".to_string()));
-            }
-            let parts: Vec<&str> = zeroizing_pin.split('|').collect();
-            let phone_input = parts[0];
-            let birthdate_input = parts[1];
-
-            let user_info = {
-                let conn = database::acquire_connection().await?;
-                let mut stmt = conn.prepare("SELECT id, personal_number, workspace_id FROM users WHERE phone = ?1 LIMIT 1").await?;
-                let mut rows = stmt.query(crate::params![phone_input]).await?;
-                if let Some(row) = rows.next().await? {
-                    let id: String = row.get(0)?;
-                    let raw_pnum: Option<String> = row.get(1)?;
-                    let ws_id: Option<String> = row.get(2)?;
-                    let decrypted_pnum = crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id.as_deref().unwrap_or(""));
-                    Some((id, decrypted_pnum))
-                } else {
-                    None
-                }
-            };
-
-            if let Some((uid, Some(mut pnum))) = user_info {
-                let matches = check_birthdate_match(&pnum, birthdate_input);
-                use zeroize::Zeroize;
-                pnum.zeroize();
-                if matches {
-                    let conn = database::acquire_connection().await?;
-                    conn.execute(
-                        "UPDATE bankid_auth_sessions SET status = 'success', progress = 100.0, authenticated_user_id = ?1 WHERE id = ?2",
-                        crate::params![uid, &session_id],
-                    ).await?;
-                    notify_observers();
-                    return Ok(());
-                }
-            }
-
-            // Error fallback
-            let conn = database::acquire_connection().await?;
-            let _ = conn.execute("UPDATE bankid_auth_sessions SET status = 'error', progress = 0.0, error_message = 'Invalid credentials' WHERE id = ?1", crate::params![&session_id]).await;
-            notify_observers();
-            Err(YntraError::AuthError("Norwegian BankID verification failed: invalid credentials".to_string()))
-        } else {
-            // For other providers in production: we keep in verifying status and wait for host validation
-            Ok(())
-        }
+        // For all providers in production: we keep in verifying status and wait for host validation
+        Ok(())
     }
 }
 
@@ -523,6 +548,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_finnish_birthdate_match() {
+        // Finnish: DDMMYYCZZZQ
+        assert!(check_birthdate_match("131052-308T", "131052"));
+        assert!(check_birthdate_match("010100A123A", "010100"));
+        assert!(!check_birthdate_match("131052-308T", "141052"));
+    }
+
+    #[test]
     fn test_norwegian_birthdate_match() {
         // Norwegian: DDMMYYXXXXX
         assert!(check_birthdate_match("05072612345", "050726"));
@@ -567,9 +600,36 @@ mod tests {
     }
 
     #[test]
+    fn test_swedish_hyphenated_birthdate_match() {
+        // Swedish standard hyphenated: YYMMDD-XXXX
+        assert!(check_birthdate_match("890514-1234", "140589"));
+        assert!(check_birthdate_match("011231-9876", "311201"));
+        assert!(!check_birthdate_match("890514-1234", "150589"));
+    }
+
+    #[test]
+    fn test_finnish_new_century_separators_match() {
+        // Finnish new century separators (B for 2000s, Y for 1900s)
+        assert!(check_birthdate_match("010100B123A", "010100"));
+        assert!(check_birthdate_match("150890Y456B", "150890"));
+        
+        // Ensure no security bypass/false positives via weak contains fallback
+        assert!(!check_birthdate_match("120101B001A", "010100")); // 120101001 contains 010100, must fail
+    }
+
+    #[test]
     fn test_birthdate_fallback_containment() {
         assert!(check_birthdate_match("abc140589xyz", "140589"));
         assert!(!check_birthdate_match("abc140588xyz", "140589"));
+    }
+
+    #[test]
+    fn test_finnish_pic_security_bypass_prevention() {
+        // Finnish PIC 131089-3058 (Oct 13, 1989) has a valid Finnish checksum '8'.
+        assert!(check_birthdate_match_impl("131089-3058", "131089", Some("fi_tunnistus")));
+        assert!(!check_birthdate_match_impl("131089-3058", "291013", Some("fi_tunnistus")));
+        assert!(!check_birthdate_match_impl("131089-3058", "131089", Some("se_bankid")));
+        assert!(!check_birthdate_match_impl("131089-3058", "291013", Some("se_bankid")));
     }
 
     #[test]
