@@ -53,7 +53,7 @@ pub fn BillingTab(props: BillingTabProps) -> Element {
         .map(|i| i.amount)
         .sum();
 
-    // SOTA Modal States
+    // Modal States
     let mut show_swish_modal = use_signal(|| false);
     let mut swish_phone = use_signal(|| active_user.phone.clone().unwrap_or_default());
     let mut swish_step = use_signal(|| 0); // 0: Idle/Form, 1: Initiating, 2: Waiting Signature, 3: Finalizing, 4: Success
@@ -144,7 +144,7 @@ pub fn BillingTab(props: BillingTabProps) -> Element {
             }
         }
 
-        // SOTA Swish Checkout Modal
+        // Swish Checkout Modal
         if *show_swish_modal.read() {
             div { class: "fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/85 backdrop-blur-md animate-in fade-in duration-300",
                 div { class: "w-full max-w-md p-6 bg-sidebar/95 border border-border/40 rounded-3xl shadow-2xl flex flex-col gap-5 relative overflow-hidden backdrop-blur-xl animate-in scale-in duration-200 border-t-[#e8117f]/30",
@@ -342,7 +342,7 @@ pub fn BillingTab(props: BillingTabProps) -> Element {
                             rsx! {
                                 div { class: "flex flex-col gap-6 py-6 relative z-10",
                                     
-                                    // SOTA Progress Circle
+                                    // Progress Circle
                                     div { class: "flex flex-col items-center justify-center gap-3",
                                         div { class: "relative w-20 h-20 flex items-center justify-center",
                                             // Glowing background ring

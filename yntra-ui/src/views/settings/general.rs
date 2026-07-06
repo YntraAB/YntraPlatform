@@ -61,7 +61,14 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
     let is_school = modules_val.get("school").and_then(|v| v.as_bool()).unwrap_or(false);
     
     let mut language = use_signal(|| {
-        settings_val.get("language").and_then(|v| v.as_str()).unwrap_or("en").to_string()
+        let raw = settings_val.get("language").and_then(|v| v.as_str()).unwrap_or("US");
+        match raw.to_lowercase().as_str() {
+            "sv" | "se" => "SE",
+            "no" | "nb" | "nn" => "NO",
+            "da" | "dk" => "DK",
+            "fi" => "FI",
+            _ => "US",
+        }.to_string()
     });
     let mut timezone = use_signal(|| {
         settings_val.get("timezone").and_then(|v| v.as_str()).unwrap_or("Europe/Stockholm").to_string()
@@ -77,6 +84,9 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
     });
     let mut late_policy = use_signal(|| {
         settings_val.get("late_policy").and_then(|v| v.as_str()).unwrap_or("none").to_string()
+    });
+    let mut target_region = use_signal(|| {
+        settings_val.get("target_region").and_then(|v| v.as_str()).unwrap_or("EU").to_string()
     });
 
     let state = use_context::<crate::state::AppState>();
@@ -105,15 +115,16 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
         let workspace_settings_raw = props.workspace.settings.clone();
         let workspace_id = workspace_id.clone();
         let user_id = state.active_user_id.read().clone();
-        move |lang: String, tz: String, ws_start: i32, tmpl: String, grading: String, late: String| {
+        move || {
             settings_save_status.set("saving".to_string());
             let mut settings_map: serde_json::Value = serde_json::from_str(&workspace_settings_raw).unwrap_or_default();
-            settings_map["language"] = serde_json::json!(lang);
-            settings_map["timezone"] = serde_json::json!(tz);
-            settings_map["week_start"] = serde_json::json!(ws_start);
-            settings_map["template"] = serde_json::json!(tmpl);
-            settings_map["grading_system"] = serde_json::json!(grading);
-            settings_map["late_policy"] = serde_json::json!(late);
+            settings_map["language"] = serde_json::json!((*language.read()).clone());
+            settings_map["timezone"] = serde_json::json!((*timezone.read()).clone());
+            settings_map["week_start"] = serde_json::json!(*week_start.read());
+            settings_map["template"] = serde_json::json!((*template.read()).clone());
+            settings_map["grading_system"] = serde_json::json!((*grading_system.read()).clone());
+            settings_map["late_policy"] = serde_json::json!((*late_policy.read()).clone());
+            settings_map["target_region"] = serde_json::json!((*target_region.read()).clone());
             
             let settings_str = serde_json::to_string(&settings_map).unwrap_or_default();
             let ws_id = workspace_id.clone();
@@ -307,11 +318,44 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
                                         let mut save_settings = save_settings.clone();
                                         let val = e.value();
                                         language.set(val.clone());
-                                        save_settings(val, (*timezone.read()).clone(), *week_start.read(), (*template.read()).clone(), (*grading_system.read()).clone(), (*late_policy.read()).clone());
+                                        save_settings();
                                     }
                                 },
-                                option { value: "sv", "{t(\"settings-languages-sv\", &props.locale)}" }
-                                option { value: "en", "{t(\"settings-languages-en\", &props.locale)}" }
+                                option { value: "SE", "{t(\"settings-languages-sv\", &props.locale)}" }
+                                option { value: "NO", "{t(\"settings-languages-no\", &props.locale)}" }
+                                option { value: "DK", "{t(\"settings-languages-da\", &props.locale)}" }
+                                option { value: "FI", "{t(\"settings-languages-fi\", &props.locale)}" }
+                                option { value: "US", "{t(\"settings-languages-en\", &props.locale)}" }
+                            }
+                        }
+
+                        // Target Region Dropdown
+                        div { class: "space-y-2",
+                            label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
+                                "Target Region (Compliance)"
+                            }
+                            select {
+                                class: "yntra-input h-11 rounded-xl border-border/40 bg-background/40",
+                                value: "{target_region}",
+                                onchange: {
+                                    let save_settings = save_settings.clone();
+                                    move |e| {
+                                        let mut save_settings = save_settings.clone();
+                                        let val = e.value();
+                                        target_region.set(val.clone());
+                                        save_settings();
+                                    }
+                                },
+                                option { value: "EU", "EU (Default)" }
+                                option { value: "SE", "Sweden (SE)" }
+                                option { value: "NO", "Norway (NO)" }
+                                option { value: "DK", "Denmark (DK)" }
+                                option { value: "FI", "Finland (FI)" }
+                                option { value: "US-FED", "US Federal (FLSA)" }
+                                option { value: "US-CA", "US California" }
+                                option { value: "US-CO", "US Colorado" }
+                                option { value: "US-NV", "US Nevada" }
+                                option { value: "US-AK", "US Alaska" }
                             }
                         }
 
@@ -329,7 +373,7 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
                                         let mut save_settings = save_settings.clone();
                                         let val = e.value();
                                         timezone.set(val.clone());
-                                        save_settings((*language.read()).clone(), val, *week_start.read(), (*template.read()).clone(), (*grading_system.read()).clone(), (*late_policy.read()).clone());
+                                        save_settings();
                                     }
                                 },
                                 option { value: "Europe/Stockholm", "{t(\"settings-timezones-stockholm\", &props.locale)}" }
@@ -351,7 +395,7 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
                                         let mut save_settings = save_settings.clone();
                                         if let Ok(val) = e.value().parse::<i32>() {
                                             week_start.set(val);
-                                            save_settings((*language.read()).clone(), (*timezone.read()).clone(), val, (*template.read()).clone(), (*grading_system.read()).clone(), (*late_policy.read()).clone());
+                                            save_settings();
                                         }
                                     }
                                 },
@@ -374,7 +418,7 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
                                         let mut save_settings = save_settings.clone();
                                         let val = e.value();
                                         template.set(val.clone());
-                                        save_settings((*language.read()).clone(), (*timezone.read()).clone(), *week_start.read(), val, (*grading_system.read()).clone(), (*late_policy.read()).clone());
+                                        save_settings();
                                     }
                                 },
                                 option { value: "care", "Care & Assistance" }
@@ -398,7 +442,7 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
                                             let mut save_settings = save_settings.clone();
                                             let val = e.value();
                                             grading_system.set(val.clone());
-                                            save_settings((*language.read()).clone(), (*timezone.read()).clone(), *week_start.read(), (*template.read()).clone(), val, (*late_policy.read()).clone());
+                                            save_settings();
                                         }
                                     },
                                     option { value: "A-F", "A-F (Letter Grades)" }
@@ -426,7 +470,7 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
                                             let mut save_settings = save_settings.clone();
                                             let val = e.value();
                                             late_policy.set(val.clone());
-                                            save_settings((*language.read()).clone(), (*timezone.read()).clone(), *week_start.read(), (*template.read()).clone(), (*grading_system.read()).clone(), val);
+                                            save_settings();
                                         }
                                     },
                                     option { value: "none", "None (No Penalties)" }

@@ -69,6 +69,10 @@ pub fn AccountSettings(props: AccountSettingsProps) -> Element {
         let scale = prefs.get("font_scale").and_then(|f| f.as_f64()).unwrap_or(1.0) as f32;
         if scale > 2.0 { scale / 100.0 } else { scale }
     });
+    let mut selected_language = use_signal(|| {
+        let prefs: serde_json::Value = serde_json::from_str(&account_preferences.read()).unwrap_or_default();
+        prefs.get("language").and_then(|l| l.as_str()).unwrap_or("US").to_string()
+    });
 
     let update_preference = {
         let active_user_id = active_user.id.clone();
@@ -438,6 +442,30 @@ pub fn AccountSettings(props: AccountSettingsProps) -> Element {
                                             }
                                         }
                                     }
+                                }
+                            }
+
+                            // Preferred Language dropdown
+                            div { class: "space-y-4 border-t border-border/40 pt-6",
+                                label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
+                                    "{t(\"settings-language\", &props.locale)}"
+                                }
+                                select {
+                                    class: "yntra-input h-11 rounded-xl border-border/40 bg-background/40 w-full",
+                                    value: "{selected_language}",
+                                    onchange: {
+                                        let mut update_preference = update_preference.clone();
+                                        move |e| {
+                                            let val = e.value();
+                                            selected_language.set(val.clone());
+                                            update_preference("language", serde_json::json!(val));
+                                        }
+                                    },
+                                    option { value: "SE", "{t(\"settings-languages-sv\", &props.locale)}" }
+                                    option { value: "NO", "{t(\"settings-languages-no\", &props.locale)}" }
+                                    option { value: "DK", "{t(\"settings-languages-da\", &props.locale)}" }
+                                    option { value: "FI", "{t(\"settings-languages-fi\", &props.locale)}" }
+                                    option { value: "US", "{t(\"settings-languages-en\", &props.locale)}" }
                                 }
                             }
                         }

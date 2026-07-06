@@ -541,45 +541,7 @@ body {
     color: var(--text-primary);
 }
 
-.sota-btn {
-    background: hsl(0, 0%, 98%);
-    border: 1px solid hsl(0, 0%, 98%);
-    color: hsl(240, 5.9%, 10%);
-    padding: 0.5rem 1rem;
-    border-radius: 8px;
-    font-weight: 500;
-    font-size: 0.875rem;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-    transition: opacity 0.15s ease;
-}
 
-.sota-btn:hover {
-    opacity: 0.9;
-}
-
-.sota-btn-outline {
-    background: transparent;
-    border: 1px solid var(--border-color);
-    color: var(--text-primary);
-    padding: 0.5rem 1rem;
-    border-radius: 8px;
-    font-weight: 500;
-    font-size: 0.875rem;
-    cursor: pointer;
-    transition: background-color 0.15s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-}
-
-.sota-btn-outline:hover {
-    background: hsl(240, 5.9%, 10%);
-}
 
 .login-divider {
     display: flex;

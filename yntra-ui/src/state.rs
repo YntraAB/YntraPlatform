@@ -675,10 +675,27 @@ pub fn use_init_app_state() -> AppState {
         let uid = active_user_id_for_effect.read().clone();
         if let Some(user) = users_list.iter().find(|u| u.id == uid) {
             let user_prefs: serde_json::Value = serde_json::from_str(&user.preferences).unwrap_or_default();
-            if let Some(lang) = user_prefs.get("language").and_then(|l| l.as_str())
-                && *auth_region.read() != lang {
-                    auth_region.set(lang.to_string());
+            let mut lang_opt = user_prefs.get("language").and_then(|l| l.as_str()).map(|s| s.to_string());
+            
+            if lang_opt.is_none() {
+                if let Some(ws) = workspace.read().clone() {
+                    let settings_val: serde_json::Value = serde_json::from_str(&ws.settings).unwrap_or_default();
+                    lang_opt = settings_val.get("language").and_then(|l| l.as_str()).map(|s| s.to_string());
                 }
+            }
+            
+            if let Some(lang) = lang_opt {
+                let norm_lang = match lang.to_lowercase().as_str() {
+                    "sv" | "se" => "SE",
+                    "no" | "nb" | "nn" => "NO",
+                    "da" | "dk" => "DK",
+                    "fi" => "FI",
+                    _ => "US",
+                };
+                if *auth_region.read() != norm_lang {
+                    auth_region.set(norm_lang.to_string());
+                }
+            }
         }
     });
 

@@ -316,7 +316,7 @@ pub fn ParentPortal(props: ParentPortalProps) -> Element {
                     }
                 }
 
-                // SOTA Metrics Cards Grid
+                // Metrics Cards Grid
                 div { class: "grid gap-6 md:grid-cols-3",
                     // Card 1: Attendance Rate
                     components::Card { class: "p-5 border-border/40 bg-sidebar/20 flex flex-col justify-between gap-3",

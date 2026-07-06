@@ -1,6 +1,7 @@
 const LOCALE_SE: &str = include_str!("../locales/se.ftl");
 const LOCALE_NO: &str = include_str!("../locales/no.ftl");
 const LOCALE_DK: &str = include_str!("../locales/dk.ftl");
+const LOCALE_FI: &str = include_str!("../locales/fi.ftl");
 const LOCALE_EN: &str = include_str!("../locales/en.ftl");
 
 thread_local! {
@@ -20,6 +21,8 @@ pub fn get_system_locale() -> String {
                     return "NO".to_string();
                 } else if lang.starts_with("da") {
                     return "DK".to_string();
+                } else if lang.starts_with("fi") {
+                    return "FI".to_string();
                 }
             }
         }
@@ -39,6 +42,7 @@ pub fn t_with_args(key: &str, locale: &str, args: &[(&str, &str)]) -> String {
                 ("SE", LOCALE_SE),
                 ("NO", LOCALE_NO),
                 ("DK", LOCALE_DK),
+                ("FI", LOCALE_FI),
                 ("US", LOCALE_EN),
             ] {
                 let res = fluent_bundle::FluentResource::try_new(source.to_string())
