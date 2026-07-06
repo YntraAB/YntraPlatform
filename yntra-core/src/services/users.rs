@@ -361,7 +361,6 @@ pub async fn delete_user(requester_user_id: String, user_id: String) -> Result<(
     let res = async {
         // 1. Delete associated child relationships that are no longer needed
         conn.execute("DELETE FROM team_members WHERE user_id = ?1", crate::params![&user_id]).await?;
-        conn.execute("DELETE FROM time_reports WHERE user_id = ?1", crate::params![&user_id]).await?;
         conn.execute("DELETE FROM student_parents WHERE parent_user_id = ?1", crate::params![&user_id]).await?;
         
         // 2. Anonymize/Nullify references in other tables to preserve integrity
@@ -371,11 +370,13 @@ pub async fn delete_user(requester_user_id: String, user_id: String) -> Result<(
         conn.execute("UPDATE student_profiles SET user_id = NULL WHERE user_id = ?1", crate::params![&user_id]).await?;
         conn.execute("UPDATE courses SET teacher_id = NULL WHERE teacher_id = ?1", crate::params![&user_id]).await?;
         conn.execute("UPDATE job_tickets SET assigned_user_id = NULL WHERE assigned_user_id = ?1", crate::params![&user_id]).await?;
+        
+        let now_ms = crate::infra::time::get_current_time_ms();
+        conn.execute("UPDATE time_reports SET note = NULL, sync_status = 'pending', updated_at = ?1 WHERE user_id = ?2", crate::params![now_ms, &user_id]).await?;
 
         // 3. Instead of physically deleting the user row (which fails due to foreign key constraints in audit_logs, notes, client_journals, etc.),
         // we cryptographically scrub all personal data from the user record to satisfy GDPR Art. 17 right to be forgotten.
         let anon_email = format!("deleted-{}@yntra-deleted.invalid", &user_id[..8.min(user_id.len())]);
-        let now_ms = crate::infra::time::get_current_time_ms();
         conn.execute(
             "UPDATE users 
              SET email = ?1, 
