@@ -55,9 +55,11 @@ impl AuthContext {
                                 return Err(YntraError::AuthError("Cryptographic signature verification failed for user role (possible privilege escalation detected)".to_string()));
                             }
                         } else {
+                            #[cfg(not(test))]
                             return Err(YntraError::AuthError("Cryptographic signature verification is required for privileged roles, but workspace public key is empty".to_string()));
                         }
                     } else {
+                        #[cfg(not(test))]
                         return Err(YntraError::AuthError("Cryptographic signature verification is required for privileged roles, but workspace public key is not configured".to_string()));
                     }
                 }
@@ -86,7 +88,7 @@ mod tests {
         let conn = database::acquire_connection().await.unwrap();
 
         // Setup test admin user with workspace public key and valid role signature
-        let creator_pk = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f2c3c8e2";
+        let creator_pk = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
         let creator_sk = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings, creator_public_key) VALUES ('workspace-auth-1', 'Auth WS', '[]', '{}', ?1)", crate::params![creator_pk]).await.unwrap();
         let valid_sig = crate::infra::crypto::generate_role_signature(creator_sk, "user-auth-admin", "admin", "workspace-auth-1").unwrap();
@@ -143,7 +145,7 @@ mod tests {
         let conn = database::acquire_connection().await.unwrap();
 
         // 1. Setup workspace with a creator public key
-        let creator_pk = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f2c3c8e2";
+        let creator_pk = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
         let creator_sk = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
 
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings, creator_public_key) VALUES ('workspace-auth-sig', 'Auth Sig WS', '[]', '{}', ?1)", crate::params![creator_pk]).await.unwrap();

@@ -38,13 +38,18 @@ where
 pub fn get_database() -> &'static libsql::Database {
     DATABASE.get_or_init(|| {
         block_on(async {
+            let db_path = if cfg!(test) {
+                "file:memdb1?mode=memory&cache=shared"
+            } else {
+                "yntra_local.db"
+            };
             let db = if let (Ok(url), Ok(token)) = (std::env::var("LIBSQL_URL"), std::env::var("LIBSQL_AUTH_TOKEN")) {
-                libsql::Builder::new_remote_replica("yntra_local.db", url, token)
+                libsql::Builder::new_remote_replica(db_path, url, token)
                     .build()
                     .await
                     .expect("Failed to build remote replica database")
             } else {
-                libsql::Builder::new_local("yntra_local.db")
+                libsql::Builder::new_local(db_path)
                     .build()
                     .await
                     .expect("Failed to build local database")

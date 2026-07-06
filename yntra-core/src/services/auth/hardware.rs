@@ -114,23 +114,25 @@ pub async fn run_hardware_auth_simulation(session_id: String, provider: String) 
     
     // Check registered users for active credentials in database
     let mut resolved_user_info = None;
-    let mut stmt = conn.prepare("SELECT id, siths_card_id, nfc_badge_uid, siths_public_key FROM users").await?;
-    let mut rows = stmt.query(()).await?;
-    while let Some(row) = rows.next().await? {
-        let uid: String = row.get(0)?;
-        let siths: Option<String> = row.get(1)?;
-        let nfc: Option<String> = row.get(2)?;
-        let pubkey: Option<String> = row.get(3)?;
-        
-        let has_siths = siths.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
-        let has_nfc = nfc.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
-        
-        if (provider == "siths" && has_siths)
-            || (provider == "nfc" && has_nfc)
-            || (provider == "card_or_badge" && (has_siths || has_nfc))
-        {
-            resolved_user_info = Some((uid, pubkey));
-            break;
+    {
+        let mut stmt = conn.prepare("SELECT id, siths_card_id, nfc_badge_uid, siths_public_key FROM users").await?;
+        let mut rows = stmt.query(()).await?;
+        while let Some(row) = rows.next().await? {
+            let uid: String = row.get(0)?;
+            let siths: Option<String> = row.get(1)?;
+            let nfc: Option<String> = row.get(2)?;
+            let pubkey: Option<String> = row.get(3)?;
+            
+            let has_siths = siths.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
+            let has_nfc = nfc.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
+            
+            if (provider == "siths" && has_siths)
+                || (provider == "nfc" && has_nfc)
+                || (provider == "card_or_badge" && (has_siths || has_nfc))
+            {
+                resolved_user_info = Some((uid, pubkey));
+                break;
+            }
         }
     }
 
@@ -541,6 +543,9 @@ mod tests {
 
         // Run simulation
         let res = run_hardware_auth_simulation(session_id.to_string(), "siths".to_string()).await;
+        if let Err(ref e) = res {
+            println!("DEBUG ERROR: {:?}", e);
+        }
         assert!(res.is_ok());
 
         // Verify status is success, authenticated_user_id is user-1, progress = 100

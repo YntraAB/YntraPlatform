@@ -230,7 +230,7 @@ fn get_encryption_keys_internal(
                 poisoned.into_inner()
             }
         };
-        if is_poisoned {
+        if lock.is_none() && is_poisoned {
             hasher.zeroize();
             return Err(crate::infra::errors::YntraError::CryptoError("session_key_lock_poisoned".to_string()));
         }
