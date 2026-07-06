@@ -64,6 +64,17 @@ pub async fn get_time_reports(requester_user_id: String, user_id: Option<String>
     Ok(list)
 }
 
+fn get_week_start_days(target_days: i32, week_start_day: i32) -> i32 {
+    let day_of_week = (target_days + 2) % 7; // 0 = Monday, 1 = Tuesday ... 6 = Sunday
+    let target_start = if week_start_day == 0 || week_start_day == 7 {
+        6 // Sunday
+    } else {
+        week_start_day - 1 // Monday = 0, Tuesday = 1, etc.
+    };
+    let diff = (day_of_week - target_start + 7) % 7;
+    target_days - diff
+}
+
 #[uniffi::export]
 #[allow(clippy::too_many_arguments)]
 pub async fn add_time_report(
@@ -82,7 +93,7 @@ pub async fn add_time_report(
         None => return Err(YntraError::ValidationError("Invalid date format, expected YYYY-MM-DD".to_string())),
     };
 
-    // 2. Fetch all logged hours, workspace settings, and user preferences to determine national limits
+    // 2. Fetch logged hours, workspace settings, and user preferences to determine national limits
     let (settings_json, user_prefs_json, user_reports) = {
         let conn = database::acquire_connection().await?;
         
@@ -102,10 +113,24 @@ pub async fn add_time_report(
             user_prefs_json = row.get::<Option<String>>(0)?.unwrap_or_else(|| "{}".to_string());
         }
 
-        // Fetch user reports
+        let settings_parsed: serde_json::Value = serde_json::from_str(&settings_json).unwrap_or(serde_json::Value::Null);
+        let u_prefs_parsed: serde_json::Value = serde_json::from_str(&user_prefs_json).unwrap_or(serde_json::Value::Null);
+        let week_start_day = u_prefs_parsed.get("week_start")
+            .or_else(|| settings_parsed.get("week_start"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(1) as i32;
+
+        let target_week_start = get_week_start_days(target_days, week_start_day);
+
+        // Fetch user reports in a sliding window to optimize performance and prevent scaling issues
+        let start_days = target_week_start - 15 * 7;
+        let end_days = target_week_start + 16 * 7;
+        let start_date_str = format_date_from_days(start_days);
+        let end_date_str = format_date_from_days(end_days);
+
         let mut user_reports = Vec::new();
-        let mut stmt = conn.prepare("SELECT date, hours, start_time, end_time FROM time_reports WHERE user_id = ?1").await?;
-        let mut rows = stmt.query(crate::params![&user_id]).await?;
+        let mut stmt = conn.prepare("SELECT date, hours, start_time, end_time FROM time_reports WHERE user_id = ?1 AND date >= ?2 AND date <= ?3").await?;
+        let mut rows = stmt.query(crate::params![&user_id, start_date_str, end_date_str]).await?;
         while let Some(row) = rows.next().await? {
             let r_date: String = row.get(0)?;
             let r_hours: f64 = row.get(1)?;
@@ -120,10 +145,17 @@ pub async fn add_time_report(
     let settings: serde_json::Value = serde_json::from_str(&settings_json).unwrap_or(serde_json::Value::Null);
     let u_prefs: serde_json::Value = serde_json::from_str(&user_prefs_json).unwrap_or(serde_json::Value::Null);
 
-    let target_region = u_prefs.get("target_region")
+    let target_region_raw = u_prefs.get("target_region")
         .or_else(|| settings.get("target_region"))
         .and_then(|v| v.as_str())
         .unwrap_or("EU");
+    let target_region = target_region_raw.to_uppercase();
+
+    let week_start_day = u_prefs.get("week_start")
+        .or_else(|| settings.get("week_start"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(1) as i32;
+    let target_week_start = get_week_start_days(target_days, week_start_day);
 
     let allow_overtime = u_prefs.get("allow_overtime")
         .or_else(|| settings.get("allow_overtime"))
@@ -136,27 +168,9 @@ pub async fn add_time_report(
         .unwrap_or(false);
 
     // Resolve rules from Compliance Registry
-    let rule = crate::infra::compliance::ComplianceRegistry::get_rule(target_region);
+    let rule = crate::infra::compliance::ComplianceRegistry::get_rule(&target_region);
     let daily_limit = if allow_overtime { rule.max_daily_limit_with_overtime } else { rule.standard_daily_limit };
     let weekly_limit = if allow_overtime || allow_union_exempt { rule.max_weekly_limit_with_exemption } else { rule.standard_weekly_limit };
-
-    // 3. Resolve interval bounds for new report
-    let (new_start_abs, new_end_abs) = match get_report_interval(&date, hours, start_time.as_deref(), end_time.as_deref()) {
-        Some(interval) => interval,
-        None => return Err(YntraError::ValidationError("Invalid start_time or end_time format (expected HH:MM)".to_string())),
-    };
-
-    let start_day_idx = new_start_abs / 1440;
-    let end_day_idx = (new_end_abs - 1) / 1440;
-
-    let dst_adj = adjust_duration_for_dst(new_start_abs, new_end_abs, target_region);
-    let interval_duration_hrs = (new_end_abs - new_start_abs + dst_adj) as f64 / 60.0;
-    if hours > interval_duration_hrs {
-        return Err(YntraError::ValidationError(format!(
-            "Logged hours ({:.2}h) cannot exceed the shift duration ({:.2}h from {} to {})",
-            hours, interval_duration_hrs, start_time.as_deref().unwrap_or(""), end_time.as_deref().unwrap_or("")
-        )));
-    }
 
     // Convert existing user reports to absolute minute intervals
     let mut existing_intervals = Vec::new();
@@ -166,25 +180,64 @@ pub async fn add_time_report(
         }
     }
 
+    // 3. Resolve interval bounds for new report
+    let (new_start_abs, new_end_abs) = if let (Some(s_str), Some(e_str)) = (start_time.as_deref(), end_time.as_deref()) {
+        match get_report_interval(&date, hours, Some(s_str), Some(e_str)) {
+            Some(interval) => interval,
+            None => return Err(YntraError::ValidationError("Invalid start_time or end_time format (expected HH:MM)".to_string())),
+        }
+    } else {
+        // Omitted shift times: resolve a non-overlapping fallback interval
+        let (y, m, d) = match parse_date(&date) {
+            Some(parts) => parts,
+            None => return Err(YntraError::ValidationError("Invalid date format, expected YYYY-MM-DD".to_string())),
+        };
+        let day_start_min = date_to_days(y, m, d) * 1440;
+        
+        let mut day_existing = Vec::new();
+        for (r_date, r_hrs, r_start, r_end) in &user_reports {
+            if r_date == &date {
+                if let Some(interval) = get_report_interval(r_date, *r_hrs, r_start.as_deref(), r_end.as_deref()) {
+                    day_existing.push(interval);
+                }
+            }
+        }
+        resolve_fallback_interval_for_day(day_start_min, hours, &day_existing)
+    };
+
+    let start_day_idx = new_start_abs / 1440;
+    let end_day_idx = (new_end_abs - 1) / 1440;
+
+    let dst_adj = adjust_duration_for_dst(new_start_abs, new_end_abs, &target_region);
+    let interval_duration_hrs = (new_end_abs - new_start_abs + dst_adj) as f64 / 60.0;
+    if hours > interval_duration_hrs {
+        return Err(YntraError::ValidationError(format!(
+            "Logged hours ({:.2}h) cannot exceed the shift duration ({:.2}h from {} to {})",
+            hours, interval_duration_hrs, start_time.as_deref().unwrap_or(""), end_time.as_deref().unwrap_or("")
+        )));
+    }
+
     // 4. Validate daily limit on all affected days
     let mut all_intervals = existing_intervals.clone();
     all_intervals.push((new_start_abs, new_end_abs));
 
-    for day_idx in start_day_idx..=end_day_idx {
-        let daily_logged_on_day = get_hours_on_day(day_idx, &all_intervals);
-        if daily_logged_on_day > daily_limit {
-            let day_date_str = format_date_from_days(day_idx);
-            let msg = match target_region {
-                "NO" | "SE" | "DK" => format!(
-                    "Daily working hours limit ({}h) exceeded under {} on {}. Logged on this day: {:.2}h.",
-                    daily_limit, rule.law_name, day_date_str, daily_logged_on_day
-                ),
-                _ => format!(
-                    "Daily working hours limit ({}h) exceeded on {}. Logged on this day: {:.2}h (Violates mandatory 11h daily rest period)",
-                    daily_limit, day_date_str, daily_logged_on_day
-                ),
-            };
-            return Err(YntraError::ValidationError(msg));
+    if !target_region.starts_with("US") {
+        for day_idx in start_day_idx..=end_day_idx {
+            let daily_logged_on_day = get_hours_on_day(day_idx, &all_intervals);
+            if daily_logged_on_day > daily_limit {
+                let day_date_str = format_date_from_days(day_idx);
+                let msg = match target_region.as_str() {
+                    "NO" | "SE" | "DK" | "FI" => format!(
+                        "Daily working hours limit ({}h) exceeded under {} on {}. Logged on this day: {:.2}h.",
+                        daily_limit, rule.law_name, day_date_str, daily_logged_on_day
+                    ),
+                    _ => format!(
+                        "Daily working hours limit ({}h) exceeded on {}. Logged on this day: {:.2}h (Violates mandatory 11h daily rest period)",
+                        daily_limit, day_date_str, daily_logged_on_day
+                    ),
+                };
+                return Err(YntraError::ValidationError(msg));
+            }
         }
     }
 
@@ -201,7 +254,12 @@ pub async fn add_time_report(
 
     // Check consecutive daily rest hours if mandatory rest is set
     if rule.mandatory_daily_rest_hours > 0.0 {
-        let mandatory_rest_min = (rule.mandatory_daily_rest_hours * 60.0) as i32;
+        let mandatory_rest_hours_limit = if allow_union_exempt {
+            8.0 // Reduced to 8 hours under collective agreements / union exemptions in Nordics/EU
+        } else {
+            rule.mandatory_daily_rest_hours
+        };
+        let mandatory_rest_min = (mandatory_rest_hours_limit * 60.0) as i32;
         
         let mut sorted_intervals = all_intervals.clone();
         sorted_intervals.sort_by_key(|x| x.0);
@@ -209,7 +267,7 @@ pub async fn add_time_report(
         for i in 0..sorted_intervals.len() {
             let (s_start, _s_end) = sorted_intervals[i];
             let window_start = s_start;
-            let dst_change_in_window = adjust_duration_for_dst(window_start, window_start + 1440, target_region);
+            let dst_change_in_window = adjust_duration_for_dst(window_start, window_start + 1440, &target_region);
             let window_end = s_start + 1440 - dst_change_in_window;
             
             // Collect all segments overlapping with W
@@ -246,28 +304,27 @@ pub async fn add_time_report(
             if max_rest < mandatory_rest_min {
                 return Err(YntraError::ValidationError(format!(
                     "Daily working hours violation under {}: does not satisfy mandatory {}h consecutive daily rest period in the 24h window starting at {}",
-                    rule.law_name, rule.mandatory_daily_rest_hours, format_abs_minutes_to_datetime(s_start)
+                    rule.law_name, mandatory_rest_hours_limit, format_abs_minutes_to_datetime(s_start)
                 )));
             }
         }
     }
 
-    // 5. Validate weekly limit (fixed Monday-to-Sunday week containing target_days)
-    let target_monday = target_days - ((target_days + 2) % 7);
+    // 5. Validate weekly limit (fixed calendar week containing target_days)
     let weekly_logged: f64 = user_reports.iter()
         .filter_map(|(r_date, hrs, _, _)| {
             parse_date(r_date)
                 .map(|(y, m, d)| date_to_days(y, m, d))
-                .filter(|&days| days >= target_monday && days < target_monday + 7)
+                .filter(|&days| days >= target_week_start && days < target_week_start + 7)
                 .map(|_| *hrs)
         })
         .sum();
 
-    let skip_calendar_weekly_cap = matches!(target_region, "SE" | "NO" | "DK" | "EU") && allow_overtime;
+    let skip_calendar_weekly_cap = (matches!(target_region.as_str(), "SE" | "NO" | "DK" | "FI" | "EU") && allow_overtime) || target_region.starts_with("US");
 
     if !skip_calendar_weekly_cap && weekly_logged + hours > weekly_limit {
-        let msg = match target_region {
-            "NO" | "SE" | "DK" => format!(
+        let msg = match target_region.as_str() {
+            "NO" | "SE" | "DK" | "FI" => format!(
                 "Weekly working hours limit ({}h) exceeded under {}. Currently logged in window: {}h, trying to log: {}h.",
                 weekly_limit, rule.law_name, weekly_logged, hours
             ),
@@ -279,26 +336,94 @@ pub async fn add_time_report(
         return Err(YntraError::ValidationError(msg));
     }
 
-    // Check rolling 16-week average weekly limit of 48h for Nordic/EU regions
-    if matches!(target_region, "SE" | "NO" | "DK" | "EU") {
-        let window_start_day = target_monday - 15 * 7;
-        let window_end_day = target_monday + 7;
+    // Check rolling 16-week average weekly limit of 48h for Nordic/EU regions across all 16 windows containing the target week
+    if matches!(target_region.as_str(), "SE" | "NO" | "DK" | "FI" | "EU") {
+        for offset in 0..16 {
+            let w_start = target_week_start + (offset - 15) * 7;
+            let rolling_logged: f64 = user_reports.iter()
+                .filter_map(|(r_date, hrs, _, _)| {
+                    parse_date(r_date)
+                        .map(|(y, m, d)| date_to_days(y, m, d))
+                        .filter(|&days| days >= w_start && days < w_start + 16 * 7)
+                        .map(|_| *hrs)
+                })
+                .sum();
 
-        let rolling_logged: f64 = user_reports.iter()
-            .filter_map(|(r_date, hrs, _, _)| {
-                parse_date(r_date)
-                    .map(|(y, m, d)| date_to_days(y, m, d))
-                    .filter(|&days| days >= window_start_day && days < window_end_day)
-                    .map(|_| *hrs)
-            })
-            .sum();
+            let rolling_average = (rolling_logged + hours) / 16.0;
+            if rolling_average > 48.0 {
+                return Err(YntraError::ValidationError(format!(
+                    "Rolling 16-week average weekly working hours ({:.2}h) exceeds the legal limit of 48.0h under {} in the 16-week window starting at {}.",
+                    rolling_average, rule.law_name, format_date_from_days(w_start)
+                )));
+            }
+        }
+    }
 
-        let rolling_average = (rolling_logged + hours) / 16.0;
-        if rolling_average > 48.0 {
-            return Err(YntraError::ValidationError(format!(
-                "Rolling 16-week average weekly working hours ({:.2}h) exceeds the legal limit of 48.0h under {}.",
-                rolling_average, rule.law_name
-            )));
+    // Weekly rest period check for EU/Nordic regions (consecutive 35h or 36h in the calendar week)
+    if matches!(target_region.as_str(), "SE" | "NO" | "DK" | "FI" | "EU") {
+        let weekly_rest_limit_hrs = if target_region == "SE" { 36.0 } else { 35.0 };
+        let weekly_rest_limit_min = (weekly_rest_limit_hrs * 60.0) as i32;
+        
+        let mut sorted_intervals = all_intervals.clone();
+        sorted_intervals.sort_by_key(|x| x.0);
+        
+        // Check current week
+        check_weekly_rest_for_week(target_week_start, &sorted_intervals, &target_region, weekly_rest_limit_min, rule.law_name)?;
+        
+        // Propagate validation to adjacent weeks containing shifts to prevent boundary/linkage violations
+        let has_shifts_in_prev_week = sorted_intervals.iter().any(|&(s, _e)| s >= (target_week_start - 7) * 1440 && s < target_week_start * 1440);
+        let has_shifts_in_next_week = sorted_intervals.iter().any(|&(s, _e)| s >= (target_week_start + 7) * 1440 && s < (target_week_start + 14) * 1440);
+        
+        if has_shifts_in_prev_week {
+            check_weekly_rest_for_week(target_week_start - 7, &sorted_intervals, &target_region, weekly_rest_limit_min, rule.law_name)?;
+        }
+        if has_shifts_in_next_week {
+            check_weekly_rest_for_week(target_week_start + 7, &sorted_intervals, &target_region, weekly_rest_limit_min, rule.law_name)?;
+        }
+    }
+
+    // California 7-day rule check
+    if target_region.as_str() == "US-CA" && !allow_overtime {
+        let mut active_days = std::collections::HashSet::new();
+        let mut weekly_total_hours = 0.0;
+        let mut max_daily_hours = 0.0;
+        let mut daily_hours_map = std::collections::HashMap::new();
+        
+        for &(start, end) in &all_intervals {
+            let start_day = start / 1440;
+            let end_day = (end - 1) / 1440;
+            for d in start_day..=end_day {
+                if d >= target_week_start && d < target_week_start + 7 {
+                    active_days.insert(d);
+                    
+                    let day_start = d * 1440;
+                    let day_end = day_start + 1440;
+                    let overlap_start = start.max(day_start);
+                    let overlap_end = end.min(day_end);
+                    if overlap_start < overlap_end {
+                        let hrs = (overlap_end - overlap_start) as f64 / 60.0;
+                        *daily_hours_map.entry(d).or_insert(0.0) += hrs;
+                    }
+                }
+            }
+        }
+        
+        for &hrs in daily_hours_map.values() {
+            weekly_total_hours += hrs;
+            if hrs > max_daily_hours {
+                max_daily_hours = hrs;
+            }
+        }
+        
+        if active_days.len() >= 7 {
+            // Apply Section 554 exceptions: exempt if weekly total <= 30h and daily <= 6h on all days
+            let is_exempt = weekly_total_hours <= 30.0 && max_daily_hours <= 6.0;
+            if !is_exempt {
+                return Err(YntraError::ValidationError(format!(
+                    "California Labor Code violation under {}: working 7 consecutive days in a workweek is prohibited without overtime permission (Exceeds part-time limits: weekly hours: {:.2}h, max daily hours: {:.2}h).",
+                    rule.law_name, weekly_total_hours, max_daily_hours
+                )));
+            }
         }
     }
 
@@ -466,6 +591,30 @@ fn get_report_interval(
     }
 }
 
+fn resolve_fallback_interval_for_day(
+    day_start_min: i32,
+    hours: f64,
+    existing_intervals: &[(i32, i32)],
+) -> (i32, i32) {
+    let duration_min = (hours * 60.0) as i32;
+    let mut candidate_start = day_start_min + 8 * 60; // Start at 08:00
+    
+    loop {
+        let candidate_end = candidate_start + duration_min;
+        let mut overlap = false;
+        for &(estart, eend) in existing_intervals {
+            if candidate_start < eend && estart < candidate_end {
+                overlap = true;
+                candidate_start = eend + 30; // Move start time to 30 mins after the overlapping shift ends
+                break;
+            }
+        }
+        if !overlap {
+            return (candidate_start, candidate_end);
+        }
+    }
+}
+
 fn format_abs_minutes_to_time(abs_min: i32) -> String {
     let day_min = abs_min % 1440;
     let h = day_min / 60;
@@ -532,7 +681,7 @@ fn get_dst_offset_change(y: i32, m: i32, d: i32, region: &str) -> i32 {
     if !is_sunday {
         return 0;
     }
-    let is_eu = matches!(region, "SE" | "NO" | "DK" | "EU");
+    let is_eu = matches!(region, "SE" | "NO" | "DK" | "FI" | "EU");
     let is_us = region.starts_with("US");
 
     if is_eu {
@@ -565,13 +714,69 @@ fn adjust_duration_for_dst(start_abs: i32, end_abs: i32, region: &str) -> i32 {
         let (y, m, d) = format_date_parts_from_days(day_idx);
         let change = get_dst_offset_change(y, m, d, region);
         if change != 0 {
-            let transition_abs = day_idx * 1440 + 120; // 02:00
+            let transition_hour = if region.starts_with("US") {
+                120
+            } else if change < 0 {
+                // Spring forward transitions
+                if region == "FI" { 180 } else { 120 }
+            } else {
+                // Autumn fallback transitions (local time moves back)
+                if region == "FI" { 240 } else { 180 }
+            };
+            let transition_abs = day_idx * 1440 + transition_hour;
             if start_abs <= transition_abs && transition_abs <= end_abs {
                 adjustment += change;
             }
         }
     }
     adjustment
+}
+
+fn check_weekly_rest_for_week(
+    week_start_days: i32,
+    sorted_intervals: &[(i32, i32)],
+    _target_region: &str,
+    weekly_rest_limit_min: i32,
+    law_name: &str,
+) -> Result<(), YntraError> {
+    let week_start_min = week_start_days * 1440;
+    let week_end_min = (week_start_days + 7) * 1440;
+    
+    let start_days = week_start_days - 15 * 7;
+    let end_days = week_start_days + 16 * 7;
+    
+    let window_start_min = start_days * 1440;
+    let window_end_min = end_days * 1440;
+    
+    let mut intervals = Vec::new();
+    intervals.push((window_start_min - 1, window_start_min - 1));
+    intervals.extend_from_slice(sorted_intervals);
+    intervals.push((window_end_min + 1, window_end_min + 1));
+    
+    let mut has_compliant_rest = false;
+    
+    for idx in 0..intervals.len().saturating_sub(1) {
+        let gap_start = intervals[idx].1;
+        let gap_end = intervals[idx + 1].0;
+        
+        // Check if the gap overlaps with the calendar week
+        if gap_start < week_end_min && gap_end > week_start_min {
+            let gap_duration = gap_end - gap_start;
+            if gap_duration >= weekly_rest_limit_min {
+                has_compliant_rest = true;
+                break;
+            }
+        }
+    }
+    
+    if !has_compliant_rest {
+        return Err(YntraError::ValidationError(format!(
+            "Weekly rest period violation under {}: does not satisfy mandatory {:.1}h consecutive weekly rest period in the calendar week starting at {}.",
+            law_name, (weekly_rest_limit_min as f64 / 60.0), format_date_from_days(week_start_days)
+        )));
+    }
+    
+    Ok(())
 }
 
 fn format_date_parts_from_days(days: i32) -> (i32, i32, i32) {
@@ -742,6 +947,129 @@ mod tests {
         conn.execute("DELETE FROM time_reports WHERE workspace_id = 'ws-time-test'", ()).await.unwrap();
         conn.execute("DELETE FROM users WHERE id = 'u-time-test'", ()).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id = 'ws-time-test'", ()).await.unwrap();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_weekend_spanning_rest() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let _ = conn.execute("DELETE FROM time_reports WHERE workspace_id = 'ws-rest-test'", ()).await;
+        let _ = conn.execute("DELETE FROM users WHERE workspace_id = 'ws-rest-test'", ()).await;
+        let _ = conn.execute("DELETE FROM workspaces WHERE id = 'ws-rest-test'", ()).await;
+
+        conn.execute("INSERT INTO workspaces (id, name, modules_active, settings) VALUES ('ws-rest-test', 'Rest Test WS', '[]', '{\"target_region\":\"SE\"}')", ()).await.unwrap();
+        conn.execute("INSERT INTO users (id, workspace_id, email, role, preferences) VALUES ('u-rest-test', 'ws-rest-test', 'test@rest.se', 'user', '{\"target_region\":\"SE\", \"allow_overtime\":false}')", ()).await.unwrap();
+
+        // Sweden needs 36h rest.
+        // We log a shift ending on Friday at 16:00.
+        // The next shift is logged on Monday at 09:00.
+        // The weekend rest period is from Friday 16:00 to Monday 09:00 (which is 65h continuous rest spanning the weekend).
+        // Since it spans Sunday-to-Monday, under clamping it would fail in week 2 (only 9h rest inside Monday 00:00 to 09:00).
+        // Under our gap overlap check, it must succeed.
+        
+        add_time_report(
+            "ws-rest-test".to_string(),
+            "u-rest-test".to_string(),
+            None,
+            "2026-07-10".to_string(),
+            8.0,
+            "Friday Shift".to_string(),
+            Some("08:00".to_string()),
+            Some("16:00".to_string()),
+        ).await.unwrap();
+
+        let res = add_time_report(
+            "ws-rest-test".to_string(),
+            "u-rest-test".to_string(),
+            None,
+            "2026-07-13".to_string(),
+            8.0,
+            "Monday Shift".to_string(),
+            Some("09:00".to_string()),
+            Some("17:00".to_string()),
+        ).await;
+
+        assert!(res.is_ok(), "Weekend-spanning rest should not violate weekly rest limit: {:?}", res.err());
+
+        conn.execute("DELETE FROM time_reports WHERE workspace_id = 'ws-rest-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE id = 'u-rest-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-rest-test'", ()).await.unwrap();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_california_7day_part_time_exemption() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let _ = conn.execute("DELETE FROM time_reports WHERE workspace_id = 'ws-ca-test'", ()).await;
+        let _ = conn.execute("DELETE FROM users WHERE workspace_id = 'ws-ca-test'", ()).await;
+        let _ = conn.execute("DELETE FROM workspaces WHERE id = 'ws-ca-test'", ()).await;
+
+        conn.execute("INSERT INTO workspaces (id, name, modules_active, settings) VALUES ('ws-ca-test', 'CA Test WS', '[]', '{\"target_region\":\"US-CA\"}')", ()).await.unwrap();
+        conn.execute("INSERT INTO users (id, workspace_id, email, role, preferences) VALUES ('u-ca-test', 'ws-ca-test', 'test@ca.us', 'user', '{\"target_region\":\"US-CA\", \"allow_overtime\":false}')", ()).await.unwrap();
+
+        // Log 3 hours a day for 6 days: Monday through Saturday.
+        let base_date = date_to_days(2026, 7, 6); // Monday July 6, 2026
+        for d in 0..6 {
+            let day_idx = base_date + d;
+            let (y, m, day_val) = format_date_parts_from_days(day_idx);
+            let date_str = format!("{:04}-{:02}-{:02}", y, m, day_val);
+            add_time_report(
+                "ws-ca-test".to_string(),
+                "u-ca-test".to_string(),
+                None,
+                date_str,
+                3.0,
+                "Part-time Shift".to_string(),
+                Some("09:00".to_string()),
+                Some("12:00".to_string()),
+            ).await.unwrap();
+        }
+
+        // Try to log 3 hours on Sunday (7th consecutive day).
+        // Total weekly hours will be 21h (<= 30h) and max daily hours is 3h (<= 6h).
+        // This should succeed because of the part-time exemption.
+        let sunday_idx = base_date + 6;
+        let (y, m, day_val) = format_date_parts_from_days(sunday_idx);
+        let sunday_date = format!("{:04}-{:02}-{:02}", y, m, day_val);
+        let res = add_time_report(
+            "ws-ca-test".to_string(),
+            "u-ca-test".to_string(),
+            None,
+            sunday_date,
+            3.0,
+            "Sunday Shift".to_string(),
+            Some("09:00".to_string()),
+            Some("12:00".to_string()),
+        ).await;
+
+        assert!(res.is_ok(), "Part-time worker should be exempt from the 7-day rule: {:?}", res.err());
+
+        // Now, try to log a shift that exceeds 6h on Sunday.
+        // Total weekly hours = 18 + 7 = 25h (<= 30h), but daily hours on Sunday is 7h (> 6h).
+        // This should violate the 7-day rule and fail!
+        let _ = conn.execute("DELETE FROM time_reports WHERE date = ?1 AND user_id = 'u-ca-test'", crate::params![format_date_from_days(sunday_idx)]).await;
+        
+        let res_fail = add_time_report(
+            "ws-ca-test".to_string(),
+            "u-ca-test".to_string(),
+            None,
+            format_date_from_days(sunday_idx),
+            7.0,
+            "Long Sunday Shift".to_string(),
+            Some("09:00".to_string()),
+            Some("16:00".to_string()),
+        ).await;
+
+        assert!(res_fail.is_err(), "Exceeding daily 6h limit on 7th day should trigger violation");
+        assert!(res_fail.unwrap_err().to_string().contains("California Labor Code violation"));
+
+        conn.execute("DELETE FROM time_reports WHERE workspace_id = 'ws-ca-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE id = 'u-ca-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-ca-test'", ()).await.unwrap();
     }
 }
 

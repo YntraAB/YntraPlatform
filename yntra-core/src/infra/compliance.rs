@@ -25,7 +25,16 @@ impl ComplianceRegistry {
             "SE" => LaborRule {
                 country_code: "SE",
                 law_name: "Swedish Arbetstidslagen",
-                standard_daily_limit: 13.0,
+                standard_daily_limit: 8.0,
+                max_daily_limit_with_overtime: 13.0,
+                standard_weekly_limit: 40.0,
+                max_weekly_limit_with_exemption: 48.0,
+                mandatory_daily_rest_hours: 11.0,
+            },
+            "FI" => LaborRule {
+                country_code: "FI",
+                law_name: "Finnish Työaikalaki",
+                standard_daily_limit: 8.0,
                 max_daily_limit_with_overtime: 13.0,
                 standard_weekly_limit: 40.0,
                 max_weekly_limit_with_exemption: 48.0,
@@ -34,7 +43,7 @@ impl ComplianceRegistry {
             "DK" => LaborRule {
                 country_code: "DK",
                 law_name: "Danish Lov om arbejdstid",
-                standard_daily_limit: 13.0,
+                standard_daily_limit: 8.0,
                 max_daily_limit_with_overtime: 13.0,
                 standard_weekly_limit: 48.0,
                 max_weekly_limit_with_exemption: 48.0,
@@ -107,13 +116,18 @@ mod tests {
         // test Sweden
         let se = ComplianceRegistry::get_rule("SE");
         assert_eq!(se.country_code, "SE");
-        assert_eq!(se.standard_daily_limit, 13.0);
+        assert_eq!(se.standard_daily_limit, 8.0);
         assert_eq!(se.mandatory_daily_rest_hours, 11.0);
 
         // test Norway
         let no = ComplianceRegistry::get_rule("NO");
         assert_eq!(no.country_code, "NO");
         assert_eq!(no.standard_daily_limit, 9.0);
+
+        // test Finland
+        let fi = ComplianceRegistry::get_rule("FI");
+        assert_eq!(fi.country_code, "FI");
+        assert_eq!(fi.standard_daily_limit, 8.0);
 
         // test US California
         let ca = ComplianceRegistry::get_rule("US-CA");
