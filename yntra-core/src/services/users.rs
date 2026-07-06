@@ -359,7 +359,7 @@ pub async fn delete_user(requester_user_id: String, user_id: String) -> Result<(
     conn.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
 
     let res = async {
-        // 1. Delete associated child relationships
+        // 1. Delete associated child relationships that are no longer needed
         conn.execute("DELETE FROM team_members WHERE user_id = ?1", crate::params![&user_id]).await?;
         conn.execute("DELETE FROM time_reports WHERE user_id = ?1", crate::params![&user_id]).await?;
         conn.execute("DELETE FROM student_parents WHERE parent_user_id = ?1", crate::params![&user_id]).await?;
@@ -372,8 +372,28 @@ pub async fn delete_user(requester_user_id: String, user_id: String) -> Result<(
         conn.execute("UPDATE courses SET teacher_id = NULL WHERE teacher_id = ?1", crate::params![&user_id]).await?;
         conn.execute("UPDATE job_tickets SET assigned_user_id = NULL WHERE assigned_user_id = ?1", crate::params![&user_id]).await?;
 
-        // 3. Delete user profile record
-        conn.execute("DELETE FROM users WHERE id = ?1", crate::params![&user_id]).await?;
+        // 3. Instead of physically deleting the user row (which fails due to foreign key constraints in audit_logs, notes, client_journals, etc.),
+        // we cryptographically scrub all personal data from the user record to satisfy GDPR Art. 17 right to be forgotten.
+        let anon_email = format!("deleted-{}@yntra-deleted.invalid", &user_id[..8.min(user_id.len())]);
+        let now_ms = crate::infra::time::get_current_time_ms();
+        conn.execute(
+            "UPDATE users 
+             SET email = ?1, 
+                 full_name = 'Deleted User', 
+                 phone = NULL, 
+                 password_hash = NULL, 
+                 siths_card_id = NULL, 
+                 siths_public_key = NULL, 
+                 nfc_badge_uid = NULL, 
+                 personal_number = NULL, 
+                 role = 'deleted', 
+                 role_signature = NULL, 
+                 updated_at = ?2, 
+                 sync_status = 'pending' 
+             WHERE id = ?3",
+            crate::params![anon_email, now_ms, user_id],
+        ).await?;
+        
         Ok(())
     }.await;
 

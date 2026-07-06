@@ -27,8 +27,21 @@ impl AuthContext {
 
                 if let Some(pk) = creator_pk {
                     if !pk.trim().is_empty() {
-                        let is_admin = role == "admin" || role == "platform_admin";
-                        if is_admin {
+                        let is_privileged = role == "admin"
+                            || role == "platform_admin"
+                            || role.contains("rektor")
+                            || role.contains("principal")
+                            || role.contains("teacher")
+                            || role.contains("nurse")
+                            || role.contains("skoterska")
+                            || role.contains("sköterska")
+                            || role.contains("helsesykepleier")
+                            || role.contains("helsesøster")
+                            || role.contains("sundhedsplejerske")
+                            || role.contains("terveydenhoitaja")
+                            || role.contains("kouluterveydenhoitaja")
+                            || role.contains("hoitaja");
+                        if is_privileged {
                             let signature_str = role_sig.unwrap_or_default();
                             let is_valid = crate::infra::crypto::verify_role_signature(
                                 &pk,

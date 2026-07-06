@@ -239,9 +239,8 @@ fn get_encryption_keys_internal(
             hasher.update(&(sk.new_key.len() as u64).to_be_bytes());
             hasher.update(&sk.new_key);
         } else {
-            let fallback_tag = b"YntraFallbackStretchedKeyConstantTagV1";
-            hasher.update(&(fallback_tag.len() as u64).to_be_bytes());
-            hasher.update(fallback_tag);
+            hasher.zeroize();
+            return Err(crate::infra::errors::YntraError::CryptoError("session_key_missing".to_string()));
         }
     }
 
@@ -283,10 +282,42 @@ pub fn encrypt_opt_field(data: Option<String>, workspace_id: &str) -> Result<Opt
     }
 }
 
+fn get_local_client_pepper() -> String {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use std::fs;
+        use std::path::PathBuf;
+        let path = PathBuf::from("yntra_client_pepper.bin");
+        if let Ok(pepper) = fs::read_to_string(&path) {
+            pepper
+        } else {
+            let new_pepper = uuid::Uuid::new_v4().to_string();
+            let _ = fs::write(&path, &new_pepper);
+            new_pepper
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(window) = web_sys::window() {
+            if let Ok(Some(storage)) = window.local_storage() {
+                if let Ok(Some(pepper)) = storage.get_item("yntra_client_pepper") {
+                    return pepper;
+                } else {
+                    let new_pepper = uuid::Uuid::new_v4().to_string();
+                    let _ = storage.set_item("yntra_client_pepper", &new_pepper);
+                    return new_pepper;
+                }
+            }
+        }
+        "fallback_wasm_whistleblower_pepper_value_v1".to_string()
+    }
+}
+
 pub fn hash_anonymous_reporter(user_id: &str, workspace_id: &str) -> Result<String, crate::infra::errors::YntraError> {
     let salt = get_system_salt_ref()?;
+    let client_pepper = get_local_client_pepper();
     
-    let mut hasher = blake3::Hasher::new_derive_key("Yntra whistleblower reporter anonymity hash v1");
+    let mut hasher = blake3::Hasher::new_derive_key("Yntra whistleblower reporter anonymity hash v2");
     hasher.update(&(salt.len() as u64).to_be_bytes());
     hasher.update(salt);
     
@@ -296,12 +327,16 @@ pub fn hash_anonymous_reporter(user_id: &str, workspace_id: &str) -> Result<Stri
     hasher.update(&(user_id.len() as u64).to_be_bytes());
     hasher.update(user_id.as_bytes());
     
+    hasher.update(&(client_pepper.len() as u64).to_be_bytes());
+    hasher.update(client_pepper.as_bytes());
+    
     let mut output = [0u8; 32];
     hasher.finalize_xof().fill(&mut output);
     hasher.zeroize();
     
     Ok(format!("anon_hash:{}", hex_encode(&output)))
 }
+
 
 pub struct WorkspaceCipher {
     session_key: Option<zeroize::Zeroizing<[u8; 32]>>,

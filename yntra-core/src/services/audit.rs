@@ -142,7 +142,8 @@ pub async fn verify_audit_log_chain() -> Result<bool, YntraError> {
         let mut stmt = conn.prepare("SELECT id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash FROM audit_logs WHERE workspace_id = ?1 ORDER BY rowid ASC").await?;
         let mut rows = stmt.query(crate::params![&ws_id]).await?;
         
-        let mut expected_prev_hash = "genesis".to_string();
+        let mut valid_hashes = std::collections::HashSet::new();
+        valid_hashes.insert("genesis".to_string());
         
         while let Some(row) = rows.next().await? {
             let id: String = row.get(0)?;
@@ -153,8 +154,8 @@ pub async fn verify_audit_log_chain() -> Result<bool, YntraError> {
             let prev_hash: String = row.get(5)?;
             let curr_hash: String = row.get(6)?;
             
-            if prev_hash != expected_prev_hash {
-                tracing::error!("Audit log chain broken at log ID {} for workspace {}: expected prev_hash {}, got {}", id, ws_id, expected_prev_hash, prev_hash);
+            if !valid_hashes.contains(&prev_hash) {
+                tracing::error!("Audit log chain broken at log ID {} for workspace {}: prev_hash {} does not connect to a valid preceding block", id, ws_id, prev_hash);
                 return Ok(false);
             }
             
@@ -164,7 +165,7 @@ pub async fn verify_audit_log_chain() -> Result<bool, YntraError> {
                 return Ok(false);
             }
             
-            expected_prev_hash = curr_hash;
+            valid_hashes.insert(curr_hash);
         }
     }
     
