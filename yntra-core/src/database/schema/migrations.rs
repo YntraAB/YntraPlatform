@@ -320,5 +320,10 @@ pub async fn run_schema_migrations(conn: &DbConnection, current_version: i32) ->
 
         version = 2;
     }
+    if version < 3 {
+        execute_migration_sql(conn, "ALTER TABLE audit_logs ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'workspace-1'").await?;
+        execute_migration_sql(conn, "CREATE INDEX IF NOT EXISTS idx_audit_logs_workspace ON audit_logs(workspace_id)").await?;
+        version = 3;
+    }
     Ok(version)
 }

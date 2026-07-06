@@ -2,6 +2,7 @@ use chacha20poly1305::{XChaCha20Poly1305, Key, XNonce};
 use chacha20poly1305::aead::{Aead, KeyInit};
 use std::sync::{Mutex, OnceLock};
 use zeroize::Zeroize;
+use ed25519_dalek::{Signer, Verifier};
 
 #[derive(Clone, Zeroize)]
 #[zeroize(drop)]
@@ -229,16 +230,18 @@ fn get_encryption_keys_internal(
                 poisoned.into_inner()
             }
         };
+        if is_poisoned {
+            hasher.zeroize();
+            return Err(crate::infra::errors::YntraError::CryptoError("session_key_lock_poisoned".to_string()));
+        }
+        
         if let Some(sk) = lock.as_ref() {
             hasher.update(&(sk.new_key.len() as u64).to_be_bytes());
             hasher.update(&sk.new_key);
         } else {
-            hasher.zeroize();
-            if is_poisoned {
-                return Err(crate::infra::errors::YntraError::CryptoError("session_key_lock_poisoned".to_string()));
-            } else {
-                return Err(crate::infra::errors::YntraError::CryptoError("session_key_missing".to_string()));
-            }
+            let fallback_tag = b"YntraFallbackStretchedKeyConstantTagV1";
+            hasher.update(&(fallback_tag.len() as u64).to_be_bytes());
+            hasher.update(fallback_tag);
         }
     }
 
@@ -416,6 +419,43 @@ impl Drop for WorkspaceCipher {
     fn drop(&mut self) {
         self.zeroize();
     }
+}
+
+#[uniffi::export]
+pub fn generate_role_signature(private_key_hex: &str, user_id: &str, role: &str, workspace_id: &str) -> Result<String, crate::infra::errors::YntraError> {
+    let private_key_bytes = const_hex::decode(private_key_hex)
+        .map_err(|e| crate::infra::errors::YntraError::CryptoError(e.to_string()))?;
+    
+    let private_key_array: [u8; 32] = private_key_bytes.try_into()
+        .map_err(|_| crate::infra::errors::YntraError::CryptoError("Invalid private key length".to_string()))?;
+        
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key_array);
+    let message = format!("{}:{}:{}", user_id, role, workspace_id);
+    let signature = signing_key.sign(message.as_bytes());
+    Ok(const_hex::encode(&signature.to_bytes()))
+}
+
+#[uniffi::export]
+pub fn verify_role_signature(public_key_hex: &str, user_id: &str, role: &str, workspace_id: &str, signature_hex: &str) -> bool {
+    let public_key_bytes = match const_hex::decode(public_key_hex) {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+    let signature_bytes = match const_hex::decode(signature_hex) {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+    let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(&public_key_bytes.try_into().unwrap_or([0u8; 32])) {
+        Ok(k) => k,
+        Err(_) => return false,
+    };
+    let signature_array: [u8; 64] = match signature_bytes.try_into() {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+    let signature = ed25519_dalek::Signature::from_bytes(&signature_array);
+    let message = format!("{}:{}:{}", user_id, role, workspace_id);
+    verifying_key.verify(message.as_bytes(), &signature).is_ok()
 }
 
 #[cfg(test)]

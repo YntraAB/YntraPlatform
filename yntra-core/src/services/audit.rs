@@ -29,10 +29,17 @@ pub async fn log_action(actor_id: String, target_client_id: Option<String>, acti
     conn.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
     
     let result = async {
-        // Find previous hash
+        // Find actor's workspace_id
+        let ws_id: String = conn.query_row(
+            "SELECT workspace_id FROM users WHERE id = ?1",
+            crate::params![&actor_id],
+            |r| r.get(0)
+        ).await.unwrap_or_else(|_| "workspace-1".to_string());
+
+        // Find previous hash for this workspace
         let mut prev_hash = "genesis".to_string();
-        let mut stmt = conn.prepare("SELECT curr_hash FROM audit_logs ORDER BY rowid DESC LIMIT 1").await?;
-        let mut rows = stmt.query(()).await?;
+        let mut stmt = conn.prepare("SELECT curr_hash FROM audit_logs WHERE workspace_id = ?1 ORDER BY rowid DESC LIMIT 1").await?;
+        let mut rows = stmt.query(crate::params![&ws_id]).await?;
         if let Some(row) = rows.next().await? {
             prev_hash = row.get(0)?;
         }
@@ -50,9 +57,10 @@ pub async fn log_action(actor_id: String, target_client_id: Option<String>, acti
         };
         
         conn.execute(
-            "INSERT INTO audit_logs (id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO audit_logs (id, workspace_id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             crate::params![
                 entry.id,
+                ws_id,
                 entry.actor_id,
                 entry.target_client_id,
                 entry.action_type,
@@ -91,11 +99,10 @@ pub async fn get_audit_logs(requester_user_id: String) -> Result<Vec<AuditLogEnt
         )
     } else if auth.role == "admin" {
         (
-            "SELECT al.id, al.actor_id, al.target_client_id, al.action_type, al.timestamp, al.prev_hash, al.curr_hash
-             FROM audit_logs al
-             JOIN users u ON al.actor_id = u.id
-             WHERE u.workspace_id = ?1
-             ORDER BY al.timestamp DESC".to_string(),
+            "SELECT id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash
+             FROM audit_logs
+             WHERE workspace_id = ?1
+             ORDER BY timestamp DESC".to_string(),
             vec![ws_id],
         )
     } else {
@@ -122,35 +129,43 @@ pub async fn get_audit_logs(requester_user_id: String) -> Result<Vec<AuditLogEnt
 #[uniffi::export]
 pub async fn verify_audit_log_chain() -> Result<bool, YntraError> {
     let conn = database::acquire_connection().await?;
-    let mut stmt = conn.prepare("SELECT id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash FROM audit_logs ORDER BY rowid ASC").await?;
-    let mut rows = stmt.query(()).await?;
     
-    let mut expected_prev_hash = "genesis".to_string();
+    // Get list of distinct workspaces
+    let mut ws_stmt = conn.prepare("SELECT DISTINCT workspace_id FROM audit_logs").await?;
+    let mut ws_rows = ws_stmt.query(()).await?;
+    let mut workspaces = Vec::new();
+    while let Some(row) = ws_rows.next().await? {
+        workspaces.push(row.get::<String>(0)?);
+    }
     
-    while let Some(row) = rows.next().await? {
-        let id: String = row.get(0)?;
-        let actor_id: String = row.get(1)?;
-        let target_client_id: Option<String> = row.get(2)?;
-        let action_type: String = row.get(3)?;
-        let timestamp: i64 = row.get(4)?;
-        let prev_hash: String = row.get(5)?;
-        let curr_hash: String = row.get(6)?;
+    for ws_id in workspaces {
+        let mut stmt = conn.prepare("SELECT id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash FROM audit_logs WHERE workspace_id = ?1 ORDER BY rowid ASC").await?;
+        let mut rows = stmt.query(crate::params![&ws_id]).await?;
         
-        // 1. Check if the prev_hash matches what we expected
-        if prev_hash != expected_prev_hash {
-            tracing::error!("Audit log chain broken at log ID {}: expected prev_hash {}, got {}", id, expected_prev_hash, prev_hash);
-            return Ok(false);
+        let mut expected_prev_hash = "genesis".to_string();
+        
+        while let Some(row) = rows.next().await? {
+            let id: String = row.get(0)?;
+            let actor_id: String = row.get(1)?;
+            let target_client_id: Option<String> = row.get(2)?;
+            let action_type: String = row.get(3)?;
+            let timestamp: i64 = row.get(4)?;
+            let prev_hash: String = row.get(5)?;
+            let curr_hash: String = row.get(6)?;
+            
+            if prev_hash != expected_prev_hash {
+                tracing::error!("Audit log chain broken at log ID {} for workspace {}: expected prev_hash {}, got {}", id, ws_id, expected_prev_hash, prev_hash);
+                return Ok(false);
+            }
+            
+            let computed = compute_hash(&id, &actor_id, target_client_id.as_deref(), &action_type, timestamp, &prev_hash);
+            if computed != curr_hash {
+                tracing::error!("Audit log hash mismatch at log ID {} for workspace {}: computed {}, got {}", id, ws_id, computed, curr_hash);
+                return Ok(false);
+            }
+            
+            expected_prev_hash = curr_hash;
         }
-        
-        // 2. Recompute current hash
-        let computed = compute_hash(&id, &actor_id, target_client_id.as_deref(), &action_type, timestamp, &prev_hash);
-        if computed != curr_hash {
-            tracing::error!("Audit log hash mismatch at log ID {}: computed {}, got {}", id, computed, curr_hash);
-            return Ok(false);
-        }
-        
-        // 3. Update expected_prev_hash for the next iteration
-        expected_prev_hash = curr_hash;
     }
     
     Ok(true)

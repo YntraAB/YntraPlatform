@@ -24,7 +24,8 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             settings TEXT NOT NULL,
             brand_color TEXT DEFAULT '#3b82f6',
             logo_url TEXT,
-            block_settings TEXT DEFAULT '{}'
+            block_settings TEXT DEFAULT '{}',
+            creator_public_key TEXT
         );
 
         CREATE TABLE IF NOT EXISTS users (
@@ -42,6 +43,7 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             personal_number TEXT,
             updated_at INTEGER NOT NULL DEFAULT 0,
             sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            role_signature TEXT,
             FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
         );
 
@@ -117,6 +119,16 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             FOREIGN KEY(workspace_id) REFERENCES workspaces(id),
             FOREIGN KEY(team_id) REFERENCES teams(id),
             FOREIGN KEY(author_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS note_updates (
+            id TEXT PRIMARY KEY,
+            note_id TEXT NOT NULL,
+            client_id TEXT NOT NULL,
+            seq INTEGER NOT NULL,
+            update_data TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            FOREIGN KEY(note_id) REFERENCES notes(id)
         );
 
         CREATE TABLE IF NOT EXISTS time_reports (
@@ -260,6 +272,7 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
 
         CREATE TABLE IF NOT EXISTS audit_logs (
             id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL DEFAULT 'workspace-1',
             actor_id TEXT NOT NULL,
             target_client_id TEXT,
             action_type TEXT NOT NULL,
@@ -277,9 +290,14 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
         CREATE INDEX IF NOT EXISTS idx_team_members_user ON team_members(user_id);
         CREATE INDEX IF NOT EXISTS idx_clients_workspace ON clients(workspace_id);
         CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver_id);
-        CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp);"
+        CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_audit_logs_workspace ON audit_logs(workspace_id);"
     )
     .await
-    .map(|_| ())
-    .map_err(|e| YntraError::DbError(e.to_string()))
+    .map_err(|e| YntraError::DbError(e.to_string()))?;
+
+    let _ = conn.execute("ALTER TABLE workspaces ADD COLUMN creator_public_key TEXT", ()).await;
+    let _ = conn.execute("ALTER TABLE users ADD COLUMN role_signature TEXT", ()).await;
+
+    Ok(())
 }
