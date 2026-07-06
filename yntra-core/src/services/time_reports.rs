@@ -362,7 +362,7 @@ pub async fn add_time_report(
         }
     }
 
-    // Weekly rest period check for EU/Nordic regions (consecutive 35h or 36h in the calendar week)
+    // Weekly rest period check for EU/Nordic regions (consecutive 35h or 36h in any rolling 7-day period)
     if matches!(target_region.as_str(), "SE" | "NO" | "DK" | "FI" | "EU") {
         let weekly_rest_limit_hrs = if target_region == "SE" { 36.0 } else { 35.0 };
         let weekly_rest_limit_min = (weekly_rest_limit_hrs * 60.0) as i32;
@@ -370,18 +370,13 @@ pub async fn add_time_report(
         let mut sorted_intervals = all_intervals.clone();
         sorted_intervals.sort_by_key(|x| x.0);
         
-        // Check current week
-        check_weekly_rest_for_week(target_week_start, &sorted_intervals, &target_region, weekly_rest_limit_min, rule.law_name)?;
-        
-        // Propagate validation to adjacent weeks containing shifts to prevent boundary/linkage violations
-        let has_shifts_in_prev_week = sorted_intervals.iter().any(|&(s, _e)| s >= (target_week_start - 7) * 1440 && s < target_week_start * 1440);
-        let has_shifts_in_next_week = sorted_intervals.iter().any(|&(s, _e)| s >= (target_week_start + 7) * 1440 && s < (target_week_start + 14) * 1440);
-        
-        if has_shifts_in_prev_week {
-            check_weekly_rest_for_week(target_week_start - 7, &sorted_intervals, &target_region, weekly_rest_limit_min, rule.law_name)?;
-        }
-        if has_shifts_in_next_week {
-            check_weekly_rest_for_week(target_week_start + 7, &sorted_intervals, &target_region, weekly_rest_limit_min, rule.law_name)?;
+        // EU/Nordic laws mandate weekly rest in each period of seven days (rolling window)
+        // We verify all rolling 7-day windows containing any day of the new shift.
+        for day_idx in start_day_idx..=end_day_idx {
+            for offset in 0..7 {
+                let win_start = day_idx - offset;
+                check_weekly_rest_for_week(win_start, &sorted_intervals, &target_region, weekly_rest_limit_min, rule.law_name)?;
+            }
         }
     }
 
@@ -699,7 +694,7 @@ fn get_hours_on_day(day_index: i32, intervals: &[(i32, i32)]) -> f64 {
 }
 
 fn get_dst_offset_change(y: i32, m: i32, d: i32, region: &str) -> i32 {
-    if region == "US-AZ" || region == "US-HI" {
+    if region == "US-AZ" || region == "US-HI" || region == "CA-SK" {
         return 0;
     }
     let days = date_to_days(y, m, d);
@@ -708,7 +703,7 @@ fn get_dst_offset_change(y: i32, m: i32, d: i32, region: &str) -> i32 {
         return 0;
     }
     let is_eu = matches!(region, "SE" | "NO" | "DK" | "FI" | "EU" | "GB" | "IE");
-    let is_us = region.starts_with("US");
+    let is_us = region.starts_with("US") || region.starts_with("CA");
 
     if is_eu {
         if m == 3 && d >= 25 {
@@ -740,7 +735,7 @@ fn adjust_duration_for_dst(start_abs: i32, end_abs: i32, region: &str) -> i32 {
         let (y, m, d) = format_date_parts_from_days(day_idx);
         let change = get_dst_offset_change(y, m, d, region);
         if change != 0 {
-            let transition_hour = if region.starts_with("US") {
+            let transition_hour = if region.starts_with("US") || region.starts_with("CA") {
                 120
             } else if change < 0 {
                 // Spring forward transitions
@@ -796,8 +791,13 @@ fn check_weekly_rest_for_week(
     
     let mut intervals = Vec::new();
     intervals.push((window_start_min - 1, window_start_min - 1));
-    intervals.extend_from_slice(sorted_intervals);
+    for &(s, e) in sorted_intervals {
+        if s < window_end_min && e > window_start_min {
+            intervals.push((s, e));
+        }
+    }
     intervals.push((window_end_min + 1, window_end_min + 1));
+    intervals.sort_by_key(|x| x.0);
     
     let mut has_compliant_rest = false;
     
@@ -815,9 +815,10 @@ fn check_weekly_rest_for_week(
             let overlap_dst = adjust_duration_for_dst(overlap_start, overlap_end, target_region);
             let overlap_duration = overlap_end - overlap_start + overlap_dst;
             
-            // Overlap with the calendar week must be at least 24 hours (1440 mins)
-            // and the total consecutive rest period must satisfy weekly rest limit
-            if overlap_duration >= 24 * 60 && gap_duration >= weekly_rest_limit_min {
+            // Overlap with the calendar week must be at least 12 hours (720 mins) OR it must span across the week transition (gap starts in this week and ends in the next)
+            // and the total consecutive rest period must satisfy the weekly rest limit
+            let is_transition_span = gap_start < week_end_min && gap_end >= week_end_min;
+            if (overlap_duration >= 12 * 60 || is_transition_span) && gap_duration >= weekly_rest_limit_min {
                 has_compliant_rest = true;
                 break;
             }
@@ -826,7 +827,7 @@ fn check_weekly_rest_for_week(
     
     if !has_compliant_rest {
         return Err(YntraError::ValidationError(format!(
-            "Weekly rest period violation under {}: does not satisfy mandatory {:.1}h consecutive weekly rest period in the calendar week starting at {}.",
+            "Weekly rest period violation under {}: does not satisfy mandatory {:.1}h consecutive weekly rest period in the 7-day period starting at {}.",
             law_name, (weekly_rest_limit_min as f64 / 60.0), format_date_from_days(week_start_days)
         )));
     }
