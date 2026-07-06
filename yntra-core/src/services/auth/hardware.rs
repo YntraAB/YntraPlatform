@@ -294,8 +294,15 @@ async fn run_real_hardware_auth_native(ctx: pcsc::Context, session_id: String, _
         }
     };
 
+    let start_time = std::time::Instant::now();
+
     // Polling loop
     loop {
+        if start_time.elapsed() > std::time::Duration::from_secs(60) {
+            set_error("Inloggningssessionen tog för lång tid och har avbrutits.").await;
+            break;
+        }
+
         // Check if session still exists and is active
         let mut is_active = false;
         if let Ok(conn) = database::acquire_connection().await {

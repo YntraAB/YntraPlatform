@@ -18,6 +18,84 @@ where
     }
 }
 
+fn verify_luhn(digits: &str) -> bool {
+    let mut sum = 0;
+    let mut alternate = false;
+    for c in digits.chars().rev() {
+        let mut val = match c.to_digit(10) {
+            Some(d) => d,
+            None => return false,
+        };
+        if alternate {
+            val *= 2;
+            if val > 9 {
+                val -= 9;
+            }
+        }
+        sum += val;
+        alternate = !alternate;
+    }
+    sum % 10 == 0
+}
+
+fn verify_norwegian_checksum(digits: &str) -> bool {
+    if digits.len() != 11 {
+        return false;
+    }
+    let d: Vec<u32> = digits.chars().filter_map(|c| c.to_digit(10)).collect();
+    if d.len() != 11 {
+        return false;
+    }
+    
+    // First control digit
+    let w1 = [3, 7, 6, 1, 8, 9, 4, 5, 2];
+    let mut sum1 = 0;
+    for i in 0..9 {
+        sum1 += d[i] * w1[i];
+    }
+    let c1 = 11 - (sum1 % 11);
+    let expected_c1 = if c1 == 11 { 0 } else { c1 };
+    if expected_c1 == 10 || expected_c1 != d[9] {
+        return false;
+    }
+    
+    // Second control digit
+    let w2 = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2];
+    let mut sum2 = 0;
+    for i in 0..10 {
+        sum2 += d[i] * w2[i];
+    }
+    let c2 = 11 - (sum2 % 11);
+    let expected_c2 = if c2 == 11 { 0 } else { c2 };
+    if expected_c2 == 10 || expected_c2 != d[10] {
+        return false;
+    }
+    
+    true
+}
+
+fn verify_auth_signature(public_key_hex: &str, message: &str, signature_hex: &str) -> bool {
+    let public_key_bytes = match const_hex::decode(public_key_hex) {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+    let signature_bytes = match const_hex::decode(signature_hex) {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+    let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(&public_key_bytes.try_into().unwrap_or([0u8; 32])) {
+        Ok(k) => k,
+        Err(_) => return false,
+    };
+    let signature_array: [u8; 64] = match signature_bytes.try_into() {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+    use ed25519_dalek::Verifier;
+    let signature = ed25519_dalek::Signature::from_bytes(&signature_array);
+    verifying_key.verify(message.as_bytes(), &signature).is_ok()
+}
+
 fn verify_finnish_checksum(pnum: &str) -> bool {
     let clean = pnum.trim();
     if clean.len() != 11 {
@@ -64,9 +142,8 @@ fn check_birthdate_match_impl(personal_number: &str, birthdate_ddmmyy: &str, pro
     // Handle Finnish Personal Identity Code (Format: DDMMYYCZZZQ)
     let is_finnish_format = if clean_pnum.len() == 11 {
         let separator = clean_pnum.chars().nth(6).unwrap_or(' ');
-        let last_char = clean_pnum.chars().nth(10).unwrap_or(' ');
         let valid_finnish_separators = ['+', '-', 'A', 'B', 'C', 'D', 'E', 'F', 'Y', 'X', 'W', 'V', 'U'];
-        valid_finnish_separators.contains(&separator) && (separator.is_alphabetic() || !last_char.is_ascii_digit() || verify_finnish_checksum(clean_pnum))
+        valid_finnish_separators.contains(&separator) && verify_finnish_checksum(clean_pnum)
     } else {
         false
     };
@@ -75,7 +152,7 @@ fn check_birthdate_match_impl(personal_number: &str, birthdate_ddmmyy: &str, pro
         if enforce_se || enforce_no || enforce_dk {
             return false;
         }
-        return clean_pnum.starts_with(birthdate_ddmmyy);
+        return clean_pnum.starts_with(birthdate_ddmmyy) && verify_finnish_checksum(clean_pnum);
     }
     
     let mut digits: String = personal_number.chars().filter(|c| c.is_ascii_digit()).collect();
@@ -86,15 +163,17 @@ fn check_birthdate_match_impl(personal_number: &str, birthdate_ddmmyy: &str, pro
             digits.zeroize();
             return false;
         }
+        if enforce_no && !verify_norwegian_checksum(&digits) {
+            use zeroize::Zeroize;
+            digits.zeroize();
+            return false;
+        }
         if digits.len() >= 6 {
             let mut dd = digits[0..2].parse::<i32>().unwrap_or(0);
             if dd > 40 {
                 dd -= 40;
             }
-            let mut mm = digits[2..4].parse::<i32>().unwrap_or(0);
-            if mm > 40 {
-                mm -= 40;
-            }
+            let mm = digits[2..4].parse::<i32>().unwrap_or(0);
             let yy = &digits[4..6];
             let normalized_ddmmyy = format!("{:02}{:02}{}", dd, mm, yy);
             normalized_ddmmyy == birthdate_ddmmyy
@@ -104,6 +183,11 @@ fn check_birthdate_match_impl(personal_number: &str, birthdate_ddmmyy: &str, pro
     } else if digits.len() == 12 {
         // YYYYMMDDXXXX (Swedish 12-digit)
         if enforce_no || enforce_dk || enforce_fi {
+            use zeroize::Zeroize;
+            digits.zeroize();
+            return false;
+        }
+        if enforce_se && !verify_luhn(&digits[2..]) {
             use zeroize::Zeroize;
             digits.zeroize();
             return false;
@@ -131,6 +215,11 @@ fn check_birthdate_match_impl(personal_number: &str, birthdate_ddmmyy: &str, pro
         if enforce_dk {
             digits[0..6] == *birthdate_ddmmyy
         } else if enforce_se {
+            if !verify_luhn(&digits) {
+                use zeroize::Zeroize;
+                digits.zeroize();
+                return false;
+            }
             let yy = &digits[0..2];
             let mm = &digits[2..4];
             let mut dd = digits[4..6].parse::<i32>().unwrap_or(0);
@@ -501,14 +590,32 @@ pub async fn verify_hardware_auth_signature(
 }
 
 #[uniffi::export]
-pub async fn complete_auth_session(session_id: String, user_id: String) -> Result<(), YntraError> {
+pub async fn complete_auth_session(session_id: String, user_id: String, signature_hex: String) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
 
-    // Verify user exists first to ensure integrity
-    let mut stmt = conn.prepare("SELECT 1 FROM users WHERE id = ?1").await?;
-    let mut rows = stmt.query(crate::params![&user_id]).await?;
-    if rows.next().await?.is_none() {
-        return Err(YntraError::NotFoundError("User does not exist".to_string()));
+    // Verify user exists and retrieve workspace_id
+    let ws_id: String = conn.query_row(
+        "SELECT workspace_id FROM users WHERE id = ?1",
+        crate::params![&user_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("User does not exist".to_string()))?;
+
+    // Retrieve creator public key for workspace
+    let creator_pk: Option<String> = conn.query_row(
+        "SELECT creator_public_key FROM workspaces WHERE id = ?1",
+        crate::params![&ws_id],
+        |r| Ok(r.get(0)?)
+    ).await.unwrap_or(None);
+
+    if let Some(pk) = creator_pk {
+        if !pk.trim().is_empty() {
+            // Verify signature: message is "auth_session:session_id:user_id"
+            let message = format!("auth_session:{}:{}", session_id, user_id);
+            let is_valid = verify_auth_signature(&pk, &message, &signature_hex);
+            if !is_valid {
+                return Err(YntraError::AuthError("Cryptographic signature verification failed for authentication session completion".to_string()));
+            }
+        }
     }
 
     conn.execute(
@@ -551,15 +658,15 @@ mod tests {
     fn test_finnish_birthdate_match() {
         // Finnish: DDMMYYCZZZQ
         assert!(check_birthdate_match("131052-308T", "131052"));
-        assert!(check_birthdate_match("010100A123A", "010100"));
+        assert!(check_birthdate_match("010100A123D", "010100"));
         assert!(!check_birthdate_match("131052-308T", "141052"));
     }
 
     #[test]
     fn test_norwegian_birthdate_match() {
         // Norwegian: DDMMYYXXXXX
-        assert!(check_birthdate_match("05072612345", "050726"));
-        assert!(!check_birthdate_match("05072612345", "060726"));
+        assert!(check_birthdate_match("05072612305", "050726"));
+        assert!(!check_birthdate_match("05072612305", "060726"));
     }
 
     #[test]
@@ -573,48 +680,48 @@ mod tests {
     #[test]
     fn test_norwegian_d_number_birthdate_match() {
         // Norwegian D-number: first digit of day increased by 4
-        assert!(check_birthdate_match("45072612345", "050726"));
+        assert!(check_birthdate_match("45072612802", "050726"));
     }
 
     #[test]
     fn test_swedish_coordination_number_birthdate_match() {
         // Swedish Samordningsnummer: day increased by 60
-        assert!(check_birthdate_match("198905741234", "140589"));
-        assert!(check_birthdate_match("8905741234", "140589"));
+        assert!(check_birthdate_match("198905741891", "140589"));
+        assert!(check_birthdate_match("8905741891", "140589"));
     }
 
     #[test]
     fn test_swedish_12digit_birthdate_match() {
         // Swedish: YYYYMMDDXXXX
-        assert!(check_birthdate_match("198905141234", "140589"));
+        assert!(check_birthdate_match("198905141894", "140589"));
         assert!(check_birthdate_match("200112319876", "311201"));
-        assert!(!check_birthdate_match("198905141234", "150589"));
+        assert!(!check_birthdate_match("198905141894", "150589"));
     }
 
     #[test]
     fn test_swedish_10digit_birthdate_match() {
         // Swedish: YYMMDDXXXX
-        assert!(check_birthdate_match("8905141234", "140589"));
+        assert!(check_birthdate_match("8905141894", "140589"));
         assert!(check_birthdate_match("0112319876", "311201"));
-        assert!(!check_birthdate_match("8905141234", "150589"));
+        assert!(!check_birthdate_match("8905141894", "150589"));
     }
 
     #[test]
     fn test_swedish_hyphenated_birthdate_match() {
         // Swedish standard hyphenated: YYMMDD-XXXX
-        assert!(check_birthdate_match("890514-1234", "140589"));
+        assert!(check_birthdate_match("890514-1894", "140589"));
         assert!(check_birthdate_match("011231-9876", "311201"));
-        assert!(!check_birthdate_match("890514-1234", "150589"));
+        assert!(!check_birthdate_match("890514-1894", "150589"));
     }
 
     #[test]
     fn test_finnish_new_century_separators_match() {
         // Finnish new century separators (B for 2000s, Y for 1900s)
-        assert!(check_birthdate_match("010100B123A", "010100"));
-        assert!(check_birthdate_match("150890Y456B", "150890"));
+        assert!(check_birthdate_match("010100B123D", "010100"));
+        assert!(check_birthdate_match("150890Y4562", "150890"));
         
         // Ensure no security bypass/false positives via weak contains fallback
-        assert!(!check_birthdate_match("120101B001A", "010100")); // 120101001 contains 010100, must fail
+        assert!(!check_birthdate_match("120101B001A", "010100"));
     }
 
     #[test]
