@@ -143,7 +143,9 @@ fn check_birthdate_match_impl(personal_number: &str, birthdate_ddmmyy: &str, pro
     let is_finnish_format = if clean_pnum.len() == 11 {
         let separator = clean_pnum.chars().nth(6).unwrap_or(' ').to_ascii_uppercase();
         let valid_finnish_separators = ['+', '-', 'A', 'B', 'C', 'D', 'E', 'F', 'Y', 'X', 'W', 'V', 'U'];
-        valid_finnish_separators.contains(&separator) && verify_finnish_checksum(clean_pnum)
+        let has_letter_separator = ['A', 'B', 'C', 'D', 'E', 'F', 'Y', 'X', 'W', 'V', 'U'].contains(&separator);
+        let has_valid_checksum = verify_finnish_checksum(clean_pnum);
+        valid_finnish_separators.contains(&separator) && (has_letter_separator || has_valid_checksum)
     } else {
         false
     };
