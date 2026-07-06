@@ -135,6 +135,39 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
     Ok(list)
 }
 
+async fn get_merged_loro_doc(conn: &database::DbConnection, note_id: &str) -> Result<loro::LoroDoc, YntraError> {
+    let doc = loro::LoroDoc::new();
+    
+    // 1. Fetch base note content snapshot
+    let base_content: String = conn.query_row(
+        "SELECT content FROM notes WHERE id = ?1",
+        crate::params![note_id],
+        |r| r.get(0)
+    ).await.unwrap_or_else(|_| "".to_string());
+    
+    if base_content.starts_with("loro:") {
+        if let Some(bytes) = crate::infra::crypto::hex_decode(&base_content[5..]) {
+            doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+        }
+    } else if !base_content.is_empty() {
+        doc.get_text("content").insert(0, &base_content).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    }
+    
+    // 2. Fetch and import all append-only updates
+    let mut stmt = conn.prepare(
+        "SELECT update_data FROM note_updates WHERE note_id = ?1 ORDER BY seq ASC, created_at ASC"
+    ).await?;
+    let mut rows = stmt.query(crate::params![note_id]).await?;
+    while let Some(row) = rows.next().await? {
+        let update_data_hex: String = row.get(0)?;
+        if let Some(bytes) = crate::infra::crypto::hex_decode(&update_data_hex) {
+            doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+        }
+    }
+    
+    Ok(doc)
+}
+
 #[uniffi::export]
 pub async fn add_note(
     workspace_id: String,
@@ -199,6 +232,16 @@ pub async fn add_note(
          ],
     ).await?;
 
+    // Seed the event-sourced log with the initial snapshot update
+    let update_id = uuid::Uuid::new_v4().to_string();
+    let author_id_str = item.author_id.clone().unwrap_or_default();
+    let update_data_hex = crate::infra::crypto::hex_encode(&loro_bytes);
+    conn.execute(
+        "INSERT INTO note_updates (id, note_id, client_id, seq, update_data, created_at)
+         VALUES (?1, ?2, ?3, 0, ?4, ?5)",
+        crate::params![&update_id, &item.id, &author_id_str, &update_data_hex, &now_ms],
+    ).await?;
+
     notify_observers();
 
     // Return the plaintext representation in memory
@@ -255,9 +298,11 @@ pub async fn update_note(
         }
     }
 
-    let old_content_plain = decode_content(&old_note.content);
+    // 2. Build fully merged Loro document state
+    let doc = get_merged_loro_doc(&conn, &note_id).await?;
+    let old_content_plain = doc.get_text("content").to_string();
 
-    // 2. Compute history entry using plain content
+    // Compute history entry using plain content
     let mut history: Vec<EditHistoryEntry> = serde_json::from_str(&old_note.edit_history)
         .unwrap_or_default();
     
@@ -288,23 +333,27 @@ pub async fn update_note(
     let edit_history_str = serde_json::to_string(&history)
         .map_err(|e| YntraError::DbError(e.to_string()))?;
 
-    // Update the Loro document
-    let doc = loro::LoroDoc::new();
-    if old_note.content.starts_with("loro:") {
-        if let Some(bytes) = crate::infra::crypto::hex_decode(&old_note.content[5..]) {
-            let _ = doc.import(&bytes);
-        }
-    } else {
-        let text = doc.get_text("content");
-        let _ = text.insert(0, &old_note.content);
-    }
-
     let text = doc.get_text("content");
     apply_diff_to_loro(&text, &old_content_plain, &content)?;
     let loro_bytes = doc.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
     let loro_content = format!("loro:{}", crate::infra::crypto::hex_encode(&loro_bytes));
 
-    // 3. Update database
+    // Append update to the event-sourced updates table
+    let update_id = uuid::Uuid::new_v4().to_string();
+    let next_seq: i64 = conn.query_row(
+        "SELECT IFNULL(MAX(seq), 0) + 1 FROM note_updates WHERE note_id = ?1",
+        crate::params![&note_id],
+        |r| r.get(0)
+    ).await.unwrap_or(1);
+
+    let update_data_hex = crate::infra::crypto::hex_encode(&loro_bytes);
+    conn.execute(
+        "INSERT INTO note_updates (id, note_id, client_id, seq, update_data, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        crate::params![&update_id, &note_id, &requester_user_id, &next_seq, &update_data_hex, &now_ms],
+    ).await?;
+
+    // 3. Update database cache projection
     conn.execute(
         "UPDATE notes SET subject = ?1, content = ?2, edit_history = ?3, updated_at = ?4, sync_status = 'pending' WHERE id = ?5",
         crate::params![&subject, &loro_content, &edit_history_str, &now_ms, &note_id],
@@ -388,44 +437,33 @@ pub fn merge_loro_notes(state1: String, state2: String) -> Result<String, YntraE
 #[uniffi::export]
 pub async fn get_note_loro_state(note_id: String) -> Result<Vec<u8>, YntraError> {
     let conn = database::acquire_connection().await?;
-    let content: String = conn.query_row(
-        "SELECT content FROM notes WHERE id = ?1",
-        crate::params![&note_id],
-        |r| r.get(0)
-    ).await.map_err(|_| YntraError::NotFoundError(format!("Note not found: {}", note_id)))?;
-
-    if content.starts_with("loro:") {
-        let bytes = crate::infra::crypto::hex_decode(&content[5..])
-            .ok_or_else(|| YntraError::SerializationError("Invalid hex state".to_string()))?;
-        Ok(bytes)
-    } else {
-        let doc = loro::LoroDoc::new();
-        doc.get_text("content").insert(0, &content).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        let bytes = doc.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        Ok(bytes)
-    }
+    let doc = get_merged_loro_doc(&conn, &note_id).await?;
+    let bytes = doc.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    Ok(bytes)
 }
 
 #[uniffi::export]
 pub async fn apply_note_loro_update(note_id: String, update_bytes: Vec<u8>) -> Result<(), YntraError> {
     let now_ms = crate::infra::time::get_current_time_ms();
     let conn = database::acquire_connection().await?;
-    let content: String = conn.query_row(
-        "SELECT content FROM notes WHERE id = ?1",
+
+    // 1. Append update to the event-sourced updates table
+    let update_id = uuid::Uuid::new_v4().to_string();
+    let next_seq: i64 = conn.query_row(
+        "SELECT IFNULL(MAX(seq), 0) + 1 FROM note_updates WHERE note_id = ?1",
         crate::params![&note_id],
         |r| r.get(0)
-    ).await.map_err(|_| YntraError::NotFoundError(format!("Note not found: {}", note_id)))?;
+    ).await.unwrap_or(1);
 
-    let doc = loro::LoroDoc::new();
-    if content.starts_with("loro:") {
-        if let Some(bytes) = crate::infra::crypto::hex_decode(&content[5..]) {
-            doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        }
-    } else {
-        doc.get_text("content").insert(0, &content).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-    }
+    let update_data_hex = crate::infra::crypto::hex_encode(&update_bytes);
+    conn.execute(
+        "INSERT INTO note_updates (id, note_id, client_id, seq, update_data, created_at)
+         VALUES (?1, ?2, 'remote', ?3, ?4, ?5)",
+        crate::params![&update_id, &note_id, &next_seq, &update_data_hex, &now_ms],
+    ).await?;
 
-    doc.import(&update_bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    // 2. Build fully merged state and update the database projection cache
+    let doc = get_merged_loro_doc(&conn, &note_id).await?;
     let loro_bytes = doc.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
     let loro_content = format!("loro:{}", crate::infra::crypto::hex_encode(&loro_bytes));
 
