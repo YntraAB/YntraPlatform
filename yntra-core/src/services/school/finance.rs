@@ -180,7 +180,7 @@ pub async fn record_school_payment(
         sync_status: "pending".to_string(),
     };
 
-    conn.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
+    conn.begin_transaction().await?;
 
     let res = async {
         // Fetch previous payments sum
@@ -218,12 +218,12 @@ pub async fn record_school_payment(
 
     match res {
         Ok(_) => {
-            conn.execute("COMMIT", ()).await?;
+            conn.commit().await?;
             notify_observers();
             Ok(payment)
         }
         Err(e) => {
-            let _ = conn.execute("ROLLBACK", ()).await;
+            let _ = conn.rollback().await;
             Err(e)
         }
     }

@@ -188,6 +188,7 @@ async fn get_merged_loro_doc(conn: &database::DbConnection, note_id: &str) -> Re
 
 #[uniffi::export]
 pub async fn add_note(
+    requester_user_id: String,
     workspace_id: String,
     team_id: String,
     author_id: String,
@@ -195,9 +196,12 @@ pub async fn add_note(
     content: String,
 ) -> Result<DailyNote, YntraError> {
     let conn = database::acquire_connection().await?;
-    let auth = crate::AuthContext::authorize(&conn, &author_id).await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+    if auth.role != "platform_admin" && requester_user_id != author_id {
+        return Err(YntraError::AuthError("Access denied: cannot create note as another user".to_string()));
     }
 
     if auth.role != "admin" && auth.role != "platform_admin" {
@@ -235,7 +239,7 @@ pub async fn add_note(
         sync_status: "pending".to_string(),
     };
 
-    conn.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
+    conn.begin_transaction().await?;
     let res = async {
         conn.execute(
             "INSERT INTO notes (id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status)
@@ -267,14 +271,14 @@ pub async fn add_note(
 
     match res {
         Ok(_) => {
-            conn.execute("COMMIT", ()).await?;
+            conn.commit().await?;
             notify_observers();
             // Return the plaintext representation in memory
             item.content = content;
             Ok(item)
         }
         Err(e) => {
-            let _ = conn.execute("ROLLBACK", ()).await;
+            let _ = conn.rollback().await;
             Err(e)
         }
     }
@@ -291,7 +295,7 @@ pub async fn update_note(
     let now_ms = crate::infra::time::get_current_time_ms();
     let conn = database::acquire_connection().await?;
 
-    conn.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
+    conn.begin_transaction().await?;
 
     let res = async {
         // 1. Fetch the existing note
@@ -414,12 +418,12 @@ pub async fn update_note(
 
     match res {
         Ok(note) => {
-            conn.execute("COMMIT", ()).await?;
+            conn.commit().await?;
             notify_observers();
             Ok(note)
         }
         Err(e) => {
-            let _ = conn.execute("ROLLBACK", ()).await;
+            let _ = conn.rollback().await;
             Err(e)
         }
     }
@@ -450,7 +454,7 @@ pub async fn delete_note(requester_user_id: String, note_id: String) -> Result<(
         return Err(YntraError::NotFoundError(format!("Note not found: {}", note_id)));
     }
 
-    conn.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
+    conn.begin_transaction().await?;
     let res = async {
         conn.execute("DELETE FROM note_updates WHERE note_id = ?1", crate::params![&note_id]).await?;
         conn.execute("DELETE FROM notes WHERE id = ?1", crate::params![&note_id]).await?;
@@ -459,12 +463,12 @@ pub async fn delete_note(requester_user_id: String, note_id: String) -> Result<(
 
     match res {
         Ok(_) => {
-            conn.execute("COMMIT", ()).await?;
+            conn.commit().await?;
             notify_observers();
             Ok(())
         }
         Err(e) => {
-            let _ = conn.execute("ROLLBACK", ()).await;
+            let _ = conn.rollback().await;
             Err(e)
         }
     }
@@ -517,7 +521,7 @@ pub async fn apply_note_loro_update(note_id: String, update_bytes: Vec<u8>) -> R
     let now_ms = crate::infra::time::get_current_time_ms();
     let conn = database::acquire_connection().await?;
 
-    conn.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
+    conn.begin_transaction().await?;
 
     let res = async {
         // 1. Build fully merged state using current cached state + new update
@@ -553,12 +557,12 @@ pub async fn apply_note_loro_update(note_id: String, update_bytes: Vec<u8>) -> R
 
     match res {
         Ok(_) => {
-            conn.execute("COMMIT", ()).await?;
+            conn.commit().await?;
             notify_observers();
             Ok(())
         }
         Err(e) => {
-            let _ = conn.execute("ROLLBACK", ()).await;
+            let _ = conn.rollback().await;
             Err(e)
         }
     }

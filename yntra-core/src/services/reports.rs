@@ -3,7 +3,7 @@ use crate::observer::notify_observers;
 use crate::{ReportItem, YntraError};
 
 #[uniffi::export]
-pub async fn get_reports(requester_user_id: String) -> Result<Vec<ReportItem>, YntraError> {
+pub async fn get_reports(requester_user_id: String, anonymous_report_ids: Vec<String>) -> Result<Vec<ReportItem>, YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     let ws_id = auth.workspace_id.clone();
@@ -19,11 +19,21 @@ pub async fn get_reports(requester_user_id: String) -> Result<Vec<ReportItem>, Y
             vec![ws_id],
         )
     } else {
-        let anon_hash = crate::infra::crypto::hash_anonymous_reporter(&requester_user_id, &ws_id)?;
-        (
-            "SELECT id, workspace_id, user_id, type, is_anonymous, content, status, created_at, updated_at, sync_status FROM reports WHERE user_id = ?1 OR user_id = ?2 ORDER BY created_at DESC".to_string(),
-            vec![requester_user_id, anon_hash],
-        )
+        if anonymous_report_ids.is_empty() {
+            (
+                "SELECT id, workspace_id, user_id, type, is_anonymous, content, status, created_at, updated_at, sync_status FROM reports WHERE user_id = ?1 AND workspace_id = ?2 ORDER BY created_at DESC".to_string(),
+                vec![requester_user_id, ws_id],
+            )
+        } else {
+            let placeholders: Vec<String> = (0..anonymous_report_ids.len()).map(|i| format!("?{}", i + 3)).collect();
+            let query = format!(
+                "SELECT id, workspace_id, user_id, type, is_anonymous, content, status, created_at, updated_at, sync_status FROM reports WHERE (user_id = ?1 OR (id IN ({}) AND is_anonymous = 1)) AND workspace_id = ?2 ORDER BY created_at DESC",
+                placeholders.join(", ")
+            );
+            let mut p = vec![requester_user_id, ws_id];
+            p.extend(anonymous_report_ids);
+            (query, p)
+        }
     };
 
     let mut stmt = conn.prepare(&query).await?;
@@ -89,14 +99,12 @@ pub async fn add_report(
     let conn = database::acquire_connection().await?;
 
     let db_user_id = if is_anonymous {
-        let hash = crate::infra::crypto::hash_anonymous_reporter(&user_id, &workspace_id)?;
-        let anon_email = format!("anonymous-{}@yntra.io", &hash[10..18]);
         conn.execute(
             "INSERT OR IGNORE INTO users (id, workspace_id, email, role, preferences, updated_at, sync_status)
-             VALUES (?1, ?2, ?3, 'assistant', '{}', ?4, 'synced')",
-            crate::params![&hash, &workspace_id, &anon_email, &now_ms],
+             VALUES ('anonymous', 'workspace-1', 'anonymous@yntra.io', 'anonymous', '{}', ?1, 'synced')",
+            crate::params![&now_ms],
         ).await?;
-        hash
+        "anonymous".to_string()
     } else {
         user_id.clone()
     };
@@ -245,6 +253,14 @@ mod tests {
             "2026-07-05".to_string(),
         ).await.unwrap();
 
+        // Verify dummy user has 'anonymous' role
+        let dummy_role: String = conn.query_row(
+            "SELECT role FROM users WHERE id = 'anonymous'",
+            (),
+            |row| row.get(0),
+        ).await.unwrap();
+        assert_eq!(dummy_role, "anonymous");
+
         let r3 = add_report(
             "ws-rep-2".to_string(),
             "u-rep-user2".to_string(),
@@ -260,7 +276,7 @@ mod tests {
         // A. Standard user 1 (should only see their own, and for r2 (anonymous), the author is still "anonymous" to them or they see it)
         // Wait, standard user query: WHERE user_id = requester_user_id.
         // Wait, r2 is anonymous, but in database user_id = 'u-rep-user1'. So they see both r1 and r2!
-        let list_user = get_reports("u-rep-user1".to_string()).await.unwrap();
+        let list_user = get_reports("u-rep-user1".to_string(), vec![r2.id.clone()]).await.unwrap();
         assert_eq!(list_user.len(), 2);
         // r2 is anonymous, so its returned user_id is masked to "anonymous"
         let anon_rep = list_user.iter().find(|r| r.id == r2.id).unwrap();
@@ -271,14 +287,14 @@ mod tests {
         assert_eq!(non_anon_rep.user_id, "u-rep-user1");
 
         // B. Admin 1 (should see all reports in ws-rep-1, meaning r1 and r2, but not r3)
-        let list_admin = get_reports("u-rep-admin1".to_string()).await.unwrap();
+        let list_admin = get_reports("u-rep-admin1".to_string(), vec![]).await.unwrap();
         assert_eq!(list_admin.len(), 2);
         assert!(list_admin.iter().any(|r| r.id == r1.id));
         assert!(list_admin.iter().any(|r| r.id == r2.id));
         assert!(!list_admin.iter().any(|r| r.id == r3.id));
 
         // C. Platform admin (should see all reports across workspaces: r1, r2, r3)
-        let list_padmin = get_reports("u-rep-padmin".to_string()).await.unwrap();
+        let list_padmin = get_reports("u-rep-padmin".to_string(), vec![]).await.unwrap();
         assert_eq!(list_padmin.len(), 3);
 
         // Cleanup
@@ -286,6 +302,47 @@ mod tests {
         conn.execute("DELETE FROM messages WHERE workspace_id IN ('ws-rep-1', 'ws-rep-2')", ()).await.unwrap();
         conn.execute("DELETE FROM users WHERE workspace_id IN ('ws-rep-1', 'ws-rep-2')", ()).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id IN ('ws-rep-1', 'ws-rep-2')", ()).await.unwrap();
+        crate::infra::crypto::clear_session_key();
+    }
+
+    #[tokio::test]
+    async fn test_report_idor_prevention() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let ws_id = "ws-rep-idor";
+        let user1_id = "u-rep-user-1";
+        let user2_id = "u-rep-user-2";
+
+        // Setup workspace and users
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'IDOR WS', '[]', '{}')", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES (?1, ?2, 'user1@rep.io', 'user')", crate::params![user1_id, ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES (?1, ?2, 'user2@rep.io', 'user')", crate::params![user2_id, ws_id]).await.unwrap();
+
+        crate::infra::crypto::set_session_key("idor-test-session".to_string().into_bytes());
+
+        // User 2 logs a standard non-anonymous report
+        let rep_user2 = add_report(
+            ws_id.to_string(),
+            user2_id.to_string(),
+            "compliance".to_string(),
+            false, // non-anonymous
+            "User 2 Report".to_string(),
+            "Sensitive user 2 details".to_string(),
+            "2026-07-05".to_string(),
+        ).await.unwrap();
+
+        // User 1 tries to retrieve User 2's report by specifying its UUID in anonymous_report_ids
+        let retrieved = get_reports(user1_id.to_string(), vec![rep_user2.id.clone()]).await.unwrap();
+
+        // The returned list must NOT contain User 2's non-anonymous report
+        assert!(retrieved.is_empty() || !retrieved.iter().any(|r| r.id == rep_user2.id));
+
+        // Clean up
+        conn.execute("DELETE FROM reports WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM messages WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
         crate::infra::crypto::clear_session_key();
     }
 }

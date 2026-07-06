@@ -336,6 +336,10 @@ pub async fn create_or_update_move_quote(
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
 
+    if auth.role == "client" {
+        return Err(YntraError::AuthError("Access denied: clients cannot create or edit quotes".to_string()));
+    }
+
     let id = uuid::Uuid::new_v4().to_string();
     let total_price = base_price + distance_fee + stairs_surcharge + packing_supplies_fee;
     
@@ -351,7 +355,7 @@ pub async fn create_or_update_move_quote(
         accepted_at: None,
     };
 
-    conn.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
+    conn.begin_transaction().await?;
 
     let res = async {
         // Delete existing quote for the job first
@@ -376,12 +380,12 @@ pub async fn create_or_update_move_quote(
 
     match res {
         Ok(_) => {
-            conn.execute("COMMIT", ()).await?;
+            conn.commit().await?;
             notify_observers();
             Ok(quote)
         }
         Err(e) => {
-            let _ = conn.execute("ROLLBACK", ()).await;
+            let _ = conn.rollback().await;
             Err(e)
         }
     }

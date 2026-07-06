@@ -78,6 +78,7 @@ fn get_week_start_days(target_days: i32, week_start_day: i32) -> i32 {
 #[uniffi::export]
 #[allow(clippy::too_many_arguments)]
 pub async fn add_time_report(
+    requester_user_id: String,
     workspace_id: String,
     user_id: String,
     team_id: Option<String>,
@@ -87,6 +88,21 @@ pub async fn add_time_report(
     start_time: Option<String>,
     end_time: Option<String>,
 ) -> Result<TimeReport, YntraError> {
+    if hours <= 0.0 {
+        return Err(YntraError::ValidationError("Logged hours must be greater than zero".to_string()));
+    }
+
+    {
+        let conn = database::acquire_connection().await?;
+        let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+        if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+            return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        }
+        if auth.role != "platform_admin" && auth.role != "admin" && requester_user_id != user_id {
+            return Err(YntraError::AuthError("Access denied: cannot add time report for another user".to_string()));
+        }
+    }
+
     // 1. Calculate dates and convert target date to days
     let target_days = match parse_date(&date) {
         Some((y, m, d)) => date_to_days(y, m, d),
@@ -540,6 +556,9 @@ fn parse_date(date_str: &str) -> Option<(i32, i32, i32)> {
     let year = parts[0].parse::<i32>().ok()?;
     let month = parts[1].parse::<i32>().ok()?;
     let day = parts[2].parse::<i32>().ok()?;
+    if year < 1970 || month < 1 || month > 12 || day < 1 || day > 31 {
+        return None;
+    }
     Some((year, month, day))
 }
 
@@ -882,6 +901,9 @@ mod tests {
         assert_eq!(parse_date("2026-07"), None);
         assert_eq!(parse_date("2026/07/05"), None);
         assert_eq!(parse_date("abc-def-ghi"), None);
+        assert_eq!(parse_date("1969-12-31"), None);
+        assert_eq!(parse_date("2026-13-01"), None);
+        assert_eq!(parse_date("2026-07-32"), None);
     }
 
     #[test]
@@ -986,6 +1008,7 @@ mod tests {
         let (y, m, day_val) = format_date_parts_from_days(week16_monday + 5);
         let sat_date = format!("{:04}-{:02}-{:02}", y, m, day_val);
         let res = add_time_report(
+            "u-time-test".to_string(),
             "ws-time-test".to_string(),
             "u-time-test".to_string(),
             None,
@@ -1026,6 +1049,7 @@ mod tests {
         // Under our gap overlap check, it must succeed.
         
         add_time_report(
+            "u-rest-test".to_string(),
             "ws-rest-test".to_string(),
             "u-rest-test".to_string(),
             None,
@@ -1037,6 +1061,7 @@ mod tests {
         ).await.unwrap();
 
         let res = add_time_report(
+            "u-rest-test".to_string(),
             "ws-rest-test".to_string(),
             "u-rest-test".to_string(),
             None,
@@ -1074,6 +1099,7 @@ mod tests {
             let (y, m, day_val) = format_date_parts_from_days(day_idx);
             let date_str = format!("{:04}-{:02}-{:02}", y, m, day_val);
             add_time_report(
+                "u-ca-test".to_string(),
                 "ws-ca-test".to_string(),
                 "u-ca-test".to_string(),
                 None,
@@ -1092,6 +1118,7 @@ mod tests {
         let (y, m, day_val) = format_date_parts_from_days(sunday_idx);
         let sunday_date = format!("{:04}-{:02}-{:02}", y, m, day_val);
         let res = add_time_report(
+            "u-ca-test".to_string(),
             "ws-ca-test".to_string(),
             "u-ca-test".to_string(),
             None,
@@ -1110,6 +1137,7 @@ mod tests {
         let _ = conn.execute("DELETE FROM time_reports WHERE date = ?1 AND user_id = 'u-ca-test'", crate::params![format_date_from_days(sunday_idx)]).await;
         
         let res_fail = add_time_report(
+            "u-ca-test".to_string(),
             "ws-ca-test".to_string(),
             "u-ca-test".to_string(),
             None,

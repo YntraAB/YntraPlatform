@@ -2,10 +2,10 @@ use crate::database;
 use crate::observer::notify_observers;
 use crate::{Course, Assignment, Submission, TermGrade, ReportCard, YntraError};
 
-fn validate_grade_for_region(grade: &str, region: &str) -> Result<(), YntraError> {
+fn validate_grade_for_region(grade: &str, region: &str) -> Result<String, YntraError> {
     let mut clean = grade.trim().to_string();
     if clean.is_empty() {
-        return Ok(());
+        return Ok(clean);
     }
     match region {
         "SE" => {
@@ -26,7 +26,7 @@ fn validate_grade_for_region(grade: &str, region: &str) -> Result<(), YntraError
                 if parts.len() == 2 {
                     let valid_grades = ["1", "2", "3", "4", "5", "6"];
                     if valid_grades.contains(&parts[0]) && valid_grades.contains(&parts[1]) {
-                        return Ok(());
+                        return Ok(clean);
                     }
                 }
             }
@@ -69,13 +69,13 @@ fn validate_grade_for_region(grade: &str, region: &str) -> Result<(), YntraError
             // Non-punitive US codes
             let non_punitive = ["I", "INC", "P", "NP", "W", "AU"];
             if non_punitive.contains(&upper_clean.as_str()) {
-                return Ok(());
+                return Ok(clean);
             }
             
             // Allow US percentage grade (numeric score between 0.0 and 100.0)
             if let Ok(pct) = upper_clean.parse::<f64>() {
                 if pct >= 0.0 && pct <= 100.0 {
-                    return Ok(());
+                    return Ok(clean);
                 }
             }
             
@@ -105,7 +105,7 @@ fn validate_grade_for_region(grade: &str, region: &str) -> Result<(), YntraError
         }
         _ => {}
     }
-    Ok(())
+    Ok(clean)
 }
 
 #[uniffi::export]
@@ -228,8 +228,20 @@ pub async fn update_course(
 }
 
 #[uniffi::export]
-pub async fn get_assignments(course_id: String) -> Result<Vec<Assignment>, YntraError> {
+pub async fn get_assignments(requester_user_id: String, course_id: String) -> Result<Vec<Assignment>, YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    
+    let course_ws: String = conn.query_row(
+        "SELECT workspace_id FROM courses WHERE id = ?1",
+        crate::params![&course_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Course not found".to_string()))?;
+
+    if auth.role != "platform_admin" && auth.workspace_id != course_ws {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
     let mut stmt = conn.prepare("SELECT id, workspace_id, course_id, title, description, due_date, max_points, updated_at, sync_status FROM assignments WHERE course_id = ?1").await?;
     let list = stmt.query_map(crate::params![&course_id], |row| {
         Ok(Assignment {
@@ -377,6 +389,11 @@ pub async fn add_submission(
         return Err(YntraError::AuthError("Access denied: cannot submit for this student".to_string()));
     }
 
+    let can_grade = super::check_permission(&conn, &requester_user_id, "can_manage_grades").await?;
+    if (grade.is_some() || feedback.is_some()) && !can_grade {
+        return Err(YntraError::AuthError("Access denied: you do not have permission to grade submissions".to_string()));
+    }
+
     let id = uuid::Uuid::new_v4().to_string();
     let now_ms = crate::infra::time::get_current_time_ms();
     let submitted_at = crate::infra::time::get_current_datetime_str();
@@ -426,9 +443,10 @@ pub async fn update_submission_grade(
     let target_region_raw = settings.get("target_region").and_then(|v| v.as_str()).unwrap_or("EU");
     let target_region = target_region_raw.to_uppercase();
 
-    if let Some(ref g) = grade {
-        validate_grade_for_region(g, &target_region)?;
-    }
+    let grade = match grade {
+        Some(ref g) => Some(validate_grade_for_region(g, &target_region)?),
+        None => None,
+    };
 
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != submission_ws {
@@ -501,9 +519,10 @@ pub async fn save_term_grade(
     let target_region_raw = settings.get("target_region").and_then(|v| v.as_str()).unwrap_or("EU");
     let target_region = target_region_raw.to_uppercase();
 
-    if let Some(ref g) = final_grade {
-        validate_grade_for_region(g, &target_region)?;
-    }
+    let final_grade = match final_grade {
+        Some(ref g) => Some(validate_grade_for_region(g, &target_region)?),
+        None => None,
+    };
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
@@ -742,7 +761,7 @@ pub(crate) fn calculate_gpa(grades: &[Option<String>], region: &str) -> f64 {
         for g_opt in grades {
             if let Some(g) = g_opt {
                 let clean = g.trim().to_uppercase();
-                if ["0", "1", "2", "3", "5"].contains(&clean.as_str()) {
+                if ["0", "1", "2", "3"].contains(&clean.as_str()) {
                     has_uni_indicators = true;
                 }
                 if ["6", "7", "8", "9", "10"].contains(&clean.as_str()) {
@@ -910,7 +929,7 @@ mod tests {
         // Test Finnish grades (comprehensive & university)
         assert_eq!(calculate_gpa(&[Some("10".to_string()), Some("8".to_string())], "FI"), 3.5);
         assert_eq!(calculate_gpa(&[Some("3".to_string()), Some("1".to_string())], "FI"), 2.0);
-        assert_eq!(calculate_gpa(&[Some("5".to_string()), Some("4".to_string())], "FI"), 3.75);
+        assert_eq!(calculate_gpa(&[Some("5".to_string()), Some("4".to_string())], "FI"), 0.5);
         assert_eq!(calculate_gpa(&[Some("10".to_string()), Some("5".to_string()), Some("4".to_string())], "FI"), 5.0 / 3.0);
 
         // Test Swedish old scale fail grade IG

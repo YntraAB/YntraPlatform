@@ -7,14 +7,14 @@ pub async fn get_messages(requester_user_id: String, user_id: String) -> Result<
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
+    let target_ws: String = conn.query_row(
+        "SELECT workspace_id FROM users WHERE id = ?1",
+        crate::params![&user_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Target user not found".to_string()))?;
+
     if auth.role != "platform_admin" && requester_user_id != user_id {
         if auth.role == "admin" {
-            let target_ws: String = conn.query_row(
-                "SELECT workspace_id FROM users WHERE id = ?1",
-                crate::params![&user_id],
-                |r| r.get(0)
-            ).await.map_err(|_| YntraError::NotFoundError("Target user not found".to_string()))?;
-
             if auth.workspace_id != target_ws {
                 return Err(YntraError::AuthError("Access denied: target user is in a different workspace".to_string()));
             }
@@ -26,13 +26,13 @@ pub async fn get_messages(requester_user_id: String, user_id: String) -> Result<
     let mut stmt = conn.prepare(
         "SELECT id, workspace_id, sender_id, receiver_id, target_team_id, subject, body, is_read, created_at, updated_at, sync_status
          FROM messages
-         WHERE sender_id = ?1 OR receiver_id = ?1 OR target_team_id IN (
+         WHERE (sender_id = ?1 OR receiver_id = ?1 OR target_team_id IN (
              SELECT team_id FROM team_members WHERE user_id = ?1
-         )
+         )) AND workspace_id = ?2
          ORDER BY created_at ASC"
-    ).await?;
+     ).await?;
 
-    let list = stmt.query_map(crate::params![user_id], |row| {
+    let list = stmt.query_map(crate::params![user_id, target_ws], |row| {
         let is_read_int: i32 = row.get(7)?;
         Ok(MessageItem {
             id: row.get(0)?,
@@ -54,6 +54,7 @@ pub async fn get_messages(requester_user_id: String, user_id: String) -> Result<
 
 #[uniffi::export]
 pub async fn send_message(
+    requester_user_id: String,
     workspace_id: String,
     sender_id: String,
     receiver_id: Option<String>,
@@ -61,6 +62,16 @@ pub async fn send_message(
     subject: String,
     body: String,
 ) -> Result<MessageItem, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    if auth.role != "platform_admin" && requester_user_id != sender_id {
+        return Err(YntraError::AuthError("Access denied: cannot send message as another user".to_string()));
+    }
+
     let id = uuid::Uuid::new_v4().to_string();
     let created_at = crate::infra::time::get_current_datetime_str();
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -77,8 +88,6 @@ pub async fn send_message(
         updated_at: now_ms,
         sync_status: "pending".to_string(),
     };
-
-    let conn = database::acquire_connection().await?;
 
     conn.execute(
         "INSERT INTO messages (id, workspace_id, sender_id, receiver_id, target_team_id, subject, body, is_read, created_at, updated_at, sync_status)
@@ -102,9 +111,40 @@ pub async fn send_message(
 }
 
 #[uniffi::export]
-pub async fn mark_message_read(id: String) -> Result<(), YntraError> {
+pub async fn mark_message_read(requester_user_id: String, id: String) -> Result<(), YntraError> {
     let now_ms = crate::infra::time::get_current_time_ms();
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    // Retrieve the message receiver / team members
+    let msg_row: Option<(String, Option<String>, Option<String>)> = conn.query_row(
+        "SELECT workspace_id, receiver_id, target_team_id FROM messages WHERE id = ?1",
+        crate::params![&id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+    ).await.ok();
+
+    if let Some((msg_ws, receiver_id, target_team_id)) = msg_row {
+        if auth.role != "platform_admin" && auth.workspace_id != msg_ws {
+            return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        }
+
+        let is_recipient = receiver_id.as_deref() == Some(&requester_user_id);
+        let mut is_team_member = false;
+        if let Some(tid) = target_team_id {
+            let count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM team_members WHERE team_id = ?1 AND user_id = ?2",
+                crate::params![&tid, &requester_user_id],
+                |r| r.get(0)
+            ).await.unwrap_or(0);
+            is_team_member = count > 0;
+        }
+
+        if auth.role != "platform_admin" && auth.role != "admin" && !is_recipient && !is_team_member {
+            return Err(YntraError::AuthError("Access denied: you are not the recipient of this message".to_string()));
+        }
+    } else {
+        return Err(YntraError::NotFoundError("Message not found".to_string()));
+    }
 
     conn.execute("UPDATE messages SET is_read = 1, updated_at = ?1, sync_status = 'pending' WHERE id = ?2", crate::params![now_ms, id]).await?;
 
