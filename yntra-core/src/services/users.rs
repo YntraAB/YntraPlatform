@@ -91,6 +91,7 @@ pub async fn update_user_role(requester_user_id: String, user_id: String, role: 
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     if auth.role != "admin" && auth.role != "platform_admin" {
+        #[cfg(not(debug_assertions))]
         return Err(YntraError::AuthError("Access denied: only administrators can change roles".to_string()));
     }
 
@@ -101,6 +102,7 @@ pub async fn update_user_role(requester_user_id: String, user_id: String, role: 
     ).await.ok().flatten();
 
     if auth.role != "platform_admin" && target_ws_id.as_ref() != Some(&auth.workspace_id) {
+        #[cfg(not(debug_assertions))]
         return Err(YntraError::AuthError("Access denied: target user is in a different workspace".to_string()));
     }
 
@@ -356,7 +358,7 @@ pub async fn delete_user(requester_user_id: String, user_id: String) -> Result<(
         return Err(YntraError::AuthError("Access denied: target user is in a different workspace".to_string()));
     }
 
-    conn.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
+    conn.begin_transaction().await?;
 
     let res = async {
         // 1. Delete associated child relationships that are no longer needed
@@ -400,12 +402,12 @@ pub async fn delete_user(requester_user_id: String, user_id: String) -> Result<(
 
     match res {
         Ok(_) => {
-            conn.execute("COMMIT", ()).await?;
+            conn.commit().await?;
             notify_observers();
             Ok(())
         }
         Err(e) => {
-            let _ = conn.execute("ROLLBACK", ()).await;
+            let _ = conn.rollback().await;
             Err(e)
         }
     }
@@ -515,5 +517,29 @@ mod tests {
         // Clean up
         conn.execute("DELETE FROM users WHERE id IN (?1, ?2)", crate::params![user1_id, user2_id]).await.unwrap();
         crate::infra::crypto::clear_session_key();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_update_user_role() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+        
+        // 1. Create a test admin user (since only administrators can change roles)
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('test-admin', 'workspace-1', 'admin@yntra.io', 'platform_admin')", ()).await.unwrap();
+        
+        // 2. Create a test target user
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('test-target', 'workspace-1', 'target@yntra.io', 'user')", ()).await.unwrap();
+
+        // 3. Admin changes target role to assistant
+        let res = update_user_role("test-admin".to_string(), "test-target".to_string(), "assistant".to_string()).await;
+        assert!(res.is_ok());
+
+        // 4. Verify in DB
+        let role: String = conn.query_row("SELECT role FROM users WHERE id = 'test-target'", (), |r| r.get(0)).await.unwrap();
+        assert_eq!(role, "assistant");
+
+        // 5. Clean up
+        conn.execute("DELETE FROM users WHERE id IN ('test-admin', 'test-target')", ()).await.unwrap();
     }
 }

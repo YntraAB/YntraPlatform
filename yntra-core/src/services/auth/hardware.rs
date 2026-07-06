@@ -3,24 +3,79 @@ use crate::database;
 use crate::infra::observer::notify_observers;
 
 #[uniffi::export]
-pub async fn authenticate_with_siths(card_id: String) -> Result<WorkspaceUser, YntraError> {
+pub async fn authenticate_with_siths(
+    card_id: String,
+    challenge: Option<String>,
+    signature: Option<String>,
+) -> Result<WorkspaceUser, YntraError> {
     let conn = database::acquire_connection().await?;
 
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, email, full_name, phone, role, preferences, siths_card_id, nfc_badge_uid, updated_at, sync_status, personal_number FROM users WHERE siths_card_id = ?1"
+        "SELECT id, workspace_id, email, full_name, phone, role, preferences, siths_card_id, nfc_badge_uid, updated_at, sync_status, personal_number, siths_public_key FROM users WHERE siths_card_id = ?1"
     ).await?;
 
     let mut rows = stmt.query(crate::params![card_id]).await?;
     if let Some(row) = rows.next().await? {
         let ws_id: Option<String> = row.get(1)?;
         let raw_pnum: Option<String> = row.get(11)?;
+        let pubkey_hex: Option<String> = row.get(12)?;
+        let user_id: String = row.get(0)?;
+        let role: String = row.get(5)?;
+
+        // Cryptographic validation!
+        if let (Some(ch), Some(sig)) = (challenge, signature) {
+            if let Some(ref pubkey) = pubkey_hex {
+                let challenge_bytes = match const_hex::decode(&ch) {
+                    Ok(b) => b,
+                    Err(_) => return Err(YntraError::ValidationError("Invalid challenge format".to_string())),
+                };
+                let pub_key_bytes = match const_hex::decode(pubkey) {
+                    Ok(b) => {
+                        if b.len() != 32 {
+                            return Err(YntraError::ValidationError("Invalid public key length (must be 32 bytes)".to_string()));
+                        }
+                        let mut arr = [0u8; 32];
+                        arr.copy_from_slice(&b);
+                        arr
+                    }
+                    Err(_) => return Err(YntraError::ValidationError("Invalid public key hex".to_string())),
+                };
+                let sig_bytes = match const_hex::decode(&sig) {
+                    Ok(b) => {
+                        if b.len() != 64 {
+                            return Err(YntraError::ValidationError("Invalid signature length (must be 64 bytes)".to_string()));
+                        }
+                        let mut arr = [0u8; 64];
+                        arr.copy_from_slice(&b);
+                        arr
+                    }
+                    Err(_) => return Err(YntraError::ValidationError("Invalid signature hex".to_string())),
+                };
+                use ed25519_dalek::{VerifyingKey, Signature, Verifier};
+                let verifying_key = VerifyingKey::from_bytes(&pub_key_bytes)
+                    .map_err(|e| YntraError::CryptoError(format!("Invalid public key bytes: {}", e)))?;
+                let signature = Signature::from_bytes(&sig_bytes);
+                if verifying_key.verify(&challenge_bytes, &signature).is_err() {
+                    return Err(YntraError::AuthError("SITHS signature verification failed".to_string()));
+                }
+            } else {
+                return Err(YntraError::AuthError("SITHS card is registered but lacks a public key for cryptographic check".to_string()));
+            }
+        } else {
+            // Require signature in production
+            #[cfg(not(debug_assertions))]
+            {
+                return Err(YntraError::AuthError("Cryptographic signature and challenge are required for SITHS card authentication".to_string()));
+            }
+        }
+
         Ok(WorkspaceUser {
-            id: row.get(0)?,
+            id: user_id,
             workspace_id: ws_id.clone(),
             email: row.get(2)?,
             full_name: row.get(3)?,
             phone: row.get(4)?,
-            role: row.get(5)?,
+            role,
             preferences: row.get(6)?,
             siths_card_id: row.get(7)?,
             nfc_badge_uid: row.get(8)?,
@@ -34,7 +89,7 @@ pub async fn authenticate_with_siths(card_id: String) -> Result<WorkspaceUser, Y
 }
 
 #[uniffi::export]
-pub async fn authenticate_with_nfc(badge_uid: String) -> Result<WorkspaceUser, YntraError> {
+pub async fn authenticate_with_nfc(badge_uid: String, pin: Option<String>) -> Result<WorkspaceUser, YntraError> {
     let conn = database::acquire_connection().await?;
 
     let mut stmt = conn.prepare(
@@ -45,6 +100,39 @@ pub async fn authenticate_with_nfc(badge_uid: String) -> Result<WorkspaceUser, Y
     if let Some(row) = rows.next().await? {
         let ws_id: Option<String> = row.get(1)?;
         let raw_pnum: Option<String> = row.get(11)?;
+        let prefs_str: String = row.get(6)?;
+
+        let ws_settings = {
+            if let Some(ref w_id) = ws_id {
+                let settings_json: String = conn.query_row(
+                    "SELECT settings FROM workspaces WHERE id = ?1",
+                    crate::params![w_id],
+                    |r| r.get(0)
+                ).await.unwrap_or_else(|_| "{}".to_string());
+                serde_json::from_str::<serde_json::Value>(&settings_json).unwrap_or(serde_json::Value::Null)
+            } else {
+                serde_json::Value::Null
+            }
+        };
+
+        let require_nfc_pin = ws_settings.get("require_nfc_pin").and_then(|v| v.as_bool()).unwrap_or(false);
+
+        let mut pin_checked = false;
+        if let Ok(prefs) = serde_json::from_str::<serde_json::Value>(&prefs_str) {
+            if let Some(required_pin) = prefs.get("nfc_pin").and_then(|p| p.as_str()) {
+                match pin {
+                    Some(provided_pin) if provided_pin == required_pin => {
+                        pin_checked = true;
+                    }
+                    _ => return Err(YntraError::AuthError("NFC PIN verification failed".to_string())),
+                }
+            }
+        }
+
+        if require_nfc_pin && !pin_checked {
+            return Err(YntraError::AuthError("NFC PIN verification required by workspace policy but not completed".to_string()));
+        }
+
         Ok(WorkspaceUser {
             id: row.get(0)?,
             workspace_id: ws_id.clone(),
@@ -52,7 +140,7 @@ pub async fn authenticate_with_nfc(badge_uid: String) -> Result<WorkspaceUser, Y
             full_name: row.get(3)?,
             phone: row.get(4)?,
             role: row.get(5)?,
-            preferences: row.get(6)?,
+            preferences: prefs_str,
             siths_card_id: row.get(7)?,
             nfc_badge_uid: row.get(8)?,
             updated_at: row.get(9)?,
@@ -369,77 +457,80 @@ async fn run_real_hardware_auth_native(ctx: pcsc::Context, session_id: String, _
                             }
                         };
 
-                        let siths_auth_result = authenticate_with_siths(unique_id.clone()).await;
-                        match siths_auth_result {
-                            Ok(_user) => {
-                                if let (Some(challenge_hex), Some(pubkey_hex)) = (challenge_opt, user_pubkey) {
-                                    #[cfg(debug_assertions)]
-                                    {
+                        let user_exists = user_pubkey.is_some();
+                        if user_exists {
+                            let _user = ();
+                            if let (Some(challenge_hex), Some(pubkey_hex)) = (challenge_opt, user_pubkey) {
+                                #[cfg(debug_assertions)]
+                                {
+                                    let challenge_bytes = const_hex::decode(&challenge_hex).unwrap_or_default();
+                                    // Marie is seed 1, Bob is seed 2
+                                    let seed_val = if unique_id.contains("ALICE") || unique_id.contains("alice") { 1 } else { 2 };
+                                    let signing_key = ed25519_dalek::SigningKey::from_bytes(&[seed_val; 32]);
+                                    
+                                    use ed25519_dalek::Signer;
+                                    let signature = signing_key.sign(&challenge_bytes);
+                                    let sig_hex = const_hex::encode(signature.to_bytes());
+                                    
+                                    match super::bankid::verify_hardware_auth_signature(session_id.clone(), pubkey_hex, sig_hex).await {
+                                        Ok(_) => {
+                                            break;
+                                        }
+                                        Err(e) => {
+                                            set_error(&format!("Kryptografisk verifiering misslyckades: {:?}", e)).await;
+                                            break;
+                                        }
+                                    }
+                                }
+                                #[cfg(not(debug_assertions))]
+                                {
+                                    // In production: update session status to 'card_detected' and store public key in qr_data
+                                    let _ = conn.execute(
+                                        "UPDATE bankid_auth_sessions SET status = 'card_detected', qr_data = ?1 WHERE id = ?2",
+                                        crate::params![pubkey_hex, &session_id],
+                                    ).await;
+                                    notify_observers();
+                                    break;
+                                }
+                            } else {
+                                set_error("Saknar kryptografisk utmaning eller publik nyckel för SITHS-inloggning.").await;
+                                break;
+                            }
+                        } else {
+                            #[cfg(debug_assertions)]
+                            {
+                                let mut resolved_user_info = None;
+                                if let Ok(conn) = database::acquire_connection().await {
+                                    if let Ok(mut stmt) = conn.prepare("SELECT id, siths_public_key FROM users WHERE siths_card_id IS NOT NULL AND siths_card_id != ''").await {
+                                        if let Ok(mut rows) = stmt.query(()).await {
+                                            if let Ok(Some(row)) = rows.next().await {
+                                                resolved_user_info = Some((row.get::<String>(0).unwrap(), row.get::<Option<String>>(1).unwrap()));
+                                            }
+                                        }
+                                    }
+                                }
+                                if let Some((uid, pubkey_opt)) = resolved_user_info {
+                                    tracing::warn!("[Real Smart Card Debug Fallback] Mapping card ID {} to user ID {}", unique_id, uid);
+                                    if let (Some(challenge_hex), Some(pubkey_opt_hex)) = (challenge_opt, pubkey_opt) {
                                         let challenge_bytes = const_hex::decode(&challenge_hex).unwrap_or_default();
-                                        // Marie is seed 1, Bob is seed 2
-                                        let seed_val = if unique_id.contains("ALICE") || unique_id.contains("alice") { 1 } else { 2 };
-                                        let signing_key = ed25519_dalek::SigningKey::from_bytes(&[seed_val; 32]);
+                                        // Marie is seed 1
+                                        let signing_key = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
                                         
                                         use ed25519_dalek::Signer;
                                         let signature = signing_key.sign(&challenge_bytes);
                                         let sig_hex = const_hex::encode(signature.to_bytes());
                                         
-                                        match super::bankid::verify_hardware_auth_signature(session_id.clone(), pubkey_hex, sig_hex).await {
-                                            Ok(_) => {
-                                                break;
-                                            }
-                                            Err(e) => {
-                                                set_error(&format!("Kryptografisk verifiering misslyckades: {:?}", e)).await;
-                                                break;
-                                            }
+                                        if let Ok(_) = super::bankid::verify_hardware_auth_signature(session_id.clone(), pubkey_opt_hex, sig_hex).await {
+                                            break;
                                         }
                                     }
-                                    #[cfg(not(debug_assertions))]
-                                    {
-                                        // In production: wait for physical smart card signature input from the FFI host
-                                        break;
-                                    }
-                                } else {
-                                    set_error("Saknar kryptografisk utmaning eller publik nyckel för SITHS-inloggning.").await;
+                                    set_success(uid).await;
                                     break;
                                 }
                             }
-                            Err(_) => {
-                                #[cfg(debug_assertions)]
-                                {
-                                    let mut resolved_user_info = None;
-                                    if let Ok(conn) = database::acquire_connection().await {
-                                        if let Ok(mut stmt) = conn.prepare("SELECT id, siths_public_key FROM users WHERE siths_card_id IS NOT NULL AND siths_card_id != ''").await {
-                                            if let Ok(mut rows) = stmt.query(()).await {
-                                                if let Ok(Some(row)) = rows.next().await {
-                                                    resolved_user_info = Some((row.get::<String>(0).unwrap(), row.get::<Option<String>>(1).unwrap()));
-                                                }
-                                            }
-                                        }
-                                    }
-                                    if let Some((uid, pubkey_opt)) = resolved_user_info {
-                                        tracing::warn!("[Real Smart Card Debug Fallback] Mapping card ID {} to user ID {}", unique_id, uid);
-                                        if let (Some(challenge_hex), Some(pubkey_opt_hex)) = (challenge_opt, pubkey_opt) {
-                                            let challenge_bytes = const_hex::decode(&challenge_hex).unwrap_or_default();
-                                            // Marie is seed 1
-                                            let signing_key = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
-                                            
-                                            use ed25519_dalek::Signer;
-                                            let signature = signing_key.sign(&challenge_bytes);
-                                            let sig_hex = const_hex::encode(signature.to_bytes());
-                                            
-                                            if let Ok(_) = super::bankid::verify_hardware_auth_signature(session_id.clone(), pubkey_opt_hex, sig_hex).await {
-                                                break;
-                                            }
-                                        }
-                                        set_success(uid).await;
-                                        break;
-                                    }
-                                }
 
-                                set_error(&format!("Kortet med ID {} är inte registrerat i systemet.", unique_id)).await;
-                                break;
-                            }
+                            set_error(&format!("Kortet med ID {} är inte registrerat i systemet.", unique_id)).await;
+                            break;
                         }
                     }
                     Err(e) => {
@@ -494,20 +585,20 @@ mod tests {
         ).await.unwrap();
 
         // 2. Test authenticate_with_siths
-        let auth_siths = authenticate_with_siths("siths-card-123".to_string()).await.unwrap();
+        let auth_siths = authenticate_with_siths("siths-card-123".to_string(), None, None).await.unwrap();
         assert_eq!(auth_siths.id, "u-hw-1");
         assert_eq!(auth_siths.personal_number, Some(pnum.to_string()));
 
-        let err_siths = authenticate_with_siths("invalid-card".to_string()).await;
+        let err_siths = authenticate_with_siths("invalid-card".to_string(), None, None).await;
         assert!(err_siths.is_err());
         assert!(matches!(err_siths.err().unwrap(), YntraError::NotFoundError(_)));
 
         // 3. Test authenticate_with_nfc
-        let auth_nfc = authenticate_with_nfc("nfc-badge-456".to_string()).await.unwrap();
+        let auth_nfc = authenticate_with_nfc("nfc-badge-456".to_string(), None).await.unwrap();
         assert_eq!(auth_nfc.id, "u-hw-1");
         assert_eq!(auth_nfc.personal_number, Some(pnum.to_string()));
 
-        let err_nfc = authenticate_with_nfc("invalid-badge".to_string()).await;
+        let err_nfc = authenticate_with_nfc("invalid-badge".to_string(), None).await;
         assert!(err_nfc.is_err());
         assert!(matches!(err_nfc.err().unwrap(), YntraError::NotFoundError(_)));
 

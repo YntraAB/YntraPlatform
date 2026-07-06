@@ -6,7 +6,7 @@ struct SupabaseUserResponse {
     email: String,
 }
 
-async fn get_supabase_config() -> (String, String) {
+async fn get_supabase_config() -> Result<(String, String), YntraError> {
     let mut db_url = None;
     let mut db_key = None;
     
@@ -48,15 +48,15 @@ async fn get_supabase_config() -> (String, String) {
         }
     };
     
-    let final_url = db_url.or(env_url).unwrap_or_else(|| "https://ileffmdueouhbooesjnv.supabase.co".to_string());
-    let final_key = db_key.or(env_key).unwrap_or_else(|| "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlsZWZmbWR1ZW91aGJvb2Vzam52Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0MTkyNzMsImV4cCI6MjA5MDk5NTI3M30.X5Crq8NZH_SDLeRO74f01NpcGrooAJRPj0q82OBISuU".to_string());
+    let final_url = db_url.or(env_url).ok_or_else(|| YntraError::ValidationError("Supabase URL not configured".to_string()))?;
+    let final_key = db_key.or(env_key).ok_or_else(|| YntraError::ValidationError("Supabase Anon Key not configured".to_string()))?;
     
-    (final_url, final_key)
+    Ok((final_url, final_key))
 }
-
+ 
 #[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
 pub async fn get_supabase_user_email(mut token: String) -> Result<String, YntraError> {
-    let (base_url, apikey) = get_supabase_config().await;
+    let (base_url, apikey) = get_supabase_config().await?;
     let url = format!("{}/auth/v1/user", base_url.trim_end_matches('/'));
 
     let client = reqwest::Client::new();
@@ -101,23 +101,28 @@ mod tests {
             std::env::remove_var("SUPABASE_ANON_KEY");
         }
 
-        // Should return defaults
-        let (url, _key) = get_supabase_config().await;
-        assert_eq!(url, "https://ileffmdueouhbooesjnv.supabase.co");
+        // Should return error
+        let res = get_supabase_config().await;
+        assert!(res.is_err());
+        if let Err(YntraError::ValidationError(msg)) = res {
+            assert!(msg.contains("Supabase URL not configured"));
+        } else {
+            panic!("Expected ValidationError");
+        }
 
         // 2. Set Env variables
         unsafe {
             std::env::set_var("SUPABASE_URL", "https://env-url.supabase.co");
             std::env::set_var("SUPABASE_ANON_KEY", "env-key");
         }
-        let (url, key) = get_supabase_config().await;
+        let (url, key) = get_supabase_config().await.unwrap();
         assert_eq!(url, "https://env-url.supabase.co");
         assert_eq!(key, "env-key");
 
         // 3. Set Database settings (should override/precede env vars)
         conn.execute("INSERT OR REPLACE INTO system_settings (key, value) VALUES ('supabase_url', 'https://db-url.supabase.co')", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO system_settings (key, value) VALUES ('supabase_anon_key', 'db-key')", ()).await.unwrap();
-        let (url, key) = get_supabase_config().await;
+        let (url, key) = get_supabase_config().await.unwrap();
         assert_eq!(url, "https://db-url.supabase.co");
         assert_eq!(key, "db-key");
 

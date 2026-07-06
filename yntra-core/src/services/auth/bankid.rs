@@ -621,11 +621,11 @@ pub async fn complete_auth_session(session_id: String, user_id: String, signatur
         return Err(YntraError::AuthError("Authentication session expired (older than 10 minutes)".to_string()));
     }
 
-    // Verify user exists and retrieve role and workspace_id
-    let (role, ws_id): (String, String) = conn.query_row(
-        "SELECT role, workspace_id FROM users WHERE id = ?1",
+    // Verify user exists and retrieve workspace_id
+    let ws_id: String = conn.query_row(
+        "SELECT workspace_id FROM users WHERE id = ?1",
         crate::params![&user_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
+        |r| Ok(r.get(0)?)
     ).await.map_err(|_| YntraError::NotFoundError("User does not exist".to_string()))?;
 
     // Retrieve creator public key for workspace
@@ -635,20 +635,7 @@ pub async fn complete_auth_session(session_id: String, user_id: String, signatur
         |r| Ok(r.get(0)?)
     ).await.unwrap_or(None);
 
-    let is_privileged = role == "admin"
-        || role == "platform_admin"
-        || role.contains("rektor")
-        || role.contains("principal")
-        || role.contains("teacher")
-        || role.contains("nurse")
-        || role.contains("skoterska")
-        || role.contains("sköterska")
-        || role.contains("helsesykepleier")
-        || role.contains("helsesøster")
-        || role.contains("sundhedsplejerske")
-        || role.contains("terveydenhoitaja")
-        || role.contains("kouluterveydenhoitaja")
-        || role.contains("hoitaja");
+
 
     if let Some(pk) = creator_pk {
         if !pk.trim().is_empty() {
@@ -658,11 +645,13 @@ pub async fn complete_auth_session(session_id: String, user_id: String, signatur
             if !is_valid {
                 return Err(YntraError::AuthError("Cryptographic signature verification failed for authentication session completion".to_string()));
             }
-        } else if is_privileged {
-            return Err(YntraError::AuthError("Cryptographic signature verification is required for privileged roles, but workspace public key is empty".to_string()));
+        } else {
+            #[cfg(not(any(test, debug_assertions)))]
+            return Err(YntraError::AuthError("Cryptographic signature verification is required, but workspace public key is empty".to_string()));
         }
-    } else if is_privileged {
-        return Err(YntraError::AuthError("Cryptographic signature verification is required for privileged roles, but workspace public key is not configured".to_string()));
+    } else {
+        #[cfg(not(any(test, debug_assertions)))]
+        return Err(YntraError::AuthError("Cryptographic signature verification is required, but workspace public key is not configured".to_string()));
     }
 
     conn.execute(

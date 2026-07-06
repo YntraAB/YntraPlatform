@@ -168,7 +168,7 @@ pub async fn create_workspace_via_hub(
 
     let conn = database::acquire_connection().await?;
 
-    conn.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
+    conn.begin_transaction().await?;
 
     let res = async {
         // 1. Insert Workspace
@@ -190,12 +190,12 @@ pub async fn create_workspace_via_hub(
 
     match res {
         Ok(_) => {
-            conn.execute("COMMIT", ()).await?;
+            conn.commit().await?;
             notify_observers();
             Ok(())
         }
         Err(e) => {
-            let _ = conn.execute("ROLLBACK", ()).await;
+            let _ = conn.rollback().await;
             Err(e)
         }
     }
@@ -209,7 +209,7 @@ pub async fn delete_workspace_via_hub(requester_user_id: String, workspace_id: S
         return Err(YntraError::AuthError("Access denied: platform administrator privileges required".to_string()));
     }
 
-    conn.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
+    conn.begin_transaction().await?;
 
     let res = async {
         // Delete invitations
@@ -264,12 +264,12 @@ pub async fn delete_workspace_via_hub(requester_user_id: String, workspace_id: S
 
     match res {
         Ok(_) => {
-            conn.execute("COMMIT", ()).await?;
+            conn.commit().await?;
             notify_observers();
             Ok(())
         }
         Err(e) => {
-            let _ = conn.execute("ROLLBACK", ()).await;
+            let _ = conn.rollback().await;
             Err(e)
         }
     }

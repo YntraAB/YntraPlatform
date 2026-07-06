@@ -158,23 +158,25 @@ pub async fn get_medications(client_id: String, actor_id: String) -> Result<Vec<
 
     // 2. Perform team access check (inre sekretess)
     let is_authorized = {
-        let mut admin_stmt = conn.prepare("SELECT role FROM users WHERE id = ?1").await?;
-        let mut admin_rows = admin_stmt.query(crate::params![&actor_id]).await?;
-        let is_admin = if let Some(row) = admin_rows.next().await? {
+        let mut actor_stmt = conn.prepare("SELECT role, workspace_id FROM users WHERE id = ?1").await?;
+        let mut actor_rows = actor_stmt.query(crate::params![&actor_id]).await?;
+        if let Some(row) = actor_rows.next().await? {
             let role: String = row.get(0)?;
-            role == "platform_admin"
+            let actor_ws: Option<String> = row.get(1)?;
+            
+            if role == "platform_admin" {
+                true
+            } else if role == "admin" {
+                actor_ws.as_ref() == Some(&client.0)
+            } else if let Some(tid) = &client.1 {
+                let mut member_stmt = conn.prepare("SELECT 1 FROM team_members WHERE team_id = ?1 AND user_id = ?2").await?;
+                let mut member_rows = member_stmt.query(crate::params![tid, &actor_id]).await?;
+                member_rows.next().await?.is_some()
+            } else {
+                false
+            }
         } else {
             false
-        };
-
-        if is_admin {
-            true
-        } else if let Some(tid) = &client.1 {
-            let mut member_stmt = conn.prepare("SELECT 1 FROM team_members WHERE team_id = ?1 AND user_id = ?2").await?;
-            let mut member_rows = member_stmt.query(crate::params![tid, &actor_id]).await?;
-            member_rows.next().await?.is_some()
-        } else {
-            true
         }
     };
 
@@ -230,23 +232,25 @@ pub async fn get_journals(client_id: String, actor_id: String) -> Result<Vec<Jou
 
     // 2. Perform team access check (inre sekretess)
     let is_authorized = {
-        let mut admin_stmt = conn.prepare("SELECT role FROM users WHERE id = ?1").await?;
-        let mut admin_rows = admin_stmt.query(crate::params![&actor_id]).await?;
-        let is_admin = if let Some(row) = admin_rows.next().await? {
+        let mut actor_stmt = conn.prepare("SELECT role, workspace_id FROM users WHERE id = ?1").await?;
+        let mut actor_rows = actor_stmt.query(crate::params![&actor_id]).await?;
+        if let Some(row) = actor_rows.next().await? {
             let role: String = row.get(0)?;
-            role == "platform_admin"
+            let actor_ws: Option<String> = row.get(1)?;
+            
+            if role == "platform_admin" {
+                true
+            } else if role == "admin" {
+                actor_ws.as_ref() == Some(&client.0)
+            } else if let Some(tid) = &client.1 {
+                let mut member_stmt = conn.prepare("SELECT 1 FROM team_members WHERE team_id = ?1 AND user_id = ?2").await?;
+                let mut member_rows = member_stmt.query(crate::params![tid, &actor_id]).await?;
+                member_rows.next().await?.is_some()
+            } else {
+                false
+            }
         } else {
             false
-        };
-
-        if is_admin {
-            true
-        } else if let Some(tid) = &client.1 {
-            let mut member_stmt = conn.prepare("SELECT 1 FROM team_members WHERE team_id = ?1 AND user_id = ?2").await?;
-            let mut member_rows = member_stmt.query(crate::params![tid, &actor_id]).await?;
-            member_rows.next().await?.is_some()
-        } else {
-            true
         }
     };
 
@@ -314,7 +318,7 @@ pub async fn add_journal_entry(
             let mut member_rows = member_stmt.query(crate::params![tid, &author_id]).await?;
             member_rows.next().await?.is_some()
         } else {
-            true
+            false
         };
 
         if !is_authorized {
@@ -400,7 +404,7 @@ pub async fn add_medication(
             let mut member_rows = member_stmt.query(crate::params![tid, &actor_id]).await?;
             member_rows.next().await?.is_some()
         } else {
-            true
+            false
         };
 
         if !is_authorized {
@@ -570,7 +574,7 @@ pub async fn delete_client(requester_user_id: String, client_id: String) -> Resu
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
 
-    conn.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
+    conn.begin_transaction().await?;
 
     let res = async {
         // 1. Delete associated medication items
@@ -586,12 +590,12 @@ pub async fn delete_client(requester_user_id: String, client_id: String) -> Resu
 
     match res {
         Ok(_) => {
-            conn.execute("COMMIT", ()).await?;
+            conn.commit().await?;
             notify_observers();
             Ok(())
         }
         Err(e) => {
-            let _ = conn.execute("ROLLBACK", ()).await;
+            let _ = conn.rollback().await;
             Err(e)
         }
     }
@@ -697,5 +701,64 @@ mod tests {
             conn.execute("DELETE FROM audit_logs WHERE actor_id = ?1", crate::params![user_id]).await.unwrap();
         }
         crate::infra::crypto::clear_session_key();
+    }
+
+    #[tokio::test]
+    async fn test_unassigned_client_access_control() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let assistant_id = "test-assistant-123";
+        let client_id = "test-unassigned-client-123";
+        let ws_id = "workspace-1";
+
+        // Setup assistant and unassigned client profile
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES (?1, ?2, 'assistant@yntra.io', 'assistant')", crate::params![assistant_id, ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO clients (id, workspace_id, team_id, first_name, last_name, care_level, created_at, updated_at) VALUES (?1, ?2, NULL, 'John', 'Doe', 'Normal', '2026-07-05', 0)", crate::params![client_id, ws_id]).await.unwrap();
+
+        // Get medications for unassigned client as assistant - must fail
+        let res_meds = get_medications(client_id.to_string(), assistant_id.to_string()).await;
+        assert!(res_meds.is_err());
+        assert!(matches!(res_meds.unwrap_err(), YntraError::AuthError(_)));
+
+        // Get journals for unassigned client as assistant - must fail
+        let res_journals = get_journals(client_id.to_string(), assistant_id.to_string()).await;
+        assert!(res_journals.is_err());
+        assert!(matches!(res_journals.unwrap_err(), YntraError::AuthError(_)));
+
+        // Clean up
+        conn.execute("DELETE FROM users WHERE id = ?1", crate::params![assistant_id]).await.unwrap();
+        conn.execute("DELETE FROM clients WHERE id = ?1", crate::params![client_id]).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_cross_tenant_admin_access_blocked() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let admin_id = "test-other-admin-123";
+        let client_id = "test-tenant-client-123";
+
+        // Setup admin in workspace-client-1 and client in workspace-client-2
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('workspace-client-1', 'WS 1', '[]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('workspace-client-2', 'WS 2', '[]', '{}')", ()).await.unwrap();
+
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES (?1, 'workspace-client-1', 'admin@other.io', 'admin')", crate::params![admin_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO clients (id, workspace_id, team_id, first_name, last_name, care_level, created_at, updated_at) VALUES (?1, 'workspace-client-2', NULL, 'Jane', 'Doe', 'Normal', '2026-07-05', 0)", crate::params![client_id]).await.unwrap();
+
+        // Admin of workspace-client-1 tries to read workspace-client-2 client medications - must fail
+        let res_meds = get_medications(client_id.to_string(), admin_id.to_string()).await;
+        assert!(res_meds.is_err());
+        assert!(matches!(res_meds.unwrap_err(), YntraError::AuthError(_)));
+
+        // Admin of workspace-client-1 tries to read workspace-client-2 client journals - must fail
+        let res_journals = get_journals(client_id.to_string(), admin_id.to_string()).await;
+        assert!(res_journals.is_err());
+        assert!(matches!(res_journals.unwrap_err(), YntraError::AuthError(_)));
+
+        // Clean up
+        conn.execute("DELETE FROM users WHERE id = ?1", crate::params![admin_id]).await.unwrap();
+        conn.execute("DELETE FROM clients WHERE id = ?1", crate::params![client_id]).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id IN ('workspace-client-1', 'workspace-client-2')", ()).await.unwrap();
     }
 }

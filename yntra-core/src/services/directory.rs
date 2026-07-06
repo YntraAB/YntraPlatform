@@ -82,7 +82,7 @@ pub async fn activate_invitation_code(code: String) -> Result<WorkspaceUser, Ynt
         }
 
         let now_ms = crate::infra::time::get_current_time_ms();
-        conn.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
+        conn.begin_transaction().await?;
 
         let res = async {
             // 2. Mark activated = 1
@@ -111,7 +111,7 @@ pub async fn activate_invitation_code(code: String) -> Result<WorkspaceUser, Ynt
 
         match res {
             Ok(user_id) => {
-                conn.execute("COMMIT", ()).await?;
+                conn.commit().await?;
                 notify_observers();
 
                 Ok(WorkspaceUser {
@@ -130,7 +130,7 @@ pub async fn activate_invitation_code(code: String) -> Result<WorkspaceUser, Ynt
                 })
             }
             Err(e) => {
-                let _ = conn.execute("ROLLBACK", ()).await;
+                let _ = conn.rollback().await;
                 Err(e)
             }
         }

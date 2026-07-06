@@ -70,6 +70,7 @@ pub async fn get_events(requester_user_id: String, team_id: Option<String>) -> R
 
 #[uniffi::export]
 pub async fn add_event(
+    requester_user_id: String,
     workspace_id: String,
     title: String,
     start_time: String,
@@ -78,6 +79,12 @@ pub async fn add_event(
     assignee_id: Option<String>,
     recipient_id: Option<String>,
 ) -> Result<TeamEvent, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
     let id = uuid::Uuid::new_v4().to_string();
     let now_ms = crate::infra::time::get_current_time_ms();
     let event = TeamEvent {
@@ -93,8 +100,6 @@ pub async fn add_event(
         updated_at: now_ms,
         sync_status: "pending".to_string(),
     };
-
-    let conn = database::acquire_connection().await?;
 
     conn.execute(
         "INSERT INTO events (id, workspace_id, user_id, team_id, assignee_id, title, start_time, end_time, metadata, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, '{}', ?9, 'pending')",
@@ -118,6 +123,7 @@ pub async fn add_event(
 #[uniffi::export]
 #[allow(clippy::too_many_arguments)]
 pub async fn add_event_with_metadata(
+    requester_user_id: String,
     workspace_id: String,
     title: String,
     start_time: String,
@@ -127,6 +133,12 @@ pub async fn add_event_with_metadata(
     recipient_id: Option<String>,
     metadata: String,
 ) -> Result<TeamEvent, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
     let id = uuid::Uuid::new_v4().to_string();
     let now_ms = crate::infra::time::get_current_time_ms();
     let event = TeamEvent {
@@ -142,8 +154,6 @@ pub async fn add_event_with_metadata(
         updated_at: now_ms,
         sync_status: "pending".to_string(),
     };
-
-    let conn = database::acquire_connection().await?;
 
     conn.execute(
         "INSERT INTO events (id, workspace_id, user_id, team_id, assignee_id, title, start_time, end_time, metadata, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'pending')",
@@ -166,8 +176,18 @@ pub async fn add_event_with_metadata(
 }
 
 #[uniffi::export]
-pub async fn delete_event(id: String) -> Result<(), YntraError> {
+pub async fn delete_event(requester_user_id: String, id: String) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    let event_ws: String = conn.query_row(
+        "SELECT workspace_id FROM events WHERE id = ?1",
+        crate::params![&id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Event not found".to_string()))?;
+
+    if auth.role != "platform_admin" && auth.workspace_id != event_ws {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
 
     conn.execute("DELETE FROM events WHERE id = ?1", crate::params![id]).await?;
 
@@ -176,7 +196,17 @@ pub async fn delete_event(id: String) -> Result<(), YntraError> {
 }
 
 #[uniffi::export]
-pub async fn add_team_via_directory(workspace_id: String, name: String) -> Result<Team, YntraError> {
+pub async fn add_team_via_directory(
+    requester_user_id: String,
+    workspace_id: String,
+    name: String,
+) -> Result<Team, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
     let id = uuid::Uuid::new_v4().to_string();
     let now_ms = crate::infra::time::get_current_time_ms();
     let item = Team {
@@ -186,8 +216,6 @@ pub async fn add_team_via_directory(workspace_id: String, name: String) -> Resul
         updated_at: now_ms,
         sync_status: "pending".to_string(),
     };
-
-    let conn = database::acquire_connection().await?;
 
     conn.execute(
         "INSERT INTO teams (id, workspace_id, name, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, 'pending')",
@@ -199,9 +227,24 @@ pub async fn add_team_via_directory(workspace_id: String, name: String) -> Resul
 }
 
 #[uniffi::export]
-pub async fn update_event_time(id: String, start_time: String, end_time: String) -> Result<(), YntraError> {
+pub async fn update_event_time(
+    requester_user_id: String,
+    id: String,
+    start_time: String,
+    end_time: String,
+) -> Result<(), YntraError> {
     let now_ms = crate::infra::time::get_current_time_ms();
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    let event_ws: String = conn.query_row(
+        "SELECT workspace_id FROM events WHERE id = ?1",
+        crate::params![&id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Event not found".to_string()))?;
+
+    if auth.role != "platform_admin" && auth.workspace_id != event_ws {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
 
     conn.execute(
         "UPDATE events SET start_time = ?1, end_time = ?2, updated_at = ?3, sync_status = 'pending' WHERE id = ?4",
@@ -215,6 +258,7 @@ pub async fn update_event_time(id: String, start_time: String, end_time: String)
 #[uniffi::export]
 #[allow(clippy::too_many_arguments)]
 pub async fn update_event(
+    requester_user_id: String,
     id: String,
     title: String,
     start_time: String,
@@ -226,6 +270,16 @@ pub async fn update_event(
 ) -> Result<(), YntraError> {
     let now_ms = crate::infra::time::get_current_time_ms();
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    let event_ws: String = conn.query_row(
+        "SELECT workspace_id FROM events WHERE id = ?1",
+        crate::params![&id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Event not found".to_string()))?;
+
+    if auth.role != "platform_admin" && auth.workspace_id != event_ws {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
 
     conn.execute(
         "UPDATE events SET title = ?1, start_time = ?2, end_time = ?3, team_id = ?4, assignee_id = ?5, user_id = ?6, metadata = ?7, updated_at = ?8, sync_status = 'pending' WHERE id = ?9",
@@ -292,6 +346,7 @@ mod tests {
 
         // 1. Add event
         let event = add_event(
+            "u-team-user-3".to_string(),
             "ws-team-3".to_string(),
             "Meeting".to_string(),
             "2026-07-05 10:00".to_string(),
@@ -328,6 +383,7 @@ mod tests {
 
         // 2. Update event
         update_event(
+            "u-team-user-3".to_string(),
             db_event.id.clone(),
             "Updated Meeting".to_string(),
             "2026-07-05 10:30".to_string(),
@@ -347,7 +403,7 @@ mod tests {
         assert_eq!(updated_title, "Updated Meeting");
 
         // 3. Delete event
-        delete_event(db_event.id.clone()).await.unwrap();
+        delete_event("u-team-user-3".to_string(), db_event.id.clone()).await.unwrap();
 
         // Verify deleted
         let count: i64 = conn.query_row(
