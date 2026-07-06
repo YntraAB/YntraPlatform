@@ -29,7 +29,8 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
         "INSERT" => {
             let idx = words.iter().position(|&w| w == "INTO")?;
             if idx + 1 < words.len() {
-                let name = words[idx + 1].trim_matches(|c| c == '(' || c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
+                let raw_name = words[idx + 1].split('(').next().unwrap_or("");
+                let name = raw_name.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
                 return Some(name.to_lowercase());
             }
         }

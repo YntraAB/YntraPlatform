@@ -240,6 +240,7 @@ pub struct AuditLogEntry {
     pub timestamp: i64,
     pub prev_hash: String,
     pub curr_hash: String,
+    pub seq: i64,
 }
 
 #[derive(uniffi::Record, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize, Clone, Debug)]

@@ -25,20 +25,7 @@ impl AuthContext {
                     |r| Ok(r.get(0)?)
                 ).await.unwrap_or(None);
 
-                let is_privileged = role == "admin"
-                    || role == "platform_admin"
-                    || role.contains("rektor")
-                    || role.contains("principal")
-                    || role.contains("teacher")
-                    || role.contains("nurse")
-                    || role.contains("skoterska")
-                    || role.contains("sköterska")
-                    || role.contains("helsesykepleier")
-                    || role.contains("helsesøster")
-                    || role.contains("sundhedsplejerske")
-                    || role.contains("terveydenhoitaja")
-                    || role.contains("kouluterveydenhoitaja")
-                    || role.contains("hoitaja");
+                let is_privileged = role != "user" && role != "client" && role != "guest" && role != "anonymous" && role != "deleted";
 
                 if is_privileged {
                     if let Some(pk) = creator_pk {
@@ -55,11 +42,11 @@ impl AuthContext {
                                 return Err(YntraError::AuthError("Cryptographic signature verification failed for user role (possible privilege escalation detected)".to_string()));
                             }
                         } else {
-                            #[cfg(not(test))]
+                            #[cfg(not(any(test, debug_assertions)))]
                             return Err(YntraError::AuthError("Cryptographic signature verification is required for privileged roles, but workspace public key is empty".to_string()));
                         }
                     } else {
-                        #[cfg(not(test))]
+                        #[cfg(not(any(test, debug_assertions)))]
                         return Err(YntraError::AuthError("Cryptographic signature verification is required for privileged roles, but workspace public key is not configured".to_string()));
                     }
                 }

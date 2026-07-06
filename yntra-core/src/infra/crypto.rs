@@ -309,7 +309,10 @@ fn get_local_client_pepper() -> String {
                 }
             }
         }
-        "fallback_wasm_whistleblower_pepper_value_v1".to_string()
+        static SESSION_PEPPER: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        SESSION_PEPPER.get_or_init(|| {
+            uuid::Uuid::new_v4().to_string()
+        }).clone()
     }
 }
 
@@ -458,11 +461,16 @@ impl Drop for WorkspaceCipher {
 
 #[uniffi::export]
 pub fn generate_role_signature(private_key_hex: &str, user_id: &str, role: &str, workspace_id: &str) -> Result<String, crate::infra::errors::YntraError> {
-    let private_key_bytes = const_hex::decode(private_key_hex)
-        .map_err(|e| crate::infra::errors::YntraError::CryptoError(e.to_string()))?;
+    let private_key_bytes = zeroize::Zeroizing::new(
+        const_hex::decode(private_key_hex)
+            .map_err(|e| crate::infra::errors::YntraError::CryptoError(e.to_string()))?
+    );
     
-    let private_key_array: [u8; 32] = private_key_bytes.try_into()
-        .map_err(|_| crate::infra::errors::YntraError::CryptoError("Invalid private key length".to_string()))?;
+    let mut private_key_array = zeroize::Zeroizing::new([0u8; 32]);
+    if private_key_bytes.len() != 32 {
+        return Err(crate::infra::errors::YntraError::CryptoError("Invalid private key length".to_string()));
+    }
+    private_key_array.copy_from_slice(&private_key_bytes[..32]);
         
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key_array);
     let message = format!("{}:{}:{}", user_id, role, workspace_id);
@@ -480,7 +488,11 @@ pub fn verify_role_signature(public_key_hex: &str, user_id: &str, role: &str, wo
         Ok(b) => b,
         Err(_) => return false,
     };
-    let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(&public_key_bytes.try_into().unwrap_or([0u8; 32])) {
+    let public_key_array: [u8; 32] = match public_key_bytes.try_into() {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+    let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(&public_key_array) {
         Ok(k) => k,
         Err(_) => return false,
     };
