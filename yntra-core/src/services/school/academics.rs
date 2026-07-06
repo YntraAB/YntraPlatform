@@ -737,14 +737,21 @@ pub(crate) fn calculate_gpa(grades: &[Option<String>], region: &str) -> f64 {
     
     let mut use_fi_university = false;
     if upper_region == "FI" {
+        let mut has_uni_indicators = false;
+        let mut has_comp_indicators = false;
         for g_opt in grades {
             if let Some(g) = g_opt {
                 let clean = g.trim().to_uppercase();
-                if ["0", "1", "2", "3", "L", "E", "M", "C", "B", "A"].contains(&clean.as_str()) {
-                    use_fi_university = true;
-                    break;
+                if ["0", "1", "2", "3", "5"].contains(&clean.as_str()) {
+                    has_uni_indicators = true;
+                }
+                if ["6", "7", "8", "9", "10"].contains(&clean.as_str()) {
+                    has_comp_indicators = true;
                 }
             }
+        }
+        if has_uni_indicators && !has_comp_indicators {
+            use_fi_university = true;
         }
     }
     
@@ -825,22 +832,34 @@ pub(crate) fn calculate_gpa(grades: &[Option<String>], region: &str) -> f64 {
                     }
                 }
                 r if r.starts_with("US") => {
-                    if clean == "A" || clean == "A+" || clean == "A-" { Some(4.0) }
-                    else if clean == "B" || clean == "B+" || clean == "B-" { Some(3.0) }
-                    else if clean == "C" || clean == "C+" || clean == "C-" { Some(2.0) }
-                    else if clean == "D" || clean == "D+" || clean == "D-" { Some(1.0) }
-                    else if clean == "E" || clean == "E+" || clean == "E-" { Some(1.0) }
-                    else if clean == "F" { Some(0.0) }
-                    else {
-                        // Check if it's a numeric percentage grade
-                        if let Ok(pct) = clean.parse::<f64>() {
-                            if pct >= 90.0 { Some(4.0) }
-                            else if pct >= 80.0 { Some(3.0) }
-                            else if pct >= 70.0 { Some(2.0) }
-                            else if pct >= 60.0 { Some(1.0) }
-                            else { Some(0.0) }
-                        } else {
-                            None
+                    match clean.as_str() {
+                        "A" | "A+" => Some(4.0),
+                        "A-" => Some(3.7),
+                        "B+" => Some(3.3),
+                        "B" => Some(3.0),
+                        "B-" => Some(2.7),
+                        "C+" => Some(2.3),
+                        "C" => Some(2.0),
+                        "C-" => Some(1.7),
+                        "D+" => Some(1.3),
+                        "D" | "E" | "E+" => Some(1.0),
+                        "D-" | "E-" => Some(0.7),
+                        "F" => Some(0.0),
+                        _ => {
+                            // Check if it's a numeric percentage grade
+                            let mut clean_num = clean.clone();
+                            while clean_num.ends_with('%') || clean_num.ends_with('+') || clean_num.ends_with('-') {
+                                clean_num.pop();
+                            }
+                            if let Ok(pct) = clean_num.parse::<f64>() {
+                                if pct >= 90.0 { Some(4.0) }
+                                else if pct >= 80.0 { Some(3.0) }
+                                else if pct >= 70.0 { Some(2.0) }
+                                else if pct >= 60.0 { Some(1.0) }
+                                else { Some(0.0) }
+                            } else {
+                                None
+                            }
                         }
                     }
                 },
