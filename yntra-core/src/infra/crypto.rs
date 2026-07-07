@@ -185,6 +185,26 @@ pub fn set_session_key(key_bytes: Vec<u8>) -> bool {
 }
 
 #[uniffi::export]
+pub fn get_session_key() -> Option<Vec<u8>> {
+    let lock = match SESSION_KEY.lock() {
+        Ok(l) => l,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    lock.as_ref().map(|sk| sk.new_key.to_vec())
+}
+
+#[uniffi::export]
+pub async fn load_local_workspace_key(workspace_id: String) -> bool {
+    let key_name = format!("workspace_key_{}", workspace_id);
+    if let Some(key_hex) = get_local_secret(&key_name).await {
+        if let Ok(key_bytes) = const_hex::decode(&key_hex) {
+            return set_session_key(key_bytes);
+        }
+    }
+    false
+}
+
+#[uniffi::export]
 pub fn clear_session_key() {
     let mut lock = match SESSION_KEY.lock() {
         Ok(l) => l,
@@ -220,7 +240,8 @@ fn get_encryption_keys_internal(
     hasher.update(&(salt.len() as u64).to_be_bytes());
     hasher.update(salt);
 
-    // 4. Retrieve and feed session key (minimize mutex critical section)
+    // 4. Retrieve and verify session key is present (minimize mutex critical section)
+    let mut session_key_bytes = zeroize::Zeroizing::new([0u8; 32]);
     {
         let mut is_poisoned = false;
         let lock = match SESSION_KEY.lock() {
@@ -235,14 +256,14 @@ fn get_encryption_keys_internal(
             return Err(crate::infra::errors::YntraError::CryptoError("session_key_lock_poisoned".to_string()));
         }
         
-        if let Some(sk) = lock.as_ref() {
-            hasher.update(&(sk.new_key.len() as u64).to_be_bytes());
-            hasher.update(&sk.new_key);
+        if let Some(ref sk) = *lock {
+            session_key_bytes.copy_from_slice(&sk.new_key);
         } else {
             hasher.zeroize();
             return Err(crate::infra::errors::YntraError::CryptoError("session_key_missing".to_string()));
         }
     }
+    hasher.update(&*session_key_bytes);
 
     // 5. Derive key using single-pass Blake3 XOF directly into Zeroizing
     let mut reader = hasher.finalize_xof();
@@ -261,11 +282,13 @@ pub fn hex_decode(s: &str) -> Option<Vec<u8>> {
     const_hex::decode(s).ok()
 }
 
+#[uniffi::export]
 pub fn encrypt_field(data: &str, workspace_id: &str) -> Result<String, crate::infra::errors::YntraError> {
     let cipher = WorkspaceCipher::new(workspace_id)?;
     cipher.encrypt(data)
 }
 
+#[uniffi::export]
 pub fn decrypt_field(encrypted_data: &str, workspace_id: &str) -> Result<String, crate::infra::errors::YntraError> {
     let cipher = WorkspaceCipher::new(workspace_id)?;
     cipher.decrypt(encrypted_data)
@@ -479,6 +502,153 @@ pub fn generate_role_signature(private_key_hex: &str, user_id: &str, role: &str,
 }
 
 #[uniffi::export]
+pub fn generate_workspace_keypair() -> Result<Vec<String>, crate::infra::errors::YntraError> {
+    let mut private_key_bytes = [0u8; 32];
+    getrandom::fill(&mut private_key_bytes).map_err(|e| crate::infra::errors::YntraError::CryptoError(e.to_string()))?;
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key_bytes);
+    let public_key_hex = const_hex::encode(signing_key.verifying_key().to_bytes());
+    let private_key_hex = const_hex::encode(private_key_bytes);
+    Ok(vec![public_key_hex, private_key_hex])
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn get_local_secret(key: &str) -> Option<String> {
+    let db = match libsql::Builder::new_local("yntra_local_secrets.db").build().await {
+        Ok(d) => d,
+        Err(_) => return None,
+    };
+    let conn = match db.connect() {
+        Ok(c) => c,
+        Err(_) => return None,
+    };
+    let _ = conn.execute("CREATE TABLE IF NOT EXISTS local_secrets (key TEXT PRIMARY KEY, value TEXT)", ()).await;
+    
+    let mut stmt = match conn.prepare("SELECT value FROM local_secrets WHERE key = ?1").await {
+        Ok(s) => s,
+        Err(_) => return None,
+    };
+    let mut rows = match stmt.query(libsql::params![key]).await {
+        Ok(r) => r,
+        Err(_) => return None,
+    };
+    if let Ok(Some(row)) = rows.next().await {
+        let val = row.get::<String>(0).ok()?;
+        if val.is_empty() {
+            None
+        } else {
+            Some(val)
+        }
+    } else {
+        None
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn set_local_secret(key: &str, value: &str) -> Result<(), crate::infra::errors::YntraError> {
+    let db = libsql::Builder::new_local("yntra_local_secrets.db").build().await
+        .map_err(|e| crate::infra::errors::YntraError::DbError(e.to_string()))?;
+    let conn = db.connect()
+        .map_err(|e| crate::infra::errors::YntraError::DbError(e.to_string()))?;
+    conn.execute("CREATE TABLE IF NOT EXISTS local_secrets (key TEXT PRIMARY KEY, value TEXT)", ()).await
+        .map_err(|e| crate::infra::errors::YntraError::DbError(e.to_string()))?;
+    conn.execute("INSERT OR REPLACE INTO local_secrets (key, value) VALUES (?1, ?2)", libsql::params![key, value]).await
+        .map_err(|e| crate::infra::errors::YntraError::DbError(e.to_string()))?;
+    Ok(())
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn get_local_secret(key: &str) -> Option<String> {
+    if let Some(window) = web_sys::window() {
+        if let Ok(Some(storage)) = window.local_storage() {
+            let val = storage.get_item(key).ok().flatten()?;
+            if val.is_empty() {
+                return None;
+            }
+            return Some(val);
+        }
+    }
+    None
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn set_local_secret(key: &str, value: &str) -> Result<(), crate::infra::errors::YntraError> {
+    if let Some(window) = web_sys::window() {
+        if let Ok(Some(storage)) = window.local_storage() {
+            storage.set_item(key, value)
+                .map_err(|_| crate::infra::errors::YntraError::CryptoError("local_storage_write_failed".to_string()))?;
+            return Ok(());
+        }
+    }
+    Err(crate::infra::errors::YntraError::CryptoError("local_storage_unavailable".to_string()))
+}
+
+#[uniffi::export]
+pub fn encrypt_workspace_key_with_password(password: &str, workspace_key: Vec<u8>) -> Result<String, crate::infra::errors::YntraError> {
+    use argon2::{Argon2, Algorithm, Version, Params};
+    
+    let mut salt = [0u8; 16];
+    getrandom::fill(&mut salt).map_err(|e| crate::infra::errors::YntraError::CryptoError(e.to_string()))?;
+    
+    let mut nonce_bytes = [0u8; 24];
+    getrandom::fill(&mut nonce_bytes).map_err(|e| crate::infra::errors::YntraError::CryptoError(e.to_string()))?;
+    
+    let mut derived_key = [0u8; 32];
+    let params = Params::new(19456, 2, 1, Some(32)).map_err(|_| crate::infra::errors::YntraError::CryptoError("Argon2 params invalid".to_string()))?;
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+    argon2.hash_password_into(password.as_bytes(), &salt, &mut derived_key)
+        .map_err(|_| crate::infra::errors::YntraError::CryptoError("Argon2 derivation failed".to_string()))?;
+        
+    let cipher = XChaCha20Poly1305::new(Key::from_slice(&derived_key));
+    let nonce = XNonce::from_slice(&nonce_bytes);
+    let ciphertext = cipher.encrypt(nonce, workspace_key.as_slice())
+        .map_err(|_| crate::infra::errors::YntraError::CryptoError("Envelope encryption failed".to_string()))?;
+        
+    Ok(format!(
+        "envelope:{}:{}:{}",
+        const_hex::encode(&salt),
+        const_hex::encode(&nonce_bytes),
+        const_hex::encode(&ciphertext)
+    ))
+}
+
+#[uniffi::export]
+pub fn decrypt_workspace_key_with_password(password: &str, encrypted_envelope: &str) -> Result<Vec<u8>, crate::infra::errors::YntraError> {
+    use argon2::{Argon2, Algorithm, Version, Params};
+    
+    if !encrypted_envelope.starts_with("envelope:") {
+        return Err(crate::infra::errors::YntraError::CryptoError("Invalid envelope format".to_string()));
+    }
+    
+    let parts: Vec<&str> = encrypted_envelope[9..].split(':').collect();
+    if parts.len() != 3 {
+        return Err(crate::infra::errors::YntraError::CryptoError("Invalid envelope structure".to_string()));
+    }
+    
+    let salt = const_hex::decode(parts[0])
+        .map_err(|_| crate::infra::errors::YntraError::CryptoError("Invalid envelope salt".to_string()))?;
+    let nonce_bytes = const_hex::decode(parts[1])
+        .map_err(|_| crate::infra::errors::YntraError::CryptoError("Invalid envelope nonce".to_string()))?;
+    let ciphertext = const_hex::decode(parts[2])
+        .map_err(|_| crate::infra::errors::YntraError::CryptoError("Invalid envelope ciphertext".to_string()))?;
+        
+    let mut derived_key = [0u8; 32];
+    let params = Params::new(19456, 2, 1, Some(32)).map_err(|_| crate::infra::errors::YntraError::CryptoError("Argon2 params invalid".to_string()))?;
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+    argon2.hash_password_into(password.as_bytes(), &salt, &mut derived_key)
+        .map_err(|_| crate::infra::errors::YntraError::CryptoError("Argon2 derivation failed".to_string()))?;
+        
+    let cipher = XChaCha20Poly1305::new(Key::from_slice(&derived_key));
+    let nonce = XNonce::from_slice(&nonce_bytes);
+    let plaintext = cipher.decrypt(nonce, ciphertext.as_slice())
+        .map_err(|_| crate::infra::errors::YntraError::CryptoError("Envelope decryption failed".to_string()))?;
+        
+    Ok(plaintext)
+}
+
+
+
+
+#[uniffi::export]
 pub fn verify_role_signature(public_key_hex: &str, user_id: &str, role: &str, workspace_id: &str, signature_hex: &str) -> bool {
     let public_key_bytes = match const_hex::decode(public_key_hex) {
         Ok(b) => b,
@@ -562,6 +732,7 @@ mod tests {
     #[test]
     fn test_session_key_poisoning_recovery() {
         let _test_lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        clear_session_key();
         // Poison the mutex by panicking while holding the lock
         let _ = std::panic::catch_unwind(|| {
             let _lock = SESSION_KEY.lock().unwrap();
@@ -600,5 +771,30 @@ mod tests {
         let duplicate_salt = "303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f".to_string();
         let second_res = initialize_system_salt(duplicate_salt);
         assert!(!second_res); // Should return false
+    }
+
+    #[test]
+    fn test_collaborative_workspace_key_match() {
+        let _test_lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let plaintext = "Shared patient health data";
+        let workspace_id = "shared-workspace-xyz";
+
+        // User A logs in and encrypts data
+        set_session_key("shared-workspace-session-key".to_string().into_bytes());
+        let encrypted_by_a = encrypt_field(plaintext, workspace_id).unwrap();
+        clear_session_key();
+
+        // User B attempts to log in with a DIFFERENT session key and decrypt (should fail)
+        set_session_key("different-workspace-session-key".to_string().into_bytes());
+        let decrypted_by_b_wrong = decrypt_field(&encrypted_by_a, workspace_id);
+        assert!(decrypted_by_b_wrong.is_err());
+        clear_session_key();
+
+        // User B logs in with the CORRECT shared workspace session key (should succeed)
+        set_session_key("shared-workspace-session-key".to_string().into_bytes());
+        let decrypted_by_b = decrypt_field(&encrypted_by_a, workspace_id).unwrap();
+        assert_eq!(plaintext, decrypted_by_b);
+
+        clear_session_key();
     }
 }

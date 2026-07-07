@@ -12,6 +12,45 @@ pub fn get_current_time_str_hm() -> String {
     Utc::now().format("%H:%M").to_string()
 }
 
+#[cfg(target_arch = "wasm32")]
+struct SendFuture<F>(pub F);
+
+#[cfg(target_arch = "wasm32")]
+unsafe impl<F> Send for SendFuture<F> {}
+
+#[cfg(target_arch = "wasm32")]
+impl<F: std::future::Future> std::future::Future for SendFuture<F> {
+    type Output = F::Output;
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        unsafe {
+            let mut_self = self.get_unchecked_mut();
+            let inner = std::pin::Pin::new_unchecked(&mut mut_self.0);
+            inner.poll(cx)
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_name = setTimeout)]
+    fn set_timeout(handler: &js_sys::Function, timeout: i32) -> wasm_bindgen::JsValue;
+}
+
+pub async fn sleep_ms(ms: u64) {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let promise = js_sys::Promise::new(&mut |resolve, _| {
+            let _ = set_timeout(&resolve, ms as i32);
+        });
+        let _ = SendFuture(wasm_bindgen_futures::JsFuture::from(promise)).await;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -34,3 +73,4 @@ mod tests {
         assert_eq!(&hm[2..3], ":");
     }
 }
+

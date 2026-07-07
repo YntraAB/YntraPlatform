@@ -16,23 +16,18 @@ pub fn get_runtime() -> &'static tokio::runtime::Runtime {
     })
 }
 
-pub fn block_on<F: std::future::Future>(future: F) -> F::Output
+pub fn block_on<F: std::future::Future + 'static>(future: F) -> F::Output
 where
     F: std::future::Future + Send,
-    F::Output: Send,
+    F::Output: Send + 'static,
 {
-    if let Ok(_handle) = tokio::runtime::Handle::try_current() {
-        std::thread::scope(|s| {
-            let handle = s.spawn(|| {
-                let rt = get_runtime();
-                rt.block_on(future)
-            });
-            handle.join().unwrap()
-        })
-    } else {
-        let rt = get_runtime();
-        rt.block_on(future)
-    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    let rt = get_runtime();
+    rt.spawn(async move {
+        let res = future.await;
+        let _ = tx.send(res);
+    });
+    rx.recv().expect("Failed to receive output from block_on task")
 }
 
 pub fn get_database() -> &'static libsql::Database {
@@ -118,11 +113,14 @@ pub struct DbConnection {
 impl Drop for DbConnection {
     fn drop(&mut self) {
         if let Some(conn) = self.inner.take() {
-            if self.in_transaction.load(std::sync::atomic::Ordering::SeqCst) {
-                let _ = block_on(async {
+            let conn = if self.in_transaction.load(std::sync::atomic::Ordering::SeqCst) {
+                block_on(async move {
                     let _ = conn.execute("ROLLBACK", ()).await;
-                });
-            }
+                    conn
+                })
+            } else {
+                conn
+            };
             let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
             if let Ok(mut conns) = pool.lock() {
                 conns.push_back(conn);

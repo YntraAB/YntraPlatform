@@ -31,7 +31,7 @@ pub use services::role_templates::*;
 // Support absolute paths inside submodules that import modules re-exported at the root
 pub use infra::errors;
 pub use infra::observer;
-pub use infra::crypto::{set_session_key, clear_session_key};
+pub use infra::crypto::{set_session_key, clear_session_key, encrypt_field, decrypt_field, get_session_key, load_local_workspace_key};
 #[cfg(target_arch = "wasm32")]
 pub use database::schema::setup_schema;
 

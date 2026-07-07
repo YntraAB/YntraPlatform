@@ -267,7 +267,8 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             siths_card_id TEXT,
             nfc_badge_uid TEXT,
             updated_at INTEGER NOT NULL DEFAULT 0,
-            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced'))
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            encrypted_workspace_key TEXT
         );
 
         CREATE TABLE IF NOT EXISTS audit_logs (
@@ -279,7 +280,8 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             timestamp INTEGER NOT NULL,
             prev_hash TEXT NOT NULL,
             curr_hash TEXT NOT NULL,
-            seq INTEGER NOT NULL DEFAULT 0
+            seq INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(workspace_id, seq)
         );
         
         CREATE INDEX IF NOT EXISTS idx_users_workspace ON users(workspace_id);
@@ -299,6 +301,7 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
 
     let _ = conn.execute("ALTER TABLE workspaces ADD COLUMN creator_public_key TEXT", ()).await;
     let _ = conn.execute("ALTER TABLE users ADD COLUMN role_signature TEXT", ()).await;
+    let _ = conn.execute("ALTER TABLE invitations ADD COLUMN encrypted_workspace_key TEXT", ()).await;
 
     Ok(())
 }
