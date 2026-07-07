@@ -7,17 +7,13 @@ use crate::{MoveInventoryItem, MoveQuote};
 #[uniffi::export]
 pub async fn get_job_tickets(requester_user_id: String) -> Result<Vec<JobTicket>, YntraError> {
     let conn = database::acquire_connection().await?;
-    let requester_ws: String = conn.query_row(
-        "SELECT workspace_id FROM users WHERE id = ?1",
-        crate::params![&requester_user_id],
-        |r| r.get(0)
-    ).await.map_err(|_| YntraError::AuthError("Requester user not found".to_string()))?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     let mut stmt = conn.prepare(
         "SELECT id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed FROM job_tickets WHERE workspace_id = ?1",
     ).await?;
 
-    let list = stmt.query_map(crate::params![requester_ws], |row| {
+    let list = stmt.query_map(crate::params![auth.workspace_id], |row| {
         Ok(JobTicket {
             id: row.get(0)?,
             workspace_id: row.get(1)?,
@@ -98,13 +94,9 @@ pub async fn create_job_ticket(
     };
 
     let conn = database::acquire_connection().await?;
-    let requester_ws: String = conn.query_row(
-        "SELECT workspace_id FROM users WHERE id = ?1",
-        crate::params![&requester_user_id],
-        |r| r.get(0)
-    ).await.map_err(|_| YntraError::AuthError("Requester user not found".to_string()))?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    if requester_ws != workspace_id {
+    if auth.workspace_id != workspace_id {
         return Err(YntraError::AuthError("Access denied: requester belongs to a different workspace".to_string()));
     }
 

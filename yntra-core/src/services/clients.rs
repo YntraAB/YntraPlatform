@@ -53,20 +53,17 @@ fn personal_numbers_match(p1: &str, p2: &str) -> bool {
 #[uniffi::export]
 pub async fn get_clients(requester_user_id: String) -> Result<Vec<ClientProfile>, YntraError> {
     let conn = database::acquire_connection().await?;
-    let user_row: Option<(String, Option<String>, Option<String>, Option<String>)> = conn.query_row(
-        "SELECT role, full_name, personal_number, workspace_id FROM users WHERE id = ?1",
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let personal_number: Option<String> = conn.query_row(
+        "SELECT personal_number FROM users WHERE id = ?1",
         crate::params![&requester_user_id],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
-    ).await.ok();
+        |r| r.get(0)
+    ).await.ok().flatten();
 
-    let (role, _full_name, personal_number, ws_id) = match user_row {
-        Some((r, f, p, w)) => (r, f, p, w.unwrap_or_else(|| "workspace-1".to_string())),
-        None => return Err(YntraError::AuthError("User not found".to_string())),
-    };
-
-    let decrypted_user_pnum = if role == "client" {
+    let decrypted_user_pnum = if auth.role == "client" {
         if let Some(ref pn) = personal_number {
-            crate::infra::crypto::decrypt_field(pn, &ws_id).ok()
+            crate::infra::crypto::decrypt_field(pn, &auth.workspace_id).ok()
         } else {
             None
         }
@@ -74,20 +71,20 @@ pub async fn get_clients(requester_user_id: String) -> Result<Vec<ClientProfile>
         None
     };
 
-    let (query, params) = if role == "platform_admin" {
+    let (query, params) = if auth.role == "platform_admin" {
         (
             "SELECT id, workspace_id, team_id, first_name, last_name, personal_number, care_level, message_settings, created_at, updated_at, sync_status FROM clients".to_string(),
             vec![],
         )
-    } else if role == "admin" {
+    } else if auth.role == "admin" {
         (
             "SELECT id, workspace_id, team_id, first_name, last_name, personal_number, care_level, message_settings, created_at, updated_at, sync_status FROM clients WHERE workspace_id = ?1".to_string(),
-            vec![ws_id.clone()],
+            vec![auth.workspace_id.clone()],
         )
-    } else if role == "client" {
+    } else if auth.role == "client" {
         (
             "SELECT id, workspace_id, team_id, first_name, last_name, personal_number, care_level, message_settings, created_at, updated_at, sync_status FROM clients WHERE workspace_id = ?1".to_string(),
-            vec![ws_id.clone()],
+            vec![auth.workspace_id.clone()],
         )
     } else {
         (
@@ -95,7 +92,7 @@ pub async fn get_clients(requester_user_id: String) -> Result<Vec<ClientProfile>
              FROM clients c
              JOIN team_members tm ON c.team_id = tm.team_id
              WHERE tm.user_id = ?1 AND c.workspace_id = ?2".to_string(),
-            vec![requester_user_id.clone(), ws_id],
+            vec![requester_user_id.clone(), auth.workspace_id.clone()],
         )
     };
 
@@ -118,7 +115,7 @@ pub async fn get_clients(requester_user_id: String) -> Result<Vec<ClientProfile>
         })
     }).await?;
 
-    let list = if role == "client" {
+    let list = if auth.role == "client" {
         if let Some(target_pnum) = decrypted_user_pnum {
             list.into_iter().filter(|c| {
                 if let Some(ref c_pnum) = c.personal_number {
@@ -157,24 +154,16 @@ pub async fn get_medications(client_id: String, actor_id: String) -> Result<Vec<
     };
 
     // 2. Perform team access check (inre sekretess)
+    let auth = crate::AuthContext::authorize(&conn, &actor_id).await?;
     let is_authorized = {
-        let mut actor_stmt = conn.prepare("SELECT role, workspace_id FROM users WHERE id = ?1").await?;
-        let mut actor_rows = actor_stmt.query(crate::params![&actor_id]).await?;
-        if let Some(row) = actor_rows.next().await? {
-            let role: String = row.get(0)?;
-            let actor_ws: Option<String> = row.get(1)?;
-            
-            if role == "platform_admin" {
-                true
-            } else if role == "admin" {
-                actor_ws.as_ref() == Some(&client.0)
-            } else if let Some(tid) = &client.1 {
-                let mut member_stmt = conn.prepare("SELECT 1 FROM team_members WHERE team_id = ?1 AND user_id = ?2").await?;
-                let mut member_rows = member_stmt.query(crate::params![tid, &actor_id]).await?;
-                member_rows.next().await?.is_some()
-            } else {
-                false
-            }
+        if auth.role == "platform_admin" {
+            true
+        } else if auth.role == "admin" {
+            auth.workspace_id == client.0
+        } else if let Some(tid) = &client.1 {
+            let mut member_stmt = conn.prepare("SELECT 1 FROM team_members WHERE team_id = ?1 AND user_id = ?2").await?;
+            let mut member_rows = member_stmt.query(crate::params![tid, &actor_id]).await?;
+            member_rows.next().await?.is_some()
         } else {
             false
         }
@@ -231,24 +220,16 @@ pub async fn get_journals(client_id: String, actor_id: String) -> Result<Vec<Jou
     };
 
     // 2. Perform team access check (inre sekretess)
+    let auth = crate::AuthContext::authorize(&conn, &actor_id).await?;
     let is_authorized = {
-        let mut actor_stmt = conn.prepare("SELECT role, workspace_id FROM users WHERE id = ?1").await?;
-        let mut actor_rows = actor_stmt.query(crate::params![&actor_id]).await?;
-        if let Some(row) = actor_rows.next().await? {
-            let role: String = row.get(0)?;
-            let actor_ws: Option<String> = row.get(1)?;
-            
-            if role == "platform_admin" {
-                true
-            } else if role == "admin" {
-                actor_ws.as_ref() == Some(&client.0)
-            } else if let Some(tid) = &client.1 {
-                let mut member_stmt = conn.prepare("SELECT 1 FROM team_members WHERE team_id = ?1 AND user_id = ?2").await?;
-                let mut member_rows = member_stmt.query(crate::params![tid, &actor_id]).await?;
-                member_rows.next().await?.is_some()
-            } else {
-                false
-            }
+        if auth.role == "platform_admin" {
+            true
+        } else if auth.role == "admin" {
+            auth.workspace_id == client.0
+        } else if let Some(tid) = &client.1 {
+            let mut member_stmt = conn.prepare("SELECT 1 FROM team_members WHERE team_id = ?1 AND user_id = ?2").await?;
+            let mut member_rows = member_stmt.query(crate::params![tid, &actor_id]).await?;
+            member_rows.next().await?.is_some()
         } else {
             false
         }

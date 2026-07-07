@@ -152,39 +152,7 @@ pub async fn authenticate_with_nfc(badge_uid: String, pin: Option<String>) -> Re
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-struct SendFuture<F>(pub F);
-
-#[cfg(target_arch = "wasm32")]
-unsafe impl<F> Send for SendFuture<F> {}
-
-#[cfg(target_arch = "wasm32")]
-impl<F: std::future::Future> std::future::Future for SendFuture<F> {
-    type Output = F::Output;
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
-        unsafe {
-            let mut_self = self.get_unchecked_mut();
-            let inner = std::pin::Pin::new_unchecked(&mut mut_self.0);
-            inner.poll(cx)
-        }
-    }
-}
-
-pub async fn sleep_ms(ms: u64) {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        let promise = js_sys::Promise::new(&mut |resolve, _| {
-            if let Some(window) = web_sys::window() {
-                let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, ms as i32);
-            }
-        });
-        let _ = SendFuture(wasm_bindgen_futures::JsFuture::from(promise)).await;
-    }
-}
+pub use crate::infra::time::sleep_ms;
 
 #[uniffi::export]
 pub async fn run_hardware_auth_simulation(session_id: String, provider: String) -> Result<(), YntraError> {
@@ -258,7 +226,7 @@ pub async fn run_hardware_auth_simulation(session_id: String, provider: String) 
         } else {
             // Fail if challenge/pubkey is missing
             conn.execute(
-                "UPDATE bankid_auth_sessions SET status = 'error', progress = 0.0, error_message = 'Missing cryptographic challenge or public key' WHERE id = ?1",
+                "UPDATE bankid_auth_sessions SET status = 'error', progress = 0.0, error_message = 'login-hw-error-missing-crypto-params' WHERE id = ?1",
                 crate::params![&session_id],
             ).await?;
             notify_observers();
@@ -267,7 +235,7 @@ pub async fn run_hardware_auth_simulation(session_id: String, provider: String) 
     } else {
         // Update to error state
         conn.execute(
-            "UPDATE bankid_auth_sessions SET status = 'error', progress = 0.0, error_message = 'Credentials not registered' WHERE id = ?1",
+            "UPDATE bankid_auth_sessions SET status = 'error', progress = 0.0, error_message = 'login-hw-error-card-unregistered:simulation' WHERE id = ?1",
             crate::params![&session_id],
         ).await?;
         notify_observers();
@@ -389,7 +357,7 @@ async fn run_real_hardware_auth_native(ctx: pcsc::Context, session_id: String, _
     // Polling loop
     loop {
         if start_time.elapsed() > std::time::Duration::from_secs(60) {
-            set_error("Inloggningssessionen tog för lång tid och har avbrutits.").await;
+            set_error("login-hw-error-session-timeout").await;
             break;
         }
 
@@ -476,8 +444,8 @@ async fn run_real_hardware_auth_native(ctx: pcsc::Context, session_id: String, _
                                         Ok(_) => {
                                             break;
                                         }
-                                        Err(e) => {
-                                            set_error(&format!("Kryptografisk verifiering misslyckades: {:?}", e)).await;
+                                        Err(_e) => {
+                                            set_error("login-hw-error-verification-failed").await;
                                             break;
                                         }
                                     }
@@ -493,7 +461,7 @@ async fn run_real_hardware_auth_native(ctx: pcsc::Context, session_id: String, _
                                     break;
                                 }
                             } else {
-                                set_error("Saknar kryptografisk utmaning eller publik nyckel för SITHS-inloggning.").await;
+                                set_error("login-hw-error-missing-crypto-params").await;
                                 break;
                             }
                         } else {
@@ -529,12 +497,12 @@ async fn run_real_hardware_auth_native(ctx: pcsc::Context, session_id: String, _
                                 }
                             }
 
-                            set_error(&format!("Kortet med ID {} är inte registrerat i systemet.", unique_id)).await;
+                            set_error(&format!("login-hw-error-card-unregistered:{}", unique_id)).await;
                             break;
                         }
                     }
-                    Err(e) => {
-                        set_error(&format!("Kunde inte läsa kortets unika identifierare (ICCID/UID): {:?}", e)).await;
+                    Err(_e) => {
+                        set_error("login-hw-error-card-read-failed").await;
                         break;
                     }
                 }

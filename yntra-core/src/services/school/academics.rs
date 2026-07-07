@@ -111,14 +111,10 @@ fn validate_grade_for_region(grade: &str, region: &str) -> Result<String, YntraE
 #[uniffi::export]
 pub async fn get_courses(requester_user_id: String) -> Result<Vec<Course>, YntraError> {
     let conn = database::acquire_connection().await?;
-    let requester_ws: String = conn.query_row(
-        "SELECT workspace_id FROM users WHERE id = ?1",
-        crate::params![&requester_user_id],
-        |r| r.get(0)
-    ).await.map_err(|_| YntraError::AuthError("Requester user not found".to_string()))?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     let mut stmt = conn.prepare("SELECT id, workspace_id, name, subject, teacher_id, classroom, updated_at, sync_status FROM courses WHERE workspace_id = ?1").await?;
-    let list = stmt.query_map(crate::params![requester_ws], |row| {
+    let list = stmt.query_map(crate::params![auth.workspace_id], |row| {
         Ok(Course {
             id: row.get(0)?,
             workspace_id: row.get(1)?,

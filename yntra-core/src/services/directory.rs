@@ -38,21 +38,35 @@ pub async fn invite_user_via_directory(
         personal_number: None,
     };
 
-    conn.execute(
-        "INSERT INTO users (id, workspace_id, email, full_name, role, preferences, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, '{}', ?6, 'pending')",
-        crate::params![
-            &item.id,
-            &item.workspace_id,
-            &item.email,
-            &item.full_name,
-            &item.role,
-            &item.updated_at
-        ],
-    ).await?;
+    conn.begin_transaction().await?;
+    let res = async {
+        conn.execute(
+            "INSERT INTO users (id, workspace_id, email, full_name, role, preferences, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, '{}', ?6, 'pending')",
+            crate::params![
+                &item.id,
+                &item.workspace_id,
+                &item.email,
+                &item.full_name,
+                &item.role,
+                &item.updated_at
+            ],
+        ).await?;
 
-    notify_observers();
+        crate::services::users::ensure_user_role_signature(&conn, &item.id, &item.role, &workspace_id).await?;
+        Ok(())
+    }.await;
 
-    Ok(item)
+    match res {
+        Ok(_) => {
+            conn.commit().await?;
+            notify_observers();
+            Ok(item)
+        }
+        Err(e) => {
+            let _ = conn.rollback().await;
+            Err(e)
+        }
+    }
 }
 
 #[uniffi::export]
@@ -63,7 +77,7 @@ pub async fn activate_invitation_code(code: String) -> Result<WorkspaceUser, Ynt
 
     // 1. Fetch the invitation
     let mut stmt = conn.prepare(
-        "SELECT code, workspace_id, email, full_name, role, activated, siths_card_id, nfc_badge_uid FROM invitations WHERE UPPER(code) = ?1"
+        "SELECT code, workspace_id, email, full_name, role, activated, siths_card_id, nfc_badge_uid, encrypted_workspace_key FROM invitations WHERE UPPER(code) = ?1"
     ).await?;
 
     let mut rows = stmt.query(crate::params![code_upper.clone()]).await?;
@@ -76,6 +90,7 @@ pub async fn activate_invitation_code(code: String) -> Result<WorkspaceUser, Ynt
         let activated: i64 = row.get(5)?;
         let siths_card_id: Option<String> = row.get(6)?;
         let nfc_badge_uid: Option<String> = row.get(7)?;
+        let enc_workspace_key: Option<String> = row.get(8)?;
 
         if activated != 0 {
             return Err(YntraError::InvitationError("Invitation code already activated".to_string()));
@@ -85,6 +100,14 @@ pub async fn activate_invitation_code(code: String) -> Result<WorkspaceUser, Ynt
         conn.begin_transaction().await?;
 
         let res = async {
+            // Decrypt workspace key using invitation code and cache it locally
+            if let Some(ref enc_key) = enc_workspace_key {
+                if let Ok(dec_key) = crate::infra::crypto::decrypt_workspace_key_with_password(&code_upper, enc_key) {
+                    let _ = crate::infra::crypto::set_local_secret(&format!("workspace_key_{}", workspace_id), &const_hex::encode(&dec_key)).await;
+                    crate::infra::crypto::set_session_key(dec_key);
+                }
+            }
+
             // 2. Mark activated = 1
             conn.execute(
                 "UPDATE invitations SET activated = 1 WHERE code = ?1",
@@ -106,6 +129,8 @@ pub async fn activate_invitation_code(code: String) -> Result<WorkspaceUser, Ynt
                     &now_ms
                 ],
             ).await?;
+
+            crate::services::users::ensure_user_role_signature(&conn, &user_id, &role, &workspace_id).await?;
             Ok(user_id)
         }.await;
 
@@ -210,10 +235,12 @@ mod tests {
 
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-dir-inv', 'Inv WS', '[]', '{}')", ()).await.unwrap();
 
-        // 1. Insert a mock invitation
+        // 1. Insert a mock invitation with encrypted workspace key
+        let test_key = vec![0u8; 32];
+        let enc_test_key = crate::infra::crypto::encrypt_workspace_key_with_password("CODE123", test_key).unwrap();
         conn.execute(
-            "INSERT OR REPLACE INTO invitations (code, workspace_id, email, full_name, role, activated, updated_at) VALUES ('CODE123', 'ws-dir-inv', 'guest@dir.io', 'Guest User', 'user', 0, 0)",
-            (),
+            "INSERT OR REPLACE INTO invitations (code, workspace_id, email, full_name, role, activated, updated_at, encrypted_workspace_key) VALUES ('CODE123', 'ws-dir-inv', 'guest@dir.io', 'Guest User', 'user', 0, 0, ?1)",
+            crate::params![enc_test_key],
         ).await.unwrap();
 
         // 2. Activate valid code (case-insensitive checks)

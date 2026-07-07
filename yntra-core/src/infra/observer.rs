@@ -139,14 +139,7 @@ pub fn sync_database() -> Result<(), YntraError> {
 }
 
 #[cfg(target_arch = "wasm32")]
-async fn sleep_ms(ms: u32) {
-    let promise = js_sys::Promise::new(&mut |resolve, _| {
-        if let Some(window) = web_sys::window() {
-            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, ms as i32);
-        }
-    });
-    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
-}
+use crate::infra::time::sleep_ms;
 
 #[uniffi::export]
 pub fn start_background_sync(interval_secs: u32) {
@@ -172,7 +165,7 @@ pub fn start_background_sync(interval_secs: u32) {
     {
         wasm_bindgen_futures::spawn_local(async move {
             loop {
-                sleep_ms(interval_secs * 1000).await;
+                sleep_ms((interval_secs * 1000) as u64).await;
                 let _ = sync_database();
             }
         });

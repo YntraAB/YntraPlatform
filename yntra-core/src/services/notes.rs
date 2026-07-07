@@ -120,21 +120,73 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
 
     let mut stmt = conn.prepare(&query).await?;
     let mut rows = stmt.query(params).await?;
-    let mut list = Vec::new();
+    
+    let mut raw_notes = Vec::new();
     while let Some(row) = rows.next().await? {
         let id: String = row.get(0)?;
         let workspace_id: String = row.get(1)?;
         let team_id: String = row.get(2)?;
         let author_id: Option<String> = row.get(3)?;
         let subject: String = row.get(4)?;
+        let base_content: String = row.get(5)?;
         let edit_history: String = row.get(6)?;
         let created_at: String = row.get(7)?;
         let updated_at: i64 = row.get(8)?;
         let sync_status: String = row.get(9)?;
+        
+        raw_notes.push((id, workspace_id, team_id, author_id, subject, base_content, edit_history, created_at, updated_at, sync_status));
+    }
 
-        let doc = get_merged_loro_doc(&conn, &id).await?;
+    if raw_notes.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut updates_by_note: std::collections::HashMap<String, Vec<(i64, String)>> = std::collections::HashMap::new();
+    for (id, _, _, _, _, _, _, _, _, _) in &raw_notes {
+        updates_by_note.insert(id.clone(), Vec::new());
+    }
+
+    let note_ids: Vec<String> = raw_notes.iter().map(|n| n.0.clone()).collect();
+    let placeholders: Vec<String> = (0..note_ids.len()).map(|i| format!("?{}", i + 1)).collect();
+    let query_updates = format!(
+        "SELECT note_id, seq, update_data FROM note_updates WHERE note_id IN ({}) ORDER BY seq ASC, created_at ASC",
+        placeholders.join(", ")
+    );
+
+    let mut stmt_updates = conn.prepare(&query_updates).await?;
+    let mut rows_updates = stmt_updates.query(crate::rusqlite::params_from_iter(note_ids)).await?;
+    while let Some(row_up) = rows_updates.next().await? {
+        let note_id: String = row_up.get(0)?;
+        let seq: i64 = row_up.get(1)?;
+        let update_data_hex: String = row_up.get(2)?;
+        if let Some(list_ups) = updates_by_note.get_mut(&note_id) {
+            list_ups.push((seq, update_data_hex));
+        }
+    }
+
+    let mut list = Vec::new();
+    for (id, workspace_id, team_id, author_id, subject, base_content, edit_history, created_at, updated_at, sync_status) in raw_notes {
+        let doc = loro::LoroDoc::new();
+        let (last_merged_seq, hex_or_plain) = parse_loro_state(&base_content);
+        if base_content.starts_with("loro:") {
+            if let Some(bytes) = crate::infra::crypto::hex_decode(hex_or_plain) {
+                doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            }
+        } else {
+            doc.get_text("content").insert(0, hex_or_plain).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+        }
+
+        if let Some(updates) = updates_by_note.get(&id) {
+            for &(seq, ref update_data_hex) in updates {
+                if seq > last_merged_seq {
+                    if let Some(bytes) = crate::infra::crypto::hex_decode(update_data_hex) {
+                        doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                    }
+                }
+            }
+        }
+
         let content = doc.get_text("content").to_string();
-
         list.push(DailyNote {
             id,
             workspace_id,

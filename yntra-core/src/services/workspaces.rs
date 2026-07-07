@@ -184,6 +184,8 @@ pub async fn create_workspace_via_hub(
                 "INSERT INTO users (id, workspace_id, email, full_name, role, preferences) VALUES (?1, ?2, ?3, 'Administrator', 'admin', '{}')",
                 crate::params![&user_id, &ws_id, &email.to_string()],
             ).await?;
+
+            crate::services::users::ensure_user_role_signature(&conn, &user_id, "admin", &ws_id).await?;
         }
         Ok(())
     }.await;
@@ -351,28 +353,28 @@ mod tests {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         let conn = crate::database::acquire_connection().await.unwrap();
 
-        // Setup test users
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('ws-user-admin', 'workspace-1', 'wsadmin@yntra.io', 'admin')", ()).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('ws-user-padmin', 'workspace-1', 'wspadmin@yntra.io', 'platform_admin')", ()).await.unwrap();
+        let ws_id1 = format!("ws-iso-1-{}", uuid::Uuid::new_v4());
+        let ws_id2 = format!("ws-iso-2-{}", uuid::Uuid::new_v4());
 
-        // Ensure workspace-1 and another mock workspace exists
-        conn.execute(
-            "INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('workspace-2', 'Mock Workspace 2', '{}', '{}')",
-            (),
-        ).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Workspace 1', '{}', '{}')", crate::params![&ws_id1]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Workspace 2', '{}', '{}')", crate::params![&ws_id2]).await.unwrap();
+
+        // Setup test users
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('ws-user-admin', ?1, 'wsadmin@yntra.io', 'admin')", crate::params![&ws_id1]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('ws-user-padmin', ?1, 'wspadmin@yntra.io', 'platform_admin')", crate::params![&ws_id1]).await.unwrap();
 
         // Querying as standard admin user (should only see workspace-1)
         let list1 = get_workspaces("ws-user-admin".to_string()).await.unwrap();
-        assert!(list1.iter().any(|w| w.id == "workspace-1"));
-        assert!(!list1.iter().any(|w| w.id == "workspace-2"));
+        assert!(list1.iter().any(|w| w.id == ws_id1));
+        assert!(!list1.iter().any(|w| w.id == ws_id2));
 
         // Querying as platform admin (should see all workspaces)
         let list2 = get_workspaces("ws-user-padmin".to_string()).await.unwrap();
-        assert!(list2.iter().any(|w| w.id == "workspace-1"));
-        assert!(list2.iter().any(|w| w.id == "workspace-2"));
+        assert!(list2.iter().any(|w| w.id == ws_id1));
+        assert!(list2.iter().any(|w| w.id == ws_id2));
 
         // Clean up
         conn.execute("DELETE FROM users WHERE id IN ('ws-user-admin', 'ws-user-padmin')", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'workspace-2'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id IN (?1, ?2)", crate::params![ws_id1, ws_id2]).await.unwrap();
     }
 }

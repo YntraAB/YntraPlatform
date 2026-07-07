@@ -622,11 +622,16 @@ pub async fn complete_auth_session(session_id: String, user_id: String, signatur
     }
 
     // Verify user exists and retrieve workspace_id
-    let ws_id: String = conn.query_row(
+    let ws_id_opt: Option<String> = conn.query_row(
         "SELECT workspace_id FROM users WHERE id = ?1",
         crate::params![&user_id],
         |r| Ok(r.get(0)?)
     ).await.map_err(|_| YntraError::NotFoundError("User does not exist".to_string()))?;
+
+    let ws_id = match ws_id_opt {
+        Some(id) => id,
+        None => return Err(YntraError::ValidationError("User is not assigned to a workspace".to_string())),
+    };
 
     // Retrieve creator public key for workspace
     let creator_pk: Option<String> = conn.query_row(
@@ -790,6 +795,33 @@ mod tests {
         let vk = VerifyingKey::from_bytes(public_key.as_bytes()).unwrap();
         let sig = Signature::from_bytes(&signature.to_bytes());
         assert!(vk.verify(&challenge_bytes, &sig).is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_complete_auth_session_null_workspace() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = crate::database::acquire_connection().await.unwrap();
+
+        // 1. Create a user with NULL workspace_id
+        conn.execute("INSERT OR REPLACE INTO users (id, email, role, workspace_id) VALUES ('user-no-ws', 'no-ws@yntra.se', 'user', NULL)", ()).await.unwrap();
+
+        // 2. Create a pending bankid session
+        let now_str = crate::infra::time::get_current_datetime_str();
+        conn.execute(
+            "INSERT OR REPLACE INTO bankid_auth_sessions (id, authenticated_user_id, target_role, provider, qr_data, status, created_at, progress) VALUES ('session-no-ws', 'user-no-ws', 'user', 'se_bankid', '', 'pending', ?1, 100.0)",
+            crate::params![now_str],
+        ).await.unwrap();
+
+        // 3. Complete authentication session
+        let res = complete_auth_session("session-no-ws".to_string(), "user-no-ws".to_string(), "mock-signature".to_string()).await;
+        
+        // 4. Verify it returns ValidationError
+        assert!(res.is_err());
+        assert!(matches!(res.err().unwrap(), crate::YntraError::ValidationError(_)));
+
+        // Clean up
+        conn.execute("DELETE FROM users WHERE id = 'user-no-ws'", ()).await.unwrap();
+        conn.execute("DELETE FROM bankid_auth_sessions WHERE id = 'session-no-ws'", ()).await.unwrap();
     }
 }
 
