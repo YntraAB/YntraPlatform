@@ -44,10 +44,10 @@ cargo build --release -p yntra-core
 Generate Swift and Kotlin bindings via UniFFI:
 ```bash
 # Generate Swift bindings (iOS)
-cargo run -p yntra-uniffi-bindgen -- swift
+cargo run -p yntra-uniffi-bindgen -- generate --library target/debug/yntra_core.dll --language swift --out-dir generated_bindings
 
 # Generate Kotlin bindings (Android)
-cargo run -p yntra-uniffi-bindgen -- kotlin
+cargo run -p yntra-uniffi-bindgen -- generate --library target/debug/yntra_core.dll --language kotlin --out-dir generated_bindings
 ```
 
 ### 3. Run Web / Desktop (Dioxus)

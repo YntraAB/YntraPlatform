@@ -1004,6 +1004,20 @@ internal open class UniffiVTableCallbackInterfaceDatabaseObserver(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -1080,6 +1094,10 @@ internal interface UniffiLib : Library {
     ): Long
     fun uniffi_yntra_core_fn_func_create_workspace_via_hub(`name`: RustBuffer.ByValue,`adminEmail`: RustBuffer.ByValue,`modulesActive`: RustBuffer.ByValue,
     ): Long
+    fun uniffi_yntra_core_fn_func_decrypt_field(`encryptedData`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_yntra_core_fn_func_decrypt_workspace_key_with_password(`password`: RustBuffer.ByValue,`encryptedEnvelope`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_yntra_core_fn_func_delete_client(`requesterUserId`: RustBuffer.ByValue,`clientId`: RustBuffer.ByValue,
     ): Long
     fun uniffi_yntra_core_fn_func_delete_event(`requesterUserId`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,
@@ -1094,11 +1112,17 @@ internal interface UniffiLib : Library {
     ): Long
     fun uniffi_yntra_core_fn_func_delete_workspace_via_hub(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,
     ): Long
+    fun uniffi_yntra_core_fn_func_encrypt_field(`data`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_yntra_core_fn_func_encrypt_workspace_key_with_password(`password`: RustBuffer.ByValue,`workspaceKey`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_yntra_core_fn_func_fail_auth_session(`sessionId`: RustBuffer.ByValue,`errorMsg`: RustBuffer.ByValue,
     ): Long
     fun uniffi_yntra_core_fn_func_generate_role_signature(`privateKeyHex`: RustBuffer.ByValue,`userId`: RustBuffer.ByValue,`role`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_yntra_core_fn_func_generate_totp_secret(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_yntra_core_fn_func_generate_workspace_keypair(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_yntra_core_fn_func_get_assignments(`requesterUserId`: RustBuffer.ByValue,`courseId`: RustBuffer.ByValue,
     ): Long
@@ -1152,6 +1176,8 @@ internal interface UniffiLib : Library {
     ): Long
     fun uniffi_yntra_core_fn_func_get_school_payments(`requesterUserId`: RustBuffer.ByValue,`invoiceId`: RustBuffer.ByValue,
     ): Long
+    fun uniffi_yntra_core_fn_func_get_session_key(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_yntra_core_fn_func_get_student_attendance(`requesterUserId`: RustBuffer.ByValue,`studentId`: RustBuffer.ByValue,
     ): Long
     fun uniffi_yntra_core_fn_func_get_students(`requesterUserId`: RustBuffer.ByValue,
@@ -1187,6 +1213,8 @@ internal interface UniffiLib : Library {
     fun uniffi_yntra_core_fn_func_initiate_bankid_auth(`targetRole`: RustBuffer.ByValue,`provider`: RustBuffer.ByValue,
     ): Long
     fun uniffi_yntra_core_fn_func_invite_user_via_directory(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`email`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`role`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_load_local_workspace_key(`workspaceId`: RustBuffer.ByValue,
     ): Long
     fun uniffi_yntra_core_fn_func_log_action(`actorId`: RustBuffer.ByValue,`targetClientId`: RustBuffer.ByValue,`actionType`: RustBuffer.ByValue,
     ): Long
@@ -1450,6 +1478,10 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_yntra_core_checksum_func_create_workspace_via_hub(
     ): Short
+    fun uniffi_yntra_core_checksum_func_decrypt_field(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_decrypt_workspace_key_with_password(
+    ): Short
     fun uniffi_yntra_core_checksum_func_delete_client(
     ): Short
     fun uniffi_yntra_core_checksum_func_delete_event(
@@ -1464,11 +1496,17 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_yntra_core_checksum_func_delete_workspace_via_hub(
     ): Short
+    fun uniffi_yntra_core_checksum_func_encrypt_field(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_encrypt_workspace_key_with_password(
+    ): Short
     fun uniffi_yntra_core_checksum_func_fail_auth_session(
     ): Short
     fun uniffi_yntra_core_checksum_func_generate_role_signature(
     ): Short
     fun uniffi_yntra_core_checksum_func_generate_totp_secret(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_generate_workspace_keypair(
     ): Short
     fun uniffi_yntra_core_checksum_func_get_assignments(
     ): Short
@@ -1522,6 +1560,8 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_yntra_core_checksum_func_get_school_payments(
     ): Short
+    fun uniffi_yntra_core_checksum_func_get_session_key(
+    ): Short
     fun uniffi_yntra_core_checksum_func_get_student_attendance(
     ): Short
     fun uniffi_yntra_core_checksum_func_get_students(
@@ -1557,6 +1597,8 @@ internal interface UniffiLib : Library {
     fun uniffi_yntra_core_checksum_func_initiate_bankid_auth(
     ): Short
     fun uniffi_yntra_core_checksum_func_invite_user_via_directory(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_load_local_workspace_key(
     ): Short
     fun uniffi_yntra_core_checksum_func_log_action(
     ): Short
@@ -1758,6 +1800,12 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_yntra_core_checksum_func_create_workspace_via_hub() != 62473.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_yntra_core_checksum_func_decrypt_field() != 25255.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_decrypt_workspace_key_with_password() != 10311.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_yntra_core_checksum_func_delete_client() != 42354.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1779,6 +1827,12 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_yntra_core_checksum_func_delete_workspace_via_hub() != 48851.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_yntra_core_checksum_func_encrypt_field() != 47527.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_encrypt_workspace_key_with_password() != 3892.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_yntra_core_checksum_func_fail_auth_session() != 7771.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1786,6 +1840,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_generate_totp_secret() != 25335.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_generate_workspace_keypair() != 39895.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_get_assignments() != 51243.toShort()) {
@@ -1866,6 +1923,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_yntra_core_checksum_func_get_school_payments() != 1550.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_yntra_core_checksum_func_get_session_key() != 55124.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_yntra_core_checksum_func_get_student_attendance() != 23235.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1918,6 +1978,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_invite_user_via_directory() != 63225.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_load_local_workspace_key() != 25393.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_log_action() != 2222.toShort()) {
@@ -4806,6 +4869,38 @@ public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?>
 /**
  * @suppress
  */
+public object FfiConverterOptionalByteArray: FfiConverterRustBuffer<kotlin.ByteArray?> {
+    override fun read(buf: ByteBuffer): kotlin.ByteArray? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterByteArray.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.ByteArray?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterByteArray.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.ByteArray?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterByteArray.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeBankIdAuthSession: FfiConverterRustBuffer<BankIdAuthSession?> {
     override fun read(buf: ByteBuffer): BankIdAuthSession? {
         if (buf.get().toInt() == 0) {
@@ -6197,6 +6292,26 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
     )
     }
 
+    @Throws(YntraException::class) fun `decryptField`(`encryptedData`: kotlin.String, `workspaceId`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(YntraException) { _status ->
+    UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_decrypt_field(
+        FfiConverterString.lower(`encryptedData`),FfiConverterString.lower(`workspaceId`),_status)
+}
+    )
+    }
+    
+
+    @Throws(YntraException::class) fun `decryptWorkspaceKeyWithPassword`(`password`: kotlin.String, `encryptedEnvelope`: kotlin.String): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    uniffiRustCallWithError(YntraException) { _status ->
+    UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_decrypt_workspace_key_with_password(
+        FfiConverterString.lower(`password`),FfiConverterString.lower(`encryptedEnvelope`),_status)
+}
+    )
+    }
+    
+
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
      suspend fun `deleteClient`(`requesterUserId`: kotlin.String, `clientId`: kotlin.String) {
@@ -6309,6 +6424,26 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
     )
     }
 
+    @Throws(YntraException::class) fun `encryptField`(`data`: kotlin.String, `workspaceId`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(YntraException) { _status ->
+    UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_encrypt_field(
+        FfiConverterString.lower(`data`),FfiConverterString.lower(`workspaceId`),_status)
+}
+    )
+    }
+    
+
+    @Throws(YntraException::class) fun `encryptWorkspaceKeyWithPassword`(`password`: kotlin.String, `workspaceKey`: kotlin.ByteArray): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(YntraException) { _status ->
+    UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_encrypt_workspace_key_with_password(
+        FfiConverterString.lower(`password`),FfiConverterByteArray.lower(`workspaceKey`),_status)
+}
+    )
+    }
+    
+
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
      suspend fun `failAuthSession`(`sessionId`: kotlin.String, `errorMsg`: kotlin.String) {
@@ -6338,6 +6473,16 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
             return FfiConverterString.lift(
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_generate_totp_secret(
+        _status)
+}
+    )
+    }
+    
+
+    @Throws(YntraException::class) fun `generateWorkspaceKeypair`(): List<kotlin.String> {
+            return FfiConverterSequenceString.lift(
+    uniffiRustCallWithError(YntraException) { _status ->
+    UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_generate_workspace_keypair(
         _status)
 }
     )
@@ -6728,6 +6873,15 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
         YntraException.ErrorHandler,
     )
     }
+ fun `getSessionKey`(): kotlin.ByteArray? {
+            return FfiConverterOptionalByteArray.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_session_key(
+        _status)
+}
+    )
+    }
+    
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
@@ -6984,6 +7138,20 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
         { FfiConverterTypeWorkspaceUser.lift(it) },
         // Error FFI converter
         YntraException.ErrorHandler,
+    )
+    }
+
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `loadLocalWorkspaceKey`(`workspaceId`: kotlin.String) : kotlin.Boolean {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_load_local_workspace_key(FfiConverterString.lower(`workspaceId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_i8(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_i8(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_i8(future) },
+        // lift function
+        { FfiConverterBoolean.lift(it) },
+        // Error FFI converter
+        UniffiNullRustCallStatusErrorHandler,
     )
     }
 

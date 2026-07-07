@@ -225,7 +225,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b79091df18a97caea757e28cd2d5fda49c6cd4bd01ddffd7ff01ace0c0ad2c28"
 dependencies = [
  "askama_derive",
- "askama_escape",
+ "askama_escape 0.10.3",
 ]
 
 [[package]]
@@ -249,6 +249,12 @@ name = "askama_escape"
 version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "619743e34b5ba4e9703bba34deac3427c72507c7159f5fd030aea8cac0cfe341"
+
+[[package]]
+name = "askama_escape"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3df27b8d5ddb458c5fb1bbc1ce172d4a38c614a97d550b0ac89003897fb01de4"
 
 [[package]]
 name = "askama_parser"
@@ -2104,6 +2110,18 @@ dependencies = [
  "rustc-hash 2.1.2",
  "tracing",
  "warnings",
+]
+
+[[package]]
+name = "dioxus-ssr"
+version = "0.7.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d261c5c9907b84fb1ed52f59f46d68c84a4ae860a65cc5effd0cea740ee428af"
+dependencies = [
+ "askama_escape 0.13.0",
+ "dioxus-core",
+ "dioxus-core-types",
+ "rustc-hash 2.1.2",
 ]
 
 [[package]]
@@ -8951,6 +8969,7 @@ dependencies = [
  "dioxus-icons",
  "dioxus-logger",
  "dioxus-primitives",
+ "dioxus-ssr",
  "fluent-bundle",
  "getrandom 0.3.4",
  "js-sys",

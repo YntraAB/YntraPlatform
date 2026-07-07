@@ -19,10 +19,10 @@ The bindings are generated via the `yntra-uniffi-bindgen` executable:
 
 ```bash
 # Generate Swift wrapper and C header for Xcode
-cargo run -p yntra-uniffi-bindgen -- swift
+cargo run -p yntra-uniffi-bindgen -- generate --library target/debug/yntra_core.dll --language swift --out-dir generated_bindings
 
 # Generate Kotlin wrapper for Android Studio
-cargo run -p yntra-uniffi-bindgen -- kotlin
+cargo run -p yntra-uniffi-bindgen -- generate --library target/debug/yntra_core.dll --language kotlin --out-dir generated_bindings
 ```
 
 ---

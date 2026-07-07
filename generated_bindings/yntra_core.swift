@@ -5002,6 +5002,30 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionData: FfiConverterRustBuffer {
+    typealias SwiftType = Data?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterData.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterData.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeBankIdAuthSession: FfiConverterRustBuffer {
     typealias SwiftType = BankIdAuthSession?
 
@@ -6279,6 +6303,22 @@ public func createWorkspaceViaHub(name: String, adminEmail: String, modulesActiv
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
+public func decryptField(encryptedData: String, workspaceId: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeYntraError.lift) {
+    uniffi_yntra_core_fn_func_decrypt_field(
+        FfiConverterString.lower(encryptedData),
+        FfiConverterString.lower(workspaceId),$0
+    )
+})
+}
+public func decryptWorkspaceKeyWithPassword(password: String, encryptedEnvelope: String)throws  -> Data {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeYntraError.lift) {
+    uniffi_yntra_core_fn_func_decrypt_workspace_key_with_password(
+        FfiConverterString.lower(password),
+        FfiConverterString.lower(encryptedEnvelope),$0
+    )
+})
+}
 public func deleteClient(requesterUserId: String, clientId: String)async throws  {
     return
         try  await uniffiRustCallAsync(
@@ -6377,6 +6417,22 @@ public func deleteWorkspaceViaHub(requesterUserId: String, workspaceId: String)a
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
+public func encryptField(data: String, workspaceId: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeYntraError.lift) {
+    uniffi_yntra_core_fn_func_encrypt_field(
+        FfiConverterString.lower(data),
+        FfiConverterString.lower(workspaceId),$0
+    )
+})
+}
+public func encryptWorkspaceKeyWithPassword(password: String, workspaceKey: Data)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeYntraError.lift) {
+    uniffi_yntra_core_fn_func_encrypt_workspace_key_with_password(
+        FfiConverterString.lower(password),
+        FfiConverterData.lower(workspaceKey),$0
+    )
+})
+}
 public func failAuthSession(sessionId: String, errorMsg: String)async throws  {
     return
         try  await uniffiRustCallAsync(
@@ -6404,6 +6460,12 @@ public func generateRoleSignature(privateKeyHex: String, userId: String, role: S
 public func generateTotpSecret() -> String {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_yntra_core_fn_func_generate_totp_secret($0
+    )
+})
+}
+public func generateWorkspaceKeypair()throws  -> [String] {
+    return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeYntraError.lift) {
+    uniffi_yntra_core_fn_func_generate_workspace_keypair($0
     )
 })
 }
@@ -6766,6 +6828,12 @@ public func getSchoolPayments(requesterUserId: String, invoiceId: String)async t
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
+public func getSessionKey() -> Data? {
+    return try!  FfiConverterOptionData.lift(try! rustCall() {
+    uniffi_yntra_core_fn_func_get_session_key($0
+    )
+})
+}
 public func getStudentAttendance(requesterUserId: String, studentId: String)async throws  -> [AttendanceRecord] {
     return
         try  await uniffiRustCallAsync(
@@ -7000,6 +7068,21 @@ public func inviteUserViaDirectory(requesterUserId: String, workspaceId: String,
             freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeWorkspaceUser.lift,
             errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func loadLocalWorkspaceKey(workspaceId: String)async  -> Bool {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_load_local_workspace_key(FfiConverterString.lower(workspaceId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_i8,
+            completeFunc: ffi_yntra_core_rust_future_complete_i8,
+            freeFunc: ffi_yntra_core_rust_future_free_i8,
+            liftFunc: FfiConverterBool.lift,
+            errorHandler: nil
+            
         )
 }
 public func logAction(actorId: String, targetClientId: String?, actionType: String)async throws  -> AuditLogEntry {
@@ -7702,6 +7785,12 @@ private var initializationResult: InitializationResult = {
     if (uniffi_yntra_core_checksum_func_create_workspace_via_hub() != 62473) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_yntra_core_checksum_func_decrypt_field() != 25255) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_decrypt_workspace_key_with_password() != 10311) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_yntra_core_checksum_func_delete_client() != 42354) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7723,6 +7812,12 @@ private var initializationResult: InitializationResult = {
     if (uniffi_yntra_core_checksum_func_delete_workspace_via_hub() != 48851) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_yntra_core_checksum_func_encrypt_field() != 47527) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_encrypt_workspace_key_with_password() != 3892) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_yntra_core_checksum_func_fail_auth_session() != 7771) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7730,6 +7825,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_generate_totp_secret() != 25335) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_generate_workspace_keypair() != 39895) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_get_assignments() != 51243) {
@@ -7810,6 +7908,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_yntra_core_checksum_func_get_school_payments() != 1550) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_yntra_core_checksum_func_get_session_key() != 55124) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_yntra_core_checksum_func_get_student_attendance() != 23235) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7862,6 +7963,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_invite_user_via_directory() != 63225) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_load_local_workspace_key() != 25393) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_log_action() != 2222) {
