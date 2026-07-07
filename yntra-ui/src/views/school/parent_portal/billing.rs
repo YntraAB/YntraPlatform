@@ -173,7 +173,6 @@ pub fn BillingTab(props: BillingTabProps) -> Element {
                         0 => {
                             let amount_str = format!("{:.2}", total_due).replace('.', ",");
                             let qr_payload = format!("C1231181189;{};Tuition%20Fees;0", amount_str);
-                            let qr_url = format!("https://api.qrserver.com/v1/create-qr-code/?size=250x250&data={}", qr_payload);
                             let is_zoomed = *qr_zoomed.read();
                             
                             let active_user_c1a = active_user.clone();
@@ -301,12 +300,10 @@ pub fn BillingTab(props: BillingTabProps) -> Element {
                                             
                                             // Glowing scanning beam
                                             div { class: "scanner-line" }
-                                            
-                                            img {
-                                                src: "{qr_url}",
-                                                alt: "Swish QR Code",
-                                                class: format!("transition-all duration-300 {}", if is_zoomed { "w-[185px] h-[185px]" } else { "w-[135px] h-[135px]" }),
-                                            }
+                                            div {
+                                                 class: format!("transition-all duration-300 {}", if is_zoomed { "w-[185px] h-[185px]" } else { "w-[135px] h-[135px]" }),
+                                                 {crate::utils::qr::render_qr_svg(&qr_payload)}
+                                             }
                                         }
                                         span { class: "text-[9px] text-muted-foreground text-center font-medium max-w-[280px] leading-normal",
                                             if is_zoomed { "Tap QR code again to shrink layout view." } else { "Tap QR code to zoom. Scan code to pay immediately." }

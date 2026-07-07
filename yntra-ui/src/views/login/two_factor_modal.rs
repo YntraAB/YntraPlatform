@@ -82,7 +82,10 @@ pub fn TwoFactorModal(props: TwoFactorModalProps) -> Element {
                     style: "grid-template-columns:1fr 1fr;",
                     button {
                         class: "yntra-btn secondary",
-                        onclick: move |_| two_factor_user.set(None),
+                        onclick: move |_| {
+                            yntra_core::clear_session_key();
+                            two_factor_user.set(None);
+                        },
                         "Avbryt"
                     }
                     button {
@@ -95,10 +98,16 @@ pub fn TwoFactorModal(props: TwoFactorModalProps) -> Element {
                                 
                                 let totp_secret = {
                                     let prefs: serde_json::Value = serde_json::from_str(&user.preferences).unwrap_or_default();
-                                    prefs.get("totp_secret")
+                                    let raw_sec = prefs.get("totp_secret")
                                         .and_then(|v| v.as_str())
                                         .unwrap_or("")
-                                        .to_string()
+                                        .to_string();
+                                    if raw_sec.is_empty() {
+                                        String::new()
+                                    } else {
+                                        let ws_id = user.workspace_id.clone().unwrap_or_else(|| "workspace-1".to_string());
+                                        yntra_core::decrypt_field(&raw_sec, &ws_id).unwrap_or(raw_sec)
+                                    }
                                 };
 
                                 if !totp_secret.is_empty() && yntra_core::verify_user_totp(totp_secret, code_str) {

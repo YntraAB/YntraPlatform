@@ -19,6 +19,7 @@ pub fn start_loopback_listener(tx: mpsc::UnboundedSender<String>) {
                 Ok(s) => s,
                 Err(_) => continue,
             };
+            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
 
             // Read the full request including possible segmented POST body
             let mut request_data = Vec::new();

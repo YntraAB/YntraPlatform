@@ -7,7 +7,7 @@ use yntra_core::{
     clear_observers,
     get_user_by_email, init_wasm_db, init_tracing, start_background_sync,
     Workspace, WorkspaceUser, Team, TeamEvent, MessageItem, DailyNote, TimeReport,
-    ClientProfile, ReportItem,
+    ClientProfile, ReportItem, clear_session_key, get_session_key, load_local_workspace_key,
 };
 use crate::locales::get_system_locale;
 use crate::utils::{DioxusDbObserver, get_supabase_user_email};
@@ -250,6 +250,26 @@ pub fn use_init_app_state() -> AppState {
             "#.to_string()
         };
         let _ = dioxus::document::eval(&js);
+    });
+
+    // Automatically set/clear session key when active_user_id changes
+    let active_uid_for_session = active_user_id;
+    use_effect(move || {
+        let uid = active_uid_for_session.read().clone();
+        if !uid.is_empty() {
+            spawn(async move {
+                if let Ok(all_users) = get_users(uid.clone()).await {
+                    if let Some(user) = all_users.into_iter().find(|u| u.id == uid) {
+                        let ws_id = user.workspace_id.clone().unwrap_or_else(|| "workspace-1".to_string());
+                        if get_session_key().is_none() {
+                            let _ = load_local_workspace_key(ws_id).await;
+                        }
+                    }
+                }
+            });
+        } else {
+            clear_session_key();
+        }
     });
 
     // View state sub-signals

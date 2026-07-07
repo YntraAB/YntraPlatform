@@ -436,6 +436,23 @@ body {
     transform: translateY(0);
 }
 
+.yntra-btn.secondary,
+.yntra-btn.btn-secondary {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
+
+.yntra-btn.secondary:hover,
+.yntra-btn.btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.yntra-btn.btn-primary {
+    background: var(--accent-color);
+    color: white;
+}
+
 .yntra-table {
     width: 100%;
     border-collapse: collapse;

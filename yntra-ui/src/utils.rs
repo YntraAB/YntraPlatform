@@ -1,6 +1,7 @@
 pub mod browser;
 pub mod loopback;
 pub mod errors;
+pub mod qr;
 
 pub use errors::{use_action_runner, ActionRunner, map_error, UserFriendlyError};
 

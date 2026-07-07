@@ -270,7 +270,15 @@ pub fn LoginView(props: LoginViewProps) -> Element {
                         } else if s.status == "error" {
                             let err_msg = s.pin.clone();
                             let final_msg = if err_msg.is_empty() {
-                                "Inga kort registrerade i katalogen. Vänligen aktivera en inbjudningskod först.".to_string()
+                                t("login-hw-error-card-unregistered", &props.auth_region.read())
+                            } else if err_msg.starts_with("login-hw-error-") {
+                                if let Some(colon_pos) = err_msg.find(':') {
+                                    let key = &err_msg[..colon_pos];
+                                    let arg = &err_msg[colon_pos + 1..];
+                                    crate::locales::t_with_args(key, &props.auth_region.read(), &[("id", arg)])
+                                } else {
+                                    t(&err_msg, &props.auth_region.read())
+                                }
                             } else {
                                 err_msg
                             };

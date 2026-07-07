@@ -95,7 +95,7 @@ pub fn HardwareModal(props: HardwareModalProps) -> Element {
                         }
                         if let Some(err) = hardware_error_msg.read().as_ref() {
                             p { class: "text-xs text-center m-0 font-semibold",
-                                style: "color: var(--danger);", "{err}" }
+                                style: "color: var(--danger);", "{t(err, &props.region)}" }
                         }
                     }
                 }

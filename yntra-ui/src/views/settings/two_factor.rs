@@ -168,11 +168,10 @@ pub fn TwoFactorSettings(props: TwoFactorSettingsProps) -> Element {
                         // QR code container
                         div { class: "flex flex-col items-center gap-3",
                             div { class: "p-4 rounded-xl flex justify-center items-center",
-                    style: "background:white;",
-                                img {
-                                    src: "https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=otpauth://totp/YntraPlatform:{active_user.email}?secret={totp_secret}&issuer=YntraPlatform",
-                                    alt: "MFA QR Code",
-                                    style: "width:160px; height:160px;",
+                                style: "background:white;",
+                                div {
+                                    style: "width: 160px; height: 160px;",
+                                    {crate::utils::qr::render_qr_svg(&format!("otpauth://totp/YntraPlatform:{}?secret={}&issuer=YntraPlatform", active_user.email, totp_secret))}
                                 }
                             }
                             button {
@@ -248,28 +247,37 @@ pub fn TwoFactorSettings(props: TwoFactorSettingsProps) -> Element {
                                     let code_str = otp_code.read().join("");
                                     let sec = enrollment_secret.read().clone();
                                     if yntra_core::verify_user_totp(sec.clone(), code_str) {
-                                        is_enabled.set(true);
-                                        show_enroll_modal.set(false);
-                                        error_message.set(None);
+                                        let ws_id = active_user_for_enable.workspace_id.clone().unwrap_or_else(|| "workspace-1".to_string());
+                                        match yntra_core::encrypt_field(&sec, &ws_id) {
+                                            Ok(enc_sec) => {
+                                                is_enabled.set(true);
+                                                show_enroll_modal.set(false);
+                                                error_message.set(None);
 
-                                        account_save_status.set("saving".to_string());
-                                        let mut prefs: serde_json::Value = serde_json::from_str(&account_preferences.read()).unwrap_or_default();
-                                        prefs["two_factor_enabled"] = serde_json::json!(true);
-                                        prefs["totp_secret"] = serde_json::json!(sec);
-                                        let prefs_str = serde_json::to_string(&prefs).unwrap_or_default();
-                                        account_preferences.set(prefs_str.clone());
+                                                account_save_status.set("saving".to_string());
+                                                let mut prefs: serde_json::Value = serde_json::from_str(&account_preferences.read()).unwrap_or_default();
+                                                prefs["two_factor_enabled"] = serde_json::json!(true);
+                                                prefs["totp_secret"] = serde_json::json!(enc_sec);
+                                                let prefs_str = serde_json::to_string(&prefs).unwrap_or_default();
+                                                account_preferences.set(prefs_str.clone());
 
-                                        let uid = active_user_for_enable.id.clone();
-                                        let name_val = active_user_for_enable.full_name.clone();
-                                        let phone_val = active_user_for_enable.phone.clone();
-                                        let prefs_val = prefs_str.clone();
-                                        spawn(async move {
-                                            let _ = update_user_profile(uid.clone(), uid, name_val, phone_val, prefs_val).await;
-                                        });
-                                        let current_trig = *db_trigger.read();
-                                        db_trigger.set(current_trig + 1);
-                                        account_save_status.set("saved".to_string());
-                                        enrollment_secret.set(String::new());
+                                                let uid = active_user_for_enable.id.clone();
+                                                let name_val = active_user_for_enable.full_name.clone();
+                                                let phone_val = active_user_for_enable.phone.clone();
+                                                let prefs_val = prefs_str.clone();
+                                                spawn(async move {
+                                                    let _ = update_user_profile(uid.clone(), uid, name_val, phone_val, prefs_val).await;
+                                                });
+                                                let current_trig = *db_trigger.read();
+                                                db_trigger.set(current_trig + 1);
+                                                account_save_status.set("saved".to_string());
+                                                enrollment_secret.set(String::new());
+                                            }
+                                            Err(_) => {
+                                                error_message.set(Some("Krypteringsfel: kunde inte kryptera MFA-hemligheten. Kontrollera sessionsstatus.".to_string()));
+                                                otp_code.set(vec!["".to_string(); 6]);
+                                            }
+                                        }
                                     } else {
                                         error_message.set(Some(t("settings-account-mfa-error-verify", &locale)));
                                         otp_code.set(vec!["".to_string(); 6]);
