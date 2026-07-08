@@ -56,6 +56,44 @@ pub fn clean_sql(sql: &str) -> String {
 }
 
 pub fn extract_table_name(sql: &str) -> Option<String> {
+    // Fast path: if the query is simple and contains no comments or CTEs, parse directly.
+    let trimmed = sql.trim_start();
+    let is_simple = if trimmed.len() >= 6 {
+        let prefix = &trimmed[..6];
+        prefix.eq_ignore_ascii_case("INSERT") || prefix.eq_ignore_ascii_case("UPDATE") || prefix.eq_ignore_ascii_case("DELETE")
+    } else {
+        false
+    };
+
+    if is_simple && !sql.contains("/*") && !sql.contains("--") {
+        let words: Vec<&str> = trimmed.split_whitespace().collect();
+        if !words.is_empty() {
+            if words[0].eq_ignore_ascii_case("INSERT") {
+                let idx = words.iter().position(|&w| w.eq_ignore_ascii_case("INTO"))?;
+                if idx + 1 < words.len() {
+                    let raw_name = words[idx + 1].split('(').next().unwrap_or("");
+                    let name = raw_name.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
+                    return Some(name.to_lowercase());
+                }
+            } else if words[0].eq_ignore_ascii_case("UPDATE") {
+                let mut name_idx = 1;
+                if name_idx < words.len() && words[name_idx].eq_ignore_ascii_case("ONLY") {
+                    name_idx += 1;
+                }
+                if name_idx < words.len() {
+                    let name = words[name_idx].trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
+                    return Some(name.to_lowercase());
+                }
+            } else if words[0].eq_ignore_ascii_case("DELETE") {
+                let idx = words.iter().position(|&w| w.eq_ignore_ascii_case("FROM"))?;
+                if idx + 1 < words.len() {
+                    let name = words[idx + 1].trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
+                    return Some(name.to_lowercase());
+                }
+            }
+        }
+    }
+
     let cleaned = clean_sql(sql);
     let mut trimmed = cleaned.trim();
     

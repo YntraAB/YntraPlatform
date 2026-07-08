@@ -1,5 +1,15 @@
 use crate::database::DbConnection;
 use crate::YntraError;
+use std::sync::{OnceLock, RwLock};
+use std::collections::HashMap;
+
+static AUTH_CONTEXT_CACHE: OnceLock<RwLock<HashMap<String, AuthContext>>> = OnceLock::new();
+
+pub fn invalidate_auth_context_cache() {
+    if let Ok(mut cache) = AUTH_CONTEXT_CACHE.get_or_init(|| RwLock::new(HashMap::new())).write() {
+        cache.clear();
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct AuthContext {
@@ -75,6 +85,12 @@ fn extract_auth_epoch(settings_str: &str) -> u64 {
 
 impl AuthContext {
     pub async fn authorize(conn: &DbConnection, user_id: &str) -> Result<Self, YntraError> {
+        if let Ok(cache) = AUTH_CONTEXT_CACHE.get_or_init(|| RwLock::new(HashMap::new())).read() {
+            if let Some(cached) = cache.get(user_id) {
+                return Ok(cached.clone());
+            }
+        }
+
         // Single JOIN query to retrieve role, workspace_id, role_signature, creator_public_key and settings in one round-trip.
         let row_result = conn.query_row(
             "SELECT u.role, u.workspace_id, u.role_signature, w.creator_public_key, w.settings \
@@ -292,12 +308,16 @@ impl AuthContext {
         }
 
         let is_admin = role == "admin" || role == "platform_admin";
-        Ok(Self {
+        let auth = Self {
             user_id: user_id.to_string(),
             role,
             workspace_id: ws_id,
             is_admin,
-        })
+        };
+        if let Ok(mut cache) = AUTH_CONTEXT_CACHE.get_or_init(|| RwLock::new(HashMap::new())).write() {
+            cache.insert(user_id.to_string(), auth.clone());
+        }
+        Ok(auth)
     }
 }
 

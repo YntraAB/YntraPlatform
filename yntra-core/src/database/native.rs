@@ -140,26 +140,19 @@ pub async fn acquire_connection() -> Result<DbConnection, YntraError> {
 
     let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
     
-    // Try to pop a connection from the pool and verify it's still alive
-    loop {
-        let conn_opt = {
-            let mut conns = pool.lock().unwrap();
-            conns.pop_front()
-        };
-        
-        if let Some(conn) = conn_opt {
-            // Perform a quick health check query
-            if conn.execute("SELECT 1", ()).await.is_ok() {
-                return Ok(DbConnection {
-                    inner: Some(conn),
-                    in_transaction: std::sync::atomic::AtomicBool::new(false),
-                    _permit: Some(permit),
-                });
-            }
-            // If the connection is dead, drop it and let loop continue to try next one
-        } else {
-            break;
-        }
+    // Try to pop a connection from the pool and return it immediately
+    // (A SELECT 1 query is redundant for local SQLite connections)
+    let conn_opt = {
+        let mut conns = pool.lock().unwrap();
+        conns.pop_front()
+    };
+    
+    if let Some(conn) = conn_opt {
+        return Ok(DbConnection {
+            inner: Some(conn),
+            in_transaction: std::sync::atomic::AtomicBool::new(false),
+            _permit: Some(permit),
+        });
     }
 
     let db = get_database();
