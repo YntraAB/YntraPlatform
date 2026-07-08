@@ -85,9 +85,20 @@ pub async fn get_library_lending_logs(
     student_id: Option<String>,
 ) -> Result<Vec<LibraryLendingLog>, YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     let is_staff = super::check_permission(&conn, &requester_user_id, "can_manage_library").await?;
     
     let list = if let Some(sid) = student_id {
+        let student_ws: String = conn.query_row(
+            "SELECT workspace_id FROM student_profiles WHERE id = ?1",
+            crate::params![&sid],
+            |r| r.get(0)
+        ).await.map_err(|_| YntraError::NotFoundError("Student profile not found".to_string()))?;
+
+        if auth.role != "platform_admin" && auth.workspace_id != student_ws {
+            return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        }
+
         if !is_staff && !super::has_academic_access(&conn, &requester_user_id, &sid).await? {
             return Err(YntraError::AuthError("Access denied to lending logs".to_string()));
         }
@@ -110,8 +121,15 @@ pub async fn get_library_lending_logs(
         if !is_staff {
             return Err(YntraError::AuthError("Access denied: missing student parameter".to_string()));
         }
-        let mut stmt = conn.prepare("SELECT id, workspace_id, book_id, student_id, checked_out_at, due_date, returned_at, status, updated_at, sync_status FROM library_lending_logs").await?;
-        stmt.query_map((), |row| {
+        
+        let (query, params) = if auth.role == "platform_admin" {
+            ("SELECT id, workspace_id, book_id, student_id, checked_out_at, due_date, returned_at, status, updated_at, sync_status FROM library_lending_logs".to_string(), vec![])
+        } else {
+            ("SELECT id, workspace_id, book_id, student_id, checked_out_at, due_date, returned_at, status, updated_at, sync_status FROM library_lending_logs WHERE workspace_id = ?1".to_string(), vec![auth.workspace_id.clone()])
+        };
+
+        let mut stmt = conn.prepare(&query).await?;
+        stmt.query_map(crate::rusqlite::params_from_iter(params), |row| {
             Ok(LibraryLendingLog {
                 id: row.get(0)?,
                 workspace_id: row.get(1)?,
@@ -468,6 +486,52 @@ mod tests {
         conn.execute("DELETE FROM student_profiles WHERE workspace_id = 'ws-lib-3'", ()).await.unwrap();
         conn.execute("DELETE FROM users WHERE workspace_id = 'ws-lib-3'", ()).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id = 'ws-lib-3'", ()).await.unwrap();
+        let _ = conn.execute("PRAGMA foreign_keys = ON;", ()).await;
+    }
+
+    #[tokio::test]
+    async fn test_library_lending_logs_workspace_scoping() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = database::acquire_connection().await.unwrap();
+
+        // Cleanup first
+        let _ = conn.execute("PRAGMA foreign_keys = OFF;", ()).await;
+        let _ = conn.execute("DELETE FROM library_lending_logs WHERE workspace_id IN ('ws-lib-a', 'ws-lib-b')", ()).await;
+        let _ = conn.execute("DELETE FROM student_profiles WHERE workspace_id IN ('ws-lib-a', 'ws-lib-b')", ()).await;
+        let _ = conn.execute("DELETE FROM users WHERE workspace_id IN ('ws-lib-a', 'ws-lib-b')", ()).await;
+        let _ = conn.execute("DELETE FROM workspaces WHERE id IN ('ws-lib-a', 'ws-lib-b')", ()).await;
+        let _ = conn.execute("PRAGMA foreign_keys = ON;", ()).await;
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-lib-a', 'WS A', '[]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-lib-b', 'WS B', '[]', '{}')", ()).await.unwrap();
+
+        // Staff of ws-lib-a
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-lib-staff-a', 'ws-lib-a', 'staffa@lib.io', 'admin')", ()).await.unwrap();
+
+        // Student of ws-lib-b
+        conn.execute("INSERT OR REPLACE INTO student_profiles (id, workspace_id, user_id, first_name, last_name, grade_level, updated_at) VALUES ('student-lib-b', 'ws-lib-b', NULL, 'Jane', 'Doe', 'Grade 3', 0)", ()).await.unwrap();
+
+        // Book of ws-lib-b
+        conn.execute("INSERT OR REPLACE INTO library_books (id, workspace_id, title, author, isbn, copies_available, total_copies, updated_at, sync_status) VALUES ('book-b', 'ws-lib-b', 'Rust Book', 'Author', '978-3-16-148410-0', 1, 1, 0, 'synced')", ()).await.unwrap();
+
+        // Log in ws-lib-b
+        conn.execute("INSERT INTO library_lending_logs (id, workspace_id, book_id, student_id, checked_out_at, due_date, returned_at, status, updated_at, sync_status) VALUES ('log-b', 'ws-lib-b', 'book-b', 'student-lib-b', '2026-07-05', '2026-07-19', NULL, 'active', 0, 'synced')", ()).await.unwrap();
+
+        // 1. Query all logs as staff of WS A -> should only see WS A logs (meaning 0 results, and should NOT see WS B log)
+        let all_logs = get_library_lending_logs("u-lib-staff-a".to_string(), None).await.unwrap();
+        assert_eq!(all_logs.len(), 0);
+
+        // 2. Query WS B student's logs as staff of WS A -> should fail with AuthError
+        let student_logs_res = get_library_lending_logs("u-lib-staff-a".to_string(), Some("student-lib-b".to_string())).await;
+        assert!(student_logs_res.is_err());
+        assert!(matches!(student_logs_res.unwrap_err(), YntraError::AuthError(_)));
+
+        // Cleanup
+        let _ = conn.execute("PRAGMA foreign_keys = OFF;", ()).await;
+        conn.execute("DELETE FROM library_lending_logs WHERE workspace_id IN ('ws-lib-a', 'ws-lib-b')", ()).await.unwrap();
+        conn.execute("DELETE FROM student_profiles WHERE workspace_id IN ('ws-lib-a', 'ws-lib-b')", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id IN ('ws-lib-a', 'ws-lib-b')", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id IN ('ws-lib-a', 'ws-lib-b')", ()).await.unwrap();
         let _ = conn.execute("PRAGMA foreign_keys = ON;", ()).await;
     }
 }

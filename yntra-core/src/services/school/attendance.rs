@@ -9,6 +9,18 @@ pub async fn get_attendance(
     date: String,
 ) -> Result<Vec<AttendanceRecord>, YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let course_ws: String = conn.query_row(
+        "SELECT workspace_id FROM courses WHERE id = ?1",
+        crate::params![&course_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Course not found".to_string()))?;
+
+    if auth.role != "platform_admin" && auth.workspace_id != course_ws {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
     if !super::check_permission(&conn, &requester_user_id, "can_manage_grades").await? {
         return Err(YntraError::AuthError("Access denied: cannot view course attendance".to_string()));
     }
@@ -228,17 +240,19 @@ mod tests {
         let conn = database::acquire_connection().await.unwrap();
 
         // Cleanup first in case of dirty state
+        let _ = conn.execute("DELETE FROM courses WHERE workspace_id = 'ws-att-2'", ()).await;
         let _ = conn.execute("DELETE FROM users WHERE workspace_id = 'ws-att-2'", ()).await;
         let _ = conn.execute("DELETE FROM workspaces WHERE id = 'ws-att-2'", ()).await;
 
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-att-2', 'Att WS 2', '[]', '{}')", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-att-teacher-2', 'ws-att-2', 'teacher@att.io', 'teacher')", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-att-admin-2', 'ws-att-2', 'admin@att.io', 'admin')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO courses (id, workspace_id, name, subject, teacher_id, classroom, updated_at) VALUES ('course-att-perms-2', 'ws-att-2', 'Math 101', 'Math', 'u-att-admin-2', 'Room 1', 0)", ()).await.unwrap();
 
         // Admin has permission
         let res_admin = get_attendance(
             "u-att-admin-2".to_string(),
-            "course-1".to_string(),
+            "course-att-perms-2".to_string(),
             "2026-07-05".to_string(),
         ).await;
         assert!(res_admin.is_ok());
@@ -246,13 +260,14 @@ mod tests {
         // Teacher doesn't have permission by default
         let res_teacher = get_attendance(
             "u-att-teacher-2".to_string(),
-            "course-1".to_string(),
+            "course-att-perms-2".to_string(),
             "2026-07-05".to_string(),
         ).await;
         assert!(res_teacher.is_err());
         assert!(matches!(res_teacher.unwrap_err(), YntraError::AuthError(_)));
 
         // Cleanup
+        conn.execute("DELETE FROM courses WHERE workspace_id = 'ws-att-2'", ()).await.unwrap();
         conn.execute("DELETE FROM users WHERE workspace_id = 'ws-att-2'", ()).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id = 'ws-att-2'", ()).await.unwrap();
     }
@@ -285,6 +300,29 @@ mod tests {
         conn.execute("DELETE FROM student_profiles WHERE workspace_id = 'ws-att-3'", ()).await.unwrap();
         conn.execute("DELETE FROM users WHERE workspace_id = 'ws-att-3'", ()).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id = 'ws-att-3'", ()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_get_attendance_workspace_mismatch() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = database::acquire_connection().await.unwrap();
+
+        // Workspaces ws-att-a and ws-att-b
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-att-a', 'WS A', '[]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-att-b', 'WS B', '[]', '{}')", ()).await.unwrap();
+
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-att-admin-a', 'ws-att-a', 'admina@att.io', 'admin')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO courses (id, workspace_id, name, subject, teacher_id, classroom, updated_at) VALUES ('course-b', 'ws-att-b', 'History', 'Hist', NULL, NULL, 0)", ()).await.unwrap();
+
+        // Admin of ws-att-a queries course of ws-att-b -> should fail with AuthError
+        let res = get_attendance("u-att-admin-a".to_string(), "course-b".to_string(), "2026-07-05".to_string()).await;
+        assert!(res.is_err());
+        assert!(matches!(res.unwrap_err(), YntraError::AuthError(_)));
+
+        // Cleanup
+        conn.execute("DELETE FROM courses WHERE id = 'course-b'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE id = 'u-att-admin-a'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id IN ('ws-att-a', 'ws-att-b')", ()).await.unwrap();
     }
 }
 

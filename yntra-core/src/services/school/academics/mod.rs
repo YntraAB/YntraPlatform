@@ -44,6 +44,17 @@ pub async fn add_course(
         return Err(YntraError::AuthError("Access denied: cannot manage courses".to_string()));
     }
 
+    if let Some(ref tid) = teacher_id {
+        let teacher_ws: String = conn.query_row(
+            "SELECT workspace_id FROM users WHERE id = ?1",
+            crate::params![tid],
+            |r| r.get(0)
+        ).await.map_err(|_| YntraError::NotFoundError("Teacher user not found".to_string()))?;
+        if teacher_ws != workspace_id {
+            return Err(YntraError::ValidationError("Teacher does not belong to the specified workspace".to_string()));
+        }
+    }
+
     let id = uuid::Uuid::new_v4().to_string();
     let now_ms = crate::infra::time::get_current_time_ms();
     let course = Course {
@@ -89,6 +100,17 @@ pub async fn update_course(
 
     if !super::check_permission(&conn, &requester_user_id, "can_manage_courses").await? {
         return Err(YntraError::AuthError("Access denied: cannot manage courses".to_string()));
+    }
+
+    if let Some(ref tid) = teacher_id {
+        let teacher_ws: String = conn.query_row(
+            "SELECT workspace_id FROM users WHERE id = ?1",
+            crate::params![tid],
+            |r| r.get(0)
+        ).await.map_err(|_| YntraError::NotFoundError("Teacher user not found".to_string()))?;
+        if teacher_ws != course_ws {
+            return Err(YntraError::ValidationError("Teacher does not belong to the specified workspace".to_string()));
+        }
     }
 
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -211,6 +233,18 @@ pub async fn get_submissions(
     assignment_id: String,
 ) -> Result<Vec<Submission>, YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let assignment_ws: String = conn.query_row(
+        "SELECT workspace_id FROM assignments WHERE id = ?1",
+        crate::params![&assignment_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Assignment not found".to_string()))?;
+
+    if auth.role != "platform_admin" && auth.workspace_id != assignment_ws {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
     let is_teacher = super::check_permission(&conn, &requester_user_id, "can_manage_grades").await?;
     
     let mut stmt = conn.prepare("SELECT id, workspace_id, assignment_id, student_id, content, grade, feedback, submitted_at, updated_at, sync_status FROM submissions WHERE assignment_id = ?1").await?;
@@ -287,6 +321,25 @@ pub async fn add_submission(
         return Err(YntraError::AuthError("Access denied: you do not have permission to grade submissions".to_string()));
     }
 
+    let settings_json = if auth.role != "platform_admin" && auth.workspace_id == workspace_id {
+        auth.workspace_settings.clone().unwrap_or_else(|| "{}".to_string())
+    } else {
+        conn.query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![&workspace_id],
+            |r| r.get(0)
+        ).await.unwrap_or_else(|_| "{}".to_string())
+    };
+
+    let settings: serde_json::Value = serde_json::from_str(&settings_json).unwrap_or(serde_json::Value::Null);
+    let target_region_raw = settings.get("target_region").and_then(|v| v.as_str()).unwrap_or("EU");
+    let target_region = target_region_raw.to_uppercase();
+
+    let grade = match grade {
+        Some(ref g) => Some(validate_grade_for_region(g, &target_region)?),
+        None => None,
+    };
+
     let id = uuid::Uuid::new_v4().to_string();
     let now_ms = crate::infra::time::get_current_time_ms();
     let submitted_at = crate::infra::time::get_current_datetime_str();
@@ -320,17 +373,28 @@ pub async fn update_submission_grade(
     feedback: Option<String>,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
     let submission_ws: String = conn.query_row(
         "SELECT workspace_id FROM submissions WHERE id = ?1",
         crate::params![&submission_id],
         |r| r.get(0)
     ).await.map_err(|_| YntraError::NotFoundError("Submission not found".to_string()))?;
 
-    let settings_json: String = conn.query_row(
-        "SELECT settings FROM workspaces WHERE id = ?1",
-        crate::params![&submission_ws],
-        |r| r.get(0)
-    ).await.unwrap_or_else(|_| "{}".to_string());
+    if auth.role != "platform_admin" && auth.workspace_id != submission_ws {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let settings_json = if auth.role != "platform_admin" && auth.workspace_id == submission_ws {
+        auth.workspace_settings.clone().unwrap_or_else(|| "{}".to_string())
+    } else {
+        conn.query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![&submission_ws],
+            |r| r.get(0)
+        ).await.unwrap_or_else(|_| "{}".to_string())
+    };
+
     let settings: serde_json::Value = serde_json::from_str(&settings_json).unwrap_or(serde_json::Value::Null);
     let target_region_raw = settings.get("target_region").and_then(|v| v.as_str()).unwrap_or("EU");
     let target_region = target_region_raw.to_uppercase();
@@ -339,11 +403,6 @@ pub async fn update_submission_grade(
         Some(ref g) => Some(validate_grade_for_region(g, &target_region)?),
         None => None,
     };
-
-    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    if auth.role != "platform_admin" && auth.workspace_id != submission_ws {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
-    }
 
     if !super::check_permission(&conn, &requester_user_id, "can_manage_grades").await? {
         return Err(YntraError::AuthError("Access denied: cannot grade submissions".to_string()));
@@ -400,12 +459,21 @@ pub async fn save_term_grade(
     teacher_comments: Option<String>,
 ) -> Result<TermGrade, YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
 
-    let settings_json: String = conn.query_row(
-        "SELECT settings FROM workspaces WHERE id = ?1",
-        crate::params![&workspace_id],
-        |r| r.get(0)
-    ).await.unwrap_or_else(|_| "{}".to_string());
+    let settings_json = if auth.role != "platform_admin" && auth.workspace_id == workspace_id {
+        auth.workspace_settings.clone().unwrap_or_else(|| "{}".to_string())
+    } else {
+        conn.query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![&workspace_id],
+            |r| r.get(0)
+        ).await.unwrap_or_else(|_| "{}".to_string())
+    };
+
     let settings: serde_json::Value = serde_json::from_str(&settings_json).unwrap_or(serde_json::Value::Null);
     let target_region_raw = settings.get("target_region").and_then(|v| v.as_str()).unwrap_or("EU");
     let target_region = target_region_raw.to_uppercase();
@@ -414,10 +482,6 @@ pub async fn save_term_grade(
         Some(ref g) => Some(validate_grade_for_region(g, &target_region)?),
         None => None,
     };
-    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
-    }
 
     let student_ws: String = conn.query_row(
         "SELECT workspace_id FROM student_profiles WHERE id = ?1",
@@ -509,7 +573,17 @@ pub async fn get_report_cards(requester_user_id: String, student_id: String) -> 
             sync_status: row.get(8)?,
         })
     }).await?;
-    Ok(list)
+
+    let is_staff = super::check_permission(&conn, &requester_user_id, "can_manage_grades").await? 
+        || super::check_permission(&conn, &requester_user_id, "can_publish_report_cards").await?;
+
+    let mut filtered = Vec::new();
+    for rc in list {
+        if is_staff || rc.status == "published" {
+            filtered.push(rc);
+        }
+    }
+    Ok(filtered)
 }
 
 #[uniffi::export]
@@ -570,11 +644,15 @@ pub async fn calculate_and_save_gpa(
     let mut stmt = conn.prepare("SELECT final_grade FROM term_grades WHERE student_id = ?1 AND term_name = ?2").await?;
     let grades: Vec<Option<String>> = stmt.query_map(crate::params![&student_id, &term_name], |row| row.get(0)).await?;
     
-    let settings_json: String = conn.query_row(
-        "SELECT settings FROM workspaces WHERE id = ?1",
-        crate::params![&workspace_id],
-        |r| r.get(0)
-    ).await.unwrap_or_else(|_| "{}".to_string());
+    let settings_json = if auth.role != "platform_admin" && auth.workspace_id == workspace_id {
+        auth.workspace_settings.clone().unwrap_or_else(|| "{}".to_string())
+    } else {
+        conn.query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![&workspace_id],
+            |r| r.get(0)
+        ).await.unwrap_or_else(|_| "{}".to_string())
+    };
     let settings: serde_json::Value = serde_json::from_str(&settings_json).unwrap_or(serde_json::Value::Null);
     let target_region_raw = settings.get("target_region").and_then(|v| v.as_str()).unwrap_or("EU");
     let target_region = target_region_raw.to_uppercase();
@@ -637,4 +715,168 @@ pub async fn calculate_and_save_gpa(
     };
     notify_observers();
     Ok(record)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database;
+
+    #[tokio::test]
+    async fn test_get_submissions_workspace_mismatch() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = database::acquire_connection().await.unwrap();
+
+        // Cleanup
+        let _ = conn.execute("DELETE FROM submissions WHERE workspace_id IN ('ws-acad-a', 'ws-acad-b')", ()).await;
+        let _ = conn.execute("DELETE FROM assignments WHERE workspace_id IN ('ws-acad-a', 'ws-acad-b')", ()).await;
+        let _ = conn.execute("DELETE FROM courses WHERE workspace_id IN ('ws-acad-a', 'ws-acad-b')", ()).await;
+        let _ = conn.execute("DELETE FROM users WHERE workspace_id IN ('ws-acad-a', 'ws-acad-b')", ()).await;
+        let _ = conn.execute("DELETE FROM workspaces WHERE id IN ('ws-acad-a', 'ws-acad-b')", ()).await;
+
+        // Setup two workspaces
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-acad-a', 'WS A', '[]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-acad-b', 'WS B', '[]', '{}')", ()).await.unwrap();
+
+        // Teacher in WS A
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-acad-teacher-a', 'ws-acad-a', 'teacher@acad.a', 'teacher')", ()).await.unwrap();
+        // Student/other user in WS B
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-acad-user-b', 'ws-acad-b', 'student@acad.b', 'student')", ()).await.unwrap();
+
+        // Course and assignment in WS B
+        conn.execute("INSERT OR REPLACE INTO courses (id, workspace_id, name, subject, teacher_id, classroom, updated_at) VALUES ('course-b', 'ws-acad-b', 'Math B', 'Math', 'u-acad-user-b', 'Room 1', 0)", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO assignments (id, workspace_id, course_id, title, description, due_date, max_points, updated_at) VALUES ('assign-b', 'ws-acad-b', 'course-b', 'Homework 1', 'Solve problems', '2026-07-20', 100, 0)", ()).await.unwrap();
+
+        // Teacher from WS A queries submissions of assignment from WS B -> should fail with AuthError
+        let res = get_submissions("u-acad-teacher-a".to_string(), "assign-b".to_string()).await;
+        assert!(res.is_err());
+        assert!(matches!(res.unwrap_err(), YntraError::AuthError(_)));
+
+        // Cleanup
+        let _ = conn.execute("DELETE FROM assignments WHERE workspace_id IN ('ws-acad-a', 'ws-acad-b')", ()).await;
+        let _ = conn.execute("DELETE FROM courses WHERE workspace_id IN ('ws-acad-a', 'ws-acad-b')", ()).await;
+        let _ = conn.execute("DELETE FROM users WHERE workspace_id IN ('ws-acad-a', 'ws-acad-b')", ()).await;
+        let _ = conn.execute("DELETE FROM workspaces WHERE id IN ('ws-acad-a', 'ws-acad-b')", ()).await;
+    }
+
+    #[tokio::test]
+    async fn test_add_submission_grade_validation() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = database::acquire_connection().await.unwrap();
+
+        // Setup
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-grade-val', 'WS A', '[]', '{\"target_region\":\"SE\"}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-teacher', 'ws-grade-val', 't@sch.io', 'admin')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-student', 'ws-grade-val', 's@sch.io', 'student')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO student_profiles (id, workspace_id, user_id, first_name, last_name, grade_level, updated_at) VALUES ('s-prof', 'ws-grade-val', 'u-student', 'Bob', 'Smith', 'Grade 5', 0)", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO courses (id, workspace_id, name, subject, teacher_id, classroom, updated_at) VALUES ('course-v', 'ws-grade-val', 'Math', 'Math', 'u-teacher', 'Room 1', 0)", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO assignments (id, workspace_id, course_id, title, description, due_date, max_points, updated_at) VALUES ('assign-v', 'ws-grade-val', 'course-v', 'Homework', 'Solve', '2026-07-20', 100, 0)", ()).await.unwrap();
+
+        // 1. Invalid grade "Z" (SE only allows A-F or U) -> should fail
+        let res = add_submission(
+            "u-teacher".to_string(),
+            "ws-grade-val".to_string(),
+            "assign-v".to_string(),
+            "s-prof".to_string(),
+            "Content".to_string(),
+            Some("Z".to_string()),
+            None,
+        ).await;
+        assert!(res.is_err());
+        assert!(matches!(res.unwrap_err(), YntraError::ValidationError(_)));
+
+        // 2. Valid grade "A" -> should succeed
+        let res = add_submission(
+            "u-teacher".to_string(),
+            "ws-grade-val".to_string(),
+            "assign-v".to_string(),
+            "s-prof".to_string(),
+            "Content".to_string(),
+            Some("A".to_string()),
+            None,
+        ).await;
+        assert!(res.is_ok());
+
+        // Cleanup
+        conn.execute("DELETE FROM submissions WHERE workspace_id = 'ws-grade-val'", ()).await.unwrap();
+        conn.execute("DELETE FROM assignments WHERE workspace_id = 'ws-grade-val'", ()).await.unwrap();
+        conn.execute("DELETE FROM courses WHERE workspace_id = 'ws-grade-val'", ()).await.unwrap();
+        conn.execute("DELETE FROM student_profiles WHERE workspace_id = 'ws-grade-val'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-grade-val'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-grade-val'", ()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_get_report_cards_draft_filtering() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = database::acquire_connection().await.unwrap();
+
+        // Setup
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-rc-val', 'WS A', '[]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-teacher-rc', 'ws-rc-val', 't@sch.io', 'admin')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-student-rc', 'ws-rc-val', 's@sch.io', 'student')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO student_profiles (id, workspace_id, user_id, first_name, last_name, grade_level, updated_at) VALUES ('s-prof-rc', 'ws-rc-val', 'u-student-rc', 'Bob', 'Smith', 'Grade 5', 0)", ()).await.unwrap();
+
+        // Create draft report card directly in DB
+        let rc_id = "rc-test-1".to_string();
+        conn.execute(
+            "INSERT INTO report_cards (id, workspace_id, student_id, term_name, gpa, principal_comments, status, updated_at, sync_status) VALUES (?1, 'ws-rc-val', 's-prof-rc', 'Term 1', 4.0, NULL, 'draft', 0, 'synced')",
+            crate::params![&rc_id],
+        ).await.unwrap();
+
+        // 1. Query as teacher (staff) -> should return the draft report card
+        let res_teacher = get_report_cards("u-teacher-rc".to_string(), "s-prof-rc".to_string()).await.unwrap();
+        assert_eq!(res_teacher.len(), 1);
+        assert_eq!(res_teacher[0].status, "draft");
+
+        // 2. Query as student -> should filter out draft report card, returning 0
+        let res_student = get_report_cards("u-student-rc".to_string(), "s-prof-rc".to_string()).await.unwrap();
+        assert_eq!(res_student.len(), 0);
+
+        // 3. Publish report card
+        publish_report_card("u-teacher-rc".to_string(), rc_id, Some("Good job".to_string())).await.unwrap();
+
+        // 4. Query as student again -> should now return the published report card
+        let res_student_pub = get_report_cards("u-student-rc".to_string(), "s-prof-rc".to_string()).await.unwrap();
+        assert_eq!(res_student_pub.len(), 1);
+        assert_eq!(res_student_pub[0].status, "published");
+
+        // Cleanup
+        conn.execute("DELETE FROM report_cards WHERE workspace_id = 'ws-rc-val'", ()).await.unwrap();
+        conn.execute("DELETE FROM student_profiles WHERE workspace_id = 'ws-rc-val'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-rc-val'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-rc-val'", ()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_add_course_teacher_workspace_mismatch() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = database::acquire_connection().await.unwrap();
+
+        // Setup two workspaces
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-course-a', 'WS A', '[]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-course-b', 'WS B', '[]', '{}')", ()).await.unwrap();
+
+        // Admin of A
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-admin-a', 'ws-course-a', 'admina@sch.io', 'admin')", ()).await.unwrap();
+        // Teacher of B
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-teacher-b', 'ws-course-b', 'teacherb@sch.io', 'teacher')", ()).await.unwrap();
+
+        // Try to add course in workspace A with teacher from B -> should fail
+        let res = add_course(
+            "u-admin-a".to_string(),
+            "ws-course-a".to_string(),
+            "Math".to_string(),
+            "Math".to_string(),
+            Some("u-teacher-b".to_string()),
+            None,
+        ).await;
+
+        assert!(res.is_err());
+        assert!(matches!(res.unwrap_err(), YntraError::ValidationError(_)));
+
+        // Cleanup
+        conn.execute("DELETE FROM users WHERE workspace_id IN ('ws-course-a', 'ws-course-b')", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id IN ('ws-course-a', 'ws-course-b')", ()).await.unwrap();
+    }
 }
