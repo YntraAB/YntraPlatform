@@ -55,7 +55,27 @@ pub fn clean_sql(sql: &str) -> String {
     cleaned
 }
 
+fn has_write_keyword(sql: &str) -> bool {
+    let bytes = sql.as_bytes();
+    let needles: &[&[u8]] = &[b"INSERT", b"UPDATE", b"DELETE"];
+    for needle in needles {
+        if bytes.windows(needle.len()).any(|window| {
+            window.iter().zip(*needle).all(|(&h, &n)| {
+                h.to_ascii_uppercase() == n
+            })
+        }) {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn extract_table_name(sql: &str) -> Option<String> {
+    // Pre-screen to avoid any allocations/parsing for read-only queries (SELECT, etc.)
+    if !has_write_keyword(sql) {
+        return None;
+    }
+
     // Fast path: if the query is simple and contains no comments or CTEs, parse directly.
     let trimmed = sql.trim_start();
     let is_simple = if trimmed.len() >= 6 {
@@ -94,17 +114,28 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
         }
     }
 
-    let cleaned = clean_sql(sql);
-    let mut trimmed = cleaned.trim();
+    // Lazy comment cleaning: only call clean_sql if comments actually exist
+    let cleaned_owned;
+    let has_comments = sql.contains("/*") || sql.contains("--");
+    if has_comments {
+        cleaned_owned = clean_sql(sql);
+    } else {
+        cleaned_owned = String::new();
+    }
+    let mut trimmed = if has_comments {
+        cleaned_owned.trim()
+    } else {
+        sql.trim()
+    };
     
     // Scan past Common Table Expressions (CTEs)
-    if trimmed.to_uppercase().starts_with("WITH") {
+    if trimmed.len() >= 4 && trimmed[..4].eq_ignore_ascii_case("WITH") {
         let chars_vec: Vec<char> = trimmed.chars().collect();
         let mut idx = 4; // skip 'WITH'
         
         // Skip RECURSIVE modifier
         let mut rest = trimmed[4..].trim_start();
-        if rest.to_uppercase().starts_with("RECURSIVE") {
+        if rest.len() >= 9 && rest[..9].eq_ignore_ascii_case("RECURSIVE") {
             rest = rest[9..].trim_start();
             idx = trimmed.len() - rest.len();
         }
@@ -141,7 +172,7 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
                             // Check if this starts "AS"
                             if idx + 2 <= chars_vec.len() {
                                 let word: String = chars_vec[idx..idx+2].iter().collect();
-                                if word.to_uppercase() == "AS" {
+                                if word.eq_ignore_ascii_case("AS") {
                                     // Check word boundaries
                                     let prev_ok = idx == 0 || chars_vec[idx-1].is_whitespace() || chars_vec[idx-1] == ')' || chars_vec[idx-1] == ']';
                                     let next_ok = idx + 2 == chars_vec.len() || chars_vec[idx+2].is_whitespace() || chars_vec[idx+2] == '(';
@@ -228,40 +259,33 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
         }
     }
  
-    let sql_upper = trimmed.to_uppercase();
-    let words: Vec<&str> = sql_upper.split_whitespace().collect();
-    let raw_words: Vec<&str> = trimmed.split_whitespace().collect();
+    let words: Vec<&str> = trimmed.split_whitespace().collect();
     if words.is_empty() {
         return None;
     }
      
-    match words[0] {
-        "INSERT" => {
-            let idx = words.iter().position(|&w| w == "INTO")?;
-            if idx + 1 < raw_words.len() {
-                let raw_name = raw_words[idx + 1].split('(').next().unwrap_or("");
-                let name = raw_name.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
-                return Some(name.to_lowercase());
-            }
+    if words[0].eq_ignore_ascii_case("INSERT") {
+        let idx = words.iter().position(|&w| w.eq_ignore_ascii_case("INTO"))?;
+        if idx + 1 < words.len() {
+            let raw_name = words[idx + 1].split('(').next().unwrap_or("");
+            let name = raw_name.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
+            return Some(name.to_lowercase());
         }
-        "UPDATE" => {
-            let mut name_idx = 1;
-            if name_idx < words.len() && words[name_idx] == "ONLY" {
-                name_idx += 1;
-            }
-            if name_idx < raw_words.len() {
-                let name = raw_words[name_idx].trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']');
-                return Some(name.to_lowercase());
-            }
+    } else if words[0].eq_ignore_ascii_case("UPDATE") {
+        let mut name_idx = 1;
+        if name_idx < words.len() && words[name_idx].eq_ignore_ascii_case("ONLY") {
+            name_idx += 1;
         }
-        "DELETE" => {
-            let idx = words.iter().position(|&w| w == "FROM")?;
-            if idx + 1 < raw_words.len() {
-                let name = raw_words[idx + 1].trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']');
-                return Some(name.to_lowercase());
-            }
+        if name_idx < words.len() {
+            let name = words[name_idx].trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']');
+            return Some(name.to_lowercase());
         }
-        _ => {}
+    } else if words[0].eq_ignore_ascii_case("DELETE") {
+        let idx = words.iter().position(|&w| w.eq_ignore_ascii_case("FROM"))?;
+        if idx + 1 < words.len() {
+            let name = words[idx + 1].trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']');
+            return Some(name.to_lowercase());
+        }
     }
     None
 }

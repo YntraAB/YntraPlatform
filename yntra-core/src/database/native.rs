@@ -86,6 +86,7 @@ pub fn get_database() -> &'static libsql::Database {
             let raw_conn = db.connect().expect("Failed to connect to libSQL database for schema setup");
             let _ = raw_conn.execute("PRAGMA foreign_keys = ON", ()).await;
             let _ = raw_conn.execute("PRAGMA journal_mode = WAL", ()).await;
+            let _ = raw_conn.execute("PRAGMA synchronous = NORMAL", ()).await;
             let conn = DbConnection {
                 inner: Some(raw_conn),
                 in_transaction: std::sync::atomic::AtomicBool::new(false),
@@ -105,14 +106,26 @@ fn get_semaphore() -> &'static tokio::sync::Semaphore {
 }
 
 fn check_transaction_sql(sql: &str) -> Option<bool> {
-    let sql_trimmed = sql.trim().to_uppercase();
-    if sql_trimmed.starts_with("BEGIN") {
-        Some(true)
-    } else if sql_trimmed.starts_with("COMMIT") || sql_trimmed.starts_with("ROLLBACK") {
-        Some(false)
-    } else {
-        None
+    let sql_trimmed = sql.trim_start();
+    if sql_trimmed.len() >= 5 {
+        let prefix = &sql_trimmed[..5];
+        if prefix.eq_ignore_ascii_case("BEGIN") {
+            return Some(true);
+        }
     }
+    if sql_trimmed.len() >= 6 {
+        let prefix = &sql_trimmed[..6];
+        if prefix.eq_ignore_ascii_case("COMMIT") {
+            return Some(false);
+        }
+    }
+    if sql_trimmed.len() >= 8 {
+        let prefix = &sql_trimmed[..8];
+        if prefix.eq_ignore_ascii_case("ROLLBACK") {
+            return Some(false);
+        }
+    }
+    None
 }
 
 static SYNC_LOOP_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -158,7 +171,7 @@ pub async fn acquire_connection() -> Result<DbConnection, YntraError> {
     let db = get_database();
     let conn = db.connect().map_err(|e| YntraError::DbError(e.to_string()))?;
     let _ = conn.execute("PRAGMA foreign_keys = ON", ()).await;
-    let _ = conn.execute("PRAGMA journal_mode = WAL", ()).await;
+    let _ = conn.execute("PRAGMA synchronous = NORMAL", ()).await;
     Ok(DbConnection {
         inner: Some(conn),
         in_transaction: std::sync::atomic::AtomicBool::new(false),
@@ -177,28 +190,28 @@ impl Drop for DbConnection {
         if let Some(conn) = self.inner.take() {
             let was_in_tx = self.in_transaction.load(std::sync::atomic::Ordering::SeqCst);
             let permit = self._permit.take();
-            let rt = get_runtime();
-            rt.spawn(async move {
-                if was_in_tx {
+            if was_in_tx {
+                let rt = get_runtime();
+                rt.spawn(async move {
                     // Try to rollback the active transaction. If it fails, discard connection.
                     if let Err(e) = conn.execute("ROLLBACK", ()).await {
                         tracing::warn!("Failed to rollback database connection on drop: {:?}. Discarding connection.", e);
                         return;
                     }
-                }
-                
-                // Ensure foreign_keys setting is clean
-                if let Err(e) = conn.execute("PRAGMA foreign_keys = ON", ()).await {
-                    tracing::warn!("Failed to reset foreign_keys on drop: {:?}. Discarding connection.", e);
-                    return;
-                }
-                
+                    
+                    let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
+                    if let Ok(mut conns) = pool.lock() {
+                        conns.push_back(conn);
+                    }
+                    drop(permit);
+                });
+            } else {
                 let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
                 if let Ok(mut conns) = pool.lock() {
                     conns.push_back(conn);
                 }
                 drop(permit);
-            });
+            }
         }
     }
 }

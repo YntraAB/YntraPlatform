@@ -289,6 +289,7 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
         
         CREATE INDEX IF NOT EXISTS idx_users_workspace ON users(workspace_id);
         CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+        CREATE INDEX IF NOT EXISTS idx_users_email_lower ON users(LOWER(email));
         CREATE INDEX IF NOT EXISTS idx_notes_team ON notes(team_id);
         CREATE INDEX IF NOT EXISTS idx_notes_workspace ON notes(workspace_id);
         CREATE INDEX IF NOT EXISTS idx_events_workspace ON events(workspace_id);
