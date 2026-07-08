@@ -15,22 +15,26 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
     let (query, params) = if auth.role == "platform_admin" {
         match team_id {
             Some(tid) => (
-                "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status, content_plain FROM notes WHERE team_id = ?1 ORDER BY created_at DESC".to_string(),
+                "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status, content_plain, \
+                 (SELECT IFNULL(MAX(seq), -1) FROM note_updates WHERE note_updates.note_id = notes.id) FROM notes WHERE team_id = ?1 ORDER BY created_at DESC".to_string(),
                 crate::params![tid],
             ),
             None => (
-                "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status, content_plain FROM notes ORDER BY created_at DESC".to_string(),
+                "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status, content_plain, \
+                 (SELECT IFNULL(MAX(seq), -1) FROM note_updates WHERE note_updates.note_id = notes.id) FROM notes ORDER BY created_at DESC".to_string(),
                 crate::params![],
             ),
         }
     } else if auth.role == "admin" {
         match team_id {
             Some(tid) => (
-                "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status, content_plain FROM notes WHERE team_id = ?1 AND workspace_id = ?2 ORDER BY created_at DESC".to_string(),
+                "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status, content_plain, \
+                 (SELECT IFNULL(MAX(seq), -1) FROM note_updates WHERE note_updates.note_id = notes.id) FROM notes WHERE team_id = ?1 AND workspace_id = ?2 ORDER BY created_at DESC".to_string(),
                 crate::params![tid, ws_id],
             ),
             None => (
-                "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status, content_plain FROM notes WHERE workspace_id = ?1 ORDER BY created_at DESC".to_string(),
+                "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status, content_plain, \
+                 (SELECT IFNULL(MAX(seq), -1) FROM note_updates WHERE note_updates.note_id = notes.id) FROM notes WHERE workspace_id = ?1 ORDER BY created_at DESC".to_string(),
                 crate::params![ws_id],
             ),
         }
@@ -46,15 +50,17 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
                     return Err(YntraError::AuthError("Access denied: you are not a member of this team".to_string()));
                 }
                 (
-                    "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status, content_plain FROM notes WHERE team_id = ?1 ORDER BY created_at DESC".to_string(),
+                    "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status, content_plain, \
+                     (SELECT IFNULL(MAX(seq), -1) FROM note_updates WHERE note_updates.note_id = notes.id) FROM notes WHERE team_id = ?1 ORDER BY created_at DESC".to_string(),
                     crate::params![tid],
                 )
             }
             None => (
-                "SELECT n.id, n.workspace_id, n.team_id, n.author_id, n.subject, n.content, n.edit_history, n.created_at, n.updated_at, n.sync_status, n.content_plain
-                 FROM notes n
-                 JOIN team_members tm ON n.team_id = tm.team_id
-                 WHERE tm.user_id = ?1
+                "SELECT n.id, n.workspace_id, n.team_id, n.author_id, n.subject, n.content, n.edit_history, n.created_at, n.updated_at, n.sync_status, n.content_plain, \
+                 (SELECT IFNULL(MAX(seq), -1) FROM note_updates WHERE note_updates.note_id = n.id) \
+                 FROM notes n \
+                 JOIN team_members tm ON n.team_id = tm.team_id \
+                 WHERE tm.user_id = ?1 \
                  ORDER BY n.created_at DESC".to_string(),
                  crate::params![requester_user_id],
             ),
@@ -77,51 +83,21 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
         let updated_at: i64 = row.get(8)?;
         let sync_status: String = row.get(9)?;
         let content_plain: Option<String> = row.get(10)?;
+        let max_seq: i64 = row.get(11)?;
         
-        raw_notes.push((id, workspace_id, team_id, author_id, subject, base_content, edit_history, created_at, updated_at, sync_status, content_plain));
+        raw_notes.push((id, workspace_id, team_id, author_id, subject, base_content, edit_history, created_at, updated_at, sync_status, content_plain, max_seq));
     }
 
     if raw_notes.is_empty() {
         return Ok(Vec::new());
     }
 
-    let mut updates_by_note: std::collections::HashMap<String, Vec<(i64, String)>> = std::collections::HashMap::new();
-    for (id, _, _, _, _, _, _, _, _, _, _) in &raw_notes {
-        updates_by_note.insert(id.clone(), Vec::new());
-    }
-
-    let note_ids: Vec<String> = raw_notes.iter().map(|n| n.0.clone()).collect();
-    let placeholders: Vec<String> = (0..note_ids.len()).map(|i| format!("?{}", i + 1)).collect();
-    let query_updates = format!(
-        "SELECT note_id, seq, update_data FROM note_updates WHERE note_id IN ({}) ORDER BY seq ASC, created_at ASC",
-        placeholders.join(", ")
-    );
-
-    let mut stmt_updates = conn.prepare(&query_updates).await?;
-    let mut rows_updates = stmt_updates.query(crate::rusqlite::params_from_iter(note_ids)).await?;
-    while let Some(row_up) = rows_updates.next().await? {
-        let note_id: String = row_up.get(0)?;
-        let seq: i64 = row_up.get(1)?;
-        let update_data_hex: String = row_up.get(2)?;
-        if let Some(list_ups) = updates_by_note.get_mut(&note_id) {
-            list_ups.push((seq, update_data_hex));
-        }
-    }
-
     let mut list = Vec::new();
     let mut repairs = Vec::new();
-    for (id, workspace_id, team_id, author_id, subject, base_content, edit_history, created_at, updated_at, sync_status, content_plain) in raw_notes {
+    for (id, workspace_id, team_id, author_id, subject, base_content, edit_history, created_at, updated_at, sync_status, content_plain, max_seq) in raw_notes {
         let (last_merged_seq, hex_or_plain) = parse_loro_state(&base_content);
         
-        let mut has_unmerged = false;
-        if let Some(updates) = updates_by_note.get(&id) {
-            for &(seq, _) in updates {
-                if seq > last_merged_seq {
-                    has_unmerged = true;
-                    break;
-                }
-            }
-        }
+        let has_unmerged = max_seq > last_merged_seq;
 
         let content = if !has_unmerged && content_plain.is_some() {
             content_plain.unwrap()
@@ -135,16 +111,20 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
                 doc.get_text("content").insert(0, hex_or_plain).map_err(|e| YntraError::SerializationError(e.to_string()))?;
             }
 
-            let mut max_seq = last_merged_seq;
-            if let Some(updates) = updates_by_note.get(&id) {
-                for &(seq, ref update_data_hex) in updates {
-                    if seq > last_merged_seq {
-                        if let Some(bytes) = crate::infra::crypto::hex_decode(update_data_hex) {
-                            doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                        }
-                        if seq > max_seq {
-                            max_seq = seq;
-                        }
+            let mut final_max_seq = last_merged_seq;
+            if has_unmerged {
+                let mut stmt_updates = conn.prepare(
+                    "SELECT seq, update_data FROM note_updates WHERE note_id = ?1 AND seq > ?2 ORDER BY seq ASC, created_at ASC"
+                ).await?;
+                let mut rows_updates = stmt_updates.query(crate::params![&id, last_merged_seq]).await?;
+                while let Some(row_up) = rows_updates.next().await? {
+                    let seq: i64 = row_up.get(0)?;
+                    let update_data_hex: String = row_up.get(1)?;
+                    if let Some(bytes) = crate::infra::crypto::hex_decode(&update_data_hex) {
+                        doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                    }
+                    if seq > final_max_seq {
+                        final_max_seq = seq;
                     }
                 }
             }
@@ -153,7 +133,7 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
 
             // Cache merged state to avoid future LoroDoc execution on next read
             let snapshot_bytes = doc.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            let loro_content = format!("loro:{}:{}", max_seq, crate::infra::crypto::hex_encode(&snapshot_bytes));
+            let loro_content = format!("loro:{}:{}", final_max_seq, crate::infra::crypto::hex_encode(&snapshot_bytes));
             
             repairs.push((loro_content, plain.clone(), id.clone()));
 

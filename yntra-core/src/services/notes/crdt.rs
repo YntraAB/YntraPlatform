@@ -17,46 +17,35 @@ pub fn parse_loro_state(state: &str) -> (i64, &str) {
 }
 
 pub fn apply_diff_to_loro(text: &loro::LoroText, old_str: &str, new_str: &str) -> Result<(), YntraError> {
-    let old_chars: Vec<char> = old_str.chars().collect();
-    let new_chars: Vec<char> = new_str.chars().collect();
-    
-    let diffs = diff::slice(&old_chars, &new_chars);
-    
-    let mut pos_utf16 = 0;
-    let mut i = 0;
-    while i < diffs.len() {
-        match diffs[i] {
-            diff::Result::Both(c, _) => {
-                pos_utf16 += c.len_utf16();
-                i += 1;
-            }
-            diff::Result::Left(_) => {
-                let mut del_utf16_len = 0;
-                while i < diffs.len() {
-                    if let diff::Result::Left(c) = diffs[i] {
-                        del_utf16_len += c.len_utf16();
-                        i += 1;
-                    } else {
-                        break;
-                    }
-                }
-                text.delete(pos_utf16, del_utf16_len).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            }
-            diff::Result::Right(_) => {
-                let mut ins_str = String::new();
-                while i < diffs.len() {
-                    if let diff::Result::Right(c) = diffs[i] {
-                        ins_str.push(*c);
-                        i += 1;
-                    } else {
-                        break;
-                    }
-                }
-                let ins_utf16_len = ins_str.encode_utf16().count();
-                text.insert(pos_utf16, &ins_str).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                pos_utf16 += ins_utf16_len;
-            }
+    let old_units: Vec<u16> = old_str.encode_utf16().collect();
+    let new_units: Vec<u16> = new_str.encode_utf16().collect();
+
+    let mut common_prefix = 0;
+    while common_prefix < old_units.len() && common_prefix < new_units.len() && old_units[common_prefix] == new_units[common_prefix] {
+        common_prefix += 1;
+    }
+
+    let mut common_suffix = 0;
+    while common_suffix < (old_units.len() - common_prefix) && common_suffix < (new_units.len() - common_prefix) {
+        let old_idx = old_units.len() - 1 - common_suffix;
+        let new_idx = new_units.len() - 1 - common_suffix;
+        if old_units[old_idx] == new_units[new_idx] {
+            common_suffix += 1;
+        } else {
+            break;
         }
+    }
+
+    let del_len = old_units.len() - common_prefix - common_suffix;
+    let ins_len = new_units.len() - common_prefix - common_suffix;
+
+    if del_len > 0 {
+        text.delete(common_prefix, del_len).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    }
+    if ins_len > 0 {
+        let ins_str = String::from_utf16(&new_units[common_prefix..(common_prefix + ins_len)])
+            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+        text.insert(common_prefix, &ins_str).map_err(|e| YntraError::SerializationError(e.to_string()))?;
     }
     Ok(())
 }
