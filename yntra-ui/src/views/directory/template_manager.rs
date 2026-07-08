@@ -43,6 +43,8 @@ pub fn TemplateManagerDialog(
                 brand_color: "hsl(217.2, 91.2%, 59.8%)".to_string(),
                 logo_url: None,
                 block_settings: "{}".to_string(),
+                updated_at: 0,
+                sync_status: "synced".to_string(),
             });
             let modules_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
             temp_messaging.set(modules_val.get("messaging").and_then(|v| v.as_bool()).unwrap_or(true));

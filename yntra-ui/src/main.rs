@@ -78,6 +78,8 @@ fn App() -> Element {
         brand_color: "hsl(217.2, 91.2%, 59.8%)".to_string(),
         logo_url: None,
         block_settings: "{}".to_string(),
+        updated_at: 0,
+        sync_status: "synced".to_string(),
     });
     
     let on_desktop_oauth_callback = state.on_desktop_oauth.clone();

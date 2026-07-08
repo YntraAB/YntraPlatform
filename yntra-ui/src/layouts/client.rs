@@ -58,6 +58,8 @@ pub fn ClientLayout() -> Element {
         brand_color: "hsl(217.2, 91.2%, 59.8%)".to_string(),
         logo_url: None,
         block_settings: "{}".to_string(),
+        updated_at: 0,
+        sync_status: "synced".to_string(),
     });
     let teams = state.teams.read().clone().unwrap_or_default();
     let db_trigger = state.db_trigger;

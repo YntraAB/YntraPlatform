@@ -402,6 +402,8 @@ pub fn use_init_app_state() -> AppState {
                         brand_color: "hsl(217.2, 91.2%, 59.8%)".to_string(),
                         logo_url: None,
                         block_settings: "{}".to_string(),
+                        updated_at: 0,
+                        sync_status: "synced".to_string(),
                     }
                 }
             }
@@ -766,6 +768,8 @@ pub fn use_init_app_state() -> AppState {
             brand_color: "hsl(217.2, 91.2%, 59.8%)".to_string(),
             logo_url: None,
             block_settings: "{}".to_string(),
+            updated_at: 0,
+            sync_status: "synced".to_string(),
         });
 
         // Only set if they are empty/default (first load)
