@@ -375,11 +375,8 @@ pub async fn add_time_report(
         
         // EU/Nordic laws mandate weekly rest in each period of seven days (rolling window)
         // We verify all rolling 7-day windows containing any day of the new shift.
-        for day_idx in start_day_idx..=end_day_idx {
-            for offset in 0..7 {
-                let win_start = day_idx - offset;
-                check_weekly_rest_for_week(win_start, &sorted_intervals, &target_region, weekly_rest_limit_min, rule.law_name)?;
-            }
+        for win_start in (start_day_idx - 6)..=end_day_idx {
+            check_weekly_rest_for_week(win_start, &sorted_intervals, &target_region, weekly_rest_limit_min, rule.law_name)?;
         }
     }
 

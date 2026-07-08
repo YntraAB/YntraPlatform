@@ -246,6 +246,10 @@ pub fn adjust_duration_for_dst(start_abs: i32, end_abs: i32, region: &str) -> i3
     let end_day = end_abs / 1440;
     let mut adjustment = 0;
     for day_idx in start_day..=end_day {
+        let is_sunday = (day_idx + 3) % 7 == 0;
+        if !is_sunday {
+            continue;
+        }
         let (y, m, d) = format_date_parts_from_days(day_idx);
         let change = get_dst_offset_change(y, m, d, region);
         if change != 0 {
