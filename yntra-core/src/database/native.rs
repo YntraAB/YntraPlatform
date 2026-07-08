@@ -7,9 +7,13 @@ static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 static DATABASE: OnceLock<libsql::Database> = OnceLock::new();
 static POOL: OnceLock<Mutex<std::collections::VecDeque<libsql::Connection>>> = OnceLock::new();
 
+#[cfg(test)]
+static KEEP_ALIVE_CONN: OnceLock<libsql::Connection> = OnceLock::new();
+
 pub fn get_runtime() -> &'static tokio::runtime::Runtime {
     RUNTIME.get_or_init(|| {
         tokio::runtime::Builder::new_multi_thread()
+            .thread_name("yntra-tokio-db")
             .enable_all()
             .build()
             .expect("Failed to create Tokio runtime")
@@ -21,13 +25,22 @@ where
     F: std::future::Future + Send,
     F::Output: Send + 'static,
 {
-    let (tx, rx) = std::sync::mpsc::channel();
-    let rt = get_runtime();
-    rt.spawn(async move {
-        let res = future.await;
-        let _ = tx.send(res);
-    });
-    rx.recv().expect("Failed to receive output from block_on task")
+    if let Ok(_handle) = tokio::runtime::Handle::try_current() {
+        // We are already inside a Tokio runtime. To prevent deadlocks on single-threaded
+        // runtimes (such as WASM or certain UI runners), we spawn the future on our
+        // dedicated multithreaded runtime and wait for the result via an mpsc channel.
+        let (tx, rx) = std::sync::mpsc::channel();
+        let rt = get_runtime();
+        rt.spawn(async move {
+            let res = future.await;
+            let _ = tx.send(res);
+        });
+        rx.recv().expect("Failed to receive output from block_on task")
+    } else {
+        // No runtime is currently active. We can directly block_on the dedicated runtime.
+        let rt = get_runtime();
+        rt.block_on(future)
+    }
 }
 
 pub fn get_database() -> &'static libsql::Database {
@@ -54,9 +67,16 @@ pub fn get_database() -> &'static libsql::Database {
             if std::env::var("LIBSQL_URL").is_ok() {
                 let _ = db.sync().await;
             }
+
+            #[cfg(test)]
+            {
+                let keep_alive = db.connect().expect("Failed to create keep-alive connection");
+                let _ = KEEP_ALIVE_CONN.set(keep_alive);
+            }
             
             let raw_conn = db.connect().expect("Failed to connect to libSQL database for schema setup");
             let _ = raw_conn.execute("PRAGMA foreign_keys = ON", ()).await;
+            let _ = raw_conn.execute("PRAGMA journal_mode = WAL", ()).await;
             let conn = DbConnection {
                 inner: Some(raw_conn),
                 in_transaction: std::sync::atomic::AtomicBool::new(false),
@@ -75,6 +95,19 @@ fn get_semaphore() -> &'static tokio::sync::Semaphore {
     SEMAPHORE.get_or_init(|| tokio::sync::Semaphore::new(16))
 }
 
+fn check_transaction_sql(sql: &str) -> Option<bool> {
+    let sql_trimmed = sql.trim().to_uppercase();
+    if sql_trimmed.starts_with("BEGIN") {
+        Some(true)
+    } else if sql_trimmed.starts_with("COMMIT") || sql_trimmed.starts_with("ROLLBACK") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+static SYNC_LOOP_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub async fn acquire_connection() -> Result<DbConnection, YntraError> {
     let sem = get_semaphore();
     let permit = match tokio::time::timeout(std::time::Duration::from_secs(1), sem.acquire()).await {
@@ -82,21 +115,47 @@ pub async fn acquire_connection() -> Result<DbConnection, YntraError> {
         _ => return Err(YntraError::DbError("Database connection pool exhausted".to_string())),
     };
 
+    // Lazily start the background replication sync loop if LIBSQL_URL is set
+    if std::env::var("LIBSQL_URL").is_ok() && !SYNC_LOOP_STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        get_runtime().spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                let db = get_database();
+                if let Err(e) = db.sync().await {
+                    tracing::warn!("Background database synchronization failed: {:?}", e);
+                }
+            }
+        });
+    }
+
     let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
-    {
-        let mut conns = pool.lock().unwrap();
-        if let Some(conn) = conns.pop_front() {
-            return Ok(DbConnection {
-                inner: Some(conn),
-                in_transaction: std::sync::atomic::AtomicBool::new(false),
-                _permit: Some(permit),
-            });
+    
+    // Try to pop a connection from the pool and verify it's still alive
+    loop {
+        let conn_opt = {
+            let mut conns = pool.lock().unwrap();
+            conns.pop_front()
+        };
+        
+        if let Some(conn) = conn_opt {
+            // Perform a quick health check query
+            if conn.execute("SELECT 1", ()).await.is_ok() {
+                return Ok(DbConnection {
+                    inner: Some(conn),
+                    in_transaction: std::sync::atomic::AtomicBool::new(false),
+                    _permit: Some(permit),
+                });
+            }
+            // If the connection is dead, drop it and let loop continue to try next one
+        } else {
+            break;
         }
     }
 
     let db = get_database();
     let conn = db.connect().map_err(|e| YntraError::DbError(e.to_string()))?;
     let _ = conn.execute("PRAGMA foreign_keys = ON", ()).await;
+    let _ = conn.execute("PRAGMA journal_mode = WAL", ()).await;
     Ok(DbConnection {
         inner: Some(conn),
         in_transaction: std::sync::atomic::AtomicBool::new(false),
@@ -113,59 +172,79 @@ pub struct DbConnection {
 impl Drop for DbConnection {
     fn drop(&mut self) {
         if let Some(conn) = self.inner.take() {
-            let conn = if self.in_transaction.load(std::sync::atomic::Ordering::SeqCst) {
-                block_on(async move {
-                    let _ = conn.execute("ROLLBACK", ()).await;
-                    conn
-                })
-            } else {
-                conn
-            };
-            let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
-            if let Ok(mut conns) = pool.lock() {
-                conns.push_back(conn);
-            }
+            let was_in_tx = self.in_transaction.load(std::sync::atomic::Ordering::SeqCst);
+            let permit = self._permit.take();
+            let rt = get_runtime();
+            rt.spawn(async move {
+                if was_in_tx {
+                    // Try to rollback the active transaction. If it fails, discard connection.
+                    if let Err(e) = conn.execute("ROLLBACK", ()).await {
+                        tracing::warn!("Failed to rollback database connection on drop: {:?}. Discarding connection.", e);
+                        return;
+                    }
+                }
+                
+                // Ensure foreign_keys setting is clean
+                if let Err(e) = conn.execute("PRAGMA foreign_keys = ON", ()).await {
+                    tracing::warn!("Failed to reset foreign_keys on drop: {:?}. Discarding connection.", e);
+                    return;
+                }
+                
+                let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
+                if let Ok(mut conns) = pool.lock() {
+                    conns.push_back(conn);
+                }
+                drop(permit);
+            });
         }
     }
 }
- 
- impl DbConnection {
-     fn get_conn(&self) -> Result<&libsql::Connection, YntraError> {
-         self.inner.as_ref().ok_or_else(|| YntraError::DbError("Connection already closed".to_string()))
-     }
 
-     pub async fn begin_transaction(&self) -> Result<(), YntraError> {
-         self.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
-         self.in_transaction.store(true, std::sync::atomic::Ordering::SeqCst);
-         Ok(())
-     }
+impl DbConnection {
+    fn get_conn(&self) -> Result<&libsql::Connection, YntraError> {
+        self.inner.as_ref().ok_or_else(|| YntraError::DbError("Connection already closed".to_string()))
+    }
 
-     pub async fn commit(&self) -> Result<(), YntraError> {
-         self.execute("COMMIT", ()).await?;
-         self.in_transaction.store(false, std::sync::atomic::Ordering::SeqCst);
-         Ok(())
-     }
+    pub async fn begin_transaction(&self) -> Result<(), YntraError> {
+        self.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
+        self.in_transaction.store(true, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
 
-     pub async fn rollback(&self) -> Result<(), YntraError> {
-         self.execute("ROLLBACK", ()).await?;
-         self.in_transaction.store(false, std::sync::atomic::Ordering::SeqCst);
-         Ok(())
-     }
+    pub async fn commit(&self) -> Result<(), YntraError> {
+        self.execute("COMMIT", ()).await?;
+        self.in_transaction.store(false, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
 
-     pub async fn execute<P: libsql::params::IntoParams + Send>(&self, sql: &str, params: P) -> Result<u64, YntraError> {
-         let conn = self.get_conn()?;
-         let res = conn.execute(sql, params).await
-             .map_err(|e| YntraError::DbError(e.to_string()));
-         if res.is_ok() {
-             if let Some(table) = crate::infra::observer::extract_table_name(sql) {
-                 crate::infra::observer::set_last_modified_table(&table);
-             }
-         }
-         res
-     }
- 
-     pub async fn execute_batch(&self, sql: &str) -> Result<(), YntraError> {
-         let conn = self.get_conn()?;
+    pub async fn rollback(&self) -> Result<(), YntraError> {
+        self.execute("ROLLBACK", ()).await?;
+        self.in_transaction.store(false, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+
+    pub async fn execute<P: libsql::params::IntoParams + Send>(&self, sql: &str, params: P) -> Result<u64, YntraError> {
+        let conn = self.get_conn()?;
+        if let Some(in_tx) = check_transaction_sql(sql) {
+            self.in_transaction.store(in_tx, std::sync::atomic::Ordering::SeqCst);
+        }
+        let res = conn.execute(sql, params).await
+            .map_err(|e| YntraError::DbError(e.to_string()));
+        if res.is_ok() {
+            if let Some(table) = crate::infra::observer::extract_table_name(sql) {
+                crate::infra::observer::set_last_modified_table(&table);
+            }
+        }
+        res
+    }
+
+    pub async fn execute_batch(&self, sql: &str) -> Result<(), YntraError> {
+        let conn = self.get_conn()?;
+        for stmt in crate::infra::observer::split_sql_statements(sql) {
+            if let Some(in_tx) = check_transaction_sql(&stmt) {
+                self.in_transaction.store(in_tx, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
         conn.execute_batch(sql).await
             .map_err(|e| YntraError::DbError(e.to_string()))?;
         for stmt in crate::infra::observer::split_sql_statements(sql) {
@@ -196,7 +275,7 @@ impl Drop for DbConnection {
             let wrapped_row = Row { inner: row };
             f(&wrapped_row)
         } else {
-            Err(YntraError::DbError("No row returned".to_string()))
+            Err(YntraError::NoRowsReturned)
         }
     }
 }
@@ -268,7 +347,17 @@ impl FromLibsqlRow for i64 {
 
 impl FromLibsqlRow for i32 {
     fn get_from_row(row: &libsql::Row, idx: i32) -> Result<Self, YntraError> {
-        row.get::<i32>(idx).map_err(|e| YntraError::DbError(e.to_string()))
+        match row.get::<i64>(idx) {
+            Ok(val) => {
+                i32::try_from(val).map_err(|_| {
+                    YntraError::DbError(format!(
+                        "Integer overflow: value {} at index {} exceeds 32-bit range",
+                        val, idx
+                    ))
+                })
+            }
+            Err(e) => Err(YntraError::DbError(e.to_string())),
+        }
     }
 }
 
@@ -299,7 +388,18 @@ impl FromLibsqlRow for Option<i64> {
 impl FromLibsqlRow for Option<i32> {
     fn get_from_row(row: &libsql::Row, idx: i32) -> Result<Self, YntraError> {
         match row.get::<Option<i64>>(idx) {
-            Ok(val) => Ok(val.map(|v| v as i32)),
+            Ok(val) => match val {
+                Some(v) => {
+                    let converted = i32::try_from(v).map_err(|_| {
+                        YntraError::DbError(format!(
+                            "Integer overflow: value {} at index {} exceeds 32-bit range",
+                            v, idx
+                        ))
+                    })?;
+                    Ok(Some(converted))
+                }
+                None => Ok(None),
+            },
             Err(e) => Err(YntraError::DbError(e.to_string())),
         }
     }
@@ -332,20 +432,23 @@ mod tests {
             // Drop conn_tx here without committing. It should auto-rollback.
         }
 
+        // Give the background task time to finalize dropping the connection and release locks
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
         // 3. Acquire a new connection and verify that user-2 was rolled back, but user-1 exists
         let conn_new = acquire_connection().await.unwrap();
         let user1_exists = conn_new.query_row(
             "SELECT COUNT(*) FROM users WHERE id = 'user-tx-drop-1'",
             (),
             |r| r.get::<i64>(0)
-        ).await.unwrap_or(0);
+        ).await.unwrap();
         assert_eq!(user1_exists, 1);
 
         let user2_exists = conn_new.query_row(
             "SELECT COUNT(*) FROM users WHERE id = 'user-tx-drop-2'",
             (),
             |r| r.get::<i64>(0)
-        ).await.unwrap_or(0);
+        ).await.unwrap();
         assert_eq!(user2_exists, 0);
 
         // Cleanup

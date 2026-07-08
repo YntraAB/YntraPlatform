@@ -31,7 +31,7 @@ pub use services::role_templates::*;
 // Support absolute paths inside submodules that import modules re-exported at the root
 pub use infra::errors;
 pub use infra::observer;
-pub use infra::crypto::{set_session_key, clear_session_key, encrypt_field, decrypt_field, get_session_key, load_local_workspace_key};
+pub use infra::crypto::{set_session_key, clear_session_key, encrypt_field, decrypt_field, is_session_key_set, load_local_workspace_key};
 #[cfg(target_arch = "wasm32")]
 pub use database::schema::setup_schema;
 
@@ -112,6 +112,18 @@ macro_rules! params {
     }};
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[macro_export]
+macro_rules! named_params {
+    ($($name:expr => $value:expr),* $(,)?) => {{
+        #[allow(unused_imports)]
+        use $crate::rusqlite::ToLibsqlValue;
+        libsql::params::Params::Named(vec![
+            $( ($name.to_string(), $value.to_value()) ),*
+        ])
+    }};
+}
+
 #[cfg(target_arch = "wasm32")]
 pub mod rusqlite {
     pub use crate::database::wasm::params_from_iter;
@@ -186,6 +198,20 @@ macro_rules! params {
         #[allow(unused_imports)]
         use $crate::rusqlite::ToWasmValue;
         vec![$($value.to_value()),*]
+    }};
+}
+
+#[cfg(target_arch = "wasm32")]
+#[macro_export]
+macro_rules! named_params {
+    ($($name:expr => $value:expr),* $(,)?) => {{
+        #[allow(unused_imports)]
+        use $crate::rusqlite::ToWasmValue;
+        let mut map = serde_json::Map::new();
+        $(
+            map.insert($name.to_string(), $value.to_value());
+        )*
+        serde_json::Value::Object(map)
     }};
 }
 

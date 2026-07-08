@@ -120,7 +120,9 @@ pub async fn run_schema_migrations(conn: &DbConnection, current_version: i32) ->
                 status TEXT NOT NULL,
                 accepted_at INTEGER,
                 FOREIGN KEY(job_ticket_id) REFERENCES job_tickets(id)
-            );"
+            );
+            CREATE INDEX IF NOT EXISTS idx_move_inventory_job ON move_inventory(job_ticket_id);
+            CREATE INDEX IF NOT EXISTS idx_move_quotes_job ON move_quotes(job_ticket_id);"
         ).await?;
 
         execute_migration_batch(
@@ -303,7 +305,12 @@ pub async fn run_schema_migrations(conn: &DbConnection, current_version: i32) ->
                 sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
                 FOREIGN KEY(book_id) REFERENCES library_books(id),
                 FOREIGN KEY(student_id) REFERENCES student_profiles(id)
-            );"
+            );
+            CREATE INDEX IF NOT EXISTS idx_courses_workspace ON courses(workspace_id);
+            CREATE INDEX IF NOT EXISTS idx_assignments_course ON assignments(course_id);
+            CREATE INDEX IF NOT EXISTS idx_submissions_assignment ON submissions(assignment_id);
+            CREATE INDEX IF NOT EXISTS idx_attendance_records_course_date ON attendance_records(course_id, date);
+            CREATE INDEX IF NOT EXISTS idx_attendance_records_student ON attendance_records(student_id);"
         ).await?;
 
         execute_migration_sql(conn, "ALTER TABLE student_profiles ADD COLUMN user_id TEXT").await?;
@@ -333,6 +340,41 @@ pub async fn run_schema_migrations(conn: &DbConnection, current_version: i32) ->
         execute_migration_sql(conn, "ALTER TABLE workspaces ADD COLUMN creator_public_key TEXT").await?;
         execute_migration_sql(conn, "ALTER TABLE users ADD COLUMN role_signature TEXT").await?;
         version = 5;
+    }
+    if version < 6 {
+        execute_migration_batch(
+            conn,
+            "CREATE INDEX IF NOT EXISTS idx_todos_workspace ON todos(workspace_id);
+             CREATE INDEX IF NOT EXISTS idx_note_updates_note_seq ON note_updates(note_id, seq);
+             CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id);
+             CREATE INDEX IF NOT EXISTS idx_messages_target_team ON messages(target_team_id);
+             CREATE INDEX IF NOT EXISTS idx_teams_workspace ON teams(workspace_id);
+             CREATE INDEX IF NOT EXISTS idx_events_team ON events(team_id);
+             CREATE INDEX IF NOT EXISTS idx_time_reports_user_date ON time_reports(user_id, date);
+             CREATE INDEX IF NOT EXISTS idx_job_tickets_workspace ON job_tickets(workspace_id);
+             CREATE INDEX IF NOT EXISTS idx_job_tickets_assigned_user ON job_tickets(assigned_user_id);
+             CREATE INDEX IF NOT EXISTS idx_move_inventory_job_ticket ON move_inventory(job_ticket_id);
+             CREATE INDEX IF NOT EXISTS idx_move_quotes_job_ticket ON move_quotes(job_ticket_id);
+             CREATE INDEX IF NOT EXISTS idx_student_profiles_workspace ON student_profiles(workspace_id);
+             CREATE INDEX IF NOT EXISTS idx_student_profiles_user ON student_profiles(user_id);
+             CREATE INDEX IF NOT EXISTS idx_courses_workspace ON courses(workspace_id);
+             CREATE INDEX IF NOT EXISTS idx_assignments_course ON assignments(course_id);
+             CREATE INDEX IF NOT EXISTS idx_submissions_assignment ON submissions(assignment_id);
+             CREATE INDEX IF NOT EXISTS idx_submissions_student ON submissions(student_id);
+             CREATE INDEX IF NOT EXISTS idx_attendance_records_student ON attendance_records(student_id);
+             CREATE INDEX IF NOT EXISTS idx_attendance_records_course ON attendance_records(course_id);
+             CREATE INDEX IF NOT EXISTS idx_term_grades_student ON term_grades(student_id);
+             CREATE INDEX IF NOT EXISTS idx_term_grades_course ON term_grades(course_id);
+             CREATE INDEX IF NOT EXISTS idx_report_cards_student ON report_cards(student_id);
+             CREATE INDEX IF NOT EXISTS idx_timetable_slots_course ON timetable_slots(course_id);
+             CREATE INDEX IF NOT EXISTS idx_health_records_student ON health_records(student_id);
+             CREATE INDEX IF NOT EXISTS idx_health_incidents_student ON health_incidents(student_id);
+             CREATE INDEX IF NOT EXISTS idx_school_invoices_student ON school_invoices(student_id);
+             CREATE INDEX IF NOT EXISTS idx_school_payments_invoice ON school_payments(invoice_id);
+             CREATE INDEX IF NOT EXISTS idx_library_lending_logs_book ON library_lending_logs(book_id);
+             CREATE INDEX IF NOT EXISTS idx_library_lending_logs_student ON library_lending_logs(student_id);"
+        ).await?;
+        version = 6;
     }
     Ok(version)
 }

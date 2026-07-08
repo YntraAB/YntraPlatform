@@ -20,12 +20,15 @@ pub enum YntraError {
     InvitationError(String),
     #[error("Crypto error: {0}")]
     CryptoError(String),
+    #[error("No rows returned from query")]
+    NoRowsReturned,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl From<libsql::Error> for YntraError {
     fn from(err: libsql::Error) -> Self {
         match err {
+            libsql::Error::QueryReturnedNoRows => YntraError::NoRowsReturned,
             libsql::Error::SqliteFailure(code, msg) => {
                 if code == 19 {
                     YntraError::ConstraintError(msg)
@@ -37,6 +40,12 @@ impl From<libsql::Error> for YntraError {
             libsql::Error::Misuse(msg) => YntraError::DbError(format!("API misuse: {}", msg)),
             _ => YntraError::DbError(err.to_string()),
         }
+    }
+}
+
+impl YntraError {
+    pub fn is_no_row_returned(&self) -> bool {
+        matches!(self, YntraError::NoRowsReturned)
     }
 }
 

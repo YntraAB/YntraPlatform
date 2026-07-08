@@ -64,18 +64,24 @@ struct ExecuteResult {
 }
 
 pub trait IntoWasmParams {
-    fn into_wasm_params(self) -> Vec<serde_json::Value>;
+    fn into_wasm_params(self) -> serde_json::Value;
 }
 
 impl IntoWasmParams for Vec<serde_json::Value> {
-    fn into_wasm_params(self) -> Vec<serde_json::Value> {
-        self
+    fn into_wasm_params(self) -> serde_json::Value {
+        serde_json::Value::Array(self)
     }
 }
 
 impl IntoWasmParams for () {
-    fn into_wasm_params(self) -> Vec<serde_json::Value> {
-        vec![]
+    fn into_wasm_params(self) -> serde_json::Value {
+        serde_json::Value::Array(vec![])
+    }
+}
+
+impl IntoWasmParams for serde_json::Value {
+    fn into_wasm_params(self) -> serde_json::Value {
+        self
     }
 }
 
@@ -170,7 +176,7 @@ impl DbConnection {
         let rows: Vec<serde_json::Value> = serde_json::from_str(&result_str)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         if rows.is_empty() {
-            return Err(YntraError::DbError("No row returned".to_string()));
+            return Err(YntraError::NoRowsReturned);
         }
         let row = Row { value: rows[0].clone() };
         f(&row)

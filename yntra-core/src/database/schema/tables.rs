@@ -112,6 +112,7 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             author_id TEXT,
             subject TEXT NOT NULL,
             content TEXT NOT NULL,
+            content_plain TEXT,
             edit_history TEXT NOT NULL DEFAULT '[]',
             created_at TEXT NOT NULL,
             updated_at INTEGER NOT NULL DEFAULT 0,
@@ -294,7 +295,18 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
         CREATE INDEX IF NOT EXISTS idx_clients_workspace ON clients(workspace_id);
         CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver_id);
         CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp);
-        CREATE INDEX IF NOT EXISTS idx_audit_logs_workspace ON audit_logs(workspace_id);"
+        CREATE INDEX IF NOT EXISTS idx_audit_logs_workspace ON audit_logs(workspace_id);
+        CREATE INDEX IF NOT EXISTS idx_todos_workspace ON todos(workspace_id);
+        CREATE INDEX IF NOT EXISTS idx_note_updates_note_seq ON note_updates(note_id, seq);
+        CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id);
+        CREATE INDEX IF NOT EXISTS idx_messages_target_team ON messages(target_team_id);
+        CREATE INDEX IF NOT EXISTS idx_teams_workspace ON teams(workspace_id);
+        CREATE INDEX IF NOT EXISTS idx_events_team ON events(team_id);
+        CREATE INDEX IF NOT EXISTS idx_time_reports_user_date ON time_reports(user_id, date);
+        CREATE INDEX IF NOT EXISTS idx_job_tickets_workspace ON job_tickets(workspace_id);
+        CREATE INDEX IF NOT EXISTS idx_job_tickets_assigned_user ON job_tickets(assigned_user_id);
+        CREATE INDEX IF NOT EXISTS idx_client_medications_client ON client_medications(client_id);
+        CREATE INDEX IF NOT EXISTS idx_client_journals_client ON client_journals(client_id);"
     )
     .await
     .map_err(|e| YntraError::DbError(e.to_string()))?;
@@ -302,6 +314,7 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
     let _ = conn.execute("ALTER TABLE workspaces ADD COLUMN creator_public_key TEXT", ()).await;
     let _ = conn.execute("ALTER TABLE users ADD COLUMN role_signature TEXT", ()).await;
     let _ = conn.execute("ALTER TABLE invitations ADD COLUMN encrypted_workspace_key TEXT", ()).await;
+    let _ = conn.execute("ALTER TABLE notes ADD COLUMN content_plain TEXT", ()).await;
 
     Ok(())
 }

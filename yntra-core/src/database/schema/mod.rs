@@ -22,6 +22,7 @@ pub async fn setup_schema(conn: &DbConnection) -> Result<(), YntraError> {
 
     // 2. Set up initial tables and migrations if version is 0
     let mut current_version: i32 = conn.query_row("PRAGMA user_version", (), |r| r.get(0)).await.unwrap_or(0);
+    let mut is_fresh = false;
     if current_version == 0 {
         let has_users_table = conn.query_row(
             "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='users'",
@@ -38,9 +39,9 @@ pub async fn setup_schema(conn: &DbConnection) -> Result<(), YntraError> {
             current_version = 1;
         } else {
             tables::create_initial_tables(conn).await?;
-            seeds::seed_mock_data(conn).await;
             conn.execute("PRAGMA user_version = 1", ()).await?;
             current_version = 1;
+            is_fresh = true;
         }
     }
 
@@ -48,6 +49,11 @@ pub async fn setup_schema(conn: &DbConnection) -> Result<(), YntraError> {
     let latest_version = migrations::run_schema_migrations(conn, current_version).await?;
     if latest_version != current_version {
         conn.execute(&format!("PRAGMA user_version = {}", latest_version), ()).await?;
+    }
+
+    // If the database was fresh, seed mock data now that the schema is fully migrated
+    if is_fresh {
+        seeds::seed_mock_data(conn).await?;
     }
 
     // 3. Initialize system salt from database settings

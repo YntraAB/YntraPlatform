@@ -122,8 +122,19 @@ pub fn sync_database() -> Result<(), YntraError> {
                 if let (Some(url), Some(token)) = (url, token) {
                     wasm_bindgen_futures::spawn_local(async move {
                         match js_sync_db(&url, &token).await {
-                            Ok(_) => {
-                                notify_observers();
+                            Ok(val) => {
+                                let has_changes = if let Some(s) = val.as_string() {
+                                    if let Ok(serde_json::Value::Object(obj)) = serde_json::from_str(&s) {
+                                        obj.get("hasChanges").and_then(|v| v.as_bool()).unwrap_or(true)
+                                    } else {
+                                        true
+                                    }
+                                } else {
+                                    true
+                                };
+                                if has_changes {
+                                    notify_observers();
+                                }
                             }
                             Err(e) => {
                                 let msg = e.as_string().unwrap_or_else(|| "Unknown JS sync error".to_string());
