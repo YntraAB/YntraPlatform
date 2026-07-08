@@ -10,7 +10,13 @@ pub async fn get_health_records(requester_user_id: String, student_id: String) -
         return Err(YntraError::AuthError("Access to health records denied".to_string()));
     }
     
-    let mut cached_cipher: Option<(String, crate::infra::crypto::WorkspaceCipher)> = None;
+    let ws_id: String = conn.query_row(
+        "SELECT workspace_id FROM student_profiles WHERE id = ?1",
+        crate::params![&student_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Student profile not found".to_string()))?;
+
+    let cipher = crate::infra::crypto::WorkspaceCipher::new(&ws_id)?;
 
     let mut stmt = conn.prepare("SELECT id, workspace_id, student_id, vaccine_name, status, administered_at, updated_at, sync_status FROM health_records WHERE student_id = ?1").await?;
     let list = stmt.query_map(crate::params![&student_id], |row| {
@@ -18,22 +24,8 @@ pub async fn get_health_records(requester_user_id: String, student_id: String) -
         let raw_vaccine: String = row.get(3)?;
         let raw_status: String = row.get(4)?;
         
-        let has_cached = cached_cipher.as_ref().map(|(id, _)| id == &ws_id).unwrap_or(false);
-        if !has_cached {
-            if let Ok(c) = crate::infra::crypto::WorkspaceCipher::new(&ws_id) {
-                cached_cipher = Some((ws_id.clone(), c));
-            } else {
-                cached_cipher = None;
-            }
-        }
-        
-        let vaccine_name = cached_cipher.as_ref()
-            .and_then(|(_, c)| c.decrypt(&raw_vaccine).ok())
-            .unwrap_or(raw_vaccine);
-            
-        let status = cached_cipher.as_ref()
-            .and_then(|(_, c)| c.decrypt(&raw_status).ok())
-            .unwrap_or(raw_status);
+        let vaccine_name = cipher.decrypt(&raw_vaccine).unwrap_or(raw_vaccine);
+        let status = cipher.decrypt(&raw_status).unwrap_or(raw_status);
 
         Ok(HealthRecord {
             id: row.get(0)?,
@@ -122,7 +114,13 @@ pub async fn get_health_incidents(requester_user_id: String, student_id: String)
         return Err(YntraError::AuthError("Access to health incidents denied".to_string()));
     }
     
-    let mut cached_cipher: Option<(String, crate::infra::crypto::WorkspaceCipher)> = None;
+    let ws_id: String = conn.query_row(
+        "SELECT workspace_id FROM student_profiles WHERE id = ?1",
+        crate::params![&student_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Student profile not found".to_string()))?;
+
+    let cipher = crate::infra::crypto::WorkspaceCipher::new(&ws_id)?;
 
     let mut stmt = conn.prepare("SELECT id, workspace_id, student_id, visit_reason, treatment, checked_in_at, checked_out_at, notes, updated_at, sync_status FROM health_incidents WHERE student_id = ?1 ORDER BY checked_in_at DESC").await?;
     let list = stmt.query_map(crate::params![&student_id], |row| {
@@ -131,26 +129,9 @@ pub async fn get_health_incidents(requester_user_id: String, student_id: String)
         let raw_treatment: String = row.get(4)?;
         let raw_notes: Option<String> = row.get(7)?;
         
-        let has_cached = cached_cipher.as_ref().map(|(id, _)| id == &ws_id).unwrap_or(false);
-        if !has_cached {
-            if let Ok(c) = crate::infra::crypto::WorkspaceCipher::new(&ws_id) {
-                cached_cipher = Some((ws_id.clone(), c));
-            } else {
-                cached_cipher = None;
-            }
-        }
-        
-        let visit_reason = cached_cipher.as_ref()
-            .and_then(|(_, c)| c.decrypt(&raw_reason).ok())
-            .unwrap_or(raw_reason);
-            
-        let treatment = cached_cipher.as_ref()
-            .and_then(|(_, c)| c.decrypt(&raw_treatment).ok())
-            .unwrap_or(raw_treatment);
-            
-        let notes = cached_cipher.as_ref()
-            .and_then(|(_, c)| Some(c.decrypt_opt(raw_notes.clone())))
-            .unwrap_or_else(|| raw_notes.clone());
+        let visit_reason = cipher.decrypt(&raw_reason).unwrap_or(raw_reason);
+        let treatment = cipher.decrypt(&raw_treatment).unwrap_or(raw_treatment);
+        let notes = cipher.decrypt_opt(raw_notes.clone()).or(raw_notes);
 
         Ok(HealthIncident {
             id: row.get(0)?,

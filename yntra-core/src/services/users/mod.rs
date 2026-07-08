@@ -43,6 +43,8 @@ pub async fn get_users(requester_user_id: String) -> Result<Vec<WorkspaceUser>, 
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
+    let cipher = crate::infra::crypto::WorkspaceCipher::new(&auth.workspace_id)?;
+
     let mut stmt = conn.prepare(
         "SELECT id, workspace_id, email, full_name, phone, role, preferences, siths_card_id, nfc_badge_uid, updated_at, sync_status, personal_number FROM users WHERE workspace_id = ?1",
     ).await?;
@@ -54,8 +56,8 @@ pub async fn get_users(requester_user_id: String) -> Result<Vec<WorkspaceUser>, 
         
         let is_self = id == requester_user_id;
         
-        let personal_number = if auth.is_admin || is_self {
-            crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id.as_deref().unwrap_or(""))
+        let personal_number = if (auth.is_admin || is_self) && raw_pnum.is_some() {
+            cipher.decrypt_opt(raw_pnum)
         } else {
             None
         };

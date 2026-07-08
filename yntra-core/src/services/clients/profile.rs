@@ -49,24 +49,21 @@ pub async fn get_clients(requester_user_id: String) -> Result<Vec<ClientProfile>
         )
     };
 
-    let mut cached_cipher: Option<(String, crate::infra::crypto::WorkspaceCipher)> = None;
+    let mut cached_ciphers: std::collections::HashMap<String, crate::infra::crypto::WorkspaceCipher> = std::collections::HashMap::new();
 
     let mut stmt = conn.prepare(&query).await?;
     let list = stmt.query_map(crate::rusqlite::params_from_iter(params), |row| {
         let ws_id: String = row.get(1)?;
         let raw_pnum: Option<String> = row.get(5)?;
         
-        let has_cached = cached_cipher.as_ref().map(|(id, _)| id == &ws_id).unwrap_or(false);
-        if !has_cached {
+        if !cached_ciphers.contains_key(&ws_id) {
             if let Ok(c) = crate::infra::crypto::WorkspaceCipher::new(&ws_id) {
-                cached_cipher = Some((ws_id.clone(), c));
-            } else {
-                cached_cipher = None;
+                cached_ciphers.insert(ws_id.clone(), c);
             }
         }
         
-        let decrypted_pnum = cached_cipher.as_ref()
-            .and_then(|(_, c)| c.decrypt_opt(raw_pnum.clone()));
+        let decrypted_pnum = cached_ciphers.get(&ws_id)
+            .and_then(|c| c.decrypt_opt(raw_pnum.clone()));
 
         Ok(ClientProfile {
             id: row.get(0)?,
