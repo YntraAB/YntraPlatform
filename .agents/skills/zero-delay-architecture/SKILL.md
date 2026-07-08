@@ -130,4 +130,4 @@ pub fn DailyNotesList(workspace_id: String) -> Element {
 Before ending any task involving this architecture, ensure you verify:
 1. **Compilation**: Run `cargo check -p yntra-core` to verify the Rust backend.
 2. **WASM Compatibility**: Run `cargo check --target wasm32-unknown-unknown -p yntra-core` to verify that there are no non-WASM calls (like thread blocking or native file-path manipulations).
-3. **FFI Binding Generation**: Run `cargo run -p yntra-uniffi-bindgen -- generate --library target/debug/yntra_core.dll --language swift --out-dir generated_bindings` to confirm the Swift/Kotlin glue compiles without error.
+3. **FFI Binding Generation**: Run `cargo run -p yntra-uniffi-bindgen` to compile `yntra-core`, verify WASM compatibility, and automatically generate Swift/Kotlin bindings.

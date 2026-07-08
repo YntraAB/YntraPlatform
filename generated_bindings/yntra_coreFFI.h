@@ -664,6 +664,11 @@ uint64_t uniffi_yntra_core_fn_func_get_school_payments(RustBuffer requester_user
 uint64_t uniffi_yntra_core_fn_func_get_student_attendance(RustBuffer requester_user_id, RustBuffer student_id
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_STUDENT_PORTAL_DATA
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_STUDENT_PORTAL_DATA
+uint64_t uniffi_yntra_core_fn_func_get_student_portal_data(RustBuffer requester_user_id
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_STUDENTS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_STUDENTS
 uint64_t uniffi_yntra_core_fn_func_get_students(RustBuffer requester_user_id
@@ -1738,6 +1743,12 @@ uint16_t uniffi_yntra_core_checksum_func_get_school_payments(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_STUDENT_ATTENDANCE
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_STUDENT_ATTENDANCE
 uint16_t uniffi_yntra_core_checksum_func_get_student_attendance(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_STUDENT_PORTAL_DATA
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_STUDENT_PORTAL_DATA
+uint16_t uniffi_yntra_core_checksum_func_get_student_portal_data(void
     
 );
 #endif

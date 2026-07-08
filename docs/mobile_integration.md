@@ -15,14 +15,14 @@ The Rust core is compiled as a static library for iOS and a dynamic library for 
 
 ## 2. Generating FFI Bindings
 
-The bindings are generated via the `yntra-uniffi-bindgen` executable:
+The bindings are generated automatically via the `yntra-uniffi-bindgen` workspace tool:
 
 ```bash
-# Generate Swift wrapper and C header for Xcode
-cargo run -p yntra-uniffi-bindgen -- generate --library target/debug/yntra_core.dll --language swift --out-dir generated_bindings
+# Automatically compiles yntra-core, checks target WASM compatibility, and generates Swift and Kotlin bindings:
+cargo run -p yntra-uniffi-bindgen
 
-# Generate Kotlin wrapper for Android Studio
-cargo run -p yntra-uniffi-bindgen -- generate --library target/debug/yntra_core.dll --language kotlin --out-dir generated_bindings
+# Or watch for source changes to auto-rebuild and auto-regenerate bindings:
+cargo run -p yntra-uniffi-bindgen -- watch
 ```
 
 ---

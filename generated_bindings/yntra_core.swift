@@ -3356,6 +3356,72 @@ public func FfiConverterTypeSchoolPayment_lower(_ value: SchoolPayment) -> RustB
 }
 
 
+public struct StudentPortalData {
+    public var assignments: [Assignment]
+    public var submissions: [Submission]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(assignments: [Assignment], submissions: [Submission]) {
+        self.assignments = assignments
+        self.submissions = submissions
+    }
+}
+
+
+
+extension StudentPortalData: Equatable, Hashable {
+    public static func ==(lhs: StudentPortalData, rhs: StudentPortalData) -> Bool {
+        if lhs.assignments != rhs.assignments {
+            return false
+        }
+        if lhs.submissions != rhs.submissions {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(assignments)
+        hasher.combine(submissions)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeStudentPortalData: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> StudentPortalData {
+        return
+            try StudentPortalData(
+                assignments: FfiConverterSequenceTypeAssignment.read(from: &buf), 
+                submissions: FfiConverterSequenceTypeSubmission.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: StudentPortalData, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeAssignment.write(value.assignments, into: &buf)
+        FfiConverterSequenceTypeSubmission.write(value.submissions, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStudentPortalData_lift(_ buf: RustBuffer) throws -> StudentPortalData {
+    return try FfiConverterTypeStudentPortalData.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStudentPortalData_lower(_ value: StudentPortalData) -> RustBuffer {
+    return FfiConverterTypeStudentPortalData.lower(value)
+}
+
+
 public struct StudentProfile {
     public var id: String
     public var workspaceId: String
@@ -6907,6 +6973,20 @@ public func getStudentAttendance(requesterUserId: String, studentId: String)asyn
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
+public func getStudentPortalData(requesterUserId: String)async throws  -> StudentPortalData {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_get_student_portal_data(FfiConverterString.lower(requesterUserId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeStudentPortalData.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
 public func getStudents(requesterUserId: String)async throws  -> [StudentProfile] {
     return
         try  await uniffiRustCallAsync(
@@ -8008,6 +8088,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_get_student_attendance() != 23235) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_student_portal_data() != 5676) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_get_students() != 188) {

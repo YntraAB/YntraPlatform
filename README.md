@@ -41,13 +41,19 @@ cargo build --release -p yntra-core
 ```
 
 ### 2. Generate Mobile Bindings
-Generate Swift and Kotlin bindings via UniFFI:
+Generate Swift and Kotlin bindings automatically (cross-platform):
 ```bash
-# Generate Swift bindings (iOS)
-cargo run -p yntra-uniffi-bindgen -- generate --library target/debug/yntra_core.dll --language swift --out-dir generated_bindings
+# Compile core, run WASM target check, and generate Swift/Kotlin bindings:
+cargo run -p yntra-uniffi-bindgen
 
-# Generate Kotlin bindings (Android)
-cargo run -p yntra-uniffi-bindgen -- generate --library target/debug/yntra_core.dll --language kotlin --out-dir generated_bindings
+# Generate bindings using the release profile:
+cargo run -p yntra-uniffi-bindgen -- release
+
+# Watch for source changes to yntra-core and automatically rebuild/regenerate:
+cargo run -p yntra-uniffi-bindgen -- watch
+
+# Configure local git pre-commit hook to automatically verify WASM target compatibility:
+cargo run -p yntra-uniffi-bindgen -- install-hooks
 ```
 
 ### 3. Run Web / Desktop (Dioxus)
