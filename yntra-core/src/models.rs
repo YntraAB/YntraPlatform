@@ -522,6 +522,13 @@ pub struct LibraryLendingLog {
     pub sync_status: String,
 }
 
+#[derive(uniffi::Record, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct StudentPortalData {
+    pub assignments: Vec<Assignment>,
+    pub submissions: Vec<Submission>,
+}
+
 
 
 

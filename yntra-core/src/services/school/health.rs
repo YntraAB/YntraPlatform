@@ -1,7 +1,7 @@
 use crate::database;
 use crate::observer::notify_observers;
 use crate::{HealthRecord, HealthIncident, YntraError};
-use super::{check_permission, has_health_access};
+use super::has_health_access;
 
 #[uniffi::export]
 pub async fn get_health_records(requester_user_id: String, student_id: String) -> Result<Vec<HealthRecord>, YntraError> {
@@ -67,7 +67,7 @@ pub async fn save_health_record(
         return Err(YntraError::ValidationError("Student does not belong to the specified workspace".to_string()));
     }
 
-    if !check_permission(&conn, &requester_user_id, "can_access_health_records").await? {
+    if !super::check_permission_for_auth(&auth, "can_access_health_records") {
         return Err(YntraError::AuthError("Access denied: you do not have permission to manage health records".to_string()));
     }
 
@@ -178,7 +178,7 @@ pub async fn save_health_incident(
         return Err(YntraError::ValidationError("Student does not belong to the specified workspace".to_string()));
     }
 
-    if !check_permission(&conn, &requester_user_id, "can_access_health_records").await? {
+    if !super::check_permission_for_auth(&auth, "can_access_health_records") {
         return Err(YntraError::AuthError("Access denied: you do not have permission to manage health incidents".to_string()));
     }
 

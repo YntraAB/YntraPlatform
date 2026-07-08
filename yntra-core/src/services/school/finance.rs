@@ -58,7 +58,7 @@ pub async fn save_school_invoice(
         return Err(YntraError::ValidationError("Student does not belong to the specified workspace".to_string()));
     }
 
-    if !super::check_permission(&conn, &requester_user_id, "can_manage_finance").await? {
+    if !super::check_permission_for_auth(&auth, "can_manage_finance") {
         return Err(YntraError::AuthError("Access denied: cannot manage invoices".to_string()));
     }
 
@@ -162,7 +162,7 @@ pub async fn record_school_payment(
         return Err(YntraError::ValidationError("Invoice is already fully paid".to_string()));
     }
 
-    if !super::check_permission(&conn, &requester_user_id, "can_manage_finance").await? {
+    if !super::check_permission_for_auth(&auth, "can_manage_finance") {
         return Err(YntraError::AuthError("Access denied: cannot manage payments".to_string()));
     }
 

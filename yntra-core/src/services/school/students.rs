@@ -5,17 +5,15 @@ use crate::{StudentProfile, YntraError};
 #[uniffi::export]
 pub async fn get_students(requester_user_id: String) -> Result<Vec<StudentProfile>, YntraError> {
     let conn = database::acquire_connection().await?;
-    let requester_ws: String = conn.query_row(
-        "SELECT workspace_id FROM users WHERE id = ?1",
-        crate::params![&requester_user_id],
-        |r| r.get(0)
-    ).await.map_err(|_| YntraError::AuthError("Requester user not found".to_string()))?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    let has_access = super::check_permission(&conn, &requester_user_id, "can_view_directory").await?
-        || super::check_permission(&conn, &requester_user_id, "can_manage_grades").await?;
+    let has_access = super::check_permission_for_auth(&auth, "can_view_directory")
+        || super::check_permission_for_auth(&auth, "can_manage_grades");
     if !has_access {
         return Err(YntraError::AuthError("Access denied: you do not have permission to view the students directory".to_string()));
     }
+
+    let requester_ws = auth.workspace_id.clone();
 
     let mut stmt = conn.prepare("SELECT id, workspace_id, user_id, first_name, last_name, grade_level, parent_contact, updated_at, sync_status FROM student_profiles WHERE workspace_id = ?1").await?;
     let list = stmt.query_map(crate::params![requester_ws], |row| {

@@ -2,7 +2,7 @@ pub mod grading;
 
 use crate::database;
 use crate::observer::notify_observers;
-use crate::{Course, Assignment, Submission, TermGrade, ReportCard, YntraError};
+use crate::{Course, Assignment, Submission, TermGrade, ReportCard, StudentPortalData, YntraError};
 use grading::*;
 
 #[uniffi::export]
@@ -40,7 +40,7 @@ pub async fn add_course(
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
-    if !super::check_permission(&conn, &requester_user_id, "can_manage_courses").await? {
+    if !super::check_permission_for_auth(&auth, "can_manage_courses") {
         return Err(YntraError::AuthError("Access denied: cannot manage courses".to_string()));
     }
 
@@ -98,7 +98,7 @@ pub async fn update_course(
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
 
-    if !super::check_permission(&conn, &requester_user_id, "can_manage_courses").await? {
+    if !super::check_permission_for_auth(&auth, "can_manage_courses") {
         return Err(YntraError::AuthError("Access denied: cannot manage courses".to_string()));
     }
 
@@ -200,7 +200,7 @@ pub async fn add_assignment(
         return Err(YntraError::ValidationError("Course does not belong to the specified workspace".to_string()));
     }
 
-    if !super::check_permission(&conn, &requester_user_id, "can_manage_assignments").await? {
+    if !super::check_permission_for_auth(&auth, "can_manage_assignments") {
         return Err(YntraError::AuthError("Access denied: cannot manage assignments".to_string()));
     }
 
@@ -245,7 +245,7 @@ pub async fn get_submissions(
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
 
-    let is_teacher = super::check_permission(&conn, &requester_user_id, "can_manage_grades").await?;
+    let is_teacher = super::check_permission_for_auth(&auth, "can_manage_grades");
     
     let mut stmt = conn.prepare("SELECT id, workspace_id, assignment_id, student_id, content, grade, feedback, submitted_at, updated_at, sync_status FROM submissions WHERE assignment_id = ?1").await?;
     let list = stmt.query_map(crate::params![&assignment_id], |row| {
@@ -316,7 +316,7 @@ pub async fn add_submission(
         return Err(YntraError::AuthError("Access denied: cannot submit for this student".to_string()));
     }
 
-    let can_grade = super::check_permission(&conn, &requester_user_id, "can_manage_grades").await?;
+    let can_grade = super::check_permission_for_auth(&auth, "can_manage_grades");
     if (grade.is_some() || feedback.is_some()) && !can_grade {
         return Err(YntraError::AuthError("Access denied: you do not have permission to grade submissions".to_string()));
     }
@@ -404,7 +404,7 @@ pub async fn update_submission_grade(
         None => None,
     };
 
-    if !super::check_permission(&conn, &requester_user_id, "can_manage_grades").await? {
+    if !super::check_permission_for_auth(&auth, "can_manage_grades") {
         return Err(YntraError::AuthError("Access denied: cannot grade submissions".to_string()));
     }
 
@@ -503,7 +503,7 @@ pub async fn save_term_grade(
         return Err(YntraError::ValidationError("Course does not belong to the specified workspace".to_string()));
     }
 
-    if !super::check_permission(&conn, &requester_user_id, "can_manage_grades").await? {
+    if !super::check_permission_for_auth(&auth, "can_manage_grades") {
         return Err(YntraError::AuthError("Access denied: cannot modify term grades".to_string()));
     }
     let existing_id: Option<String> = conn.query_row(
@@ -556,6 +556,7 @@ pub async fn save_term_grade(
 #[uniffi::export]
 pub async fn get_report_cards(requester_user_id: String, student_id: String) -> Result<Vec<ReportCard>, YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if !super::has_academic_access(&conn, &requester_user_id, &student_id).await? {
         return Err(YntraError::AuthError("Access denied to student report cards".to_string()));
     }
@@ -574,8 +575,8 @@ pub async fn get_report_cards(requester_user_id: String, student_id: String) -> 
         })
     }).await?;
 
-    let is_staff = super::check_permission(&conn, &requester_user_id, "can_manage_grades").await? 
-        || super::check_permission(&conn, &requester_user_id, "can_publish_report_cards").await?;
+    let is_staff = super::check_permission_for_auth(&auth, "can_manage_grades") 
+        || super::check_permission_for_auth(&auth, "can_publish_report_cards");
 
     let mut filtered = Vec::new();
     for rc in list {
@@ -604,7 +605,7 @@ pub async fn publish_report_card(
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
 
-    if !super::check_permission(&conn, &requester_user_id, "can_publish_report_cards").await? {
+    if !super::check_permission_for_auth(&auth, "can_publish_report_cards") {
         return Err(YntraError::AuthError("Access denied: cannot publish report cards".to_string()));
     }
     conn.execute(
@@ -638,7 +639,7 @@ pub async fn calculate_and_save_gpa(
         return Err(YntraError::ValidationError("Student does not belong to the specified workspace".to_string()));
     }
 
-    if !super::check_permission(&conn, &requester_user_id, "can_manage_grades").await? {
+    if !super::check_permission_for_auth(&auth, "can_manage_grades") {
         return Err(YntraError::AuthError("Access denied: cannot calculate GPA".to_string()));
     }
     let mut stmt = conn.prepare("SELECT final_grade FROM term_grades WHERE student_id = ?1 AND term_name = ?2").await?;
@@ -659,30 +660,18 @@ pub async fn calculate_and_save_gpa(
 
     let gpa = calculate_gpa(&grades, &target_region);
     
-    let existing_id: Option<String> = conn.query_row(
-        "SELECT id FROM report_cards WHERE student_id = ?1 AND term_name = ?2",
+    let existing: Option<(String, Option<String>, String)> = conn.query_row(
+        "SELECT id, principal_comments, status FROM report_cards WHERE student_id = ?1 AND term_name = ?2",
         crate::params![&student_id, &term_name],
-        |row| row.get(0)
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
     ).await.ok();
     
     let now_ms = crate::infra::time::get_current_time_ms();
-    let record = if let Some(id) = existing_id {
+    let record = if let Some((id, principal_comments, status)) = existing {
         conn.execute(
             "UPDATE report_cards SET gpa = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
             crate::params![&gpa, &now_ms, &id]
         ).await?;
-        
-        let principal_comments: Option<String> = conn.query_row(
-            "SELECT principal_comments FROM report_cards WHERE id = ?1",
-            crate::params![&id],
-            |row| row.get(0)
-        ).await.unwrap_or(None);
-        
-        let status: String = conn.query_row(
-            "SELECT status FROM report_cards WHERE id = ?1",
-            crate::params![&id],
-            |row| row.get(0)
-        ).await.unwrap_or_else(|_| "draft".to_string());
         
         ReportCard {
             id,
@@ -715,6 +704,116 @@ pub async fn calculate_and_save_gpa(
     };
     notify_observers();
     Ok(record)
+}
+
+#[uniffi::export]
+pub async fn get_student_portal_data(requester_user_id: String) -> Result<StudentPortalData, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    
+    // Check permission
+    let has_access = super::check_permission_for_auth(&auth, "can_view_directory")
+        || super::check_permission_for_auth(&auth, "can_manage_grades")
+        || auth.role == "student"
+        || auth.role == "parent"
+        || auth.role == "student_parent";
+    if !has_access {
+        return Err(YntraError::AuthError("Access denied to academics portal".to_string()));
+    }
+
+    let is_teacher = super::check_permission_for_auth(&auth, "can_manage_grades");
+
+    // 1. Fetch all assignments in the workspace
+    let mut stmt_assigns = conn.prepare(
+        "SELECT id, workspace_id, course_id, title, description, due_date, max_points, updated_at, sync_status \
+         FROM assignments WHERE workspace_id = ?1"
+    ).await?;
+    let assignments = stmt_assigns.query_map(crate::params![auth.workspace_id], |row| {
+        Ok(Assignment {
+            id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            course_id: row.get(2)?,
+            title: row.get(3)?,
+            description: row.get(4)?,
+            due_date: row.get(5)?,
+            max_points: row.get(6)?,
+            updated_at: row.get(7)?,
+            sync_status: row.get(8)?,
+        })
+    }).await?;
+
+    // 2. Fetch submissions
+    let submissions = if is_teacher {
+        let mut stmt_subs = conn.prepare(
+            "SELECT id, workspace_id, assignment_id, student_id, content, grade, feedback, submitted_at, updated_at, sync_status \
+             FROM submissions WHERE workspace_id = ?1"
+        ).await?;
+        stmt_subs.query_map(crate::params![auth.workspace_id], |row| {
+            Ok(Submission {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                assignment_id: row.get(2)?,
+                student_id: row.get(3)?,
+                content: row.get(4)?,
+                grade: row.get(5)?,
+                feedback: row.get(6)?,
+                submitted_at: row.get(7)?,
+                updated_at: row.get(8)?,
+                sync_status: row.get(9)?,
+            })
+        }).await?
+    } else {
+        // Find student profiles associated with requester
+        let mut student_ids = Vec::new();
+        
+        // Check if user is a student themselves
+        let student_self: Option<String> = conn.query_row(
+            "SELECT id FROM student_profiles WHERE user_id = ?1",
+            crate::params![&requester_user_id],
+            |r| r.get(0)
+        ).await.ok();
+        if let Some(sid) = student_self {
+            student_ids.push(sid);
+        }
+        
+        // Check if parent
+        let mut stmt_parents = conn.prepare(
+            "SELECT student_id FROM student_parents WHERE parent_user_id = ?1"
+        ).await?;
+        let child_ids = stmt_parents.query_map(crate::params![&requester_user_id], |r| r.get::<String>(0)).await?;
+        student_ids.extend(child_ids);
+
+        if student_ids.is_empty() {
+            Vec::new()
+        } else {
+            let placeholders: Vec<String> = (0..student_ids.len()).map(|i| format!("?{}", i + 1)).collect();
+            let query = format!(
+                "SELECT id, workspace_id, assignment_id, student_id, content, grade, feedback, submitted_at, updated_at, sync_status \
+                 FROM submissions WHERE student_id IN ({})",
+                placeholders.join(", ")
+            );
+            let mut stmt_subs = conn.prepare(&query).await?;
+            stmt_subs.query_map(crate::rusqlite::params_from_iter(student_ids), |row| {
+                Ok(Submission {
+                    id: row.get(0)?,
+                    workspace_id: row.get(1)?,
+                    assignment_id: row.get(2)?,
+                    student_id: row.get(3)?,
+                    content: row.get(4)?,
+                    grade: row.get(5)?,
+                    feedback: row.get(6)?,
+                    submitted_at: row.get(7)?,
+                    updated_at: row.get(8)?,
+                    sync_status: row.get(9)?,
+                })
+            }).await?
+        }
+    };
+
+    Ok(StudentPortalData {
+        assignments,
+        submissions,
+    })
 }
 
 #[cfg(test)]

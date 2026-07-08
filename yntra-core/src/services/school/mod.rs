@@ -16,19 +16,12 @@ pub use health::*;
 pub use finance::*;
 pub use library::*;
 
-pub(crate) async fn check_permission(
-    conn: &database::DbConnection,
-    user_id: &str,
+pub(crate) fn check_permission_for_auth(
+    auth: &crate::AuthContext,
     permission: &str,
-) -> Result<bool, YntraError> {
-    let auth = match crate::AuthContext::authorize(conn, user_id).await {
-        Ok(a) => a,
-        Err(_) => return Ok(false),
-    };
-
-
+) -> bool {
     if auth.role == "platform_admin" || auth.role == "admin" {
-        return Ok(true);
+        return true;
     }
 
     let settings_val: serde_json::Value = auth.workspace_settings
@@ -39,14 +32,14 @@ pub(crate) async fn check_permission(
         for role_val in roles {
             if role_val.get("id").and_then(|i| i.as_str()) == Some(&auth.role) {
                 if let Some(perms) = role_val.get("permissions") {
-                    return Ok(perms.get(permission).and_then(|p| p.as_bool()).unwrap_or(false));
+                    return perms.get(permission).and_then(|p| p.as_bool()).unwrap_or(false);
                 }
             }
         }
     }
 
     if auth.role == "rektor" || auth.role == "principal" || auth.role == "principal_head" {
-        return Ok(true);
+        return true;
     }
     let r = auth.role.as_str();
     if r.contains("nurse")
@@ -59,10 +52,23 @@ pub(crate) async fn check_permission(
         || r.contains("kouluterveydenhoitaja")
         || r.contains("hoitaja")
     {
-        return Ok(permission == "can_access_health_records" || permission == "can_submit_reports");
+        return permission == "can_access_health_records" || permission == "can_submit_reports";
     }
 
-    Ok(false)
+    false
+}
+
+#[allow(dead_code)]
+pub(crate) async fn check_permission(
+    conn: &database::DbConnection,
+    user_id: &str,
+    permission: &str,
+) -> Result<bool, YntraError> {
+    let auth = match crate::AuthContext::authorize(conn, user_id).await {
+        Ok(a) => a,
+        Err(_) => return Ok(false),
+    };
+    Ok(check_permission_for_auth(&auth, permission))
 }
 
 pub(crate) async fn has_health_access(
@@ -94,7 +100,7 @@ pub(crate) async fn has_health_access(
         return Ok(false);
     }
 
-    if check_permission(conn, requester_user_id, "can_access_health_records").await? {
+    if check_permission_for_auth(&auth, "can_access_health_records") {
         return Ok(true);
     }
 
@@ -152,7 +158,7 @@ pub(crate) async fn has_academic_access(
         return Ok(false);
     }
 
-    if check_permission(conn, requester_user_id, "can_manage_grades").await? {
+    if check_permission_for_auth(&auth, "can_manage_grades") {
         return Ok(true);
     }
 

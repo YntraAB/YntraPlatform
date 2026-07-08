@@ -21,7 +21,7 @@ pub async fn get_attendance(
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
 
-    if !super::check_permission(&conn, &requester_user_id, "can_manage_grades").await? {
+    if !super::check_permission_for_auth(&auth, "can_manage_grades") {
         return Err(YntraError::AuthError("Access denied: cannot view course attendance".to_string()));
     }
     let mut stmt = conn.prepare("SELECT id, workspace_id, student_id, course_id, date, status, notes, updated_at, sync_status FROM attendance_records WHERE course_id = ?1 AND date = ?2").await?;
@@ -77,7 +77,7 @@ pub async fn save_attendance_record(
         return Err(YntraError::ValidationError("Course does not belong to the specified workspace".to_string()));
     }
 
-    if !super::check_permission(&conn, &requester_user_id, "can_manage_grades").await? {
+    if !super::check_permission_for_auth(&auth, "can_manage_grades") {
         return Err(YntraError::AuthError("Access denied: cannot modify attendance".to_string()));
     }
 

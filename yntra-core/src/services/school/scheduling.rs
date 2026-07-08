@@ -49,7 +49,7 @@ pub async fn save_timetable_slot(
         return Err(YntraError::ValidationError("Course does not belong to the specified workspace".to_string()));
     }
 
-    if !super::check_permission(&conn, &requester_user_id, "can_manage_courses").await? {
+    if !super::check_permission_for_auth(&auth, "can_manage_courses") {
         return Err(YntraError::AuthError("Access denied: cannot manage scheduling".to_string()));
     }
 
@@ -100,7 +100,7 @@ pub async fn delete_timetable_slot(requester_user_id: String, id: String) -> Res
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
 
-    if !super::check_permission(&conn, &requester_user_id, "can_manage_courses").await? {
+    if !super::check_permission_for_auth(&auth, "can_manage_courses") {
         return Err(YntraError::AuthError("Access denied: cannot manage scheduling".to_string()));
     }
     conn.execute("DELETE FROM timetable_slots WHERE id = ?1", crate::params![&id]).await?;

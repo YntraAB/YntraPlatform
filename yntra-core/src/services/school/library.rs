@@ -41,7 +41,7 @@ pub async fn save_library_book(
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
 
-    if !super::check_permission(&conn, &requester_user_id, "can_manage_library").await? {
+    if !super::check_permission_for_auth(&auth, "can_manage_library") {
         return Err(YntraError::AuthError("Access denied: cannot manage library catalog".to_string()));
     }
 
@@ -86,7 +86,7 @@ pub async fn get_library_lending_logs(
 ) -> Result<Vec<LibraryLendingLog>, YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    let is_staff = super::check_permission(&conn, &requester_user_id, "can_manage_library").await?;
+    let is_staff = super::check_permission_for_auth(&auth, "can_manage_library");
     
     let list = if let Some(sid) = student_id {
         let student_ws: String = conn.query_row(
