@@ -264,3 +264,46 @@ pub fn update_date_in_time_str(time_str: &str, new_date: &str) -> String {
     }
 }
 
+pub fn parse_date(date_str: &str) -> (i32, u32, u32) {
+    let parts: Vec<&str> = date_str.split('-').collect();
+    if parts.len() == 3 {
+        (
+            parts[0].parse().unwrap_or(2026),
+            parts[1].parse().unwrap_or(6),
+            parts[2].parse().unwrap_or(30),
+        )
+    } else {
+        (2026, 6, 30)
+    }
+}
+
+pub fn add_days_to_date(date_str: &str, days: i32) -> String {
+    let (mut y, mut m, mut d) = parse_date(date_str);
+    let mut total_days = d as i32 + days;
+    
+    if days > 0 {
+        while total_days > get_days_in_month(y, m) as i32 {
+            total_days -= get_days_in_month(y, m) as i32;
+            m += 1;
+            if m > 12 {
+                m = 1;
+                y += 1;
+            }
+        }
+        d = total_days as u32;
+    } else {
+        while total_days <= 0 {
+            m -= 1;
+            if m == 0 {
+                m = 12;
+                y -= 1;
+            }
+            total_days += get_days_in_month(y, m) as i32;
+        }
+        d = total_days as u32;
+    }
+    
+    format!("{:04}-{:02}-{:02}", y, m, d)
+}
+
+

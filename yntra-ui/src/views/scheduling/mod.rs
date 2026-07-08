@@ -8,6 +8,7 @@ pub mod sidebar;
 pub mod add_event_modal;
 pub mod time_off_modal;
 pub mod detail_modal;
+pub mod timetable;
 
 pub use month::MonthView;
 pub use week::WeekView;
@@ -124,11 +125,11 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
     slots.sort_by(|a, b| a.start_time.cmp(&b.start_time));
 
     let mut selected_course_id = use_signal(String::new);
-    let mut selected_day = use_signal(|| 1); // 1 = Monday
-    let mut timetable_start_time = use_signal(|| "08:30".to_string());
-    let mut timetable_end_time = use_signal(|| "09:45".to_string());
-    let mut classroom_input = use_signal(String::new);
-    let mut sync_success = use_signal(|| false);
+    let selected_day = use_signal(|| 1); // 1 = Monday
+    let timetable_start_time = use_signal(|| "08:30".to_string());
+    let timetable_end_time = use_signal(|| "09:45".to_string());
+    let classroom_input = use_signal(String::new);
+    let sync_success = use_signal(|| false);
 
     use_effect(move || {
         let cs = courses_res.read().clone().unwrap_or_default();
@@ -601,238 +602,18 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
 
                             match calendar_view_mode.read().as_str() {
                                 "timetable" => rsx! {
-                                    div { class: "flex-1 flex flex-col gap-6 p-6 overflow-y-auto scrollbar-dark",
-                                        div { class: "flex flex-col gap-1 border-b border-border pb-4",
-                                            h3 { class: "text-lg font-black text-foreground flex items-center gap-2 m-0",
-                                                components::LucideIcon { name: "calendar", class: "h-5 w-5 text-primary" }
-                                                "Weekly Timetable Slots"
-                                            }
-                                            p { class: "text-xs text-muted-foreground m-0 leading-relaxed font-medium",
-                                                "Configure recurring weekly lessons and class slots, then sync them to generate calendar events."
-                                            }
-                                        }
-                                        
-                                        // Weekly Grid + Add Form Row
-                                        div { class: "grid gap-6 lg:grid-cols-4 items-start w-full",
-                                            // Left 3 columns: Weekly schedule board
-                                            div { class: "lg:col-span-3 flex flex-col gap-4 w-full",
-                                                div { class: "grid gap-3 grid-cols-1 md:grid-cols-5 w-full",
-                                                    for day_idx in 1..=5 {
-                                                        {
-                                                            let day_name = match day_idx {
-                                                                1 => "Monday",
-                                                                2 => "Tuesday",
-                                                                3 => "Wednesday",
-                                                                4 => "Thursday",
-                                                                5 => "Friday",
-                                                                _ => "Unknown"
-                                                            };
-                                                            let day_slots: Vec<yntra_core::TimetableSlot> = slots.iter().filter(|s| s.day_of_week == day_idx).cloned().collect();
-                                                            
-                                                            rsx! {
-                                                                div { class: "border border-border/40 bg-sidebar/20 rounded-xl p-3 flex flex-col gap-2 min-h-[300px] w-full",
-                                                                    h4 { class: "text-[10px] font-black uppercase text-muted-foreground tracking-wider m-0 text-center border-b border-border/30 pb-1.5", "{day_name}" }
-                                                                    
-                                                                    if day_slots.is_empty() {
-                                                                        div { class: "flex-1 flex flex-col items-center justify-center text-center opacity-30 p-2",
-                                                                            components::LucideIcon { name: "calendar", size: "18", class: "mb-1" }
-                                                                            span { class: "text-[9px] font-bold", "No slots" }
-                                                                        }
-                                                                    } else {
-                                                                        div { class: "flex flex-col gap-2",
-                                                                            for s in day_slots.iter() {
-                                                                                div { 
-                                                                                    key: "{s.id}",
-                                                                                    class: "group relative border border-border/30 p-2 rounded-lg bg-sidebar/40 hover:border-primary/40 hover:bg-sidebar/60 transition-all flex flex-col gap-1",
-                                                                                    
-                                                                                    // Delete overlay button on hover
-                                                                                    button {
-                                                                                        class: "absolute top-1 right-1 opacity-0 group-hover:opacity-100 p-0.5 rounded bg-destructive/10 text-destructive hover:bg-destructive/20 transition-all border-0 cursor-pointer flex items-center justify-center",
-                                                                                        onclick: {
-                                                                                            let s_id = s.id.clone();
-                                                                                            let db_trig = db_trigger;
-                                                                                            move |_| {
-                                                                                                let id_clone = s_id.clone();
-                                                                                                let mut db_trig_inner = db_trig;
-                                                                                                spawn(async move {
-                                                                                                    if yntra_core::delete_timetable_slot("user-1".to_string(), id_clone).await.is_ok() {
-                                                                                                        let current = *db_trig_inner.read();
-                                                                                                        db_trig_inner.set(current + 1);
-                                                                                                    }
-                                                                                                });
-                                                                                            }
-                                                                                        },
-                                                                                        components::LucideIcon { name: "x", size: "10" }
-                                                                                    }
-                                                                                    
-                                                                                    span { class: "text-[9px] font-black uppercase text-primary px-1.5 py-0.5 bg-primary/10 rounded self-start tracking-wider",
-                                                                                        {
-                                                                                            let c = courses.iter().find(|c| c.id == s.course_id);
-                                                                                            c.map(|c| c.subject.clone()).unwrap_or_else(|| "Class".to_string())
-                                                                                        }
-                                                                                    }
-                                                                                    span { class: "text-xs font-bold text-foreground leading-tight truncate",
-                                                                                        {
-                                                                                            let c = courses.iter().find(|c| c.id == s.course_id);
-                                                                                            c.map(|c| c.name.clone()).unwrap_or_else(|| "Unknown Course".to_string())
-                                                                                        }
-                                                                                    }
-                                                                                    div { class: "flex items-center gap-1 text-[9px] text-muted-foreground font-semibold mt-0.5",
-                                                                                        components::LucideIcon { name: "clock", size: "9" }
-                                                                                        span { "{s.start_time} - {s.end_time}" }
-                                                                                    }
-                                                                                    if let Some(ref room) = s.classroom {
-                                                                                        if !room.is_empty() {
-                                                                                            div { class: "flex items-center gap-1 text-[9px] text-muted-foreground font-semibold",
-                                                                                                components::LucideIcon { name: "map-pin", size: "9" }
-                                                                                                span { "{room}" }
-                                                                                            }
-                                                                                        }
-                                                                                    }
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            
-                                            // Right column: Add Weekly Slot form
-                                            div { class: "border border-border/50 bg-card/30 rounded-xl p-4 flex flex-col gap-4 shadow-sm",
-                                                h4 { class: "text-xs font-bold uppercase tracking-wider text-muted-foreground m-0 border-b border-border/30 pb-2", "Add Weekly Slot" }
-                                                
-                                                if courses.is_empty() {
-                                                    div { class: "py-4 text-center text-xs text-muted-foreground",
-                                                        "No courses found. Add courses in Courses & Grading first."
-                                                    }
-                                                } else {
-                                                    div { class: "flex flex-col gap-3.5",
-                                                        div { class: "flex flex-col gap-1.5",
-                                                            label { class: "text-[10px] font-bold text-muted-foreground uppercase", "Subject / Course" }
-                                                            select {
-                                                                class: "yntra-input py-1.5 px-2 text-xs bg-background border border-border text-foreground w-full",
-                                                                value: "{selected_course_id}",
-                                                                onchange: move |e| selected_course_id.set(e.value()),
-                                                                for c in courses.iter() {
-                                                                    option { value: "{c.id}", "{c.name}" }
-                                                                }
-                                                            }
-                                                        }
-                                                        
-                                                        div { class: "flex flex-col gap-1.5",
-                                                            label { class: "text-[10px] font-bold text-muted-foreground uppercase", "Day of Week" }
-                                                            select {
-                                                                class: "yntra-input py-1.5 px-2 text-xs bg-background border border-border text-foreground w-full",
-                                                                value: "{selected_day}",
-                                                                onchange: move |e| {
-                                                                    if let Ok(d) = e.value().parse::<i32>() {
-                                                                        selected_day.set(d);
-                                                                    }
-                                                                },
-                                                                option { value: "1", "Monday" }
-                                                                option { value: "2", "Tuesday" }
-                                                                option { value: "3", "Wednesday" }
-                                                                option { value: "4", "Thursday" }
-                                                                option { value: "5", "Friday" }
-                                                            }
-                                                        }
-                                                        
-                                                        div { class: "grid grid-cols-2 gap-2",
-                                                            div { class: "flex flex-col gap-1.5",
-                                                                label { class: "text-[10px] font-bold text-muted-foreground uppercase", "Start Time" }
-                                                                input {
-                                                                    r#type: "text",
-                                                                    class: "yntra-input py-1.5 px-2 text-xs bg-background border border-border text-foreground w-full",
-                                                                    value: "{timetable_start_time}",
-                                                                    oninput: move |e| timetable_start_time.set(e.value()),
-                                                                }
-                                                            }
-                                                            div { class: "flex flex-col gap-1.5",
-                                                                label { class: "text-[10px] font-bold text-muted-foreground uppercase", "End Time" }
-                                                                input {
-                                                                    r#type: "text",
-                                                                    class: "yntra-input py-1.5 px-2 text-xs bg-background border border-border text-foreground w-full",
-                                                                    value: "{timetable_end_time}",
-                                                                    oninput: move |e| timetable_end_time.set(e.value()),
-                                                                }
-                                                            }
-                                                        }
-                                                        
-                                                        div { class: "flex flex-col gap-1.5",
-                                                            label { class: "text-[10px] font-bold text-muted-foreground uppercase", "Classroom" }
-                                                            input {
-                                                                r#type: "text",
-                                                                class: "yntra-input py-1.5 px-2 text-xs bg-background border border-border text-foreground w-full",
-                                                                placeholder: "Room 204",
-                                                                value: "{classroom_input}",
-                                                                oninput: move |e| classroom_input.set(e.value()),
-                                                            }
-                                                        }
-                                                        
-                                                        button {
-                                                            class: "yntra-btn mt-1 text-xs py-2 w-full",
-                                                            onclick: {
-                                                                let ws_id = props.active_user.workspace_id.clone().unwrap_or_else(|| "workspace-1".to_string());
-                                                                let db_trig = db_trigger;
-                                                                move |_| {
-                                                                    let cid = selected_course_id.read().clone();
-                                                                    let day = *selected_day.read();
-                                                                    let start = timetable_start_time.read().clone();
-                                                                    let end = timetable_end_time.read().clone();
-                                                                    let room = if classroom_input.read().is_empty() { None } else { Some(classroom_input.read().clone()) };
-                                                                    let ws = ws_id.clone();
-                                                                    let mut db_trig_inner = db_trig;
-                                                                    
-                                                                    spawn(async move {
-                                                                        if yntra_core::save_timetable_slot(
-                                                                            "user-1".to_string(),
-                                                                            ws,
-                                                                            cid,
-                                                                            day,
-                                                                            start,
-                                                                            end,
-                                                                            room
-                                                                        ).await.is_ok() {
-                                                                            classroom_input.set(String::new());
-                                                                            let current = *db_trig_inner.read();
-                                                                            db_trig_inner.set(current + 1);
-                                                                        }
-                                                                    });
-                                                                }
-                                                            },
-                                                            "Add Slot"
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        
-                                        // Sync button
-                                        div { class: "flex justify-end pt-2",
-                                            button {
-                                                class: "yntra-btn text-xs font-bold py-2.5 px-5 flex items-center gap-2 shadow-md",
-                                                onclick: {
-                                                    let ws_id = props.active_user.workspace_id.clone().unwrap_or_else(|| "workspace-1".to_string());
-                                                    let db_trig = db_trigger;
-                                                    move |_| {
-                                                        let ws_clone = ws_id.clone();
-                                                        let mut db_trig_inner = db_trig;
-                                                        spawn(async move {
-                                                            if yntra_core::sync_timetable_to_calendar(ws_clone, "user-1".to_string()).await.is_ok() {
-                                                                sync_success.set(true);
-                                                                let current = *db_trig_inner.read();
-                                                                db_trig_inner.set(current + 1);
-                                                            }
-                                                        });
-                                                    }
-                                                },
-                                                components::LucideIcon { name: "refresh-cw", size: "14" }
-                                                if *sync_success.read() { "Synced to Calendar Successfully!" } else { "Sync Slots to Calendar" }
-                                            }
-                                        }
+                                    timetable::TimetableSlotsView {
+                                        active_user: active_user.clone(),
+                                        courses,
+                                        slots,
+                                        selected_course_id,
+                                        selected_day,
+                                        timetable_start_time,
+                                        timetable_end_time,
+                                        classroom_input,
+                                        sync_success,
+                                        db_trigger,
+                                        locale: props.locale.clone(),
                                     }
                                 },
                                 "week" => {
@@ -949,46 +730,4 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
     }
 }
 
-// Helpers for date calculations
-fn parse_date(date_str: &str) -> (i32, u32, u32) {
-    let parts: Vec<&str> = date_str.split('-').collect();
-    if parts.len() == 3 {
-        (
-            parts[0].parse().unwrap_or(2026),
-            parts[1].parse().unwrap_or(6),
-            parts[2].parse().unwrap_or(30),
-        )
-    } else {
-        (2026, 6, 30)
-    }
-}
-
-fn add_days_to_date(date_str: &str, days: i32) -> String {
-    let (mut y, mut m, mut d) = parse_date(date_str);
-    let mut total_days = d as i32 + days;
-    
-    if days > 0 {
-        while total_days > get_days_in_month(y, m) as i32 {
-            total_days -= get_days_in_month(y, m) as i32;
-            m += 1;
-            if m > 12 {
-                m = 1;
-                y += 1;
-            }
-        }
-        d = total_days as u32;
-    } else {
-        while total_days <= 0 {
-            m -= 1;
-            if m == 0 {
-                m = 12;
-                y -= 1;
-            }
-            total_days += get_days_in_month(y, m) as i32;
-        }
-        d = total_days as u32;
-    }
-    
-    format!("{:04}-{:02}-{:02}", y, m, d)
-}
 
