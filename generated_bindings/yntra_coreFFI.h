@@ -416,6 +416,11 @@ uint64_t uniffi_yntra_core_fn_func_complete_auth_session(RustBuffer session_id, 
 uint64_t uniffi_yntra_core_fn_func_complete_hardware_auth(RustBuffer session_id, RustBuffer pin
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_CONFIGURE_DATABASE_SYNC
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_CONFIGURE_DATABASE_SYNC
+void uniffi_yntra_core_fn_func_configure_database_sync(RustBuffer url, RustBuffer token, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_CREATE_JOB_TICKET
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_CREATE_JOB_TICKET
 uint64_t uniffi_yntra_core_fn_func_create_job_ticket(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer title, RustBuffer description, RustBuffer location_address, RustBuffer priority, RustBuffer assigned_user_id, RustBuffer scheduled_date, RustBuffer checklist_json, RustBuffer origin_address, RustBuffer destination_address, int32_t origin_floor, int32_t destination_floor, int8_t origin_has_elevator, int8_t destination_has_elevator, int8_t origin_parking_permit_needed, int8_t destination_parking_permit_needed
@@ -855,6 +860,12 @@ uint64_t uniffi_yntra_core_fn_func_set_user_password(RustBuffer requester_user_i
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_START_BACKGROUND_SYNC
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_START_BACKGROUND_SYNC
 void uniffi_yntra_core_fn_func_start_background_sync(uint32_t interval_secs, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_STOP_BACKGROUND_SYNC
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_STOP_BACKGROUND_SYNC
+void uniffi_yntra_core_fn_func_stop_background_sync(RustCallStatus *_Nonnull out_status
+    
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SUBMIT_BANKID_PIN
@@ -1436,6 +1447,12 @@ uint16_t uniffi_yntra_core_checksum_func_complete_hardware_auth(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_CONFIGURE_DATABASE_SYNC
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_CONFIGURE_DATABASE_SYNC
+uint16_t uniffi_yntra_core_checksum_func_configure_database_sync(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_CREATE_JOB_TICKET
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_CREATE_JOB_TICKET
 uint16_t uniffi_yntra_core_checksum_func_create_job_ticket(void
@@ -1955,6 +1972,12 @@ uint16_t uniffi_yntra_core_checksum_func_set_user_password(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_START_BACKGROUND_SYNC
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_START_BACKGROUND_SYNC
 uint16_t uniffi_yntra_core_checksum_func_start_background_sync(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_STOP_BACKGROUND_SYNC
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_STOP_BACKGROUND_SYNC
+uint16_t uniffi_yntra_core_checksum_func_stop_background_sync(void
     
 );
 #endif

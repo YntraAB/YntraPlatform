@@ -4348,10 +4348,12 @@ public struct Workspace {
     public var brandColor: String
     public var logoUrl: String?
     public var blockSettings: String
+    public var updatedAt: Int64
+    public var syncStatus: String
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, name: String, modulesActive: String, settings: String, brandColor: String, logoUrl: String?, blockSettings: String) {
+    public init(id: String, name: String, modulesActive: String, settings: String, brandColor: String, logoUrl: String?, blockSettings: String, updatedAt: Int64, syncStatus: String) {
         self.id = id
         self.name = name
         self.modulesActive = modulesActive
@@ -4359,6 +4361,8 @@ public struct Workspace {
         self.brandColor = brandColor
         self.logoUrl = logoUrl
         self.blockSettings = blockSettings
+        self.updatedAt = updatedAt
+        self.syncStatus = syncStatus
     }
 }
 
@@ -4387,6 +4391,12 @@ extension Workspace: Equatable, Hashable {
         if lhs.blockSettings != rhs.blockSettings {
             return false
         }
+        if lhs.updatedAt != rhs.updatedAt {
+            return false
+        }
+        if lhs.syncStatus != rhs.syncStatus {
+            return false
+        }
         return true
     }
 
@@ -4398,6 +4408,8 @@ extension Workspace: Equatable, Hashable {
         hasher.combine(brandColor)
         hasher.combine(logoUrl)
         hasher.combine(blockSettings)
+        hasher.combine(updatedAt)
+        hasher.combine(syncStatus)
     }
 }
 
@@ -4415,7 +4427,9 @@ public struct FfiConverterTypeWorkspace: FfiConverterRustBuffer {
                 settings: FfiConverterString.read(from: &buf), 
                 brandColor: FfiConverterString.read(from: &buf), 
                 logoUrl: FfiConverterOptionString.read(from: &buf), 
-                blockSettings: FfiConverterString.read(from: &buf)
+                blockSettings: FfiConverterString.read(from: &buf), 
+                updatedAt: FfiConverterInt64.read(from: &buf), 
+                syncStatus: FfiConverterString.read(from: &buf)
         )
     }
 
@@ -4427,6 +4441,8 @@ public struct FfiConverterTypeWorkspace: FfiConverterRustBuffer {
         FfiConverterString.write(value.brandColor, into: &buf)
         FfiConverterOptionString.write(value.logoUrl, into: &buf)
         FfiConverterString.write(value.blockSettings, into: &buf)
+        FfiConverterInt64.write(value.updatedAt, into: &buf)
+        FfiConverterString.write(value.syncStatus, into: &buf)
     }
 }
 
@@ -6273,6 +6289,13 @@ public func completeHardwareAuth(sessionId: String, pin: String)async throws  {
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
+public func configureDatabaseSync(url: String, token: String) {try! rustCall() {
+    uniffi_yntra_core_fn_func_configure_database_sync(
+        FfiConverterString.lower(url),
+        FfiConverterString.lower(token),$0
+    )
+}
+}
 public func createJobTicket(requesterUserId: String, workspaceId: String, title: String, description: String, locationAddress: String, priority: String, assignedUserId: String?, scheduledDate: String, checklistJson: String, originAddress: String?, destinationAddress: String?, originFloor: Int32, destinationFloor: Int32, originHasElevator: Bool, destinationHasElevator: Bool, originParkingPermitNeeded: Bool, destinationParkingPermitNeeded: Bool)async throws  -> JobTicket {
     return
         try  await uniffiRustCallAsync(
@@ -7378,6 +7401,11 @@ public func startBackgroundSync(intervalSecs: UInt32) {try! rustCall() {
     )
 }
 }
+public func stopBackgroundSync() {try! rustCall() {
+    uniffi_yntra_core_fn_func_stop_background_sync($0
+    )
+}
+}
 public func submitBankidPin(sessionId: String, pin: String)async throws  {
     return
         try  await uniffiRustCallAsync(
@@ -7835,6 +7863,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_yntra_core_checksum_func_complete_hardware_auth() != 21523) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_yntra_core_checksum_func_configure_database_sync() != 10624) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_yntra_core_checksum_func_create_job_ticket() != 5431) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8094,6 +8125,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_start_background_sync() != 32647) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_stop_background_sync() != 64759) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_submit_bankid_pin() != 63903) {
