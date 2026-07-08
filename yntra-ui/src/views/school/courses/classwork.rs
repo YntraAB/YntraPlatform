@@ -37,6 +37,11 @@ pub fn CourseClasswork(props: CourseClassworkProps) -> Element {
     let mut show_assignment_modal = props.show_assignment_modal;
     let mut show_grading_modal = props.show_grading_modal;
 
+    let student_names: std::collections::HashMap<String, String> = students
+        .iter()
+        .map(|st| (st.id.clone(), format!("{} {}", st.first_name, st.last_name)))
+        .collect();
+
     rsx! {
         div { class: "grid gap-6 md:grid-cols-3",
             // Left sidebar: posting details & create button
@@ -112,8 +117,7 @@ pub fn CourseClasswork(props: CourseClassworkProps) -> Element {
                                             div {
                                                 div { class: "font-bold text-foreground text-xs",
                                                     {
-                                                        let student = students.iter().find(|st| st.id == s.student_id);
-                                                        student.map(|st| format!("{} {}", st.first_name, st.last_name)).unwrap_or_else(|| "Unknown Student".to_string())
+                                                        student_names.get(&s.student_id).cloned().unwrap_or_else(|| "Unknown Student".to_string())
                                                     }
                                                 }
                                                 div { class: "text-[10px] text-muted-foreground mt-0.5", "Submitted at: {s.submitted_at}" }

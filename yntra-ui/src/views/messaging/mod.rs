@@ -42,7 +42,7 @@ pub fn MessagingView(props: MessagingViewProps) -> Element {
     let mut compose_subject = props.compose_subject;
     let mut compose_body = props.compose_body;
     let mut compose_status = props.compose_status;
-    let mut db_trigger = props.db_trigger;
+    let db_trigger = props.db_trigger;
 
     let current_tab = messaging_view_tab.read().clone();
     let mut filtered_messages: Vec<MessageItem> = messages // Newest first
@@ -153,8 +153,11 @@ pub fn MessagingView(props: MessagingViewProps) -> Element {
                             let msgs = filtered_messages.clone();
                             let active_u = active_user.clone();
                             let cur_tab = current_tab.clone();
-                            let users_list = users_for_messaging.clone();
                             let reg = region.clone();
+                            let user_names: std::collections::HashMap<String, String> = users_for_messaging
+                                .iter()
+                                .map(|u| (u.id.clone(), u.full_name.clone().unwrap_or_default()))
+                                .collect();
                             rsx! {
                                 components::VirtualList {
                                     count: msgs.len(),
@@ -167,17 +170,11 @@ pub fn MessagingView(props: MessagingViewProps) -> Element {
 
                                         let display_name = if cur_tab == "inbox" {
                                             let sender_id = msg.sender_id.clone().unwrap_or_default();
-                                            users_list
-                                                .iter()
-                                                .find(|u| u.id == sender_id)
-                                                .and_then(|u| u.full_name.clone())
+                                            user_names.get(&sender_id).cloned().filter(|name| !name.is_empty())
                                                 .unwrap_or_else(|| t("messages-system", &reg))
                                         } else {
                                             let receiver_id = msg.receiver_id.clone().unwrap_or_default();
-                                            users_list
-                                                .iter()
-                                                .find(|u| u.id == receiver_id)
-                                                .and_then(|u| u.full_name.clone())
+                                            user_names.get(&receiver_id).cloned().filter(|name| !name.is_empty())
                                                 .unwrap_or_else(|| t("messages-person", &reg))
                                         };
                                         let subject_str = msg
@@ -208,8 +205,6 @@ pub fn MessagingView(props: MessagingViewProps) -> Element {
                                                         spawn(async move {
                                                             let _ = mark_message_read(r_id, m_id).await;
                                                         });
-                                                        let current_trig = *db_trigger.read();
-                                                        db_trigger.set(current_trig + 1);
                                                     }
                                                 },
                                                 class: "group flex items-center border-b border-border/30 px-8 py-4 transition-colors hover:bg-white/[0.015] list-item-hover cursor-pointer",

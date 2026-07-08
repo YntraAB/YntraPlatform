@@ -20,7 +20,6 @@ impl PartialEq for TodosViewProps {
 #[component]
 pub fn TodosView(props: TodosViewProps) -> Element {
     let region = props.auth_region.read().clone();
-    let db_trig = *props.db_trigger.read();
     let db_trigger = props.db_trigger;
     let state = use_context::<AppState>();
     
@@ -29,7 +28,7 @@ pub fn TodosView(props: TodosViewProps) -> Element {
     // Fetch todos from FFI
     let uid_res = props.active_user_id.clone();
     let todos_resource = use_resource(move || {
-        let _ = db_trig;
+        let _trig = *db_trigger.read();
         let ws_id = ws_res.read().as_ref().map(|w| w.id.clone()).unwrap_or_else(|| "workspace-1".to_string());
         let u = uid_res.clone();
         async move {
@@ -103,14 +102,9 @@ pub fn TodosView(props: TodosViewProps) -> Element {
                         let text = new_todo_text.read().trim().to_string();
                         if !text.is_empty() {
                             let workspace_id = state.workspace.read().as_ref().map(|w| w.id.clone()).unwrap_or_else(|| "workspace-1".to_string());
-                            let trigger = db_trigger;
                             let uid = props.active_user_id.read().clone();
                             spawn(async move {
-                                let mut trigger = trigger;
-                                if yntra_core::add_todo(uid, workspace_id, text).await.is_ok() {
-                                    let current = *trigger.read();
-                                    trigger.set(current + 1);
-                                }
+                                let _ = yntra_core::add_todo(uid, workspace_id, text).await;
                             });
                             new_todo_text.set(String::new());
                         }
@@ -133,7 +127,6 @@ pub fn TodosView(props: TodosViewProps) -> Element {
                         let todo_id = item.id.clone();
                         let is_completed = item.completed;
                         let text = item.text.clone();
-                        let trigger = db_trigger;
                         
                         rsx! {
                             div {
@@ -151,14 +144,9 @@ pub fn TodosView(props: TodosViewProps) -> Element {
                                                 checked: is_completed,
                                                 onchange: move |_| {
                                                     let id = todo_id.clone();
-                                                    let trig = trigger;
                                                     let uid = props.active_user_id.read().clone();
                                                     spawn(async move {
-                                                        let mut trig = trig;
-                                                        if yntra_core::toggle_todo(uid, id).await.is_ok() {
-                                                            let current = *trig.read();
-                                                            trig.set(current + 1);
-                                                        }
+                                                        let _ = yntra_core::toggle_todo(uid, id).await;
                                                     });
                                                 }
                                             }
@@ -170,14 +158,9 @@ pub fn TodosView(props: TodosViewProps) -> Element {
                                                 ),
                                                 onclick: move |_| {
                                                     let id = item.id.clone();
-                                                    let trig = trigger;
                                                     let uid = props.active_user_id.read().clone();
                                                     spawn(async move {
-                                                        let mut trig = trig;
-                                                        if yntra_core::toggle_todo(uid, id).await.is_ok() {
-                                                            let current = *trig.read();
-                                                            trig.set(current + 1);
-                                                        }
+                                                        let _ = yntra_core::toggle_todo(uid, id).await;
                                                     });
                                                 },
                                                 "{text}"

@@ -3,6 +3,7 @@ use yntra_core::ClientProfile;
 use yntra_core::WorkspaceUser;
 use yntra_core::{get_journals, get_medications};
 use crate::components;
+use crate::state::AppState;
 
 mod journal;
 mod medication;
@@ -34,6 +35,7 @@ impl PartialEq for AssistanceViewProps {
 
 #[component]
 pub fn AssistanceView(props: AssistanceViewProps) -> Element {
+    let state = use_context::<AppState>();
     let active_user = props.active_user;
     let users = props.users.clone();
     let clients = props.clients.clone();
@@ -46,7 +48,7 @@ pub fn AssistanceView(props: AssistanceViewProps) -> Element {
     let med_frequency = props.med_frequency;
     let med_instructions = props.med_instructions;
     let journal_content = props.journal_content;
-    let db_trigger = props.db_trigger;
+    let _db_trigger = props.db_trigger;
 
     let locale_ref = &locale;
 
@@ -86,7 +88,7 @@ pub fn AssistanceView(props: AssistanceViewProps) -> Element {
     let client_id_for_meds = current_client.id.clone();
     let actor_id_for_meds = active_user.id.clone();
     let meds_res = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = state.trigger_clients.read();
         let cid = client_id_for_meds.clone();
         let aid = actor_id_for_meds.clone();
         async move { get_medications(cid, aid).await.unwrap_or_default() }
@@ -95,7 +97,7 @@ pub fn AssistanceView(props: AssistanceViewProps) -> Element {
     let client_id_for_journals = current_client.id.clone();
     let actor_id_for_journals = active_user.id.clone();
     let journals_res = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = state.trigger_clients.read();
         let cid = client_id_for_journals.clone();
         let aid = actor_id_for_journals.clone();
         async move { get_journals(cid, aid).await.unwrap_or_default() }

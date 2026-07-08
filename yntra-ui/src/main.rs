@@ -85,12 +85,7 @@ fn App() -> Element {
     let on_desktop_oauth_callback = state.on_desktop_oauth.clone();
 
     rsx! {
-        // Load DX Components Theme
-        style { {include_str!("../public/dx-components-theme.css")} }
-        // Load compiled Tailwind CSS
-        style { {include_str!("../public/tailwind.css")} }
-        // Load extracted global CSS stylesheet
-        style { {include_str!("../public/global.css")} }
+        Stylesheet {}
         // Load SQLite Web Worker Bridge
         script { src: "/db-bridge.js" }
 
@@ -178,4 +173,16 @@ fn BackgroundErrorListener() -> Element {
     });
 
     rsx! {}
+}
+
+#[component]
+fn Stylesheet() -> Element {
+    rsx! {
+        // Load DX Components Theme
+        style { {include_str!("../public/dx-components-theme.css")} }
+        // Load compiled Tailwind CSS
+        style { {include_str!("../public/tailwind.css")} }
+        // Load extracted global CSS stylesheet
+        style { {include_str!("../public/global.css")} }
+    }
 }

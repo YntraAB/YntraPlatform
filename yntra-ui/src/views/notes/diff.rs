@@ -32,20 +32,20 @@ pub fn get_diff_segments(old_str: &str, new_str: &str) -> Vec<DiffSegment> {
 
     while i > 0 || j > 0 {
         if i > 0 && j > 0 && old_words[i - 1] == new_words[j - 1] {
-            segments.insert(0, DiffSegment {
+            segments.push(DiffSegment {
                 r#type: DiffType::Unchanged,
                 text: format!("{} ", old_words[i - 1]),
             });
             i -= 1;
             j -= 1;
         } else if j > 0 && (i == 0 || matrix[i][j - 1] >= matrix[i - 1][j]) {
-            segments.insert(0, DiffSegment {
+            segments.push(DiffSegment {
                 r#type: DiffType::Added,
                 text: format!("{} ", new_words[j - 1]),
             });
             j -= 1;
         } else if i > 0 && (j == 0 || matrix[i][j - 1] < matrix[i - 1][j]) {
-            segments.insert(0, DiffSegment {
+            segments.push(DiffSegment {
                 r#type: DiffType::Removed,
                 text: format!("{} ", old_words[i - 1]),
             });
@@ -53,5 +53,6 @@ pub fn get_diff_segments(old_str: &str, new_str: &str) -> Vec<DiffSegment> {
         }
     }
 
+    segments.reverse();
     segments
 }

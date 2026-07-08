@@ -43,6 +43,20 @@ pub fn TeamOverview(props: TeamOverviewProps) -> Element {
             .collect()
     };
 
+    let mut notes_count_by_team = std::collections::HashMap::new();
+    let mut latest_note_by_team = std::collections::HashMap::new();
+    for note in notes.iter() {
+        *notes_count_by_team.entry(&note.team_id).or_insert(0_usize) += 1;
+        if let Some(existing) = latest_note_by_team.get(&note.team_id) {
+            let existing: &&DailyNote = existing;
+            if note.created_at > existing.created_at {
+                latest_note_by_team.insert(&note.team_id, note);
+            }
+        } else {
+            latest_note_by_team.insert(&note.team_id, note);
+        }
+    }
+
     rsx! {
         div {
             class: "flex flex-col h-full w-full bg-background box-border",
@@ -84,13 +98,10 @@ pub fn TeamOverview(props: TeamOverviewProps) -> Element {
                                 let team_name = team.name.clone();
                                 
                                 // Count notes in this team
-                                let notes_count = notes.iter().filter(|n| n.team_id == team_id).count();
+                                let notes_count = *notes_count_by_team.get(&team_id).unwrap_or(&0);
                                 
                                 // Find latest updated note timestamp
-                                let latest_note = notes
-                                    .iter()
-                                    .filter(|n| n.team_id == team_id)
-                                    .max_by_key(|n| &n.created_at);
+                                let latest_note = latest_note_by_team.get(&team_id).copied();
 
                                 rsx! {
                                     div {

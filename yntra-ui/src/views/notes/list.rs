@@ -87,7 +87,10 @@ pub fn NoteList(props: NoteListProps) -> Element {
                     {
                         let buffer_sig = use_signal(|| 5_usize);
                         let notes = filtered_notes.clone();
-                        let users_list = users.clone();
+                        let user_names: std::collections::HashMap<String, String> = users
+                            .iter()
+                            .map(|u| (u.id.clone(), u.full_name.clone().unwrap_or_default()))
+                            .collect();
                         rsx! {
                             components::VirtualList {
                                 count: notes.len(),
@@ -95,10 +98,10 @@ pub fn NoteList(props: NoteListProps) -> Element {
                                 estimate_size: move |_| 60_u32,
                                 render_item: move |idx: usize| {
                                     let note = &notes[idx];
-                                    let author = users_list
-                                        .iter()
-                                        .find(|u| Some(u.id.clone()) == note.author_id)
-                                        .and_then(|u| u.full_name.clone())
+                                    let author = note.author_id
+                                        .as_ref()
+                                        .and_then(|aid| user_names.get(aid).cloned())
+                                        .filter(|name| !name.is_empty())
                                         .unwrap_or_else(|| "Unknown".to_string());
                                     let note_id = note.id.clone();
                                     let note_subj = note.subject.clone();

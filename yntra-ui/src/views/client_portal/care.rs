@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 use yntra_core::{TeamEvent, WorkspaceUser, get_journals, get_medications};
 use crate::components;
+use crate::state::AppState;
 
 #[derive(Props, Clone)]
 pub struct CarePortalProps {
@@ -23,15 +24,21 @@ pub fn CarePortal(props: CarePortalProps) -> Element {
     let active_user = props.active_user;
     let users = props.users.clone();
     let todays_events = props.todays_events.clone();
-    let db_trigger = props.db_trigger;
+    let _db_trigger = props.db_trigger;
+    let state = use_context::<AppState>();
 
     let mut active_tab = use_signal(|| "medications".to_string());
+
+    let user_names: std::collections::HashMap<String, String> = users
+        .iter()
+        .map(|u| (u.id.clone(), u.full_name.clone().unwrap_or_default()))
+        .collect();
 
     // Fetch resources locally
     let client_id_for_meds = client_id.clone();
     let actor_id_for_meds = active_user.id.clone();
     let meds_res = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = state.trigger_clients.read();
         let cid = client_id_for_meds.clone();
         let aid = actor_id_for_meds.clone();
         async move { get_medications(cid, aid).await.unwrap_or_default() }
@@ -40,7 +47,7 @@ pub fn CarePortal(props: CarePortalProps) -> Element {
     let client_id_for_journals = client_id.clone();
     let actor_id_for_journals = active_user.id.clone();
     let journals_res = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = state.trigger_clients.read();
         let cid = client_id_for_journals.clone();
         let aid = actor_id_for_journals.clone();
         async move { get_journals(cid, aid).await.unwrap_or_default() }
@@ -81,10 +88,10 @@ pub fn CarePortal(props: CarePortalProps) -> Element {
                                 for (ev, start_time_part, end_time_part, caregiver) in todays_events.iter().map(|ev| {
                                     let start_time_part = if ev.start_time.len() >= 16 { ev.start_time[11..16].to_string() } else { ev.start_time.clone() };
                                     let end_time_part = if ev.end_time.len() >= 16 { ev.end_time[11..16].to_string() } else { ev.end_time.clone() };
-                                    let caregiver = users
-                                        .iter()
-                                        .find(|u| Some(u.id.clone()) == ev.assignee_id)
-                                        .and_then(|u| u.full_name.clone())
+                                    let caregiver = ev.assignee_id
+                                        .as_ref()
+                                        .and_then(|aid| user_names.get(aid).cloned())
+                                        .filter(|name| !name.is_empty())
                                         .unwrap_or_else(|| "Okänd personal".to_string());
                                     (ev, start_time_part, end_time_part, caregiver)
                                 }) {
@@ -236,10 +243,10 @@ pub fn CarePortal(props: CarePortalProps) -> Element {
                         } else {
                             div { class: "relative border-l border-border/40 pl-6 ml-4 space-y-6 flex flex-col gap-4",
                                 for (entry, author_name) in client_journals.iter().map(|entry| {
-                                    let author_name = users
-                                        .iter()
-                                        .find(|u| Some(u.id.clone()) == entry.author_id)
-                                        .and_then(|u| u.full_name.clone())
+                                    let author_name = entry.author_id
+                                        .as_ref()
+                                        .and_then(|aid| user_names.get(aid).cloned())
+                                        .filter(|name| !name.is_empty())
                                         .unwrap_or_else(|| "Okänd vårdgivare".to_string());
                                     (entry, author_name)
                                 }) {

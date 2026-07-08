@@ -25,7 +25,6 @@ pub fn MessageCompose(props: MessageComposeProps) -> Element {
     let mut compose_subject = props.compose_subject;
     let mut compose_body = props.compose_body;
     let mut compose_status = props.compose_status;
-    let mut db_trigger = props.db_trigger;
     let region = props.region;
 
     let mut compose_recipient_open = use_signal(|| false);
@@ -133,8 +132,6 @@ pub fn MessageCompose(props: MessageComposeProps) -> Element {
                                         body,
                                     ).await;
                                 });
-                                let current_trig = *db_trigger.read();
-                                db_trigger.set(current_trig + 1);
                                 compose_subject.set(String::new());
                                 compose_body.set(String::new());
                                 compose_status.set("success".to_string());

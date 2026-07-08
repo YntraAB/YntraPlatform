@@ -29,6 +29,11 @@ pub fn JournalTabContent(props: JournalTabContentProps) -> Element {
     let cid_for_submit = current_client.id.clone();
     let author_id = active_user.id.clone();
 
+    let user_names: std::collections::HashMap<String, String> = users
+        .iter()
+        .map(|u| (u.id.clone(), u.full_name.clone().unwrap_or_default()))
+        .collect();
+
     rsx! {
         div { class: "space-y-6 flex flex-col gap-6",
             
@@ -58,10 +63,10 @@ pub fn JournalTabContent(props: JournalTabContentProps) -> Element {
                 } else {
                     div { class: "grid gap-4",
                         for (entry, author_name) in client_journals.iter().map(|entry| {
-                            let author_name = users
-                                .iter()
-                                .find(|u| Some(u.id.clone()) == entry.author_id)
-                                .and_then(|u| u.full_name.clone())
+                            let author_name = entry.author_id
+                                .as_ref()
+                                .and_then(|aid| user_names.get(aid).cloned())
+                                .filter(|name| !name.is_empty())
                                 .unwrap_or_else(|| crate::locales::t("assistance-journal-unknown-author", locale_ref));
                             (entry, author_name)
                         }) {

@@ -62,6 +62,8 @@ pub fn EmployeeLayout() -> Element {
     let workspaces = state.workspaces.read().clone().unwrap_or_default();
     let db_trigger = state.db_trigger;
     let trigger_jobs = state.trigger_jobs;
+    let trigger_todos = state.trigger_todos;
+    let trigger_school = state.trigger_school;
 
     // Check module activation from JSON
     let modules_active_val: serde_json::Value =
@@ -428,7 +430,7 @@ pub fn EmployeeLayout() -> Element {
                                         views::TodosView {
                                             active_user_id: active_user_id,
                                             auth_region: auth_region,
-                                            db_trigger: db_trigger,
+                                            db_trigger: trigger_todos,
                                         }
                                     }
                                 }
@@ -443,7 +445,7 @@ pub fn EmployeeLayout() -> Element {
                                     rsx! {
                                         views::SchoolView {
                                             active_user: active_user.clone(),
-                                            db_trigger: db_trigger,
+                                            db_trigger: trigger_school,
                                             locale: auth_region.read().clone(),
                                             initial_tab: Some(init_tab),
                                         }

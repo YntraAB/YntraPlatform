@@ -31,6 +31,11 @@ pub fn AttendanceTracker(props: AttendanceTrackerProps) -> Element {
     let workspace_id = props.workspace_id.clone();
     let mut db_trigger = props.db_trigger;
 
+    let attendance_map: std::collections::HashMap<String, &AttendanceRecord> = attendance_records
+        .iter()
+        .map(|r| (r.student_id.clone(), r))
+        .collect();
+
     rsx! {
         div { class: "flex flex-col gap-4",
             components::Card { class: "p-4 border-border/40 bg-sidebar/20 flex flex-wrap gap-4 items-center justify-between",
@@ -89,7 +94,7 @@ pub fn AttendanceTracker(props: AttendanceTrackerProps) -> Element {
                                 for s in students.iter() {
                                     {
                                         let student_id = s.id.clone();
-                                        let record = attendance_records.iter().find(|r| r.student_id == student_id);
+                                        let record = attendance_map.get(&student_id).copied();
                                         let current_status = record.map(|r| r.status.clone()).unwrap_or_else(|| "present".to_string());
                                         let ws = workspace_id.clone();
                                         let cid = course_id.clone();

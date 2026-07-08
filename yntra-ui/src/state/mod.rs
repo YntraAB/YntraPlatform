@@ -17,6 +17,9 @@ use crate::utils::DioxusDbObserver;
 pub struct AppState {
     pub db_trigger: Signal<u32>,
     pub trigger_jobs: Signal<u32>,
+    pub trigger_todos: Signal<u32>,
+    pub trigger_school: Signal<u32>,
+    pub trigger_clients: Signal<u32>,
     pub active_user_id: Signal<String>,
     pub active_section: Signal<String>,
     pub needs_setup: Signal<bool>,
@@ -163,6 +166,7 @@ pub fn use_init_app_state() -> AppState {
     let mut trigger_clients = use_signal(|| 0);
     let mut trigger_reports = use_signal(|| 0);
     let mut trigger_workspaces = use_signal(|| 0);
+    let mut trigger_school = use_signal(|| 0);
     let active_user_id = use_signal(|| "user-1".to_string());
     let active_section = use_signal(|| "dashboard".to_string());
     let needs_setup = use_signal(|| false);
@@ -430,72 +434,85 @@ pub fn use_init_app_state() -> AppState {
         let mut rx_opt = channel.1.lock().unwrap();
         if let Some(mut rx) = rx_opt.take() {
             spawn(async move {
-                while let Some(table) = rx.recv().await {
-                    match table.as_str() {
-                        "todos" => {
-                            let v = *trigger_todos.read();
-                            trigger_todos.set(v + 1);
+                let mut pending_tables = std::collections::HashSet::new();
+                loop {
+                    tokio::select! {
+                        val = rx.recv() => {
+                            if let Some(table) = val {
+                                pending_tables.insert(table);
+                                while let Ok(table) = rx.try_recv() {
+                                    pending_tables.insert(table);
+                                }
+                                crate::utils::sleep_ms(50).await;
+                                
+                                let mut update_todos = false;
+                                let mut update_users = false;
+                                let mut update_teams = false;
+                                let mut update_events = false;
+                                let mut update_messages = false;
+                                let mut update_notes = false;
+                                let mut update_time = false;
+                                let mut update_clients = false;
+                                let mut update_reports = false;
+                                let mut update_workspaces = false;
+                                let mut update_jobs = false;
+                                let mut update_school = false;
+                                let mut update_db = false;
+
+                                for table in pending_tables.drain() {
+                                    match table.as_str() {
+                                        "todos" => update_todos = true,
+                                        "users" | "team_members" => update_users = true,
+                                        "teams" => update_teams = true,
+                                        "events" => update_events = true,
+                                        "messages" => update_messages = true,
+                                        "notes" | "note_updates" => update_notes = true,
+                                        "time_reports" => update_time = true,
+                                        "clients" | "client_medications" | "client_journals" => update_clients = true,
+                                        "reports" => update_reports = true,
+                                        "workspaces" => update_workspaces = true,
+                                        "job_tickets" | "move_inventory" | "move_quotes" => update_jobs = true,
+                                        "courses" | "assignments" | "submissions" | "attendance_records" | "timetable_slots" 
+                                        | "health_records" | "health_incidents" | "school_invoices" | "school_payments" 
+                                        | "library_books" | "library_lending_logs" | "student_profiles" => update_school = true,
+                                        "audit_logs" | "bankid_auth_sessions" => {},
+                                        _ => {
+                                            update_todos = true;
+                                            update_users = true;
+                                            update_teams = true;
+                                            update_events = true;
+                                            update_messages = true;
+                                            update_notes = true;
+                                            update_time = true;
+                                            update_clients = true;
+                                            update_reports = true;
+                                            update_workspaces = true;
+                                            update_jobs = true;
+                                            update_school = true;
+                                        }
+                                    }
+                                    if table != "audit_logs" && table != "bankid_auth_sessions" {
+                                        update_db = true;
+                                    }
+                                }
+
+                                 if update_todos { let next = *trigger_todos.read() + 1; trigger_todos.set(next); }
+                                 if update_users { let next = *trigger_users.read() + 1; trigger_users.set(next); }
+                                 if update_teams { let next = *trigger_teams.read() + 1; trigger_teams.set(next); }
+                                 if update_events { let next = *trigger_events.read() + 1; trigger_events.set(next); }
+                                 if update_messages { let next = *trigger_messages.read() + 1; trigger_messages.set(next); }
+                                 if update_notes { let next = *trigger_notes.read() + 1; trigger_notes.set(next); }
+                                 if update_time { let next = *trigger_time.read() + 1; trigger_time.set(next); }
+                                 if update_clients { let next = *trigger_clients.read() + 1; trigger_clients.set(next); }
+                                 if update_reports { let next = *trigger_reports.read() + 1; trigger_reports.set(next); }
+                                 if update_workspaces { let next = *trigger_workspaces.read() + 1; trigger_workspaces.set(next); }
+                                 if update_jobs { let next = *trigger_jobs.read() + 1; trigger_jobs.set(next); }
+                                 if update_school { let next = *trigger_school.read() + 1; trigger_school.set(next); }
+                                 if update_db { let next = *db_trigger.read() + 1; db_trigger.set(next); }
+                            } else {
+                                break;
+                            }
                         }
-                        "users" | "team_members" => {
-                            let v = *trigger_users.read();
-                            trigger_users.set(v + 1);
-                        }
-                        "teams" => {
-                            let v = *trigger_teams.read();
-                            trigger_teams.set(v + 1);
-                        }
-                        "events" => {
-                            let v = *trigger_events.read();
-                            trigger_events.set(v + 1);
-                        }
-                        "messages" => {
-                            let v = *trigger_messages.read();
-                            trigger_messages.set(v + 1);
-                        }
-                        "notes" | "note_updates" => {
-                            let v = *trigger_notes.read();
-                            trigger_notes.set(v + 1);
-                        }
-                        "time_reports" => {
-                            let v = *trigger_time.read();
-                            trigger_time.set(v + 1);
-                        }
-                        "clients" | "client_medications" | "client_journals" => {
-                            let v = *trigger_clients.read();
-                            trigger_clients.set(v + 1);
-                        }
-                        "reports" => {
-                            let v = *trigger_reports.read();
-                            trigger_reports.set(v + 1);
-                        }
-                        "workspaces" => {
-                            let v = *trigger_workspaces.read();
-                            trigger_workspaces.set(v + 1);
-                        }
-                        "job_tickets" | "move_inventory" | "move_quotes" => {
-                            let v = *trigger_jobs.read();
-                            trigger_jobs.set(v + 1);
-                        }
-                        "audit_logs" | "bankid_auth_sessions" => {
-                            // Internal meta tables, no UI resource reload needed
-                        }
-                        _ => {
-                            let v_todos = *trigger_todos.read(); trigger_todos.set(v_todos + 1);
-                            let v_users = *trigger_users.read(); trigger_users.set(v_users + 1);
-                            let v_teams = *trigger_teams.read(); trigger_teams.set(v_teams + 1);
-                            let v_events = *trigger_events.read(); trigger_events.set(v_events + 1);
-                            let v_messages = *trigger_messages.read(); trigger_messages.set(v_messages + 1);
-                            let v_notes = *trigger_notes.read(); trigger_notes.set(v_notes + 1);
-                            let v_time = *trigger_time.read(); trigger_time.set(v_time + 1);
-                            let v_clients = *trigger_clients.read(); trigger_clients.set(v_clients + 1);
-                            let v_reports = *trigger_reports.read(); trigger_reports.set(v_reports + 1);
-                            let v_workspaces = *trigger_workspaces.read(); trigger_workspaces.set(v_workspaces + 1);
-                            let v_jobs = *trigger_jobs.read(); trigger_jobs.set(v_jobs + 1);
-                        }
-                    }
-                    if table != "audit_logs" && table != "bankid_auth_sessions" {
-                        let val = *db_trigger.read();
-                        db_trigger.set(val + 1);
                     }
                 }
             });
@@ -695,6 +712,9 @@ pub fn use_init_app_state() -> AppState {
         compose_status,
 
         trigger_jobs,
+        trigger_todos,
+        trigger_school,
+        trigger_clients,
         
         workspace,
         users,

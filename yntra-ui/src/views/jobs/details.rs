@@ -25,7 +25,6 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
     let mut completion_report_state = props.completion_report_state;
     let inventories = props.inventories;
     let quote = props.quote;
-    let db_trigger = props.db_trigger;
 
     let job_id_status = job.id.clone();
     let job_id_submit = job.id.clone();
@@ -244,13 +243,9 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                         variant: components::ButtonVariant::Primary,
                         onclick: move |_| {
                             let job_id = job_id_status.clone();
-                            let mut trigger = db_trigger;
                             let uid = active_user_id.clone();
                             spawn(async move {
-                                if yntra_core::update_job_status(uid, job_id, "in_progress".to_string()).await.is_ok() {
-                                    let current = *trigger.read();
-                                    trigger.set(current + 1);
-                                }
+                                let _ = yntra_core::update_job_status(uid, job_id, "in_progress".to_string()).await;
                             });
                         },
                         "{t(\"jobs-action-start\", &region)}"
@@ -262,13 +257,9 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                             let checklist_str = serde_json::to_string(&*checklist_state.read()).unwrap();
                             let report_str = completion_report_state.read().clone();
                             let job_id = job_id_submit.clone();
-                            let mut trigger = db_trigger;
                             let uid = active_user_id.clone();
                             spawn(async move {
-                                if yntra_core::submit_job_completion(uid, job_id, checklist_str, report_str).await.is_ok() {
-                                    let current = *trigger.read();
-                                    trigger.set(current + 1);
-                                }
+                                let _ = yntra_core::submit_job_completion(uid, job_id, checklist_str, report_str).await;
                             });
                         },
                         "{t(\"jobs-action-complete\", &region)}"

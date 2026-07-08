@@ -33,7 +33,6 @@ impl PartialEq for SchoolViewProps {
 #[component]
 pub fn SchoolView(props: SchoolViewProps) -> Element {
     let active_user = props.active_user.clone();
-    let db_trig = *props.db_trigger.read();
     let mut db_trigger = props.db_trigger;
     let state = use_context::<AppState>();
     // View toggle: true = Teacher/Admin view, false = Student/Kids portal view
@@ -103,7 +102,7 @@ pub fn SchoolView(props: SchoolViewProps) -> Element {
     // 1. Fetch Students
     let uid_for_students = active_user.id.clone();
     let students_res = use_resource(move || {
-        let _ = db_trig;
+        let _trig = *db_trigger.read();
         let uid = uid_for_students.clone();
         async move {
             yntra_core::get_students(uid).await.unwrap_or_default()
@@ -114,7 +113,7 @@ pub fn SchoolView(props: SchoolViewProps) -> Element {
     // 2. Fetch Courses
     let uid_for_courses = active_user.id.clone();
     let courses_res = use_resource(move || {
-        let _ = db_trig;
+        let _trig = *db_trigger.read();
         let uid = uid_for_courses.clone();
         async move {
             yntra_core::get_courses(uid).await.unwrap_or_default()
@@ -128,7 +127,7 @@ pub fn SchoolView(props: SchoolViewProps) -> Element {
     let uid_for_assignments = active_user.id.clone();
     // Fetch assignments for selected course
     let assignments_res = use_resource(move || {
-        let _ = db_trig;
+        let _trig = *db_trigger.read();
         let c_id = selected_course_id.read().clone();
         let uid = uid_for_assignments.clone();
         async move {
@@ -147,7 +146,7 @@ pub fn SchoolView(props: SchoolViewProps) -> Element {
     // Fetch submissions for selected assignment
     let uid_for_submissions = active_user.id.clone();
     let submissions_res = use_resource(move || {
-        let _ = db_trig;
+        let _trig = *db_trigger.read();
         let a_id = selected_assignment_id.read().clone();
         let uid = uid_for_submissions.clone();
         async move {
@@ -171,23 +170,14 @@ pub fn SchoolView(props: SchoolViewProps) -> Element {
     // Student Portal Data Resource (fetches all assignments and submissions for portal view)
     let uid_for_portal = active_user.id.clone();
     let student_portal_data_res = use_resource(move || {
-        let _ = db_trig;
+        let _trig = *db_trigger.read();
         let uid = uid_for_portal.clone();
         async move {
-            let courses_list = yntra_core::get_courses(uid.clone()).await.unwrap_or_default();
-            let mut all_assigns = Vec::new();
-            for c in courses_list.iter() {
-                if let Ok(assigns) = yntra_core::get_assignments(uid.clone(), c.id.clone()).await {
-                    all_assigns.extend(assigns);
-                }
+            if let Ok(data) = yntra_core::get_student_portal_data(uid).await {
+                (data.assignments, data.submissions)
+            } else {
+                (Vec::new(), Vec::new())
             }
-            let mut all_subs = Vec::new();
-            for a in all_assigns.iter() {
-                if let Ok(subs) = yntra_core::get_submissions(uid.clone(), a.id.clone()).await {
-                    all_subs.extend(subs);
-                }
-            }
-            (all_assigns, all_subs)
         }
     });
 
@@ -265,7 +255,7 @@ pub fn SchoolView(props: SchoolViewProps) -> Element {
     // Fetch Attendance records
     let uid_for_attendance = active_user.id.clone();
     let attendance_res = use_resource(move || {
-        let _ = db_trig;
+        let _trig = *db_trigger.read();
         let c_id = attendance_course_id.read().clone();
         let date_str = attendance_date.read().clone();
         let uid = uid_for_attendance.clone();

@@ -212,20 +212,11 @@ pub fn ParentPortal(props: ParentPortalProps) -> Element {
         let _ = db_trig;
         let uid = uid_for_acad.clone();
         async move {
-            let courses_list = yntra_core::get_courses(uid.clone()).await.unwrap_or_default();
-            let mut all_assigns = Vec::new();
-            for c in courses_list.iter() {
-                if let Ok(assigns) = yntra_core::get_assignments(uid.clone(), c.id.clone()).await {
-                    all_assigns.extend(assigns);
-                }
+            if let Ok(data) = yntra_core::get_student_portal_data(uid).await {
+                (data.assignments, data.submissions)
+            } else {
+                (Vec::new(), Vec::new())
             }
-            let mut all_subs = Vec::new();
-            for a in all_assigns.iter() {
-                if let Ok(subs) = yntra_core::get_submissions(uid.clone(), a.id.clone()).await {
-                    all_subs.extend(subs);
-                }
-            }
-            (all_assigns, all_subs)
         }
     });
     let (all_assignments, all_submissions) = academic_data_res.read().clone().unwrap_or_else(|| (Vec::new(), Vec::new()));
