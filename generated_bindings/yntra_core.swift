@@ -431,6 +431,22 @@ fileprivate struct FfiConverterInt32: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
+    typealias FfiType = UInt64
+    typealias SwiftType = UInt64
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt64 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterInt64: FfiConverterPrimitive {
     typealias FfiType = Int64
     typealias SwiftType = Int64
@@ -2725,17 +2741,17 @@ public func FfiConverterTypeMoveInventoryItem_lower(_ value: MoveInventoryItem) 
 public struct MoveQuote {
     public var id: String
     public var jobTicketId: String
-    public var basePrice: Double
-    public var distanceFee: Double
-    public var stairsSurcharge: Double
-    public var packingSuppliesFee: Double
-    public var totalPrice: Double
+    public var basePrice: Int64
+    public var distanceFee: Int64
+    public var stairsSurcharge: Int64
+    public var packingSuppliesFee: Int64
+    public var totalPrice: Int64
     public var status: String
     public var acceptedAt: Int64?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, jobTicketId: String, basePrice: Double, distanceFee: Double, stairsSurcharge: Double, packingSuppliesFee: Double, totalPrice: Double, status: String, acceptedAt: Int64?) {
+    public init(id: String, jobTicketId: String, basePrice: Int64, distanceFee: Int64, stairsSurcharge: Int64, packingSuppliesFee: Int64, totalPrice: Int64, status: String, acceptedAt: Int64?) {
         self.id = id
         self.jobTicketId = jobTicketId
         self.basePrice = basePrice
@@ -2805,11 +2821,11 @@ public struct FfiConverterTypeMoveQuote: FfiConverterRustBuffer {
             try MoveQuote(
                 id: FfiConverterString.read(from: &buf), 
                 jobTicketId: FfiConverterString.read(from: &buf), 
-                basePrice: FfiConverterDouble.read(from: &buf), 
-                distanceFee: FfiConverterDouble.read(from: &buf), 
-                stairsSurcharge: FfiConverterDouble.read(from: &buf), 
-                packingSuppliesFee: FfiConverterDouble.read(from: &buf), 
-                totalPrice: FfiConverterDouble.read(from: &buf), 
+                basePrice: FfiConverterInt64.read(from: &buf), 
+                distanceFee: FfiConverterInt64.read(from: &buf), 
+                stairsSurcharge: FfiConverterInt64.read(from: &buf), 
+                packingSuppliesFee: FfiConverterInt64.read(from: &buf), 
+                totalPrice: FfiConverterInt64.read(from: &buf), 
                 status: FfiConverterString.read(from: &buf), 
                 acceptedAt: FfiConverterOptionInt64.read(from: &buf)
         )
@@ -2818,11 +2834,11 @@ public struct FfiConverterTypeMoveQuote: FfiConverterRustBuffer {
     public static func write(_ value: MoveQuote, into buf: inout [UInt8]) {
         FfiConverterString.write(value.id, into: &buf)
         FfiConverterString.write(value.jobTicketId, into: &buf)
-        FfiConverterDouble.write(value.basePrice, into: &buf)
-        FfiConverterDouble.write(value.distanceFee, into: &buf)
-        FfiConverterDouble.write(value.stairsSurcharge, into: &buf)
-        FfiConverterDouble.write(value.packingSuppliesFee, into: &buf)
-        FfiConverterDouble.write(value.totalPrice, into: &buf)
+        FfiConverterInt64.write(value.basePrice, into: &buf)
+        FfiConverterInt64.write(value.distanceFee, into: &buf)
+        FfiConverterInt64.write(value.stairsSurcharge, into: &buf)
+        FfiConverterInt64.write(value.packingSuppliesFee, into: &buf)
+        FfiConverterInt64.write(value.totalPrice, into: &buf)
         FfiConverterString.write(value.status, into: &buf)
         FfiConverterOptionInt64.write(value.acceptedAt, into: &buf)
     }
@@ -4678,6 +4694,7 @@ public enum YntraError {
     )
     case CryptoError(String
     )
+    case NoRowsReturned
 }
 
 
@@ -4724,6 +4741,7 @@ public struct FfiConverterTypeYntraError: FfiConverterRustBuffer {
         case 10: return .CryptoError(
             try FfiConverterString.read(from: &buf)
             )
+        case 11: return .NoRowsReturned
 
          default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -4785,6 +4803,10 @@ public struct FfiConverterTypeYntraError: FfiConverterRustBuffer {
             writeInt(&buf, Int32(10))
             FfiConverterString.write(v1, into: &buf)
             
+        
+        case .NoRowsReturned:
+            writeInt(&buf, Int32(11))
+        
         }
     }
 }
@@ -4994,30 +5016,6 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterString.read(from: &buf)
-        default: throw UniffiInternalError.unexpectedOptionalTag
-        }
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-fileprivate struct FfiConverterOptionData: FfiConverterRustBuffer {
-    typealias SwiftType = Data?
-
-    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
-        guard let value = value else {
-            writeInt(&buf, Int8(0))
-            return
-        }
-        writeInt(&buf, Int8(1))
-        FfiConverterData.write(value, into: &buf)
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
-        switch try readInt(&buf) as Int8 {
-        case 0: return nil
-        case 1: return try FfiConverterData.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -6261,6 +6259,20 @@ public func completeAuthSession(sessionId: String, userId: String, signatureHex:
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
+public func completeHardwareAuth(sessionId: String, pin: String)async throws  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_complete_hardware_auth(FfiConverterString.lower(sessionId),FfiConverterString.lower(pin)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_void,
+            completeFunc: ffi_yntra_core_rust_future_complete_void,
+            freeFunc: ffi_yntra_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
 public func createJobTicket(requesterUserId: String, workspaceId: String, title: String, description: String, locationAddress: String, priority: String, assignedUserId: String?, scheduledDate: String, checklistJson: String, originAddress: String?, destinationAddress: String?, originFloor: Int32, destinationFloor: Int32, originHasElevator: Bool, destinationHasElevator: Bool, originParkingPermitNeeded: Bool, destinationParkingPermitNeeded: Bool)async throws  -> JobTicket {
     return
         try  await uniffiRustCallAsync(
@@ -6275,11 +6287,11 @@ public func createJobTicket(requesterUserId: String, workspaceId: String, title:
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func createOrUpdateMoveQuote(requesterUserId: String, jobTicketId: String, basePrice: Double, distanceFee: Double, stairsSurcharge: Double, packingSuppliesFee: Double, status: String)async throws  -> MoveQuote {
+public func createOrUpdateMoveQuote(requesterUserId: String, jobTicketId: String, basePrice: Int64, distanceFee: Int64, stairsSurcharge: Int64, packingSuppliesFee: Int64, status: String)async throws  -> MoveQuote {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_yntra_core_fn_func_create_or_update_move_quote(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(jobTicketId),FfiConverterDouble.lower(basePrice),FfiConverterDouble.lower(distanceFee),FfiConverterDouble.lower(stairsSurcharge),FfiConverterDouble.lower(packingSuppliesFee),FfiConverterString.lower(status)
+                uniffi_yntra_core_fn_func_create_or_update_move_quote(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(jobTicketId),FfiConverterInt64.lower(basePrice),FfiConverterInt64.lower(distanceFee),FfiConverterInt64.lower(stairsSurcharge),FfiConverterInt64.lower(packingSuppliesFee),FfiConverterString.lower(status)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
@@ -6417,6 +6429,13 @@ public func deleteWorkspaceViaHub(requesterUserId: String, workspaceId: String)a
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
+public func derivePublicKeyFromPrivateKey(privateKeyHex: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeYntraError.lift) {
+    uniffi_yntra_core_fn_func_derive_public_key_from_private_key(
+        FfiConverterString.lower(privateKeyHex),$0
+    )
+})
+}
 public func encryptField(data: String, workspaceId: String)throws  -> String {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeYntraError.lift) {
     uniffi_yntra_core_fn_func_encrypt_field(
@@ -6454,6 +6473,29 @@ public func generateRoleSignature(privateKeyHex: String, userId: String, role: S
         FfiConverterString.lower(userId),
         FfiConverterString.lower(role),
         FfiConverterString.lower(workspaceId),$0
+    )
+})
+}
+public func generateRoleSignatureV2(privateKeyHex: String, userId: String, role: String, workspaceId: String, expiresAt: Int64, epoch: UInt64)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeYntraError.lift) {
+    uniffi_yntra_core_fn_func_generate_role_signature_v2(
+        FfiConverterString.lower(privateKeyHex),
+        FfiConverterString.lower(userId),
+        FfiConverterString.lower(role),
+        FfiConverterString.lower(workspaceId),
+        FfiConverterInt64.lower(expiresAt),
+        FfiConverterUInt64.lower(epoch),$0
+    )
+})
+}
+public func generateRoleSignatureWithExpiration(privateKeyHex: String, userId: String, role: String, workspaceId: String, expiresAt: Int64)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeYntraError.lift) {
+    uniffi_yntra_core_fn_func_generate_role_signature_with_expiration(
+        FfiConverterString.lower(privateKeyHex),
+        FfiConverterString.lower(userId),
+        FfiConverterString.lower(role),
+        FfiConverterString.lower(workspaceId),
+        FfiConverterInt64.lower(expiresAt),$0
     )
 })
 }
@@ -6828,12 +6870,6 @@ public func getSchoolPayments(requesterUserId: String, invoiceId: String)async t
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
-public func getSessionKey() -> Data? {
-    return try!  FfiConverterOptionData.lift(try! rustCall() {
-    uniffi_yntra_core_fn_func_get_session_key($0
-    )
-})
-}
 public func getStudentAttendance(requesterUserId: String, studentId: String)async throws  -> [AttendanceRecord] {
     return
         try  await uniffiRustCallAsync(
@@ -7070,6 +7106,12 @@ public func inviteUserViaDirectory(requesterUserId: String, workspaceId: String,
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
+public func isSessionKeySet() -> Bool {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_yntra_core_fn_func_is_session_key_set($0
+    )
+})
+}
 public func loadLocalWorkspaceKey(workspaceId: String)async  -> Bool {
     return
         try!  await uniffiRustCallAsync(
@@ -7126,6 +7168,20 @@ public func publishReportCard(requesterUserId: String, reportCardId: String, pri
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_yntra_core_fn_func_publish_report_card(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(reportCardId),FfiConverterOptionString.lower(principalComments)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_void,
+            completeFunc: ffi_yntra_core_rust_future_complete_void,
+            freeFunc: ffi_yntra_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func reconcileRoleSignatures(requesterUserId: String)async throws  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_reconcile_role_signatures(FfiConverterString.lower(requesterUserId)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_void,
@@ -7776,10 +7832,13 @@ private var initializationResult: InitializationResult = {
     if (uniffi_yntra_core_checksum_func_complete_auth_session() != 40585) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_yntra_core_checksum_func_complete_hardware_auth() != 21523) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_yntra_core_checksum_func_create_job_ticket() != 5431) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_create_or_update_move_quote() != 9349) {
+    if (uniffi_yntra_core_checksum_func_create_or_update_move_quote() != 29835) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_create_workspace_via_hub() != 62473) {
@@ -7812,6 +7871,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_yntra_core_checksum_func_delete_workspace_via_hub() != 48851) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_yntra_core_checksum_func_derive_public_key_from_private_key() != 12170) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_yntra_core_checksum_func_encrypt_field() != 47527) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7822,6 +7884,12 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_generate_role_signature() != 8493) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_generate_role_signature_v2() != 55628) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_generate_role_signature_with_expiration() != 55284) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_generate_totp_secret() != 25335) {
@@ -7908,9 +7976,6 @@ private var initializationResult: InitializationResult = {
     if (uniffi_yntra_core_checksum_func_get_school_payments() != 1550) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_yntra_core_checksum_func_get_session_key() != 55124) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_yntra_core_checksum_func_get_student_attendance() != 23235) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7965,6 +8030,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_yntra_core_checksum_func_invite_user_via_directory() != 63225) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_yntra_core_checksum_func_is_session_key_set() != 23666) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_yntra_core_checksum_func_load_local_workspace_key() != 25393) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7978,6 +8046,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_publish_report_card() != 62379) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_reconcile_role_signatures() != 46126) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_record_school_payment() != 24031) {

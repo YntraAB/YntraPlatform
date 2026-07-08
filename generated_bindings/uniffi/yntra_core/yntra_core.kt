@@ -1018,6 +1018,10 @@ internal open class UniffiVTableCallbackInterfaceDatabaseObserver(
 
 
 
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -1088,9 +1092,11 @@ internal interface UniffiLib : Library {
     ): Unit
     fun uniffi_yntra_core_fn_func_complete_auth_session(`sessionId`: RustBuffer.ByValue,`userId`: RustBuffer.ByValue,`signatureHex`: RustBuffer.ByValue,
     ): Long
+    fun uniffi_yntra_core_fn_func_complete_hardware_auth(`sessionId`: RustBuffer.ByValue,`pin`: RustBuffer.ByValue,
+    ): Long
     fun uniffi_yntra_core_fn_func_create_job_ticket(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`title`: RustBuffer.ByValue,`description`: RustBuffer.ByValue,`locationAddress`: RustBuffer.ByValue,`priority`: RustBuffer.ByValue,`assignedUserId`: RustBuffer.ByValue,`scheduledDate`: RustBuffer.ByValue,`checklistJson`: RustBuffer.ByValue,`originAddress`: RustBuffer.ByValue,`destinationAddress`: RustBuffer.ByValue,`originFloor`: Int,`destinationFloor`: Int,`originHasElevator`: Byte,`destinationHasElevator`: Byte,`originParkingPermitNeeded`: Byte,`destinationParkingPermitNeeded`: Byte,
     ): Long
-    fun uniffi_yntra_core_fn_func_create_or_update_move_quote(`requesterUserId`: RustBuffer.ByValue,`jobTicketId`: RustBuffer.ByValue,`basePrice`: Double,`distanceFee`: Double,`stairsSurcharge`: Double,`packingSuppliesFee`: Double,`status`: RustBuffer.ByValue,
+    fun uniffi_yntra_core_fn_func_create_or_update_move_quote(`requesterUserId`: RustBuffer.ByValue,`jobTicketId`: RustBuffer.ByValue,`basePrice`: Long,`distanceFee`: Long,`stairsSurcharge`: Long,`packingSuppliesFee`: Long,`status`: RustBuffer.ByValue,
     ): Long
     fun uniffi_yntra_core_fn_func_create_workspace_via_hub(`name`: RustBuffer.ByValue,`adminEmail`: RustBuffer.ByValue,`modulesActive`: RustBuffer.ByValue,
     ): Long
@@ -1176,8 +1182,6 @@ internal interface UniffiLib : Library {
     ): Long
     fun uniffi_yntra_core_fn_func_get_school_payments(`requesterUserId`: RustBuffer.ByValue,`invoiceId`: RustBuffer.ByValue,
     ): Long
-    fun uniffi_yntra_core_fn_func_get_session_key(uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
     fun uniffi_yntra_core_fn_func_get_student_attendance(`requesterUserId`: RustBuffer.ByValue,`studentId`: RustBuffer.ByValue,
     ): Long
     fun uniffi_yntra_core_fn_func_get_students(`requesterUserId`: RustBuffer.ByValue,
@@ -1214,6 +1218,8 @@ internal interface UniffiLib : Library {
     ): Long
     fun uniffi_yntra_core_fn_func_invite_user_via_directory(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`email`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`role`: RustBuffer.ByValue,
     ): Long
+    fun uniffi_yntra_core_fn_func_is_session_key_set(uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
     fun uniffi_yntra_core_fn_func_load_local_workspace_key(`workspaceId`: RustBuffer.ByValue,
     ): Long
     fun uniffi_yntra_core_fn_func_log_action(`actorId`: RustBuffer.ByValue,`targetClientId`: RustBuffer.ByValue,`actionType`: RustBuffer.ByValue,
@@ -1223,6 +1229,8 @@ internal interface UniffiLib : Library {
     fun uniffi_yntra_core_fn_func_merge_loro_notes(`state1`: RustBuffer.ByValue,`state2`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_yntra_core_fn_func_publish_report_card(`requesterUserId`: RustBuffer.ByValue,`reportCardId`: RustBuffer.ByValue,`principalComments`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_yntra_core_fn_func_reconcile_role_signatures(`requesterUserId`: RustBuffer.ByValue,
     ): Long
     fun uniffi_yntra_core_fn_func_record_school_payment(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`invoiceId`: RustBuffer.ByValue,`amount`: Double,`paymentMethod`: RustBuffer.ByValue,`paidAt`: RustBuffer.ByValue,
     ): Long
@@ -1472,6 +1480,8 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_yntra_core_checksum_func_complete_auth_session(
     ): Short
+    fun uniffi_yntra_core_checksum_func_complete_hardware_auth(
+    ): Short
     fun uniffi_yntra_core_checksum_func_create_job_ticket(
     ): Short
     fun uniffi_yntra_core_checksum_func_create_or_update_move_quote(
@@ -1560,8 +1570,6 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_yntra_core_checksum_func_get_school_payments(
     ): Short
-    fun uniffi_yntra_core_checksum_func_get_session_key(
-    ): Short
     fun uniffi_yntra_core_checksum_func_get_student_attendance(
     ): Short
     fun uniffi_yntra_core_checksum_func_get_students(
@@ -1598,6 +1606,8 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_yntra_core_checksum_func_invite_user_via_directory(
     ): Short
+    fun uniffi_yntra_core_checksum_func_is_session_key_set(
+    ): Short
     fun uniffi_yntra_core_checksum_func_load_local_workspace_key(
     ): Short
     fun uniffi_yntra_core_checksum_func_log_action(
@@ -1607,6 +1617,8 @@ internal interface UniffiLib : Library {
     fun uniffi_yntra_core_checksum_func_merge_loro_notes(
     ): Short
     fun uniffi_yntra_core_checksum_func_publish_report_card(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_reconcile_role_signatures(
     ): Short
     fun uniffi_yntra_core_checksum_func_record_school_payment(
     ): Short
@@ -1791,10 +1803,13 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_yntra_core_checksum_func_complete_auth_session() != 40585.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_yntra_core_checksum_func_complete_hardware_auth() != 21523.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_yntra_core_checksum_func_create_job_ticket() != 5431.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_create_or_update_move_quote() != 9349.toShort()) {
+    if (lib.uniffi_yntra_core_checksum_func_create_or_update_move_quote() != 29835.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_create_workspace_via_hub() != 62473.toShort()) {
@@ -1923,9 +1938,6 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_yntra_core_checksum_func_get_school_payments() != 1550.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_yntra_core_checksum_func_get_session_key() != 55124.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
     if (lib.uniffi_yntra_core_checksum_func_get_student_attendance() != 23235.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1980,6 +1992,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_yntra_core_checksum_func_invite_user_via_directory() != 63225.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_yntra_core_checksum_func_is_session_key_set() != 23666.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_yntra_core_checksum_func_load_local_workspace_key() != 25393.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1993,6 +2008,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_publish_report_card() != 62379.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_reconcile_role_signatures() != 46126.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_record_school_payment() != 24031.toShort()) {
@@ -3482,11 +3500,11 @@ public object FfiConverterTypeMoveInventoryItem: FfiConverterRustBuffer<MoveInve
 data class MoveQuote (
     var `id`: kotlin.String, 
     var `jobTicketId`: kotlin.String, 
-    var `basePrice`: kotlin.Double, 
-    var `distanceFee`: kotlin.Double, 
-    var `stairsSurcharge`: kotlin.Double, 
-    var `packingSuppliesFee`: kotlin.Double, 
-    var `totalPrice`: kotlin.Double, 
+    var `basePrice`: kotlin.Long, 
+    var `distanceFee`: kotlin.Long, 
+    var `stairsSurcharge`: kotlin.Long, 
+    var `packingSuppliesFee`: kotlin.Long, 
+    var `totalPrice`: kotlin.Long, 
     var `status`: kotlin.String, 
     var `acceptedAt`: kotlin.Long?
 ) {
@@ -3502,11 +3520,11 @@ public object FfiConverterTypeMoveQuote: FfiConverterRustBuffer<MoveQuote> {
         return MoveQuote(
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
-            FfiConverterDouble.read(buf),
-            FfiConverterDouble.read(buf),
-            FfiConverterDouble.read(buf),
-            FfiConverterDouble.read(buf),
-            FfiConverterDouble.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterLong.read(buf),
             FfiConverterString.read(buf),
             FfiConverterOptionalLong.read(buf),
         )
@@ -3515,11 +3533,11 @@ public object FfiConverterTypeMoveQuote: FfiConverterRustBuffer<MoveQuote> {
     override fun allocationSize(value: MoveQuote) = (
             FfiConverterString.allocationSize(value.`id`) +
             FfiConverterString.allocationSize(value.`jobTicketId`) +
-            FfiConverterDouble.allocationSize(value.`basePrice`) +
-            FfiConverterDouble.allocationSize(value.`distanceFee`) +
-            FfiConverterDouble.allocationSize(value.`stairsSurcharge`) +
-            FfiConverterDouble.allocationSize(value.`packingSuppliesFee`) +
-            FfiConverterDouble.allocationSize(value.`totalPrice`) +
+            FfiConverterLong.allocationSize(value.`basePrice`) +
+            FfiConverterLong.allocationSize(value.`distanceFee`) +
+            FfiConverterLong.allocationSize(value.`stairsSurcharge`) +
+            FfiConverterLong.allocationSize(value.`packingSuppliesFee`) +
+            FfiConverterLong.allocationSize(value.`totalPrice`) +
             FfiConverterString.allocationSize(value.`status`) +
             FfiConverterOptionalLong.allocationSize(value.`acceptedAt`)
     )
@@ -3527,11 +3545,11 @@ public object FfiConverterTypeMoveQuote: FfiConverterRustBuffer<MoveQuote> {
     override fun write(value: MoveQuote, buf: ByteBuffer) {
             FfiConverterString.write(value.`id`, buf)
             FfiConverterString.write(value.`jobTicketId`, buf)
-            FfiConverterDouble.write(value.`basePrice`, buf)
-            FfiConverterDouble.write(value.`distanceFee`, buf)
-            FfiConverterDouble.write(value.`stairsSurcharge`, buf)
-            FfiConverterDouble.write(value.`packingSuppliesFee`, buf)
-            FfiConverterDouble.write(value.`totalPrice`, buf)
+            FfiConverterLong.write(value.`basePrice`, buf)
+            FfiConverterLong.write(value.`distanceFee`, buf)
+            FfiConverterLong.write(value.`stairsSurcharge`, buf)
+            FfiConverterLong.write(value.`packingSuppliesFee`, buf)
+            FfiConverterLong.write(value.`totalPrice`, buf)
             FfiConverterString.write(value.`status`, buf)
             FfiConverterOptionalLong.write(value.`acceptedAt`, buf)
     }
@@ -4859,38 +4877,6 @@ public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?>
         } else {
             buf.put(1)
             FfiConverterString.write(value, buf)
-        }
-    }
-}
-
-
-
-
-/**
- * @suppress
- */
-public object FfiConverterOptionalByteArray: FfiConverterRustBuffer<kotlin.ByteArray?> {
-    override fun read(buf: ByteBuffer): kotlin.ByteArray? {
-        if (buf.get().toInt() == 0) {
-            return null
-        }
-        return FfiConverterByteArray.read(buf)
-    }
-
-    override fun allocationSize(value: kotlin.ByteArray?): ULong {
-        if (value == null) {
-            return 1UL
-        } else {
-            return 1UL + FfiConverterByteArray.allocationSize(value)
-        }
-    }
-
-    override fun write(value: kotlin.ByteArray?, buf: ByteBuffer) {
-        if (value == null) {
-            buf.put(0)
-        } else {
-            buf.put(1)
-            FfiConverterByteArray.write(value, buf)
         }
     }
 }
@@ -6248,6 +6234,22 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `completeHardwareAuth`(`sessionId`: kotlin.String, `pin`: kotlin.String) {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_complete_hardware_auth(FfiConverterString.lower(`sessionId`),FfiConverterString.lower(`pin`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
      suspend fun `createJobTicket`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `title`: kotlin.String, `description`: kotlin.String, `locationAddress`: kotlin.String, `priority`: kotlin.String, `assignedUserId`: kotlin.String?, `scheduledDate`: kotlin.String, `checklistJson`: kotlin.String, `originAddress`: kotlin.String?, `destinationAddress`: kotlin.String?, `originFloor`: kotlin.Int, `destinationFloor`: kotlin.Int, `originHasElevator`: kotlin.Boolean, `destinationHasElevator`: kotlin.Boolean, `originParkingPermitNeeded`: kotlin.Boolean, `destinationParkingPermitNeeded`: kotlin.Boolean) : JobTicket {
         return uniffiRustCallAsync(
         UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_create_job_ticket(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`title`),FfiConverterString.lower(`description`),FfiConverterString.lower(`locationAddress`),FfiConverterString.lower(`priority`),FfiConverterOptionalString.lower(`assignedUserId`),FfiConverterString.lower(`scheduledDate`),FfiConverterString.lower(`checklistJson`),FfiConverterOptionalString.lower(`originAddress`),FfiConverterOptionalString.lower(`destinationAddress`),FfiConverterInt.lower(`originFloor`),FfiConverterInt.lower(`destinationFloor`),FfiConverterBoolean.lower(`originHasElevator`),FfiConverterBoolean.lower(`destinationHasElevator`),FfiConverterBoolean.lower(`originParkingPermitNeeded`),FfiConverterBoolean.lower(`destinationParkingPermitNeeded`),),
@@ -6263,9 +6265,9 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `createOrUpdateMoveQuote`(`requesterUserId`: kotlin.String, `jobTicketId`: kotlin.String, `basePrice`: kotlin.Double, `distanceFee`: kotlin.Double, `stairsSurcharge`: kotlin.Double, `packingSuppliesFee`: kotlin.Double, `status`: kotlin.String) : MoveQuote {
+     suspend fun `createOrUpdateMoveQuote`(`requesterUserId`: kotlin.String, `jobTicketId`: kotlin.String, `basePrice`: kotlin.Long, `distanceFee`: kotlin.Long, `stairsSurcharge`: kotlin.Long, `packingSuppliesFee`: kotlin.Long, `status`: kotlin.String) : MoveQuote {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_create_or_update_move_quote(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`jobTicketId`),FfiConverterDouble.lower(`basePrice`),FfiConverterDouble.lower(`distanceFee`),FfiConverterDouble.lower(`stairsSurcharge`),FfiConverterDouble.lower(`packingSuppliesFee`),FfiConverterString.lower(`status`),),
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_create_or_update_move_quote(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`jobTicketId`),FfiConverterLong.lower(`basePrice`),FfiConverterLong.lower(`distanceFee`),FfiConverterLong.lower(`stairsSurcharge`),FfiConverterLong.lower(`packingSuppliesFee`),FfiConverterString.lower(`status`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
@@ -6873,15 +6875,6 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
         YntraException.ErrorHandler,
     )
     }
- fun `getSessionKey`(): kotlin.ByteArray? {
-            return FfiConverterOptionalByteArray.lift(
-    uniffiRustCall() { _status ->
-    UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_session_key(
-        _status)
-}
-    )
-    }
-    
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
@@ -7140,6 +7133,15 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
         YntraException.ErrorHandler,
     )
     }
+ fun `isSessionKeySet`(): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_is_session_key_set(
+        _status)
+}
+    )
+    }
+    
 
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
      suspend fun `loadLocalWorkspaceKey`(`workspaceId`: kotlin.String) : kotlin.Boolean {
@@ -7201,6 +7203,22 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
      suspend fun `publishReportCard`(`requesterUserId`: kotlin.String, `reportCardId`: kotlin.String, `principalComments`: kotlin.String?) {
         return uniffiRustCallAsync(
         UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_publish_report_card(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`reportCardId`),FfiConverterOptionalString.lower(`principalComments`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `reconcileRoleSignatures`(`requesterUserId`: kotlin.String) {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_reconcile_role_signatures(FfiConverterString.lower(`requesterUserId`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },

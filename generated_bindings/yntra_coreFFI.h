@@ -411,6 +411,11 @@ void uniffi_yntra_core_fn_func_clear_session_key(RustCallStatus *_Nonnull out_st
 uint64_t uniffi_yntra_core_fn_func_complete_auth_session(RustBuffer session_id, RustBuffer user_id, RustBuffer signature_hex
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_COMPLETE_HARDWARE_AUTH
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_COMPLETE_HARDWARE_AUTH
+uint64_t uniffi_yntra_core_fn_func_complete_hardware_auth(RustBuffer session_id, RustBuffer pin
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_CREATE_JOB_TICKET
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_CREATE_JOB_TICKET
 uint64_t uniffi_yntra_core_fn_func_create_job_ticket(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer title, RustBuffer description, RustBuffer location_address, RustBuffer priority, RustBuffer assigned_user_id, RustBuffer scheduled_date, RustBuffer checklist_json, RustBuffer origin_address, RustBuffer destination_address, int32_t origin_floor, int32_t destination_floor, int8_t origin_has_elevator, int8_t destination_has_elevator, int8_t origin_parking_permit_needed, int8_t destination_parking_permit_needed
@@ -418,7 +423,7 @@ uint64_t uniffi_yntra_core_fn_func_create_job_ticket(RustBuffer requester_user_i
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_CREATE_OR_UPDATE_MOVE_QUOTE
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_CREATE_OR_UPDATE_MOVE_QUOTE
-uint64_t uniffi_yntra_core_fn_func_create_or_update_move_quote(RustBuffer requester_user_id, RustBuffer job_ticket_id, double base_price, double distance_fee, double stairs_surcharge, double packing_supplies_fee, RustBuffer status
+uint64_t uniffi_yntra_core_fn_func_create_or_update_move_quote(RustBuffer requester_user_id, RustBuffer job_ticket_id, int64_t base_price, int64_t distance_fee, int64_t stairs_surcharge, int64_t packing_supplies_fee, RustBuffer status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_CREATE_WORKSPACE_VIA_HUB
@@ -471,6 +476,11 @@ uint64_t uniffi_yntra_core_fn_func_delete_user(RustBuffer requester_user_id, Rus
 uint64_t uniffi_yntra_core_fn_func_delete_workspace_via_hub(RustBuffer requester_user_id, RustBuffer workspace_id
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_DERIVE_PUBLIC_KEY_FROM_PRIVATE_KEY
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_DERIVE_PUBLIC_KEY_FROM_PRIVATE_KEY
+RustBuffer uniffi_yntra_core_fn_func_derive_public_key_from_private_key(RustBuffer private_key_hex, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ENCRYPT_FIELD
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_ENCRYPT_FIELD
 RustBuffer uniffi_yntra_core_fn_func_encrypt_field(RustBuffer data, RustBuffer workspace_id, RustCallStatus *_Nonnull out_status
@@ -489,6 +499,16 @@ uint64_t uniffi_yntra_core_fn_func_fail_auth_session(RustBuffer session_id, Rust
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GENERATE_ROLE_SIGNATURE
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GENERATE_ROLE_SIGNATURE
 RustBuffer uniffi_yntra_core_fn_func_generate_role_signature(RustBuffer private_key_hex, RustBuffer user_id, RustBuffer role, RustBuffer workspace_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GENERATE_ROLE_SIGNATURE_V2
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GENERATE_ROLE_SIGNATURE_V2
+RustBuffer uniffi_yntra_core_fn_func_generate_role_signature_v2(RustBuffer private_key_hex, RustBuffer user_id, RustBuffer role, RustBuffer workspace_id, int64_t expires_at, uint64_t epoch, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GENERATE_ROLE_SIGNATURE_WITH_EXPIRATION
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GENERATE_ROLE_SIGNATURE_WITH_EXPIRATION
+RustBuffer uniffi_yntra_core_fn_func_generate_role_signature_with_expiration(RustBuffer private_key_hex, RustBuffer user_id, RustBuffer role, RustBuffer workspace_id, int64_t expires_at, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GENERATE_TOTP_SECRET
@@ -634,12 +654,6 @@ uint64_t uniffi_yntra_core_fn_func_get_school_invoices(RustBuffer requester_user
 uint64_t uniffi_yntra_core_fn_func_get_school_payments(RustBuffer requester_user_id, RustBuffer invoice_id
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_SESSION_KEY
-#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_SESSION_KEY
-RustBuffer uniffi_yntra_core_fn_func_get_session_key(RustCallStatus *_Nonnull out_status
-    
-);
-#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_STUDENT_ATTENDANCE
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_STUDENT_ATTENDANCE
 uint64_t uniffi_yntra_core_fn_func_get_student_attendance(RustBuffer requester_user_id, RustBuffer student_id
@@ -732,6 +746,12 @@ uint64_t uniffi_yntra_core_fn_func_initiate_bankid_auth(RustBuffer target_role, 
 uint64_t uniffi_yntra_core_fn_func_invite_user_via_directory(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer email, RustBuffer name, RustBuffer role
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_IS_SESSION_KEY_SET
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_IS_SESSION_KEY_SET
+int8_t uniffi_yntra_core_fn_func_is_session_key_set(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_LOAD_LOCAL_WORKSPACE_KEY
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_LOAD_LOCAL_WORKSPACE_KEY
 uint64_t uniffi_yntra_core_fn_func_load_local_workspace_key(RustBuffer workspace_id
@@ -755,6 +775,11 @@ RustBuffer uniffi_yntra_core_fn_func_merge_loro_notes(RustBuffer state1, RustBuf
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_PUBLISH_REPORT_CARD
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_PUBLISH_REPORT_CARD
 uint64_t uniffi_yntra_core_fn_func_publish_report_card(RustBuffer requester_user_id, RustBuffer report_card_id, RustBuffer principal_comments
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_RECONCILE_ROLE_SIGNATURES
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_RECONCILE_ROLE_SIGNATURES
+uint64_t uniffi_yntra_core_fn_func_reconcile_role_signatures(RustBuffer requester_user_id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_RECORD_SCHOOL_PAYMENT
@@ -1405,6 +1430,12 @@ uint16_t uniffi_yntra_core_checksum_func_complete_auth_session(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_COMPLETE_HARDWARE_AUTH
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_COMPLETE_HARDWARE_AUTH
+uint16_t uniffi_yntra_core_checksum_func_complete_hardware_auth(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_CREATE_JOB_TICKET
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_CREATE_JOB_TICKET
 uint16_t uniffi_yntra_core_checksum_func_create_job_ticket(void
@@ -1477,6 +1508,12 @@ uint16_t uniffi_yntra_core_checksum_func_delete_workspace_via_hub(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_DERIVE_PUBLIC_KEY_FROM_PRIVATE_KEY
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_DERIVE_PUBLIC_KEY_FROM_PRIVATE_KEY
+uint16_t uniffi_yntra_core_checksum_func_derive_public_key_from_private_key(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_ENCRYPT_FIELD
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_ENCRYPT_FIELD
 uint16_t uniffi_yntra_core_checksum_func_encrypt_field(void
@@ -1498,6 +1535,18 @@ uint16_t uniffi_yntra_core_checksum_func_fail_auth_session(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GENERATE_ROLE_SIGNATURE
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GENERATE_ROLE_SIGNATURE
 uint16_t uniffi_yntra_core_checksum_func_generate_role_signature(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GENERATE_ROLE_SIGNATURE_V2
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GENERATE_ROLE_SIGNATURE_V2
+uint16_t uniffi_yntra_core_checksum_func_generate_role_signature_v2(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GENERATE_ROLE_SIGNATURE_WITH_EXPIRATION
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GENERATE_ROLE_SIGNATURE_WITH_EXPIRATION
+uint16_t uniffi_yntra_core_checksum_func_generate_role_signature_with_expiration(void
     
 );
 #endif
@@ -1669,12 +1718,6 @@ uint16_t uniffi_yntra_core_checksum_func_get_school_payments(void
     
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_SESSION_KEY
-#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_SESSION_KEY
-uint16_t uniffi_yntra_core_checksum_func_get_session_key(void
-    
-);
-#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_STUDENT_ATTENDANCE
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_STUDENT_ATTENDANCE
 uint16_t uniffi_yntra_core_checksum_func_get_student_attendance(void
@@ -1783,6 +1826,12 @@ uint16_t uniffi_yntra_core_checksum_func_invite_user_via_directory(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_IS_SESSION_KEY_SET
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_IS_SESSION_KEY_SET
+uint16_t uniffi_yntra_core_checksum_func_is_session_key_set(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_LOAD_LOCAL_WORKSPACE_KEY
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_LOAD_LOCAL_WORKSPACE_KEY
 uint16_t uniffi_yntra_core_checksum_func_load_local_workspace_key(void
@@ -1810,6 +1859,12 @@ uint16_t uniffi_yntra_core_checksum_func_merge_loro_notes(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_PUBLISH_REPORT_CARD
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_PUBLISH_REPORT_CARD
 uint16_t uniffi_yntra_core_checksum_func_publish_report_card(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_RECONCILE_ROLE_SIGNATURES
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_RECONCILE_ROLE_SIGNATURES
+uint16_t uniffi_yntra_core_checksum_func_reconcile_role_signatures(void
     
 );
 #endif
