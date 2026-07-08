@@ -162,8 +162,8 @@ pub async fn verify_audit_log_chain() -> Result<bool, YntraError> {
         workspaces.push(row.get::<String>(0)?);
     }
     
+    let mut stmt = conn.prepare("SELECT id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash, seq FROM audit_logs WHERE workspace_id = ?1 ORDER BY seq ASC").await?;
     for ws_id in workspaces {
-        let mut stmt = conn.prepare("SELECT id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash, seq FROM audit_logs WHERE workspace_id = ?1 ORDER BY seq ASC").await?;
         let mut rows = stmt.query(crate::params![&ws_id]).await?;
         
         let mut last_hash = "genesis".to_string();
