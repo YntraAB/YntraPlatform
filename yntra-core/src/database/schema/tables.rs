@@ -203,7 +203,10 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             icon TEXT NOT NULL,
             category TEXT NOT NULL,
             dependencies TEXT NOT NULL DEFAULT '[]',
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            fields_schema TEXT,
+            navigation_items TEXT,
+            ui_config TEXT
         );
 
         CREATE TABLE IF NOT EXISTS reports (
@@ -309,7 +312,21 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
         CREATE INDEX IF NOT EXISTS idx_job_tickets_workspace ON job_tickets(workspace_id);
         CREATE INDEX IF NOT EXISTS idx_job_tickets_assigned_user ON job_tickets(assigned_user_id);
         CREATE INDEX IF NOT EXISTS idx_client_medications_client ON client_medications(client_id);
-        CREATE INDEX IF NOT EXISTS idx_client_journals_client ON client_journals(client_id);"
+        CREATE INDEX IF NOT EXISTS idx_client_journals_client ON client_journals(client_id);
+            
+        CREATE TABLE IF NOT EXISTS entities (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            block_id TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            data TEXT NOT NULL,
+            created_at INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(workspace_id) REFERENCES workspaces(id),
+            FOREIGN KEY(block_id) REFERENCES blocks(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_entities_block ON entities(workspace_id, block_id);"
     )
     .await
     .map_err(|e| YntraError::DbError(e.to_string()))?;

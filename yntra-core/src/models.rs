@@ -215,6 +215,22 @@ pub struct BlockItem {
     pub icon: String,
     pub category: String,
     pub dependencies: String, // JSON array of strings
+    pub fields_schema: Option<String>,
+    pub navigation_items: Option<String>,
+    pub ui_config: Option<String>,
+}
+
+#[derive(uniffi::Record, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct DynamicEntity {
+    pub id: String,
+    pub workspace_id: String,
+    pub block_id: String,
+    pub entity_type: String,
+    pub data: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub sync_status: String,
 }
 
 #[derive(uniffi::Record, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]

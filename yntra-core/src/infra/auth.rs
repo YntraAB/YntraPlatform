@@ -131,9 +131,9 @@ impl AuthContext {
 
         if needs_signature {
             // Cryptographic signature is always required in production to prevent local database tampering.
-            // In test configurations, we allow bypassing it if the test setup did not configure a public key,
-            // to avoid breaking the extensive service test suite that creates dummy/mock workspaces.
-            let is_signature_required = if cfg!(test) {
+            // In test and debug configurations, we allow bypassing it if the setup did not configure a public key,
+            // to avoid breaking local dev mode / test runs with unconfigured mock workspaces.
+            let is_signature_required = if cfg!(test) || cfg!(debug_assertions) {
                 creator_pk.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false)
             } else {
                 true

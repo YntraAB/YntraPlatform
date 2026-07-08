@@ -379,5 +379,32 @@ pub async fn run_schema_migrations(conn: &DbConnection, current_version: i32) ->
         ).await?;
         version = 6;
     }
+    if version < 7 {
+        execute_migration_sql(conn, "ALTER TABLE blocks ADD COLUMN fields_schema TEXT").await?;
+        execute_migration_sql(conn, "ALTER TABLE blocks ADD COLUMN navigation_items TEXT").await?;
+        execute_migration_sql(conn, "ALTER TABLE blocks ADD COLUMN ui_config TEXT").await?;
+        execute_migration_batch(
+            conn,
+            "CREATE TABLE IF NOT EXISTS entities (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                block_id TEXT NOT NULL,
+                entity_type TEXT NOT NULL,
+                data TEXT NOT NULL,
+                created_at INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL DEFAULT 0,
+                sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id),
+                FOREIGN KEY(block_id) REFERENCES blocks(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_entities_block ON entities(workspace_id, block_id);"
+        ).await?;
+        version = 7;
+    }
+    if version < 8 {
+        execute_migration_sql(conn, "ALTER TABLE workspaces ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0").await?;
+        execute_migration_sql(conn, "ALTER TABLE workspaces ADD COLUMN sync_status TEXT DEFAULT 'pending'").await?;
+        version = 8;
+    }
     Ok(version)
 }

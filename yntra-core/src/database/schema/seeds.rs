@@ -96,7 +96,18 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
             conn,
             "INSERT OR IGNORE",
             "blocks",
-            &["id", "name", "description", "icon", "category", "dependencies", "created_at"],
+            &[
+                "id",
+                "name",
+                "description",
+                "icon",
+                "category",
+                "dependencies",
+                "created_at",
+                "fields_schema",
+                "navigation_items",
+                "ui_config",
+            ],
             blocks,
         ).await?;
     }
@@ -128,6 +139,24 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
                 &["id", "workspace_id", "email", "full_name", "role", "preferences", "updated_at", "sync_status"],
                 users,
             ).await?;
+
+            // Generate role signatures for all seeded users so they pass cryptographic validation
+            let mut cached_pk = None;
+            let mut cached_sk = None;
+            for u in users {
+                if let (Some(u_id), Some(u_role)) = (u["id"].as_str(), u["role"].as_str()) {
+                    let u_ws = u["workspace_id"].as_str().unwrap_or("workspace-1");
+                    let _ = crate::services::users::ensure_user_role_signature_impl(
+                        conn,
+                        u_id,
+                        u_role,
+                        u_ws,
+                        &mut cached_pk,
+                        &mut cached_sk,
+                    )
+                    .await;
+                }
+            }
         }
 
         // Seed cryptographic credentials for users
