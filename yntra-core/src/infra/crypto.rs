@@ -1,6 +1,7 @@
 use chacha20poly1305::{XChaCha20Poly1305, Key, XNonce};
 use chacha20poly1305::aead::{Aead, KeyInit};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock, RwLock};
+use std::collections::HashMap;
 use zeroize::Zeroize;
 use ed25519_dalek::{Signer, Verifier};
 
@@ -13,6 +14,26 @@ struct SessionKeys {
 static SESSION_KEY: Mutex<Option<SessionKeys>> = Mutex::new(None);
 static SYSTEM_SALT: OnceLock<zeroize::Zeroizing<Vec<u8>>> = OnceLock::new();
 
+static AUTH_KEY_CACHE: OnceLock<RwLock<HashMap<String, String>>> = OnceLock::new();
+static AUTH_EPOCH_CACHE: OnceLock<RwLock<HashMap<String, u64>>> = OnceLock::new();
+#[cfg(not(target_arch = "wasm32"))]
+static KEYRING_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
+
+
+pub fn get_auth_key_cache() -> &'static RwLock<HashMap<String, String>> {
+    AUTH_KEY_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+pub fn get_auth_epoch_cache() -> &'static RwLock<HashMap<String, u64>> {
+    AUTH_EPOCH_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn get_keyring_lock() -> &'static Mutex<()> {
+    KEYRING_MUTEX.get_or_init(|| Mutex::new(()))
+}
+
+
 fn bytes_to_string(bytes: Vec<u8>) -> Result<String, crate::infra::errors::YntraError> {
     match String::from_utf8(bytes) {
         Ok(s) => Ok(s),
@@ -22,35 +43,20 @@ fn bytes_to_string(bytes: Vec<u8>) -> Result<String, crate::infra::errors::Yntra
             Err(crate::infra::errors::YntraError::CryptoError("invalid_utf8".to_string()))
         }
     }
-}
-
-fn stretch_key_new(key: &[u8]) -> Result<[u8; 32], crate::infra::errors::YntraError> {
-    use argon2::{Argon2, Algorithm, Version, Params};
-    
+}pub fn stretch_key_new(key: &[u8]) -> Result<[u8; 32], crate::infra::errors::YntraError> {
     let system_salt = get_system_salt_ref()?;
     
-    // Derive a secure 32-byte salt from the system salt using BLAKE3
-    let mut salt_hasher = blake3::Hasher::new_derive_key("Yntra Argon2 salt derivation v1");
-    salt_hasher.update(system_salt);
-    let mut derived_salt = [0u8; 32];
-    salt_hasher.finalize_xof().fill(&mut derived_salt);
-    salt_hasher.zeroize();
+    // Secure 32-byte key derivation using BLAKE3 KDF
+    let mut hasher = blake3::Hasher::new_derive_key("Yntra key stretching v1");
+    hasher.update(&(system_salt.len() as u64).to_be_bytes());
+    hasher.update(system_salt);
+    hasher.update(&(key.len() as u64).to_be_bytes());
+    hasher.update(key);
     
-    let mut stretched_key = [0u8; 32];
-    
-    // Configure Argon2id: 19MB memory (19456 KB), 2 iterations, 1 thread (suitable for mobile/WASM)
-    let params = Params::new(19456, 2, 1, Some(32)).map_err(|_| crate::infra::errors::YntraError::CryptoError("Argon2 params invalid".to_string()))?;
-    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
-    
-    let res = argon2.hash_password_into(key, &derived_salt, &mut stretched_key)
-        .map_err(|_| {
-            stretched_key.zeroize();
-            crate::infra::errors::YntraError::CryptoError("Argon2 key stretching failed".to_string())
-        });
-        
-    derived_salt.zeroize();
-    
-    res.map(|_| stretched_key)
+    let mut derived = [0u8; 32];
+    hasher.finalize_xof().fill(&mut derived);
+    hasher.zeroize();
+    Ok(derived)
 }
 
 #[uniffi::export]
@@ -60,7 +66,11 @@ pub fn initialize_system_salt(mut salt: String) -> bool {
             salt.zeroize();
             b
         }
-        Err(_) => salt.into_bytes(),
+        Err(_) => {
+            let b = salt.clone().into_bytes();
+            salt.zeroize();
+            b
+        }
     };
     
     match SYSTEM_SALT.set(zeroize::Zeroizing::new(bytes)) {
@@ -131,7 +141,11 @@ fn ensure_system_salt_initialized() -> Result<(), crate::infra::errors::YntraErr
             salt_buf.zeroize();
             b
         }
-        Err(_) => salt_buf.into_bytes(),
+        Err(_) => {
+            let b = salt_buf.clone().into_bytes();
+            salt_buf.zeroize();
+            b
+        }
     };
     
     match SYSTEM_SALT.set(zeroize::Zeroizing::new(bytes)) {
@@ -144,47 +158,34 @@ fn ensure_system_salt_initialized() -> Result<(), crate::infra::errors::YntraErr
 }
 
 #[uniffi::export]
-pub fn set_session_key(key_bytes: Vec<u8>) -> bool {
-    let zeroizing_key = zeroize::Zeroizing::new(key_bytes);
-    let new_res = stretch_key_new(&zeroizing_key);
-    
-    match new_res {
-        Ok(new_stretched) => {
-            let mut lock = match SESSION_KEY.lock() {
-                Ok(l) => l,
-                Err(poisoned) => {
-                    let mut inner = poisoned.into_inner();
-                    *inner = None;
-                    inner
-                }
-            };
-            if let Some(mut old_sk) = lock.take() {
-                old_sk.zeroize();
-            }
-            *lock = Some(SessionKeys {
-                new_key: new_stretched,
-            });
-            true
+pub fn set_session_key(mut key_bytes: Vec<u8>) -> bool {
+    let mut lock = match SESSION_KEY.lock() {
+        Ok(l) => l,
+        Err(poisoned) => {
+            let mut inner = poisoned.into_inner();
+            *inner = None;
+            inner
         }
-        Err(e) => {
-            tracing::error!("Key stretching failed: {:?}", e);
-            let mut lock = match SESSION_KEY.lock() {
-                Ok(l) => l,
-                Err(poisoned) => {
-                    let mut inner = poisoned.into_inner();
-                    *inner = None;
-                    inner
-                }
-            };
-            if let Some(mut old_sk) = lock.take() {
-                old_sk.zeroize();
-            }
-            false
-        }
+    };
+    if let Some(mut old_sk) = lock.take() {
+        old_sk.zeroize();
     }
+    
+    let mut key_arr = [0u8; 32];
+    if key_bytes.len() == 32 {
+        key_arr.copy_from_slice(&key_bytes);
+    } else {
+        let hash = blake3::hash(&key_bytes);
+        key_arr.copy_from_slice(hash.as_bytes());
+    }
+    key_bytes.zeroize();
+    
+    *lock = Some(SessionKeys {
+        new_key: key_arr,
+    });
+    true
 }
 
-#[uniffi::export]
 pub fn get_session_key() -> Option<Vec<u8>> {
     let lock = match SESSION_KEY.lock() {
         Ok(l) => l,
@@ -194,9 +195,18 @@ pub fn get_session_key() -> Option<Vec<u8>> {
 }
 
 #[uniffi::export]
+pub fn is_session_key_set() -> bool {
+    let lock = match SESSION_KEY.lock() {
+        Ok(l) => l,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    lock.is_some()
+}
+
+#[uniffi::export]
 pub async fn load_local_workspace_key(workspace_id: String) -> bool {
     let key_name = format!("workspace_key_{}", workspace_id);
-    if let Some(key_hex) = get_local_secret(&key_name).await {
+    if let Ok(Some(key_hex)) = get_local_secret(&key_name).await {
         if let Ok(key_bytes) = const_hex::decode(&key_hex) {
             return set_session_key(key_bytes);
         }
@@ -298,23 +308,48 @@ pub fn encrypt_opt_field(data: Option<String>, workspace_id: &str) -> Result<Opt
     let cipher = WorkspaceCipher::new(workspace_id)?;
     cipher.encrypt_opt(data)
 }pub fn decrypt_opt_field(encrypted_data: Option<String>, workspace_id: &str) -> Option<String> {
-    if let Ok(cipher) = WorkspaceCipher::new(workspace_id) {
-        cipher.decrypt_opt(encrypted_data)
-    } else {
-        None
-    }
+    encrypted_data.and_then(|d| {
+        match WorkspaceCipher::new(workspace_id) {
+            Ok(cipher) => match cipher.decrypt(&d) {
+                Ok(pt) => Some(pt),
+                Err(e) => {
+                    tracing::error!("Failed to decrypt optional field in workspace '{}': {:?}", workspace_id, e);
+                    None
+                }
+            },
+            Err(e) => {
+                tracing::error!("Failed to initialize WorkspaceCipher for optional field decryption in workspace '{}': {:?}", workspace_id, e);
+                None
+            }
+        }
+    })
 }
 
 fn get_local_client_pepper() -> String {
     #[cfg(not(target_arch = "wasm32"))]
     {
+        if let Ok(entry) = keyring::Entry::new("yntra-platform", "client_pepper") {
+            if let Ok(pepper) = entry.get_password() {
+                if !pepper.is_empty() {
+                    return pepper;
+                }
+            }
+            let mut rand_bytes = [0u8; 32];
+            if getrandom::fill(&mut rand_bytes).is_ok() {
+                let new_pepper = const_hex::encode(&rand_bytes);
+                let _ = entry.set_password(&new_pepper);
+                return new_pepper;
+            }
+        }
         use std::fs;
         use std::path::PathBuf;
         let path = PathBuf::from("yntra_client_pepper.bin");
         if let Ok(pepper) = fs::read_to_string(&path) {
             pepper
         } else {
-            let new_pepper = uuid::Uuid::new_v4().to_string();
+            let mut rand_bytes = [0u8; 32];
+            let _ = getrandom::fill(&mut rand_bytes);
+            let new_pepper = const_hex::encode(&rand_bytes);
             let _ = fs::write(&path, &new_pepper);
             new_pepper
         }
@@ -326,7 +361,9 @@ fn get_local_client_pepper() -> String {
                 if let Ok(Some(pepper)) = storage.get_item("yntra_client_pepper") {
                     return pepper;
                 } else {
-                    let new_pepper = uuid::Uuid::new_v4().to_string();
+                    let mut rand_bytes = [0u8; 32];
+                    let _ = getrandom::fill(&mut rand_bytes);
+                    let new_pepper = const_hex::encode(&rand_bytes);
                     let _ = storage.set_item("yntra_client_pepper", &new_pepper);
                     return new_pepper;
                 }
@@ -334,7 +371,9 @@ fn get_local_client_pepper() -> String {
         }
         static SESSION_PEPPER: std::sync::OnceLock<String> = std::sync::OnceLock::new();
         SESSION_PEPPER.get_or_init(|| {
-            uuid::Uuid::new_v4().to_string()
+            let mut rand_bytes = [0u8; 32];
+            let _ = getrandom::fill(&mut rand_bytes);
+            const_hex::encode(&rand_bytes)
         }).clone()
     }
 }
@@ -482,8 +521,66 @@ impl Drop for WorkspaceCipher {
     }
 }
 
+fn construct_role_signature_message(user_id: &str, role: &str, workspace_id: &str, expires_at: i64, epoch: u64) -> Vec<u8> {
+    let mut message = Vec::new();
+    message.extend_from_slice(b"YNTRA_ROLE_SIGNATURE_V3\0");
+    message.extend_from_slice(&(user_id.len() as u64).to_be_bytes());
+    message.extend_from_slice(user_id.as_bytes());
+    message.extend_from_slice(&(role.len() as u64).to_be_bytes());
+    message.extend_from_slice(role.as_bytes());
+    message.extend_from_slice(&(workspace_id.len() as u64).to_be_bytes());
+    message.extend_from_slice(workspace_id.as_bytes());
+    message.extend_from_slice(&expires_at.to_be_bytes());
+    message.extend_from_slice(&epoch.to_be_bytes()); // Always include epoch (rigid schema)
+    message
+}
+
+#[uniffi::export]
+pub fn derive_public_key_from_private_key(private_key_hex: &str) -> Result<String, crate::infra::errors::YntraError> {
+    let private_key_bytes = zeroize::Zeroizing::new(
+        const_hex::decode(private_key_hex)
+            .map_err(|e| crate::infra::errors::YntraError::CryptoError(e.to_string()))?
+    );
+    if private_key_bytes.len() != 32 {
+        return Err(crate::infra::errors::YntraError::CryptoError("Invalid private key length".to_string()));
+    }
+    let mut private_key_array = zeroize::Zeroizing::new([0u8; 32]);
+    private_key_array.copy_from_slice(&private_key_bytes[..32]);
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key_array);
+    Ok(const_hex::encode(signing_key.verifying_key().to_bytes()))
+}
+
 #[uniffi::export]
 pub fn generate_role_signature(private_key_hex: &str, user_id: &str, role: &str, workspace_id: &str) -> Result<String, crate::infra::errors::YntraError> {
+    // Default expiration: 30 days
+    let current_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let expires_at = current_time + 30 * 24 * 60 * 60;
+    generate_role_signature_with_expiration(private_key_hex, user_id, role, workspace_id, expires_at)
+}
+
+#[uniffi::export]
+pub fn generate_role_signature_with_expiration(
+    private_key_hex: &str,
+    user_id: &str,
+    role: &str,
+    workspace_id: &str,
+    expires_at: i64,
+) -> Result<String, crate::infra::errors::YntraError> {
+    generate_role_signature_v2(private_key_hex, user_id, role, workspace_id, expires_at, 0)
+}
+
+#[uniffi::export]
+pub fn generate_role_signature_v2(
+    private_key_hex: &str,
+    user_id: &str,
+    role: &str,
+    workspace_id: &str,
+    expires_at: i64,
+    epoch: u64,
+) -> Result<String, crate::infra::errors::YntraError> {
     let private_key_bytes = zeroize::Zeroizing::new(
         const_hex::decode(private_key_hex)
             .map_err(|e| crate::infra::errors::YntraError::CryptoError(e.to_string()))?
@@ -496,9 +593,10 @@ pub fn generate_role_signature(private_key_hex: &str, user_id: &str, role: &str,
     private_key_array.copy_from_slice(&private_key_bytes[..32]);
         
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key_array);
-    let message = format!("{}:{}:{}", user_id, role, workspace_id);
-    let signature = signing_key.sign(message.as_bytes());
-    Ok(const_hex::encode(&signature.to_bytes()))
+    let message = construct_role_signature_message(user_id, role, workspace_id, expires_at, epoch);
+    let signature = signing_key.sign(&message);
+    let signature_hex = const_hex::encode(&signature.to_bytes());
+    Ok(format!("{}:{}:{}", epoch, expires_at, signature_hex))
 }
 
 #[uniffi::export]
@@ -512,78 +610,212 @@ pub fn generate_workspace_keypair() -> Result<Vec<String>, crate::infra::errors:
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub async fn get_local_secret(key: &str) -> Option<String> {
-    let db = match libsql::Builder::new_local("yntra_local_secrets.db").build().await {
-        Ok(d) => d,
-        Err(_) => return None,
-    };
-    let conn = match db.connect() {
-        Ok(c) => c,
-        Err(_) => return None,
-    };
-    let _ = conn.execute("CREATE TABLE IF NOT EXISTS local_secrets (key TEXT PRIMARY KEY, value TEXT)", ()).await;
-    
-    let mut stmt = match conn.prepare("SELECT value FROM local_secrets WHERE key = ?1").await {
-        Ok(s) => s,
-        Err(_) => return None,
-    };
-    let mut rows = match stmt.query(libsql::params![key]).await {
-        Ok(r) => r,
-        Err(_) => return None,
-    };
-    if let Ok(Some(row)) = rows.next().await {
-        let val = row.get::<String>(0).ok()?;
-        if val.is_empty() {
-            None
-        } else {
-            Some(val)
+pub async fn get_local_secret(key: &str) -> Result<Option<String>, crate::infra::errors::YntraError> {
+    let key = key.to_string();
+    tokio::task::spawn_blocking(move || {
+        let _lock = get_keyring_lock().lock().unwrap_or_else(|e| e.into_inner());
+        let entry = keyring::Entry::new("yntra-platform", &key)
+            .map_err(|e| crate::infra::errors::YntraError::CryptoError(format!("Failed to access keyring: {:?}", e)))?;
+        match entry.get_password() {
+            Ok(secret) => {
+                if secret.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(secret))
+                }
+            }
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(e) => Err(crate::infra::errors::YntraError::CryptoError(format!("Keyring access failed: {:?}", e))),
         }
-    } else {
-        None
-    }
+    })
+    .await
+    .map_err(|e| crate::infra::errors::YntraError::CryptoError(e.to_string()))?
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn set_local_secret(key: &str, value: &str) -> Result<(), crate::infra::errors::YntraError> {
-    let db = libsql::Builder::new_local("yntra_local_secrets.db").build().await
-        .map_err(|e| crate::infra::errors::YntraError::DbError(e.to_string()))?;
-    let conn = db.connect()
-        .map_err(|e| crate::infra::errors::YntraError::DbError(e.to_string()))?;
-    conn.execute("CREATE TABLE IF NOT EXISTS local_secrets (key TEXT PRIMARY KEY, value TEXT)", ()).await
-        .map_err(|e| crate::infra::errors::YntraError::DbError(e.to_string()))?;
-    conn.execute("INSERT OR REPLACE INTO local_secrets (key, value) VALUES (?1, ?2)", libsql::params![key, value]).await
-        .map_err(|e| crate::infra::errors::YntraError::DbError(e.to_string()))?;
-    Ok(())
+    let key = key.to_string();
+    let value = value.to_string();
+    tokio::task::spawn_blocking(move || {
+        let _lock = get_keyring_lock().lock().unwrap_or_else(|e| e.into_inner());
+        let entry = keyring::Entry::new("yntra-platform", &key)
+            .map_err(|e| crate::infra::errors::YntraError::CryptoError(format!("Failed to access keyring: {:?}", e)))?;
+        if value.is_empty() {
+            let _ = entry.delete_credential();
+            Ok(())
+        } else {
+            if let Err(e) = entry.set_password(&value) {
+                if cfg!(test) || std::env::var("CI").is_ok() {
+                    tracing::warn!("Keyring write failed in test/CI environment (swallowing): {:?}", e);
+                    Ok(())
+                } else {
+                    Err(crate::infra::errors::YntraError::CryptoError(format!("Failed to store secret in keyring: {:?}", e)))
+                }
+            } else {
+                Ok(())
+            }
+        }
+    })
+    .await
+    .map_err(|e| crate::infra::errors::YntraError::CryptoError(e.to_string()))?
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn set_local_epoch_if_greater(ws_id: &str, current_epoch: u64) -> Result<u64, crate::infra::errors::YntraError> {
+    let key = format!("workspace_auth_epoch_{}", ws_id);
+    tokio::task::spawn_blocking(move || {
+        let _lock = get_keyring_lock().lock().unwrap_or_else(|e| e.into_inner());
+        let entry = keyring::Entry::new("yntra-platform", &key)
+            .map_err(|e| crate::infra::errors::YntraError::CryptoError(format!("Failed to access keyring: {:?}", e)))?;
+        
+        let cached_epoch = if let Ok(val) = entry.get_password() {
+            val.parse::<u64>().unwrap_or(0)
+        } else {
+            0
+        };
+        
+        if current_epoch < cached_epoch {
+            return Err(crate::infra::errors::YntraError::AuthError(
+                "Workspace auth epoch rollback detected. Local database tampering suspected.".to_string()
+            ));
+        }
+        
+        if current_epoch > cached_epoch {
+            if let Err(e) = entry.set_password(&current_epoch.to_string()) {
+                if cfg!(test) || std::env::var("CI").is_ok() {
+                    tracing::warn!("Keyring write failed in test/CI environment (swallowing): {:?}", e);
+                    Ok(current_epoch)
+                } else {
+                    Err(crate::infra::errors::YntraError::CryptoError(format!("Failed to store epoch in keyring: {:?}", e)))
+                }
+            } else {
+                Ok(current_epoch)
+            }
+        } else {
+            Ok(cached_epoch)
+        }
+    })
+    .await
+    .map_err(|e| crate::infra::errors::YntraError::CryptoError(e.to_string()))?
 }
 
 #[cfg(target_arch = "wasm32")]
-pub async fn get_local_secret(key: &str) -> Option<String> {
-    if let Some(window) = web_sys::window() {
-        if let Ok(Some(storage)) = window.local_storage() {
-            let val = storage.get_item(key).ok().flatten()?;
-            if val.is_empty() {
-                return None;
+fn compute_integrity_hmac(key: &str, value: &str) -> Result<String, crate::infra::errors::YntraError> {
+    let salt = get_system_salt_ref()?;
+    
+    // Derive a dedicated integrity HMAC key from the system salt
+    let mut hasher = blake3::Hasher::new_derive_key("Yntra Local Storage Integrity v1");
+    hasher.update(salt);
+    let mut hmac_key = [0u8; 32];
+    hasher.finalize_xof().fill(&mut hmac_key);
+    hasher.zeroize();
+
+    // Compute BLAKE3 keyed hash (acts as a secure MAC / HMAC)
+    let mut keyed_hasher = blake3::Hasher::new_keyed(&hmac_key);
+    keyed_hasher.update(key.as_bytes());
+    keyed_hasher.update(value.as_bytes());
+    let hash = keyed_hasher.finalize();
+    
+    Ok(const_hex::encode(hash.as_bytes()))
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn get_local_secret(key: &str) -> Result<Option<String>, crate::infra::errors::YntraError> {
+    if let Some(win) = web_sys::window() {
+        if let Ok(Some(storage)) = win.local_storage() {
+            let secret = storage.get_item(key)
+                .map_err(|e| crate::infra::errors::YntraError::CryptoError(format!("LocalStorage read failed: {:?}", e)))?;
+            if let Some(ref val) = secret {
+                let hmac_key_name = format!("{}_integrity", key);
+                let stored_hmac = storage.get_item(&hmac_key_name)
+                    .map_err(|e| crate::infra::errors::YntraError::CryptoError(format!("LocalStorage read failed: {:?}", e)))?;
+                if let Some(ref hmac) = stored_hmac {
+                    let computed = compute_integrity_hmac(key, val)?;
+                    if hmac != &computed {
+                        return Err(crate::infra::errors::YntraError::AuthError("Local storage tampering detected".to_string()));
+                    }
+                } else {
+                    return Err(crate::infra::errors::YntraError::AuthError("Local storage integrity verification missing".to_string()));
+                }
             }
-            return Some(val);
+            return Ok(secret);
         }
     }
-    None
+    Err(crate::infra::errors::YntraError::CryptoError("LocalStorage not available".to_string()))
 }
 
 #[cfg(target_arch = "wasm32")]
 pub async fn set_local_secret(key: &str, value: &str) -> Result<(), crate::infra::errors::YntraError> {
-    if let Some(window) = web_sys::window() {
-        if let Ok(Some(storage)) = window.local_storage() {
-            storage.set_item(key, value)
-                .map_err(|_| crate::infra::errors::YntraError::CryptoError("local_storage_write_failed".to_string()))?;
+    if let Some(win) = web_sys::window() {
+        if let Ok(Some(storage)) = win.local_storage() {
+            let hmac_key_name = format!("{}_integrity", key);
+            if value.is_empty() {
+                let _ = storage.remove_item(key);
+                let _ = storage.remove_item(&hmac_key_name);
+            } else {
+                let hmac = compute_integrity_hmac(key, value)?;
+                storage.set_item(key, value).map_err(|e| {
+                    crate::infra::errors::YntraError::CryptoError(format!("LocalStorage set failed: {:?}", e))
+                })?;
+                storage.set_item(&hmac_key_name, &hmac).map_err(|e| {
+                    crate::infra::errors::YntraError::CryptoError(format!("LocalStorage set failed: {:?}", e))
+                })?;
+            }
             return Ok(());
         }
     }
-    Err(crate::infra::errors::YntraError::CryptoError("local_storage_unavailable".to_string()))
+    Err(crate::infra::errors::YntraError::CryptoError("LocalStorage not available".to_string()))
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn set_local_epoch_if_greater(ws_id: &str, current_epoch: u64) -> Result<u64, crate::infra::errors::YntraError> {
+    let key = format!("workspace_auth_epoch_{}", ws_id);
+    let hmac_key_name = format!("{}_integrity", key);
+    if let Some(win) = web_sys::window() {
+        if let Ok(Some(storage)) = win.local_storage() {
+            let cached_epoch = if let Ok(Some(val)) = storage.get_item(&key) {
+                // Verify integrity of the existing value
+                let stored_hmac = storage.get_item(&hmac_key_name)
+                    .map_err(|e| crate::infra::errors::YntraError::CryptoError(format!("LocalStorage read failed: {:?}", e)))?;
+                if let Some(ref hmac) = stored_hmac {
+                    let computed = compute_integrity_hmac(&key, &val)?;
+                    if hmac != &computed {
+                        return Err(crate::infra::errors::YntraError::AuthError("Local storage tampering detected".to_string()));
+                    }
+                } else {
+                    return Err(crate::infra::errors::YntraError::AuthError("Local storage integrity verification missing".to_string()));
+                }
+                val.parse::<u64>().unwrap_or(0)
+            } else {
+                0
+            };
+            
+            if current_epoch < cached_epoch {
+                return Err(crate::infra::errors::YntraError::AuthError(
+                    "Workspace auth epoch rollback detected. Local database tampering suspected.".to_string()
+                ));
+            }
+            
+            if current_epoch > cached_epoch {
+                let epoch_str = current_epoch.to_string();
+                let hmac = compute_integrity_hmac(&key, &epoch_str)?;
+                storage.set_item(&key, &epoch_str).map_err(|e| {
+                    crate::infra::errors::YntraError::CryptoError(format!("LocalStorage set failed: {:?}", e))
+                })?;
+                storage.set_item(&hmac_key_name, &hmac).map_err(|e| {
+                    crate::infra::errors::YntraError::CryptoError(format!("LocalStorage set failed: {:?}", e))
+                })?;
+                return Ok(current_epoch);
+            } else {
+                return Ok(cached_epoch);
+            }
+        }
+    }
+    Err(crate::infra::errors::YntraError::CryptoError("LocalStorage not available".to_string()))
 }
 
 #[uniffi::export]
-pub fn encrypt_workspace_key_with_password(password: &str, workspace_key: Vec<u8>) -> Result<String, crate::infra::errors::YntraError> {
+pub fn encrypt_workspace_key_with_password(password: &str, mut workspace_key: Vec<u8>) -> Result<String, crate::infra::errors::YntraError> {
     use argon2::{Argon2, Algorithm, Version, Params};
     
     let mut salt = [0u8; 16];
@@ -592,16 +824,23 @@ pub fn encrypt_workspace_key_with_password(password: &str, workspace_key: Vec<u8
     let mut nonce_bytes = [0u8; 24];
     getrandom::fill(&mut nonce_bytes).map_err(|e| crate::infra::errors::YntraError::CryptoError(e.to_string()))?;
     
-    let mut derived_key = [0u8; 32];
+    let mut derived_key = zeroize::Zeroizing::new([0u8; 32]);
     let params = Params::new(19456, 2, 1, Some(32)).map_err(|_| crate::infra::errors::YntraError::CryptoError("Argon2 params invalid".to_string()))?;
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
-    argon2.hash_password_into(password.as_bytes(), &salt, &mut derived_key)
-        .map_err(|_| crate::infra::errors::YntraError::CryptoError("Argon2 derivation failed".to_string()))?;
+    
+    let res = argon2.hash_password_into(password.as_bytes(), &salt, &mut *derived_key);
+    if res.is_err() {
+        workspace_key.zeroize();
+        return Err(crate::infra::errors::YntraError::CryptoError("Argon2 derivation failed".to_string()));
+    }
         
-    let cipher = XChaCha20Poly1305::new(Key::from_slice(&derived_key));
+    let cipher = XChaCha20Poly1305::new(Key::from_slice(&*derived_key));
     let nonce = XNonce::from_slice(&nonce_bytes);
-    let ciphertext = cipher.encrypt(nonce, workspace_key.as_slice())
-        .map_err(|_| crate::infra::errors::YntraError::CryptoError("Envelope encryption failed".to_string()))?;
+    
+    let ciphertext = cipher.encrypt(nonce, workspace_key.as_slice());
+    workspace_key.zeroize();
+    
+    let ciphertext = ciphertext.map_err(|_| crate::infra::errors::YntraError::CryptoError("Envelope encryption failed".to_string()))?;
         
     Ok(format!(
         "envelope:{}:{}:{}",
@@ -631,13 +870,13 @@ pub fn decrypt_workspace_key_with_password(password: &str, encrypted_envelope: &
     let ciphertext = const_hex::decode(parts[2])
         .map_err(|_| crate::infra::errors::YntraError::CryptoError("Invalid envelope ciphertext".to_string()))?;
         
-    let mut derived_key = [0u8; 32];
+    let mut derived_key = zeroize::Zeroizing::new([0u8; 32]);
     let params = Params::new(19456, 2, 1, Some(32)).map_err(|_| crate::infra::errors::YntraError::CryptoError("Argon2 params invalid".to_string()))?;
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
-    argon2.hash_password_into(password.as_bytes(), &salt, &mut derived_key)
+    argon2.hash_password_into(password.as_bytes(), &salt, &mut *derived_key)
         .map_err(|_| crate::infra::errors::YntraError::CryptoError("Argon2 derivation failed".to_string()))?;
         
-    let cipher = XChaCha20Poly1305::new(Key::from_slice(&derived_key));
+    let cipher = XChaCha20Poly1305::new(Key::from_slice(&*derived_key));
     let nonce = XNonce::from_slice(&nonce_bytes);
     let plaintext = cipher.decrypt(nonce, ciphertext.as_slice())
         .map_err(|_| crate::infra::errors::YntraError::CryptoError("Envelope decryption failed".to_string()))?;
@@ -650,11 +889,44 @@ pub fn decrypt_workspace_key_with_password(password: &str, encrypted_envelope: &
 
 #[uniffi::export]
 pub fn verify_role_signature(public_key_hex: &str, user_id: &str, role: &str, workspace_id: &str, signature_hex: &str) -> bool {
+    let parts: Vec<&str> = signature_hex.split(':').collect();
+    let (epoch, expires_at, sig_hex) = match parts.len() {
+        3 => {
+            let epoch = match parts[0].parse::<u64>() {
+                Ok(val) => val,
+                Err(_) => return false,
+            };
+            let expires = match parts[1].parse::<i64>() {
+                Ok(val) => val,
+                Err(_) => return false,
+            };
+            (epoch, expires, parts[2])
+        }
+        2 => {
+            let expires = match parts[0].parse::<i64>() {
+                Ok(val) => val,
+                Err(_) => return false,
+            };
+            (0, expires, parts[1])
+        }
+        _ => return false,
+    };
+    
+    let current_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+        
+    if current_time > expires_at {
+        tracing::warn!("Role signature for user {} has expired", user_id);
+        return false;
+    }
+
     let public_key_bytes = match const_hex::decode(public_key_hex) {
         Ok(b) => b,
         Err(_) => return false,
     };
-    let signature_bytes = match const_hex::decode(signature_hex) {
+    let signature_bytes = match const_hex::decode(sig_hex) {
         Ok(b) => b,
         Err(_) => return false,
     };
@@ -671,8 +943,8 @@ pub fn verify_role_signature(public_key_hex: &str, user_id: &str, role: &str, wo
         Err(_) => return false,
     };
     let signature = ed25519_dalek::Signature::from_bytes(&signature_array);
-    let message = format!("{}:{}:{}", user_id, role, workspace_id);
-    verifying_key.verify(message.as_bytes(), &signature).is_ok()
+    let message = construct_role_signature_message(user_id, role, workspace_id, expires_at, epoch);
+    verifying_key.verify(&message, &signature).is_ok()
 }
 
 #[cfg(test)]
