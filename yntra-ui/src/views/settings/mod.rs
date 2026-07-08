@@ -67,8 +67,18 @@ pub fn SettingsView(props: SettingsViewProps) -> Element {
         current_tab
     };
 
-    let is_saving = *props.settings_save_status.read() == "saving"
-        || *props.account_save_status.read() == "saving";
+    let save_status = props.settings_save_status.read().clone();
+    let account_status = props.account_save_status.read().clone();
+    let is_error = save_status.starts_with("error:") || account_status.starts_with("error:");
+    let error_msg = if save_status.starts_with("error:") {
+        Some(save_status.trim_start_matches("error:").to_string())
+    } else if account_status.starts_with("error:") {
+        Some(account_status.trim_start_matches("error:").to_string())
+    } else {
+        None
+    };
+
+    let is_saving = save_status == "saving" || account_status == "saving";
 
     let mut tabs_list = vec![];
     if is_admin {
@@ -114,7 +124,7 @@ pub fn SettingsView(props: SettingsViewProps) -> Element {
                                 src: "{props.settings_logo_url}",
                                 alt: "{props.settings_name}",
                                 class: "w-full h-full p-2",
-                    style: "object-fit:contain;",
+                                style: "object-fit:contain;",
                             }
                         } else {
                             components::LucideIcon {
@@ -134,7 +144,7 @@ pub fn SettingsView(props: SettingsViewProps) -> Element {
                             }
                         }
                         p { class: "text-sm text-muted-foreground/60",
-                    style: "margin:0.25rem 0 0 0;",
+                            style: "margin:0.25rem 0 0 0;",
                             if is_admin {
                                 "{crate::locales::t(\"settings-header-admin-desc\", &props.locale)}"
                             } else {
@@ -144,21 +154,30 @@ pub fn SettingsView(props: SettingsViewProps) -> Element {
                     }
                 }
 
-                // Saved/Saving State Badge
+                // Saved/Saving/Error State Badge
                 div { class: "flex items-center gap-2 rounded-full border border-border bg-white/[0.02] text-xs font-bold uppercase",
                     style: "px:1rem; py:0.5rem; tracking-widest:1px;",
-                    if is_saving {
+                    if is_error {
+                        components::LucideIcon {
+                            name: "alert-triangle",
+                            class: "h-3.5 w-3.5 text-destructive",
+                        }
+                        span { class: "text-destructive",
+                            style: "margin-left:0.25rem; margin-right:0.5rem;",
+                            "{error_msg.as_deref().unwrap_or_default()}"
+                        }
+                    } else if is_saving {
                         components::LucideIcon {
                             name: "refresh-cw",
                             class: "h-3.5 w-3.5 text-primary animate-spin",
                         }
                         span { class: "text-primary",
-                    style: "margin-left:0.25rem; margin-right:0.5rem;",
+                            style: "margin-left:0.25rem; margin-right:0.5rem;",
                             "{crate::locales::t(\"common-saving\", &props.locale)}"
                         }
                     } else {
                         components::LucideIcon {
-                            name: "alert-circle",
+                            name: "check-circle",
                             class: "h-3.5 w-3.5 text-emerald-500",
                         }
                         span { style: "color:hsl(160.1, 84.1%, 39.4%); margin-left:0.25rem; margin-right:0.5rem;",
@@ -168,11 +187,36 @@ pub fn SettingsView(props: SettingsViewProps) -> Element {
                 }
             }
 
-            // Tabs Navigation
-            components::Tabs {
-                tabs: tabs_list,
-                active_tab: display_tab.clone(),
-                onchange: move |val| settings_tab.set(val),
+            // Custom Tabs Navigation
+            div {
+                class: "flex items-center gap-1.5 p-1 rounded-xl bg-muted/40 border border-border/40 backdrop-blur-sm max-w-max",
+                for tab in tabs_list.iter() {
+                    {
+                        let is_active = tab.value == display_tab;
+                        let tab_val = tab.value.clone();
+                        let label = tab.label.clone();
+                        let icon_name = tab.icon.clone();
+                        
+                        rsx! {
+                            button {
+                                key: "{tab_val}",
+                                class: format!(
+                                    "flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-all duration-300 border-0 cursor-pointer {}",
+                                    if is_active {
+                                        "bg-primary text-primary-foreground shadow-md shadow-primary/10"
+                                    } else {
+                                        "bg-transparent text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+                                    }
+                                ),
+                                onclick: move |_| settings_tab.set(tab_val.clone()),
+                                if let Some(icon) = icon_name {
+                                    components::LucideIcon { name: icon, class: "h-3.5 w-3.5" }
+                                }
+                                span { "{label}" }
+                            }
+                        }
+                    }
+                }
             }
 
             // Active Tab Content

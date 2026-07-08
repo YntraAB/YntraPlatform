@@ -29,4 +29,6 @@ pub use time::TimeView;
 pub use jobs::JobsView;
 pub use todos::TodosView;
 pub use school::SchoolView;
+pub mod dynamic_block;
+pub use dynamic_block::DynamicBlockView;
 

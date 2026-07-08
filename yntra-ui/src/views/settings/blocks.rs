@@ -9,6 +9,13 @@ use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::{update_workspace_modules, BlockItem, Workspace};
 
+fn get_module_default_state(block_id: &str) -> bool {
+    match block_id {
+        "messaging" | "scheduling" | "notes" | "time" | "directory" | "reporting" | "jobs" | "todos" => true,
+        _ => false,
+    }
+}
+
 #[derive(Props, Clone)]
 pub struct BlockSettingsProps {
     pub settings_save_status: Signal<String>,
@@ -63,43 +70,21 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
 
     let handle_toggle = {
         let locale = props.locale.clone();
-        let messaging_enabled = props.messaging_enabled;
-        let scheduling_enabled = props.scheduling_enabled;
-        let notes_enabled = props.notes_enabled;
-        let time_enabled = props.time_enabled;
-        let journals_enabled = props.journals_enabled;
-        let medications_enabled = props.medications_enabled;
-        let directory_enabled = props.directory_enabled;
-        let reporting_enabled = props.reporting_enabled;
-        let academics_enabled = props.academics_enabled;
-        let attendance_enabled = props.attendance_enabled;
-        let finance_enabled = props.finance_enabled;
-        let library_enabled = props.library_enabled;
         let user_id = props.active_user.id.clone();
-        let workspace_id = props.workspace.id.clone();
+        let workspace = props.workspace.clone();
         
         move |block: BlockItem, next_state: bool| {
+            println!("handle_toggle called: block_id={}, next_state={}, user_id={}", block.id, next_state, user_id);
+            let modules_active_val: serde_json::Value =
+                serde_json::from_str(&workspace.modules_active).unwrap_or_default();
+
             if next_state {
                 // Check dependencies
                 let deps: Vec<String> = serde_json::from_str(&block.dependencies).unwrap_or_default();
                 let is_mod_enabled = |mod_id: &str| -> bool {
-                    match mod_id {
-                        "messaging" => messaging_enabled,
-                        "scheduling" => scheduling_enabled,
-                        "notes" => notes_enabled,
-                        "time" => time_enabled,
-                        "assistance" => journals_enabled || medications_enabled,
-                        "journals" => journals_enabled,
-                        "medications" => medications_enabled,
-                        "directory" => directory_enabled,
-                        "reporting" => reporting_enabled,
-                        "academics" => academics_enabled,
-                        "attendance" => attendance_enabled,
-                        "finance" => finance_enabled,
-                        "library" => library_enabled,
-                        _ => false,
-                    }
+                    modules_active_val.get(mod_id).and_then(|v| v.as_bool()).unwrap_or(false)
                 };
+
                 let missing: Vec<String> = deps
                     .into_iter()
                     .filter(|dep_id| !is_mod_enabled(dep_id))
@@ -118,37 +103,29 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
                 let active = if b.id == block.id {
                     next_state
                 } else {
-                    match b.id.as_str() {
-                        "messaging" => messaging_enabled,
-                        "scheduling" => scheduling_enabled,
-                        "notes" => notes_enabled,
-                        "time" => time_enabled,
-                        "assistance" => journals_enabled || medications_enabled,
-                        "journals" => journals_enabled,
-                        "medications" => medications_enabled,
-                        "directory" => directory_enabled,
-                        "reporting" => reporting_enabled,
-                        "academics" => academics_enabled,
-                        "attendance" => attendance_enabled,
-                        "finance" => finance_enabled,
-                        "library" => library_enabled,
-                        _ => false,
-                    }
+                    modules_active_val.get(&b.id)
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or_else(|| get_module_default_state(&b.id))
                 };
                 map.insert(b.id.clone(), serde_json::Value::Bool(active));
             }
 
             let new_json = serde_json::to_string(&serde_json::Value::Object(map)).unwrap_or_default();
-            let ws_id = workspace_id.clone();
+            let ws_id = workspace.id.clone();
             let new_json_clone = new_json.clone();
             let requester_uid = user_id.clone();
             spawn(async move {
-                let _ = update_workspace_modules(requester_uid, ws_id, new_json_clone).await;
+                match update_workspace_modules(requester_uid, ws_id, new_json_clone).await {
+                    Ok(_) => {
+                        let current = *db_trigger.read();
+                        db_trigger.set(current + 1);
+                        settings_save_status.set("saved".to_string());
+                    }
+                    Err(e) => {
+                        settings_save_status.set(format!("error:{}", e));
+                    }
+                }
             });
-            
-            let current = *db_trigger.read();
-            db_trigger.set(current + 1);
-            settings_save_status.set("saved".to_string());
         }
     };
 
@@ -215,6 +192,7 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
                     components::Input {
                         placeholder: t("settings-blocks-search-placeholder", &props.locale),
                         class: "pl-9",
+                        style: "padding-left: 2.25rem;",
                         value: "{search_term}",
                         oninput: move |e: FormEvent| search_term.set(e.value())
                     }
@@ -258,27 +236,35 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
                             let block_id = block.id.clone();
                             let block_icon = block.icon.clone();
                             
-                            let block_name_key = format!("settings-blocks-{}-name", block_id);
-                            let block_name_translated = t(&block_name_key, &props.locale);
+                            let static_block_ids = vec![
+                                "messaging", "scheduling", "notes", "time", "journals", "medications",
+                                "directory", "reporting", "academics", "attendance", "finance", "library"
+                            ];
+                            let is_static = static_block_ids.contains(&block_id.as_str());
+
+                            let block_name_translated = if is_static {
+                                let block_name_key = format!("settings-blocks-{}-name", block_id);
+                                t(&block_name_key, &props.locale)
+                            } else {
+                                block.name.clone()
+                            };
                             
-                            let block_desc_key = format!("settings-blocks-{}-desc", block_id);
-                            let block_desc_translated = t(&block_desc_key, &props.locale);
+                            let block_desc_translated = if is_static {
+                                let block_desc_key = format!("settings-blocks-{}-desc", block_id);
+                                t(&block_desc_key, &props.locale)
+                            } else {
+                                block.description.clone().unwrap_or_default()
+                            };
+
+                            let modules_active_val: serde_json::Value =
+                                serde_json::from_str(&props.workspace.modules_active).unwrap_or_default();
                             
-                            let is_enabled = match block.id.as_str() {
-                                "messaging" => props.messaging_enabled,
-                                "scheduling" => props.scheduling_enabled,
-                                "notes" => props.notes_enabled,
-                                "time" => props.time_enabled,
-                                "assistance" => props.journals_enabled || props.medications_enabled,
-                                "journals" => props.journals_enabled,
-                                "medications" => props.medications_enabled,
-                                "directory" => props.directory_enabled,
-                                "reporting" => props.reporting_enabled,
-                                "academics" => props.academics_enabled,
-                                "attendance" => props.attendance_enabled,
-                                "finance" => props.finance_enabled,
-                                "library" => props.library_enabled,
-                                _ => false,
+                            let is_enabled = if block_id == "assistance" {
+                                props.journals_enabled || props.medications_enabled
+                            } else {
+                                modules_active_val.get(&block_id)
+                                    .and_then(|v| v.as_bool())
+                                    .unwrap_or_else(|| get_module_default_state(&block_id))
                             };
                             
                             let is_configurable = block.id == "scheduling" || block.id == "messaging" || block.id == "finance";
@@ -339,9 +325,6 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
                                             components::CardTitle { class: "text-sm font-bold tracking-tight",
                                                 "{block_name_translated}"
                                             }
-                                            if is_enabled {
-                                                div { class: "h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" }
-                                            }
                                         }
                                     }
                                     components::CardContent { class: "p-4 pt-0",
@@ -365,11 +348,25 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
                     let cfg_block_id = cfg_block.id.clone();
                     let cfg_block_icon = cfg_block.icon.clone();
                     
-                    let cfg_name_key = format!("settings-blocks-{}-name", cfg_block_id);
-                    let cfg_name_translated = t(&cfg_name_key, &props.locale);
+                    let static_block_ids = vec![
+                        "messaging", "scheduling", "notes", "time", "journals", "medications",
+                        "directory", "reporting", "academics", "attendance", "finance", "library"
+                    ];
+                    let is_static = static_block_ids.contains(&cfg_block_id.as_str());
+
+                    let cfg_name_translated = if is_static {
+                        let cfg_name_key = format!("settings-blocks-{}-name", cfg_block_id);
+                        t(&cfg_name_key, &props.locale)
+                    } else {
+                        cfg_block.name.clone()
+                    };
                     
-                    let cfg_desc_key = format!("settings-blocks-{}-desc", cfg_block_id);
-                    let cfg_desc_translated = t(&cfg_desc_key, &props.locale);
+                    let cfg_desc_translated = if is_static {
+                        let cfg_desc_key = format!("settings-blocks-{}-desc", cfg_block_id);
+                        t(&cfg_desc_key, &props.locale)
+                    } else {
+                        cfg_block.description.clone().unwrap_or_default()
+                    };
                     
                     rsx! {
                         components::Dialog {
