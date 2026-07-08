@@ -65,6 +65,19 @@ pub fn LayoutSidebar(props: LayoutSidebarProps) -> Element {
         format!("sidebar-item relative flex cursor-pointer items-center justify-between px-3 py-2 rounded-md transition-all duration-150 text-sm font-medium mb-1 {}", theme_class)
     };
 
+    let state = use_context::<crate::state::AppState>();
+    let db_trigger = state.db_trigger;
+    let db_trig_val = *db_trigger.read();
+    let blocks_res = use_resource(move || {
+        let _ = db_trig_val;
+        async move {
+            yntra_core::get_blocks().await.unwrap_or_default()
+        }
+    });
+    let db_blocks = blocks_res.read().clone().unwrap_or_default();
+    let modules_active_val: serde_json::Value =
+        serde_json::from_str(&workspace.modules_active).unwrap_or_default();
+
     rsx! {
         aside { class: "flex h-full w-64 flex-col border-r border-border bg-sidebar",
             // Header / Logo Area
@@ -208,6 +221,8 @@ pub fn LayoutSidebar(props: LayoutSidebarProps) -> Element {
                         }
                     };
 
+                    let static_block_ids: std::collections::HashSet<&str> = blocks::BLOCK_REGISTRY.iter().map(|b| b.id).collect();
+
                     rsx! {
                         for block in blocks::BLOCK_REGISTRY.iter() {
                             if block.id == "dashboard" || is_module_enabled(block.id) {
@@ -296,6 +311,32 @@ pub fn LayoutSidebar(props: LayoutSidebarProps) -> Element {
                                                         }
                                                     }
                                                 }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Custom Dynamic Sidebar Items
+                        for b in db_blocks.iter() {
+                            if !static_block_ids.contains(b.id.as_str()) && modules_active_val.get(&b.id).and_then(|v| v.as_bool()).unwrap_or(false) {
+                                {
+                                    let b_id = b.id.clone();
+                                    let b_name = b.name.clone();
+                                    let b_icon = b.icon.clone();
+                                    let active = *active_section.read() == b_id;
+                                    let theme_class = if active { "bg-muted text-foreground active" } else { "text-muted-foreground hover:bg-muted hover:text-foreground" };
+                                    let b_id_click = b_id.clone();
+                                    rsx! {
+                                        div {
+                                            key: "{b_id}",
+                                            class: "sidebar-item relative flex cursor-pointer items-center justify-between px-3 py-2 rounded-md transition-all duration-150 text-sm font-medium mb-1 {theme_class}",
+                                            onclick: move |_| active_section.set(b_id_click.clone()),
+                                            "data-testid": "sidebar-item-{b_id}",
+                                            div { class: "flex items-center gap-3",
+                                                components::LucideIcon { name: b_icon, size: "16" }
+                                                span { "{b_name}" }
                                             }
                                         }
                                     }

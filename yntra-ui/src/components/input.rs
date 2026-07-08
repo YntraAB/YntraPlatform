@@ -9,6 +9,8 @@ pub struct InputProps {
     #[props(default = String::new())]
     pub class: String,
     #[props(default = String::new())]
+    pub style: String,
+    #[props(default = String::new())]
     pub id: String,
     #[props(default = "text".to_string())]
     pub r#type: String,
@@ -23,6 +25,7 @@ pub fn Input(props: InputProps) -> Element {
     rsx! {
         input {
             class: "yntra-input {props.class}",
+            style: "{props.style}",
             r#type: "{props.r#type}",
             placeholder: "{props.placeholder}",
             value: "{props.value}",

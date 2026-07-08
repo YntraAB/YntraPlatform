@@ -2,6 +2,7 @@ use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::WorkspaceUser;
+use yntra_core::Workspace;
 use super::breadcrumbs::BreadcrumbItem;
 
 #[derive(Props, Clone)]
@@ -14,6 +15,7 @@ pub struct LayoutHeaderProps {
     pub header_profile_open: Signal<bool>,
     pub logged_in: Signal<bool>,
     pub db_trigger: Signal<u32>,
+    pub workspace: Workspace,
 }
 
 impl PartialEq for LayoutHeaderProps {
@@ -38,6 +40,31 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
 
     let is_client = current_role == "client";
     let mut header_role_open = use_signal(|| false);
+    let mut header_template_open = use_signal(|| false);
+
+    let active_template_label = {
+        let modules_val: serde_json::Value = serde_json::from_str(&props.workspace.modules_active).unwrap_or_default();
+        let is_school = modules_val.get("school").and_then(|v| v.as_bool()).unwrap_or(false)
+            || modules_val.get("academics").and_then(|v| v.as_bool()).unwrap_or(false)
+            || modules_val.get("attendance").and_then(|v| v.as_bool()).unwrap_or(false)
+            || modules_val.get("finance").and_then(|v| v.as_bool()).unwrap_or(false)
+            || modules_val.get("library").and_then(|v| v.as_bool()).unwrap_or(false)
+            || modules_val.get("timetable").and_then(|v| v.as_bool()).unwrap_or(false);
+        let is_assistance = modules_val.get("assistance").and_then(|v| v.as_bool()).unwrap_or(false)
+            || modules_val.get("journals").and_then(|v| v.as_bool()).unwrap_or(false)
+            || modules_val.get("medications").and_then(|v| v.as_bool()).unwrap_or(false);
+        let is_moving_company = modules_val.get("moving_company").and_then(|v| v.as_bool()).unwrap_or(false);
+
+        if is_school {
+            "Dev: School".to_string()
+        } else if is_moving_company {
+            "Dev: Operations".to_string()
+        } else if is_assistance {
+            "Dev: Care".to_string()
+        } else {
+            "Dev: General".to_string()
+        }
+    };
 
     rsx! {
         header { class: "flex h-14 items-center justify-between border-b border-border bg-sidebar px-6",
@@ -198,6 +225,125 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                                     Ok(())
                                 });
                                 header_role_open.set(false);
+                            }
+                        }
+                    }
+                }
+                if current_role == "platform_admin" || current_role == "admin" {
+                    components::Dropdown {
+                        label: active_template_label,
+                        open: *header_template_open.read(),
+                        ontoggle: move |_| {
+                            let current = *header_template_open.read();
+                            header_template_open.set(!current);
+                        },
+                        components::DropdownItem {
+                            label: "School Template".to_string(),
+                            onclick: {
+                                let user_id = active_user_id.read().clone();
+                                let ws_id = active_user.workspace_id.clone().unwrap_or_else(|| "workspace-1".to_string());
+                                let runner = runner.clone();
+                                move |_| {
+                                    let user_id = user_id.clone();
+                                    let ws_id = ws_id.clone();
+                                    let runner = runner.clone();
+                                    runner.run(async move {
+                                        let school_modules = serde_json::json!({
+                                            "academics": true,
+                                            "attendance": true,
+                                            "finance": true,
+                                            "library": true,
+                                            "timetable": true,
+                                            "todos": true,
+                                            "messaging": true,
+                                            "scheduling": true,
+                                            "notes": true,
+                                            "reporting": true,
+                                            "assistance": false,
+                                            "medications": false,
+                                            "journals": false,
+                                            "time": false,
+                                            "jobs": false,
+                                        });
+                                        yntra_core::update_workspace_modules(user_id, ws_id, school_modules.to_string()).await?;
+                                        let current = *db_trigger.read();
+                                        db_trigger.set(current + 1);
+                                        Ok(())
+                                    });
+                                    header_template_open.set(false);
+                                }
+                            }
+                        }
+                        components::DropdownItem {
+                            label: "Care & HVB/LSS".to_string(),
+                            onclick: {
+                                let user_id = active_user_id.read().clone();
+                                let ws_id = active_user.workspace_id.clone().unwrap_or_else(|| "workspace-1".to_string());
+                                let runner = runner.clone();
+                                move |_| {
+                                    let user_id = user_id.clone();
+                                    let ws_id = ws_id.clone();
+                                    let runner = runner.clone();
+                                    runner.run(async move {
+                                        let care_modules = serde_json::json!({
+                                            "assistance": true,
+                                            "medications": true,
+                                            "journals": true,
+                                            "time": true,
+                                            "jobs": true,
+                                            "todos": true,
+                                            "messaging": true,
+                                            "notes": true,
+                                            "reporting": true,
+                                            "academics": false,
+                                            "attendance": false,
+                                            "finance": false,
+                                            "library": false,
+                                            "timetable": false,
+                                        });
+                                        yntra_core::update_workspace_modules(user_id, ws_id, care_modules.to_string()).await?;
+                                        let current = *db_trigger.read();
+                                        db_trigger.set(current + 1);
+                                        Ok(())
+                                    });
+                                    header_template_open.set(false);
+                                }
+                            }
+                        }
+                        components::DropdownItem {
+                            label: "General Operations".to_string(),
+                            onclick: {
+                                let user_id = active_user_id.read().clone();
+                                let ws_id = active_user.workspace_id.clone().unwrap_or_else(|| "workspace-1".to_string());
+                                let runner = runner.clone();
+                                move |_| {
+                                    let user_id = user_id.clone();
+                                    let ws_id = ws_id.clone();
+                                    let runner = runner.clone();
+                                    runner.run(async move {
+                                        let general_modules = serde_json::json!({
+                                            "jobs": true,
+                                            "time": true,
+                                            "todos": true,
+                                            "messaging": true,
+                                            "notes": true,
+                                            "reporting": true,
+                                            "academics": false,
+                                            "attendance": false,
+                                            "finance": false,
+                                            "library": false,
+                                            "timetable": false,
+                                            "assistance": false,
+                                            "medications": false,
+                                            "journals": false,
+                                        });
+                                        yntra_core::update_workspace_modules(user_id, ws_id, general_modules.to_string()).await?;
+                                        let current = *db_trigger.read();
+                                        db_trigger.set(current + 1);
+                                        Ok(())
+                                    });
+                                    header_template_open.set(false);
+                                }
                             }
                         }
                     }

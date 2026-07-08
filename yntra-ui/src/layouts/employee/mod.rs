@@ -58,11 +58,9 @@ pub fn EmployeeLayout() -> Element {
     let notes = state.notes.read().clone().unwrap_or_default();
     let time_reports = state.time_reports.read().clone().unwrap_or_default();
     let clients = state.clients.read().clone().unwrap_or_default();
-    let reports = state.reports.read().clone().unwrap_or_default();
     let workspaces = state.workspaces.read().clone().unwrap_or_default();
     let db_trigger = state.db_trigger;
     let trigger_jobs = state.trigger_jobs;
-    let trigger_todos = state.trigger_todos;
     let trigger_school = state.trigger_school;
 
     // Check module activation from JSON
@@ -165,8 +163,6 @@ pub fn EmployeeLayout() -> Element {
     let leave_end = state.leave_end;
     let leave_reason = state.leave_reason;
     let leave_save_status = state.leave_save_status;
-    let note_subject = state.note_subject;
-    let note_content = state.note_content;
     let time_date = state.time_date;
     let time_start = state.time_start;
     let time_end = state.time_end;
@@ -203,16 +199,7 @@ pub fn EmployeeLayout() -> Element {
     let new_client_last_name = state.new_client_last_name;
     let new_client_personal_number = state.new_client_personal_number;
     let new_client_care_level = state.new_client_care_level;
-    let report_tab = state.report_tab;
-    let report_status_filter = state.report_status_filter;
-    let report_type_filter = state.report_type_filter;
-    let report_type = state.report_type;
-    let report_date = state.report_date;
-    let report_subject = state.report_subject;
-    let report_description = state.report_description;
-    let report_is_anonymous = state.report_is_anonymous;
-    let selected_report_id = state.selected_report_id;
-    let show_report_details_modal = state.show_report_details_modal;
+
     let compose_recipient_id = state.compose_recipient_id;
     let compose_subject = state.compose_subject;
     let compose_body = state.compose_body;
@@ -284,6 +271,7 @@ pub fn EmployeeLayout() -> Element {
                     header_profile_open,
                     logged_in,
                     db_trigger,
+                    workspace: workspace.clone(),
                 }
 
                 // Scrollable main content viewport
@@ -304,6 +292,7 @@ pub fn EmployeeLayout() -> Element {
                                             clients: clients.clone(),
                                             active_section: active_section,
                                             auth_region: auth_region,
+                                            workspace: workspace.clone(),
                                         }
                                     }
                                 }
@@ -353,22 +342,7 @@ pub fn EmployeeLayout() -> Element {
                                         }
                                     }
                                 }
-                                "notes" => {
-                                    rsx! {
-                                        views::NotesView {
-                                            active_user: active_user.clone(),
-                                            users: users.clone(),
-                                            teams: teams.clone(),
-                                            notes: notes.clone(),
-                                            selected_note_team_id: selected_note_team_id,
-                                            note_subject: note_subject,
-                                            note_content: note_content,
-                                            active_note_id: selected_note_id,
-                                            is_composing: is_note_composing,
-                                            locale: auth_region.read().clone(),
-                                        }
-                                    }
-                                }
+
                                 "time" => {
                                     rsx! {
                                         views::TimeView {
@@ -425,15 +399,7 @@ pub fn EmployeeLayout() -> Element {
                                         }
                                     }
                                 }
-                                "todos" => {
-                                    rsx! {
-                                        views::TodosView {
-                                            active_user_id: active_user_id,
-                                            auth_region: auth_region,
-                                            db_trigger: trigger_todos,
-                                        }
-                                    }
-                                }
+
                                 "academics" | "attendance" | "finance" | "library" => {
                                     let init_tab = match active_section.read().as_str() {
                                         "academics" => "courses",
@@ -521,28 +487,18 @@ pub fn EmployeeLayout() -> Element {
                                         }
                                     }
                                 }
-                                "reporting" => {
+
+                                _ => {
                                     rsx! {
-                                        views::ReportingView {
-                                            active_user: active_user.clone(),
-                                            users: users.clone(),
-                                            reports: reports.clone(),
-                                            report_tab: report_tab,
-                                            report_status_filter: report_status_filter,
-                                            report_type_filter: report_type_filter,
-                                            report_type: report_type,
-                                            report_date: report_date,
-                                            report_subject: report_subject,
-                                            report_description: report_description,
-                                            report_is_anonymous: report_is_anonymous,
-                                            selected_report_id: selected_report_id,
-                                            show_report_details_modal: show_report_details_modal,
+                                        views::DynamicBlockView {
+                                            active_user_id: active_user_id.read().clone(),
+                                            workspace_id: workspace.id.clone(),
+                                            block_id: active_section.read().clone(),
+                                            db_trigger: db_trigger,
+                                            locale: auth_region.read().clone(),
                                         }
                                     }
                                 }
-                                _ => rsx! {
-                                    div { "Unknown Section" }
-                                },
                             }
                         }
                     }
