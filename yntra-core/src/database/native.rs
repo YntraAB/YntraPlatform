@@ -51,7 +51,16 @@ pub fn get_database() -> &'static libsql::Database {
             } else {
                 "yntra_local.db"
             };
-            let db = if let (Ok(url), Ok(token)) = (std::env::var("LIBSQL_URL"), std::env::var("LIBSQL_AUTH_TOKEN")) {
+            let credentials = if let Some(creds) = super::sync::get_configured_credentials() {
+                Some(creds)
+            } else if let (Ok(url), Ok(token)) = (std::env::var("LIBSQL_URL"), std::env::var("LIBSQL_AUTH_TOKEN")) {
+                Some((url, token))
+            } else {
+                None
+            };
+            let is_replica = credentials.is_some();
+
+            let db = if let Some((url, token)) = credentials {
                 libsql::Builder::new_remote_replica(db_path, url, token)
                     .build()
                     .await
@@ -64,7 +73,7 @@ pub fn get_database() -> &'static libsql::Database {
             };
             
             // Try sync once if using replica
-            if std::env::var("LIBSQL_URL").is_ok() {
+            if is_replica {
                 let _ = db.sync().await;
             }
 
@@ -115,8 +124,9 @@ pub async fn acquire_connection() -> Result<DbConnection, YntraError> {
         _ => return Err(YntraError::DbError("Database connection pool exhausted".to_string())),
     };
 
-    // Lazily start the background replication sync loop if LIBSQL_URL is set
-    if std::env::var("LIBSQL_URL").is_ok() && !SYNC_LOOP_STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+    // Lazily start the background replication sync loop if LIBSQL_URL is set or custom config is configured
+    let has_sync = super::sync::get_configured_credentials().is_some() || std::env::var("LIBSQL_URL").is_ok();
+    if has_sync && !SYNC_LOOP_STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
         get_runtime().spawn(async move {
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(30)).await;
@@ -231,27 +241,21 @@ impl DbConnection {
         let res = conn.execute(sql, params).await
             .map_err(|e| YntraError::DbError(e.to_string()));
         if res.is_ok() {
-            if let Some(table) = crate::infra::observer::extract_table_name(sql) {
-                crate::infra::observer::set_last_modified_table(&table);
-            }
+            super::track_write(sql);
         }
         res
     }
 
     pub async fn execute_batch(&self, sql: &str) -> Result<(), YntraError> {
         let conn = self.get_conn()?;
-        for stmt in crate::infra::observer::split_sql_statements(sql) {
+        for stmt in super::parser::split_sql_statements(sql) {
             if let Some(in_tx) = check_transaction_sql(&stmt) {
                 self.in_transaction.store(in_tx, std::sync::atomic::Ordering::SeqCst);
             }
         }
         conn.execute_batch(sql).await
             .map_err(|e| YntraError::DbError(e.to_string()))?;
-        for stmt in crate::infra::observer::split_sql_statements(sql) {
-            if let Some(table) = crate::infra::observer::extract_table_name(&stmt) {
-                crate::infra::observer::set_last_modified_table(&table);
-            }
-        }
+        super::track_write_batch(sql);
         Ok(())
     }
 

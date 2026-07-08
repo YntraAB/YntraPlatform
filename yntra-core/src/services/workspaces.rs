@@ -6,7 +6,7 @@ use crate::{Workspace, YntraError};
 pub async fn get_workspace() -> Result<Workspace, YntraError> {
     let conn = database::acquire_connection().await?;
 
-    let mut stmt = conn.prepare("SELECT id, name, modules_active, settings, brand_color, logo_url, block_settings FROM workspaces LIMIT 1").await?;
+    let mut stmt = conn.prepare("SELECT id, name, modules_active, settings, brand_color, logo_url, block_settings, updated_at, sync_status FROM workspaces LIMIT 1").await?;
 
     let mut rows = stmt.query(()).await?;
     if let Some(row) = rows.next().await? {
@@ -18,6 +18,8 @@ pub async fn get_workspace() -> Result<Workspace, YntraError> {
             brand_color: row.get(4)?,
             logo_url: row.get(5)?,
             block_settings: row.get(6)?,
+            updated_at: row.get(7)?,
+            sync_status: row.get(8)?,
         })
     } else {
         Err(YntraError::NotFoundError("No workspace found".to_string()))
@@ -38,16 +40,17 @@ pub async fn update_workspace_modules(requester_user_id: String, workspace_id: S
     let modules_val: serde_json::Value = serde_json::from_str(&modules_json).unwrap_or_default();
     let reset_roles = modules_val.get("reset_roles").and_then(|v| v.as_bool()).unwrap_or(false);
 
+    let now_ms = crate::infra::time::get_current_time_ms();
     conn.execute(
-        "UPDATE workspaces SET modules_active = ?1 WHERE id = ?2",
-        crate::params![modules_json, workspace_id],
+        "UPDATE workspaces SET modules_active = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
+        crate::params![modules_json, now_ms, workspace_id],
     ).await?;
 
     if reset_roles {
         let default_settings = get_default_settings_for_modules(&modules_json);
         conn.execute(
-            "UPDATE workspaces SET settings = ?1 WHERE id = ?2",
-            crate::params![default_settings, workspace_id],
+            "UPDATE workspaces SET settings = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
+            crate::params![default_settings, now_ms, workspace_id],
         ).await?;
     }
 
@@ -60,7 +63,7 @@ pub async fn get_workspaces(requester_user_id: String) -> Result<Vec<Workspace>,
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    let mut stmt = conn.prepare("SELECT id, name, modules_active, settings, brand_color, logo_url, block_settings FROM workspaces").await?;
+    let mut stmt = conn.prepare("SELECT id, name, modules_active, settings, brand_color, logo_url, block_settings, updated_at, sync_status FROM workspaces").await?;
 
     let list = stmt.query_map((), |row| {
         Ok(Workspace {
@@ -71,6 +74,8 @@ pub async fn get_workspaces(requester_user_id: String) -> Result<Vec<Workspace>,
             brand_color: row.get(4)?,
             logo_url: row.get(5)?,
             block_settings: row.get(6)?,
+            updated_at: row.get(7)?,
+            sync_status: row.get(8)?,
         })
     }).await?;
 
@@ -294,9 +299,10 @@ pub async fn update_workspace_general(
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
 
+    let now_ms = crate::infra::time::get_current_time_ms();
     conn.execute(
-        "UPDATE workspaces SET name = ?1, brand_color = ?2, logo_url = ?3 WHERE id = ?4",
-        crate::params![name, brand_color, logo_url, workspace_id],
+        "UPDATE workspaces SET name = ?1, brand_color = ?2, logo_url = ?3, updated_at = ?4, sync_status = 'pending' WHERE id = ?5",
+        crate::params![name, brand_color, logo_url, now_ms, workspace_id],
     ).await?;
 
     notify_observers();
@@ -314,9 +320,10 @@ pub async fn update_workspace_settings(requester_user_id: String, workspace_id: 
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
 
+    let now_ms = crate::infra::time::get_current_time_ms();
     conn.execute(
-        "UPDATE workspaces SET settings = ?1 WHERE id = ?2",
-        crate::params![settings_json, workspace_id],
+        "UPDATE workspaces SET settings = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
+        crate::params![settings_json, now_ms, workspace_id],
     ).await?;
 
     notify_observers();
@@ -334,9 +341,10 @@ pub async fn update_workspace_block_settings(requester_user_id: String, workspac
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
 
+    let now_ms = crate::infra::time::get_current_time_ms();
     conn.execute(
-        "UPDATE workspaces SET block_settings = ?1 WHERE id = ?2",
-        crate::params![block_settings_json, workspace_id],
+        "UPDATE workspaces SET block_settings = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
+        crate::params![block_settings_json, now_ms, workspace_id],
     ).await?;
 
     notify_observers();

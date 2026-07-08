@@ -11,6 +11,9 @@ pub use wasm::{acquire_connection, DbConnection, Statement, Row, Rows};
 pub mod schema;
 pub use schema::setup_schema;
 
+pub mod parser;
+pub mod sync;
+
 #[cfg(not(target_arch = "wasm32"))]
 pub static DB_TEST_LOCK: DbTestLock = DbTestLock {
     inner: std::sync::OnceLock::new(),
@@ -30,6 +33,20 @@ impl DbTestLock {
             Err(poisoned) => {
                 Ok(poisoned.into_inner())
             }
+        }
+    }
+}
+
+pub fn track_write(sql: &str) {
+    if let Some(table) = self::parser::extract_table_name(sql) {
+        crate::infra::observer::set_last_modified_table(&table);
+    }
+}
+
+pub fn track_write_batch(sql: &str) {
+    for stmt in self::parser::split_sql_statements(sql) {
+        if let Some(table) = self::parser::extract_table_name(&stmt) {
+            crate::infra::observer::set_last_modified_table(&table);
         }
     }
 }

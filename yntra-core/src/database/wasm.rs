@@ -136,6 +136,10 @@ impl DbConnection {
         Ok(())
     }
 
+    /// Executes a SQL write statement.
+    /// Note: Parameters and results are serialized as JSON strings over the WASM/JS boundary
+    /// because the host window bridge (`window.yntra_execute_sql`) and the Web Worker postMessage
+    /// interface require stringified/cloneable payloads to route instructions to the background database worker.
     pub async fn execute<P: IntoWasmParams>(&self, sql: &str, params: P) -> Result<u64, YntraError> {
         let params_wasm = params.into_wasm_params();
         let params_str = serde_json::to_string(&params_wasm)
@@ -143,19 +147,14 @@ impl DbConnection {
         let result_str = js_execute_sql("execute", sql, &params_str).await?;
         let res: ExecuteResult = serde_json::from_str(&result_str)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        if let Some(table) = crate::infra::observer::extract_table_name(sql) {
-            crate::infra::observer::set_last_modified_table(&table);
-        }
+        super::track_write(sql);
         Ok(res.rows_affected)
     }
 
+    /// Executes a batch of SQL statements.
     pub async fn execute_batch(&self, sql: &str) -> Result<(), YntraError> {
         js_execute_sql("execute_batch", sql, "[]").await?;
-        for stmt in crate::infra::observer::split_sql_statements(sql) {
-            if let Some(table) = crate::infra::observer::extract_table_name(&stmt) {
-                crate::infra::observer::set_last_modified_table(&table);
-            }
-        }
+        super::track_write_batch(sql);
         Ok(())
     }
 

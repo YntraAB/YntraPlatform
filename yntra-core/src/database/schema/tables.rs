@@ -25,7 +25,9 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             brand_color TEXT DEFAULT '#3b82f6',
             logo_url TEXT,
             block_settings TEXT DEFAULT '{}',
-            creator_public_key TEXT
+            creator_public_key TEXT,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced'))
         );
 
         CREATE TABLE IF NOT EXISTS users (

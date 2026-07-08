@@ -52,6 +52,9 @@ pub async fn run_schema_migrations(conn: &DbConnection, current_version: i32) ->
         execute_migration_sql(conn, "ALTER TABLE users ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0").await?;
         execute_migration_sql(conn, "ALTER TABLE users ADD COLUMN sync_status TEXT DEFAULT 'pending'").await?;
 
+        execute_migration_sql(conn, "ALTER TABLE workspaces ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0").await?;
+        execute_migration_sql(conn, "ALTER TABLE workspaces ADD COLUMN sync_status TEXT DEFAULT 'pending'").await?;
+
         execute_migration_sql(conn, "ALTER TABLE teams ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0").await?;
         execute_migration_sql(conn, "ALTER TABLE teams ADD COLUMN sync_status TEXT DEFAULT 'pending'").await?;
 

@@ -6,6 +6,7 @@ pub mod services;
 // Re-export error type and observer callback
 pub use infra::errors::*;
 pub use infra::observer::*;
+pub use database::sync::*;
 pub use infra::auth::AuthContext;
 pub use models::*;
 
