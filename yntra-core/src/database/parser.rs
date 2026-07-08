@@ -268,67 +268,59 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
 
 pub fn split_sql_statements(sql: &str) -> Vec<String> {
     let mut statements = Vec::new();
-    let mut current = String::new();
+    let mut start_idx = 0;
     let mut in_single_quote = false;
     let mut in_double_quote = false;
-    let mut chars = sql.chars().peekable();
     
-    while let Some(c) = chars.next() {
+    let mut char_indices = sql.char_indices().peekable();
+    while let Some((idx, c)) = char_indices.next() {
         if in_single_quote {
             if c == '\'' {
                 in_single_quote = false;
             }
-            current.push(c);
         } else if in_double_quote {
             if c == '"' {
                 in_double_quote = false;
             }
-            current.push(c);
         } else {
             match c {
                 '\'' => {
                     in_single_quote = true;
-                    current.push(c);
                 }
                 '"' => {
                     in_double_quote = true;
-                    current.push(c);
                 }
-                '-' if chars.peek() == Some(&'-') => {
-                    current.push(c);
-                    current.push(chars.next().unwrap()); // push second '-'
-                    while let Some(nc) = chars.next() {
-                        current.push(nc);
+                '-' if char_indices.peek().map(|&(_, nc)| nc) == Some('-') => {
+                    char_indices.next(); // consume second '-'
+                    while let Some((_, nc)) = char_indices.next() {
                         if nc == '\n' || nc == '\r' {
                             break;
                         }
                     }
                 }
-                '/' if chars.peek() == Some(&'*') => {
-                    current.push(c);
-                    current.push(chars.next().unwrap()); // push '*'
-                    while let Some(nc) = chars.next() {
-                        current.push(nc);
-                        if nc == '*' && chars.peek() == Some(&'/') {
-                            current.push(chars.next().unwrap()); // push '/'
+                '/' if char_indices.peek().map(|&(_, nc)| nc) == Some('*') => {
+                    char_indices.next(); // consume '*'
+                    while let Some((_, nc)) = char_indices.next() {
+                        if nc == '*' && char_indices.peek().map(|&(_, nnc)| nnc) == Some('/') {
+                            char_indices.next(); // consume '/'
                             break;
                         }
                     }
                 }
                 ';' => {
-                    let trimmed = current.trim();
+                    let stmt = &sql[start_idx..idx];
+                    let trimmed = stmt.trim();
                     if !trimmed.is_empty() {
                         statements.push(trimmed.to_string());
                     }
-                    current.clear();
+                    start_idx = char_indices.peek().map(|&(next_idx, _)| next_idx).unwrap_or(sql.len());
                 }
-                _ => {
-                    current.push(c);
-                }
+                _ => {}
             }
         }
     }
-    let trimmed = current.trim();
+    let stmt = &sql[start_idx..];
+    let trimmed = stmt.trim();
     if !trimmed.is_empty() {
         statements.push(trimmed.to_string());
     }
