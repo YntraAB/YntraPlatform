@@ -26,19 +26,15 @@ pub(crate) async fn check_permission(
         Err(_) => return Ok(false),
     };
 
-    let ws_id = auth.workspace_id;
 
     if auth.role == "platform_admin" || auth.role == "admin" {
         return Ok(true);
     }
 
-    let ws_settings: String = conn.query_row(
-        "SELECT settings FROM workspaces WHERE id = ?1",
-        crate::params![&ws_id],
-        |r| r.get(0)
-    ).await.unwrap_or_default();
-
-    let settings_val: serde_json::Value = serde_json::from_str(&ws_settings).unwrap_or_default();
+    let settings_val: serde_json::Value = auth.workspace_settings
+        .as_deref()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_default();
     if let Some(roles) = settings_val.get("roles").and_then(|r| r.as_array()) {
         for role_val in roles {
             if role_val.get("id").and_then(|i| i.as_str()) == Some(&auth.role) {

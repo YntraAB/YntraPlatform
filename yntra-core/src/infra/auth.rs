@@ -17,6 +17,7 @@ pub struct AuthContext {
     pub role: String,
     pub workspace_id: String,
     pub is_admin: bool,
+    pub workspace_settings: Option<String>,
 }
 
 fn extract_auth_epoch(settings_str: &str) -> u64 {
@@ -313,6 +314,7 @@ impl AuthContext {
             role,
             workspace_id: ws_id,
             is_admin,
+            workspace_settings: ws_settings,
         };
         if let Ok(mut cache) = AUTH_CONTEXT_CACHE.get_or_init(|| RwLock::new(HashMap::new())).write() {
             cache.insert(user_id.to_string(), auth.clone());
