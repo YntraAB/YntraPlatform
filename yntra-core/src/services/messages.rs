@@ -7,11 +7,15 @@ pub async fn get_messages(requester_user_id: String, user_id: String) -> Result<
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    let target_ws: String = conn.query_row(
-        "SELECT workspace_id FROM users WHERE id = ?1",
-        crate::params![&user_id],
-        |r| r.get(0)
-    ).await.map_err(|_| YntraError::NotFoundError("Target user not found".to_string()))?;
+    let target_ws: String = if requester_user_id == user_id {
+        auth.workspace_id.clone()
+    } else {
+        conn.query_row(
+            "SELECT workspace_id FROM users WHERE id = ?1",
+            crate::params![&user_id],
+            |r| r.get(0)
+        ).await.map_err(|_| YntraError::NotFoundError("Target user not found".to_string()))?
+    };
 
     if auth.role != "platform_admin" && requester_user_id != user_id {
         if auth.role == "admin" {

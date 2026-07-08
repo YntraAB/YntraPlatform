@@ -101,7 +101,21 @@ pub async fn verify_email_password(email: String, password: String) -> Result<Op
     if let Some(row) = rows.next().await? {
         let stored_hash: Option<String> = row.get(7)?;
         let auth_ok = match stored_hash {
-            Some(h) => verify_password_argon2(&zeroizing_password, &h),
+            Some(h) => {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let pwd = zeroizing_password.to_string();
+                    let h_cloned = h.clone();
+                    tokio::task::spawn_blocking(move || {
+                        let zeroing = zeroize::Zeroizing::new(pwd);
+                        verify_password_argon2(&zeroing, &h_cloned)
+                    }).await.unwrap_or(false)
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    verify_password_argon2(&zeroizing_password, &h)
+                }
+            }
             None => false,
         };
         if !auth_ok {
@@ -117,7 +131,19 @@ pub async fn verify_email_password(email: String, password: String) -> Result<Op
                 // Generate a new Workspace Master Key
                 let mut ws_key = [0u8; 32];
                 if getrandom::fill(&mut ws_key).is_ok() {
-                    if let Ok(enc_key) = crate::infra::crypto::encrypt_workspace_key_with_password(&zeroizing_password, ws_key.to_vec()) {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let pwd = zeroizing_password.to_string();
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let ws_key_vec = ws_key.to_vec();
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let enc_res = tokio::task::spawn_blocking(move || {
+                        let zeroing = zeroize::Zeroizing::new(pwd);
+                        crate::infra::crypto::encrypt_workspace_key_with_password(&zeroing, ws_key_vec)
+                    }).await.unwrap_or_else(|e| Err(YntraError::CryptoError(e.to_string())));
+                    #[cfg(target_arch = "wasm32")]
+                    let enc_res = crate::infra::crypto::encrypt_workspace_key_with_password(&zeroizing_password, ws_key.to_vec());
+
+                    if let Ok(enc_key) = enc_res {
                         prefs_val["encrypted_workspace_key"] = serde_json::json!(enc_key);
                         if let Ok(updated_prefs) = serde_json::to_string(&prefs_val) {
                             let user_id: String = row.get(0)?;
@@ -134,7 +160,19 @@ pub async fn verify_email_password(email: String, password: String) -> Result<Op
             // Decrypt and set the Workspace Master Key as active session key
             let prefs_val: serde_json::Value = serde_json::from_str(&preferences).unwrap_or_default();
             if let Some(enc_key) = prefs_val.get("encrypted_workspace_key").and_then(|v| v.as_str()) {
-                if let Ok(dec_key) = crate::infra::crypto::decrypt_workspace_key_with_password(&zeroizing_password, enc_key) {
+                #[cfg(not(target_arch = "wasm32"))]
+                let pwd = zeroizing_password.to_string();
+                #[cfg(not(target_arch = "wasm32"))]
+                let enc_key_str = enc_key.to_string();
+                #[cfg(not(target_arch = "wasm32"))]
+                let dec_res = tokio::task::spawn_blocking(move || {
+                    let zeroing = zeroize::Zeroizing::new(pwd);
+                    crate::infra::crypto::decrypt_workspace_key_with_password(&zeroing, &enc_key_str)
+                }).await.unwrap_or_else(|e| Err(YntraError::CryptoError(e.to_string())));
+                #[cfg(target_arch = "wasm32")]
+                let dec_res = crate::infra::crypto::decrypt_workspace_key_with_password(&zeroizing_password, enc_key);
+
+                if let Ok(dec_key) = dec_res {
                     let _ = crate::infra::crypto::set_local_secret(&format!("workspace_key_{}", ws), &const_hex::encode(&dec_key)).await;
                     crate::infra::crypto::set_session_key(dec_key);
                 }
@@ -182,6 +220,14 @@ pub async fn set_user_password(requester_user_id: String, user_id: String, passw
         return Err(YntraError::AuthError("Access denied: target user is not in your workspace".to_string()));
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    let pwd = zeroizing_password.to_string();
+    #[cfg(not(target_arch = "wasm32"))]
+    let hashed_res = tokio::task::spawn_blocking(move || {
+        let zeroing = zeroize::Zeroizing::new(pwd);
+        hash_password_argon2(&zeroing)
+    }).await.unwrap_or_else(|e| Err(YntraError::CryptoError(e.to_string())));
+    #[cfg(target_arch = "wasm32")]
     let hashed_res = hash_password_argon2(&zeroizing_password);
     let hashed = hashed_res?;
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -198,14 +244,38 @@ pub async fn set_user_password(requester_user_id: String, user_id: String, passw
     let mut prefs_val: serde_json::Value = serde_json::from_str(&prefs_str).unwrap_or_default();
     
     if let Some(ws_key) = ws_key_opt {
-        if let Ok(enc_key) = crate::infra::crypto::encrypt_workspace_key_with_password(&zeroizing_password, ws_key) {
+        #[cfg(not(target_arch = "wasm32"))]
+        let pwd = zeroizing_password.to_string();
+        #[cfg(not(target_arch = "wasm32"))]
+        let ws_key_clone = ws_key.clone();
+        #[cfg(not(target_arch = "wasm32"))]
+        let enc_res = tokio::task::spawn_blocking(move || {
+            let zeroing = zeroize::Zeroizing::new(pwd);
+            crate::infra::crypto::encrypt_workspace_key_with_password(&zeroing, ws_key_clone)
+        }).await.unwrap_or_else(|e| Err(YntraError::CryptoError(e.to_string())));
+        #[cfg(target_arch = "wasm32")]
+        let enc_res = crate::infra::crypto::encrypt_workspace_key_with_password(&zeroizing_password, ws_key);
+
+        if let Ok(enc_key) = enc_res {
             prefs_val["encrypted_workspace_key"] = serde_json::json!(enc_key);
         }
     } else {
         // Fallback: generate a new one if not available
         let mut ws_key = [0u8; 32];
         if getrandom::fill(&mut ws_key).is_ok() {
-            if let Ok(enc_key) = crate::infra::crypto::encrypt_workspace_key_with_password(&zeroizing_password, ws_key.to_vec()) {
+            #[cfg(not(target_arch = "wasm32"))]
+            let pwd = zeroizing_password.to_string();
+            #[cfg(not(target_arch = "wasm32"))]
+            let ws_key_vec = ws_key.to_vec();
+            #[cfg(not(target_arch = "wasm32"))]
+            let enc_res = tokio::task::spawn_blocking(move || {
+                let zeroing = zeroize::Zeroizing::new(pwd);
+                crate::infra::crypto::encrypt_workspace_key_with_password(&zeroing, ws_key_vec)
+            }).await.unwrap_or_else(|e| Err(YntraError::CryptoError(e.to_string())));
+            #[cfg(target_arch = "wasm32")]
+            let enc_res = crate::infra::crypto::encrypt_workspace_key_with_password(&zeroizing_password, ws_key.to_vec());
+
+            if let Ok(enc_key) = enc_res {
                 prefs_val["encrypted_workspace_key"] = serde_json::json!(enc_key);
             }
         }

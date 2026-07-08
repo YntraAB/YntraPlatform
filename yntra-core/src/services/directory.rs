@@ -117,7 +117,18 @@ pub async fn activate_invitation_code(code: String) -> Result<WorkspaceUser, Ynt
         let res = async {
             // Decrypt workspace key using invitation code and cache it locally
             if let Some(ref enc_key) = enc_workspace_key {
-                if let Ok(dec_key) = crate::infra::crypto::decrypt_workspace_key_with_password(&lookup_code, enc_key) {
+                #[cfg(not(target_arch = "wasm32"))]
+                let dec_res = {
+                    let lookup_code_clone = lookup_code.clone();
+                    let enc_key_clone = enc_key.clone();
+                    tokio::task::spawn_blocking(move || {
+                        crate::infra::crypto::decrypt_workspace_key_with_password(&lookup_code_clone, &enc_key_clone)
+                    }).await.unwrap_or_else(|e| Err(YntraError::CryptoError(e.to_string())))
+                };
+                #[cfg(target_arch = "wasm32")]
+                let dec_res = crate::infra::crypto::decrypt_workspace_key_with_password(&lookup_code, enc_key);
+
+                if let Ok(dec_key) = dec_res {
                     let _ = crate::infra::crypto::set_local_secret(&format!("workspace_key_{}", workspace_id), &const_hex::encode(&dec_key)).await;
                     crate::infra::crypto::set_session_key(dec_key);
                 }

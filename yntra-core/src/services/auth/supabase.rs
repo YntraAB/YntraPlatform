@@ -137,6 +137,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_supabase_token_validation_network_error() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         // Test validating an invalid/expired token with invalid configuration
         // This will result in an HTTP error or connection error since the token/url is invalid
         let res = get_supabase_user_email("invalid_mock_token".to_string()).await;

@@ -93,10 +93,10 @@ pub async fn add_time_report(
         return Err(YntraError::AuthError("Access denied: cannot add time report for another user".to_string()));
     }
 
-    let target_user_ws: String = conn.query_row(
-        "SELECT workspace_id FROM users WHERE id = ?1",
+    let (target_user_ws, user_prefs_json_raw): (String, Option<String>) = conn.query_row(
+        "SELECT workspace_id, preferences FROM users WHERE id = ?1",
         crate::params![&user_id],
-        |r| r.get(0)
+        |r| Ok((r.get(0)?, r.get(1)?))
     ).await.map_err(|_| YntraError::NotFoundError("User not found".to_string()))?;
 
     if target_user_ws != workspace_id {
@@ -123,13 +123,7 @@ pub async fn add_time_report(
             settings_json
         };
 
-        let mut user_prefs_json = "{}".to_string();
-        // Fetch user preferences
-        let mut u_stmt = conn.prepare("SELECT preferences FROM users WHERE id = ?1").await?;
-        let mut u_rows = u_stmt.query(crate::params![&user_id]).await?;
-        if let Some(row) = u_rows.next().await? {
-            user_prefs_json = row.get::<Option<String>>(0)?.unwrap_or_else(|| "{}".to_string());
-        }
+        let user_prefs_json = user_prefs_json_raw.unwrap_or_else(|| "{}".to_string());
 
         let settings: serde_json::Value = serde_json::from_str(&settings_json).unwrap_or(serde_json::Value::Null);
         let week_start_day = settings.get("week_start")

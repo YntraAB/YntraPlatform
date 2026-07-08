@@ -5,16 +5,12 @@ use crate::{Team, TeamEvent, YntraError};
 #[uniffi::export]
 pub async fn get_teams(requester_user_id: String) -> Result<Vec<Team>, YntraError> {
     let conn = database::acquire_connection().await?;
-    
-    let requester_ws: String = conn.query_row(
-        "SELECT workspace_id FROM users WHERE id = ?1",
-        crate::params![&requester_user_id],
-        |r| r.get(0)
-    ).await.map_err(|_| YntraError::AuthError("Requester user not found".to_string()))?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    let requester_ws = &auth.workspace_id;
 
     let mut stmt = conn.prepare("SELECT id, workspace_id, name, updated_at, sync_status FROM teams WHERE workspace_id = ?1").await?;
 
-    let list = stmt.query_map(crate::params![&requester_ws], |row| {
+    let list = stmt.query_map(crate::params![requester_ws], |row| {
         Ok(Team {
             id: row.get(0)?,
             workspace_id: row.get(1)?,
@@ -30,12 +26,8 @@ pub async fn get_teams(requester_user_id: String) -> Result<Vec<Team>, YntraErro
 #[uniffi::export]
 pub async fn get_events(requester_user_id: String, team_id: Option<String>) -> Result<Vec<TeamEvent>, YntraError> {
     let conn = database::acquire_connection().await?;
-
-    let requester_ws: String = conn.query_row(
-        "SELECT workspace_id FROM users WHERE id = ?1",
-        crate::params![&requester_user_id],
-        |r| r.get(0)
-    ).await.map_err(|_| YntraError::AuthError("Requester user not found".to_string()))?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    let requester_ws = auth.workspace_id.clone();
 
     let (query, params) = match team_id {
         Some(tid) => (
