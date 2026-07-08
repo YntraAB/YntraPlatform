@@ -308,12 +308,12 @@ mod tests {
         // Workspace 1
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-team-1', 'Team WS 1', '[]', '{}')", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-team-user-1', 'ws-team-1', 'user1@team.io', 'employee')", ()).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO teams (id, workspace_id, name, updated_at, sync_status) VALUES ('team-1', 'ws-team-1', 'Team Alpha', 0, 'synced')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO teams (id, workspace_id, name, updated_at, sync_status) VALUES ('t-team-1', 'ws-team-1', 'Team Alpha', 0, 'synced')", ()).await.unwrap();
 
         // Workspace 2
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-team-2', 'Team WS 2', '[]', '{}')", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-team-user-2', 'ws-team-2', 'user2@team.io', 'employee')", ()).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO teams (id, workspace_id, name, updated_at, sync_status) VALUES ('team-2', 'ws-team-2', 'Team Beta', 0, 'synced')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO teams (id, workspace_id, name, updated_at, sync_status) VALUES ('t-team-2', 'ws-team-2', 'Team Beta', 0, 'synced')", ()).await.unwrap();
 
         // Query teams for user 1 (should only see team-1 in ws-team-1)
         let list1 = get_teams("u-team-user-1".to_string()).await.unwrap();

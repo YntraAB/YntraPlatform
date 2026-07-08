@@ -15,7 +15,7 @@ pub async fn get_user_by_email(email: String) -> Result<Option<WorkspaceUser>, Y
     let email_lower = email.trim().to_lowercase();
     let conn = database::acquire_connection().await?;
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, email, full_name, phone, role, preferences, siths_card_id, nfc_badge_uid, updated_at, sync_status, personal_number FROM users WHERE LOWER(email) = ?1",
+        "SELECT id, workspace_id, email, full_name, phone, role, preferences, updated_at, sync_status FROM users WHERE LOWER(email) = ?1",
     ).await?;
 
     let mut rows = stmt.query(crate::params![email_lower]).await?;
@@ -31,8 +31,8 @@ pub async fn get_user_by_email(email: String) -> Result<Option<WorkspaceUser>, Y
             preferences: row.get(6)?,
             siths_card_id: None,
             nfc_badge_uid: None,
-            updated_at: row.get(9)?,
-            sync_status: row.get(10)?,
+            updated_at: row.get(7)?,
+            sync_status: row.get(8)?,
             personal_number: None,
         }))
     } else {
@@ -43,29 +43,7 @@ pub async fn get_user_by_email(email: String) -> Result<Option<WorkspaceUser>, Y
 #[uniffi::export]
 pub async fn get_users(requester_user_id: String) -> Result<Vec<WorkspaceUser>, YntraError> {
     let conn = database::acquire_connection().await?;
-    
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-
-    if auth.role == "admin" || auth.role == "platform_admin" {
-        let mut to_sign = Vec::new();
-        if let Ok(mut check_stmt) = conn.prepare(
-            "SELECT id, role FROM users WHERE workspace_id = ?1 AND role_signature IS NULL"
-        ).await {
-            if let Ok(mut rows) = check_stmt.query(crate::params![&auth.workspace_id]).await {
-                while let Ok(Some(row)) = rows.next().await {
-                    if let (Ok(u_id), Ok(u_role)) = (row.get::<String>(0), row.get::<String>(1)) {
-                        let is_privileged = u_role != "user" && u_role != "client" && u_role != "guest" && u_role != "anonymous" && u_role != "deleted";
-                        if is_privileged {
-                            to_sign.push((u_id, u_role));
-                        }
-                    }
-                }
-            }
-        }
-        for (u_id, u_role) in to_sign {
-            let _ = ensure_user_role_signature(&conn, &u_id, &u_role, &auth.workspace_id).await;
-        }
-    }
 
     let mut stmt = conn.prepare(
         "SELECT id, workspace_id, email, full_name, phone, role, preferences, siths_card_id, nfc_badge_uid, updated_at, sync_status, personal_number FROM users WHERE workspace_id = ?1",
@@ -112,7 +90,6 @@ pub async fn update_user_role(requester_user_id: String, user_id: String, role: 
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     if auth.role != "admin" && auth.role != "platform_admin" {
-        #[cfg(not(debug_assertions))]
         return Err(YntraError::AuthError("Access denied: only administrators can change roles".to_string()));
     }
 
@@ -123,7 +100,6 @@ pub async fn update_user_role(requester_user_id: String, user_id: String, role: 
     ).await.ok().flatten();
 
     if auth.role != "platform_admin" && target_ws_id.as_ref() != Some(&auth.workspace_id) {
-        #[cfg(not(debug_assertions))]
         return Err(YntraError::AuthError("Access denied: target user is in a different workspace".to_string()));
     }
 
@@ -531,8 +507,8 @@ pub async fn ensure_user_role_signature(
     role: &str,
     workspace_id: &str,
 ) -> Result<(), YntraError> {
-    let is_privileged = role != "user" && role != "client" && role != "guest" && role != "anonymous" && role != "deleted";
-    if !is_privileged {
+    let needs_signature = role != "anonymous" && role != "deleted";
+    if !needs_signature {
         conn.execute(
             "UPDATE users SET role_signature = NULL WHERE id = ?1",
             crate::params![user_id],
@@ -548,7 +524,7 @@ pub async fn ensure_user_role_signature(
     ).await.ok().flatten();
 
     let private_key_setting = format!("creator_private_key_{}", workspace_id);
-    let mut creator_sk: Option<String> = crate::infra::crypto::get_local_secret(&private_key_setting).await;
+    let mut creator_sk: Option<String> = crate::infra::crypto::get_local_secret(&private_key_setting).await?;
 
     // 2. If not configured, generate keypair and store them
     if creator_pk.is_none() || creator_pk.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true) {
@@ -595,6 +571,45 @@ pub async fn ensure_user_role_signature(
         ).await?;
     }
 
+    Ok(())
+}
+
+#[uniffi::export]
+pub async fn reconcile_role_signatures(requester_user_id: String) -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if auth.role == "admin" || auth.role == "platform_admin" {
+        let mut to_sign = Vec::new();
+        if let Ok(mut check_stmt) = conn.prepare(
+            "SELECT id, role FROM users WHERE workspace_id = ?1 AND role_signature IS NULL AND role NOT IN ('anonymous', 'deleted')"
+        ).await {
+            if let Ok(mut rows) = check_stmt.query(crate::params![&auth.workspace_id]).await {
+                while let Ok(Some(row)) = rows.next().await {
+                    if let (Ok(u_id), Ok(u_role)) = (row.get::<String>(0), row.get::<String>(1)) {
+                        to_sign.push((u_id, u_role));
+                    }
+                }
+            }
+        }
+        if !to_sign.is_empty() {
+            conn.begin_transaction().await?;
+            let res = async {
+                for (u_id, u_role) in to_sign {
+                    ensure_user_role_signature(&conn, &u_id, &u_role, &auth.workspace_id).await?;
+                }
+                Ok::<(), YntraError>(())
+            }.await;
+            
+            match res {
+                Ok(_) => conn.commit().await?,
+                Err(e) => {
+                    let _ = conn.rollback().await;
+                    return Err(e);
+                }
+            }
+        }
+    }
     Ok(())
 }
 
@@ -743,6 +758,7 @@ mod tests {
         let _ = conn.execute("DELETE FROM users WHERE id IN ('admin-1', 'target-1')", ()).await;
         let _ = conn.execute("DELETE FROM workspaces WHERE id = 'ws-sig-test'", ()).await;
         let _ = crate::infra::crypto::set_local_secret("creator_private_key_ws-sig-test", "").await;
+        let _ = crate::infra::crypto::set_local_secret("workspace_public_key_ws-sig-test", "").await;
 
         // 1. Generate keypair manually in test
         let keys = crate::infra::crypto::generate_workspace_keypair().unwrap();
@@ -777,17 +793,29 @@ mod tests {
         let is_valid = crate::infra::crypto::verify_role_signature(&pk, "target-1", "assistant", "ws-sig-test", &sig);
         assert!(is_valid);
 
-        // 5. Demote target-1 to user (unprivileged)
+        // 5. Demote target-1 to user (non-privileged but active - requires signature)
         let res = update_user_role("admin-1".to_string(), "target-1".to_string(), "user".to_string()).await;
         assert!(res.is_ok());
 
         let sig_after: Option<String> = conn.query_row("SELECT role_signature FROM users WHERE id = 'target-1'", (), |r| Ok(r.get(0)?)).await.unwrap();
-        assert!(sig_after.is_none());
+        assert!(sig_after.is_some());
+        let sig_after_val = sig_after.unwrap();
+        assert!(!sig_after_val.trim().is_empty());
+        assert!(crate::infra::crypto::verify_role_signature(&pk, "target-1", "user", "ws-sig-test", &sig_after_val));
+
+        // 6. Demote target-1 to deleted (no signature required)
+        let res = update_user_role("admin-1".to_string(), "target-1".to_string(), "deleted".to_string()).await;
+        assert!(res.is_ok());
+
+        let sig_deleted: Option<String> = conn.query_row("SELECT role_signature FROM users WHERE id = 'target-1'", (), |r| Ok(r.get(0)?)).await.unwrap();
+        assert!(sig_deleted.is_none());
+
 
         // Clean up
         conn.execute("DELETE FROM users WHERE id IN ('admin-1', 'target-1')", ()).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id = 'ws-sig-test'", ()).await.unwrap();
         let _ = crate::infra::crypto::set_local_secret("creator_private_key_ws-sig-test", "").await;
+        let _ = crate::infra::crypto::set_local_secret("workspace_public_key_ws-sig-test", "").await;
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -801,6 +829,7 @@ mod tests {
         let _ = conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await;
         let _ = conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await;
         let _ = crate::infra::crypto::set_local_secret(&format!("creator_private_key_{}", ws_id), "").await;
+        let _ = crate::infra::crypto::set_local_secret(&format!("workspace_public_key_{}", ws_id), "").await;
 
         // 1. Create workspace
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Eventual WS', '[]', '{}')", crate::params![ws_id]).await.unwrap();
@@ -812,8 +841,8 @@ mod tests {
         // 3. Create a privileged user *without* a signature (simulating client-side invitation activation)
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, role_signature) VALUES ('user-eventual', ?1, 'user@eventual.io', 'admin', NULL)", crate::params![ws_id]).await.unwrap();
 
-        // 4. Admin queries get_users
-        let _ = get_users("admin-eventual".to_string()).await.unwrap();
+        // 4. Admin triggers reconciliation
+        reconcile_role_signatures("admin-eventual".to_string()).await.unwrap();
 
         // 5. Verify that user-eventual now has a valid signature!
         let sig: Option<String> = conn.query_row("SELECT role_signature FROM users WHERE id = 'user-eventual'", (), |r| Ok(r.get(0)?)).await.unwrap();
@@ -824,5 +853,6 @@ mod tests {
         conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
         let _ = crate::infra::crypto::set_local_secret(&format!("creator_private_key_{}", ws_id), "").await;
+        let _ = crate::infra::crypto::set_local_secret(&format!("workspace_public_key_{}", ws_id), "").await;
     }
 }

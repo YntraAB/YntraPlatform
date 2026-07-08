@@ -72,22 +72,22 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
     let (query, params) = if auth.role == "platform_admin" {
         match team_id {
             Some(tid) => (
-                "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status FROM notes WHERE team_id = ?1 ORDER BY created_at DESC".to_string(),
+                "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status, content_plain FROM notes WHERE team_id = ?1 ORDER BY created_at DESC".to_string(),
                 crate::params![tid],
             ),
             None => (
-                "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status FROM notes ORDER BY created_at DESC".to_string(),
+                "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status, content_plain FROM notes ORDER BY created_at DESC".to_string(),
                 crate::params![],
             ),
         }
     } else if auth.role == "admin" {
         match team_id {
             Some(tid) => (
-                "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status FROM notes WHERE team_id = ?1 AND workspace_id = ?2 ORDER BY created_at DESC".to_string(),
+                "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status, content_plain FROM notes WHERE team_id = ?1 AND workspace_id = ?2 ORDER BY created_at DESC".to_string(),
                 crate::params![tid, ws_id],
             ),
             None => (
-                "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status FROM notes WHERE workspace_id = ?1 ORDER BY created_at DESC".to_string(),
+                "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status, content_plain FROM notes WHERE workspace_id = ?1 ORDER BY created_at DESC".to_string(),
                 crate::params![ws_id],
             ),
         }
@@ -103,12 +103,12 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
                     return Err(YntraError::AuthError("Access denied: you are not a member of this team".to_string()));
                 }
                 (
-                    "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status FROM notes WHERE team_id = ?1 ORDER BY created_at DESC".to_string(),
+                    "SELECT id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status, content_plain FROM notes WHERE team_id = ?1 ORDER BY created_at DESC".to_string(),
                     crate::params![tid],
                 )
             }
             None => (
-                "SELECT n.id, n.workspace_id, n.team_id, n.author_id, n.subject, n.content, n.edit_history, n.created_at, n.updated_at, n.sync_status
+                "SELECT n.id, n.workspace_id, n.team_id, n.author_id, n.subject, n.content, n.edit_history, n.created_at, n.updated_at, n.sync_status, n.content_plain
                  FROM notes n
                  JOIN team_members tm ON n.team_id = tm.team_id
                  WHERE tm.user_id = ?1
@@ -133,8 +133,9 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
         let created_at: String = row.get(7)?;
         let updated_at: i64 = row.get(8)?;
         let sync_status: String = row.get(9)?;
+        let content_plain: Option<String> = row.get(10)?;
         
-        raw_notes.push((id, workspace_id, team_id, author_id, subject, base_content, edit_history, created_at, updated_at, sync_status));
+        raw_notes.push((id, workspace_id, team_id, author_id, subject, base_content, edit_history, created_at, updated_at, sync_status, content_plain));
     }
 
     if raw_notes.is_empty() {
@@ -142,7 +143,7 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
     }
 
     let mut updates_by_note: std::collections::HashMap<String, Vec<(i64, String)>> = std::collections::HashMap::new();
-    for (id, _, _, _, _, _, _, _, _, _) in &raw_notes {
+    for (id, _, _, _, _, _, _, _, _, _, _) in &raw_notes {
         updates_by_note.insert(id.clone(), Vec::new());
     }
 
@@ -165,28 +166,57 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
     }
 
     let mut list = Vec::new();
-    for (id, workspace_id, team_id, author_id, subject, base_content, edit_history, created_at, updated_at, sync_status) in raw_notes {
-        let doc = loro::LoroDoc::new();
+    let mut repairs = Vec::new();
+    for (id, workspace_id, team_id, author_id, subject, base_content, edit_history, created_at, updated_at, sync_status, content_plain) in raw_notes {
         let (last_merged_seq, hex_or_plain) = parse_loro_state(&base_content);
-        if base_content.starts_with("loro:") {
-            if let Some(bytes) = crate::infra::crypto::hex_decode(hex_or_plain) {
-                doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            }
-        } else {
-            doc.get_text("content").insert(0, hex_or_plain).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        }
-
+        
+        let mut has_unmerged = false;
         if let Some(updates) = updates_by_note.get(&id) {
-            for &(seq, ref update_data_hex) in updates {
+            for &(seq, _) in updates {
                 if seq > last_merged_seq {
-                    if let Some(bytes) = crate::infra::crypto::hex_decode(update_data_hex) {
-                        doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                    }
+                    has_unmerged = true;
+                    break;
                 }
             }
         }
 
-        let content = doc.get_text("content").to_string();
+        let content = if !has_unmerged && content_plain.is_some() {
+            content_plain.unwrap()
+        } else {
+            let doc = loro::LoroDoc::new();
+            if base_content.starts_with("loro:") {
+                if let Some(bytes) = crate::infra::crypto::hex_decode(hex_or_plain) {
+                    doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+            } else {
+                doc.get_text("content").insert(0, hex_or_plain).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            }
+
+            let mut max_seq = last_merged_seq;
+            if let Some(updates) = updates_by_note.get(&id) {
+                for &(seq, ref update_data_hex) in updates {
+                    if seq > last_merged_seq {
+                        if let Some(bytes) = crate::infra::crypto::hex_decode(update_data_hex) {
+                            doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                        }
+                        if seq > max_seq {
+                            max_seq = seq;
+                        }
+                    }
+                }
+            }
+
+            let plain = doc.get_text("content").to_string();
+
+            // Cache merged state to avoid future LoroDoc execution on next read
+            let snapshot_bytes = doc.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            let loro_content = format!("loro:{}:{}", max_seq, crate::infra::crypto::hex_encode(&snapshot_bytes));
+            
+            repairs.push((loro_content, plain.clone(), id.clone()));
+
+            plain
+        };
+
         list.push(DailyNote {
             id,
             workspace_id,
@@ -199,6 +229,17 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
             updated_at,
             sync_status,
         });
+    }
+
+    if !repairs.is_empty() {
+        let _ = conn.begin_transaction().await;
+        for (loro_content, plain, id) in repairs {
+            let _ = conn.execute(
+                "/* read_repair */ UPDATE notes SET content = ?1, content_plain = ?2 WHERE id = ?3",
+                crate::params![loro_content, plain, id],
+            ).await;
+        }
+        let _ = conn.commit().await;
     }
 
     Ok(list)
@@ -294,8 +335,8 @@ pub async fn add_note(
     conn.begin_transaction().await?;
     let res = async {
         conn.execute(
-            "INSERT INTO notes (id, workspace_id, team_id, author_id, subject, content, edit_history, created_at, updated_at, sync_status)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, '[]', ?7, ?8, 'pending')",
+            "INSERT INTO notes (id, workspace_id, team_id, author_id, subject, content, content_plain, edit_history, created_at, updated_at, sync_status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, '[]', ?8, ?9, 'pending')",
              crate::params![
                  &item.id,
                  &item.workspace_id,
@@ -303,6 +344,7 @@ pub async fn add_note(
                  &item.author_id,
                  &item.subject,
                  &loro_content, // Use the serialized Loro snapshot for database storage
+                 &content, // cached plain text
                  &item.created_at,
                  &item.updated_at
              ],
@@ -448,8 +490,8 @@ pub async fn update_note(
         // 3. Update database cache projection
         let loro_content = format!("loro:{}:{}", next_seq, crate::infra::crypto::hex_encode(&snapshot_bytes));
         conn.execute(
-            "UPDATE notes SET subject = ?1, content = ?2, edit_history = ?3, updated_at = ?4, sync_status = 'pending' WHERE id = ?5",
-            crate::params![&subject, &loro_content, &edit_history_str, &now_ms, &note_id],
+            "UPDATE notes SET subject = ?1, content = ?2, content_plain = ?3, edit_history = ?4, updated_at = ?5, sync_status = 'pending' WHERE id = ?6",
+            crate::params![&subject, &loro_content, &content, &edit_history_str, &now_ms, &note_id],
         ).await?;
 
         let updated_note = DailyNote {
@@ -598,10 +640,11 @@ pub async fn apply_note_loro_update(note_id: String, update_bytes: Vec<u8>) -> R
         ).await?;
 
         // 3. Update the database projection cache
+        let plain_text = doc.get_text("content").to_string();
         let loro_content = format!("loro:{}:{}", next_seq, crate::infra::crypto::hex_encode(&loro_bytes));
         conn.execute(
-            "UPDATE notes SET content = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
-            crate::params![&loro_content, &now_ms, &note_id],
+            "UPDATE notes SET content = ?1, content_plain = ?2, updated_at = ?3, sync_status = 'pending' WHERE id = ?4",
+            crate::params![&loro_content, &plain_text, &now_ms, &note_id],
         ).await?;
 
         Ok(())

@@ -3,38 +3,44 @@ use crate::observer::notify_observers;
 use crate::{HealthRecord, HealthIncident, YntraError};
 use super::{check_permission, has_health_access};
 
-fn decrypt_field_fallback(val: String, workspace_id: &str) -> String {
-    crate::infra::crypto::decrypt_field(&val, workspace_id).unwrap_or(val)
-}
-
-fn decrypt_opt_field_fallback(val: Option<String>, workspace_id: &str) -> Option<String> {
-    if let Some(v) = val {
-        match crate::infra::crypto::decrypt_field(&v, workspace_id) {
-            Ok(dec) => Some(dec),
-            Err(_) => Some(v),
-        }
-    } else {
-        None
-    }
-}
-
 #[uniffi::export]
 pub async fn get_health_records(requester_user_id: String, student_id: String) -> Result<Vec<HealthRecord>, YntraError> {
     let conn = database::acquire_connection().await?;
     if !has_health_access(&conn, &requester_user_id, &student_id).await? {
         return Err(YntraError::AuthError("Access to health records denied".to_string()));
     }
+    
+    let mut cached_cipher: Option<(String, crate::infra::crypto::WorkspaceCipher)> = None;
+
     let mut stmt = conn.prepare("SELECT id, workspace_id, student_id, vaccine_name, status, administered_at, updated_at, sync_status FROM health_records WHERE student_id = ?1").await?;
     let list = stmt.query_map(crate::params![&student_id], |row| {
         let ws_id: String = row.get(1)?;
         let raw_vaccine: String = row.get(3)?;
         let raw_status: String = row.get(4)?;
+        
+        let has_cached = cached_cipher.as_ref().map(|(id, _)| id == &ws_id).unwrap_or(false);
+        if !has_cached {
+            if let Ok(c) = crate::infra::crypto::WorkspaceCipher::new(&ws_id) {
+                cached_cipher = Some((ws_id.clone(), c));
+            } else {
+                cached_cipher = None;
+            }
+        }
+        
+        let vaccine_name = cached_cipher.as_ref()
+            .and_then(|(_, c)| c.decrypt(&raw_vaccine).ok())
+            .unwrap_or(raw_vaccine);
+            
+        let status = cached_cipher.as_ref()
+            .and_then(|(_, c)| c.decrypt(&raw_status).ok())
+            .unwrap_or(raw_status);
+
         Ok(HealthRecord {
             id: row.get(0)?,
             workspace_id: ws_id.clone(),
             student_id: row.get(2)?,
-            vaccine_name: decrypt_field_fallback(raw_vaccine, &ws_id),
-            status: decrypt_field_fallback(raw_status, &ws_id),
+            vaccine_name,
+            status,
             administered_at: row.get(5)?,
             updated_at: row.get(6)?,
             sync_status: row.get(7)?,
@@ -87,8 +93,9 @@ pub async fn save_health_record(
         sync_status: "pending".to_string(),
     };
 
-    let enc_vaccine_name = crate::infra::crypto::encrypt_field(&vaccine_name, &workspace_id)?;
-    let enc_status = crate::infra::crypto::encrypt_field(&status, &workspace_id)?;
+    let cipher = crate::infra::crypto::WorkspaceCipher::new(&workspace_id)?;
+    let enc_vaccine_name = cipher.encrypt(&vaccine_name)?;
+    let enc_status = cipher.encrypt(&status)?;
 
     conn.execute(
         "INSERT OR REPLACE INTO health_records (id, workspace_id, student_id, vaccine_name, status, administered_at, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -114,21 +121,46 @@ pub async fn get_health_incidents(requester_user_id: String, student_id: String)
     if !has_health_access(&conn, &requester_user_id, &student_id).await? {
         return Err(YntraError::AuthError("Access to health incidents denied".to_string()));
     }
+    
+    let mut cached_cipher: Option<(String, crate::infra::crypto::WorkspaceCipher)> = None;
+
     let mut stmt = conn.prepare("SELECT id, workspace_id, student_id, visit_reason, treatment, checked_in_at, checked_out_at, notes, updated_at, sync_status FROM health_incidents WHERE student_id = ?1 ORDER BY checked_in_at DESC").await?;
     let list = stmt.query_map(crate::params![&student_id], |row| {
         let ws_id: String = row.get(1)?;
         let raw_reason: String = row.get(3)?;
         let raw_treatment: String = row.get(4)?;
         let raw_notes: Option<String> = row.get(7)?;
+        
+        let has_cached = cached_cipher.as_ref().map(|(id, _)| id == &ws_id).unwrap_or(false);
+        if !has_cached {
+            if let Ok(c) = crate::infra::crypto::WorkspaceCipher::new(&ws_id) {
+                cached_cipher = Some((ws_id.clone(), c));
+            } else {
+                cached_cipher = None;
+            }
+        }
+        
+        let visit_reason = cached_cipher.as_ref()
+            .and_then(|(_, c)| c.decrypt(&raw_reason).ok())
+            .unwrap_or(raw_reason);
+            
+        let treatment = cached_cipher.as_ref()
+            .and_then(|(_, c)| c.decrypt(&raw_treatment).ok())
+            .unwrap_or(raw_treatment);
+            
+        let notes = cached_cipher.as_ref()
+            .and_then(|(_, c)| Some(c.decrypt_opt(raw_notes.clone())))
+            .unwrap_or_else(|| raw_notes.clone());
+
         Ok(HealthIncident {
             id: row.get(0)?,
             workspace_id: ws_id.clone(),
             student_id: row.get(2)?,
-            visit_reason: decrypt_field_fallback(raw_reason, &ws_id),
-            treatment: decrypt_field_fallback(raw_treatment, &ws_id),
+            visit_reason,
+            treatment,
             checked_in_at: row.get(5)?,
             checked_out_at: row.get(6)?,
-            notes: decrypt_opt_field_fallback(raw_notes, &ws_id),
+            notes,
             updated_at: row.get(8)?,
             sync_status: row.get(9)?,
         })
@@ -185,9 +217,10 @@ pub async fn save_health_incident(
         sync_status: "pending".to_string(),
     };
 
-    let enc_visit_reason = crate::infra::crypto::encrypt_field(&visit_reason, &workspace_id)?;
-    let enc_treatment = crate::infra::crypto::encrypt_field(&treatment, &workspace_id)?;
-    let enc_notes = crate::infra::crypto::encrypt_opt_field(notes.clone(), &workspace_id)?;
+    let cipher = crate::infra::crypto::WorkspaceCipher::new(&workspace_id)?;
+    let enc_visit_reason = cipher.encrypt(&visit_reason)?;
+    let enc_treatment = cipher.encrypt(&treatment)?;
+    let enc_notes = cipher.encrypt_opt(notes)?;
 
     conn.execute(
         "INSERT OR REPLACE INTO health_incidents (id, workspace_id, student_id, visit_reason, treatment, checked_in_at, checked_out_at, notes, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",

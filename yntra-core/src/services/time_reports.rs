@@ -92,15 +92,13 @@ pub async fn add_time_report(
         return Err(YntraError::ValidationError("Logged hours must be greater than zero".to_string()));
     }
 
-    {
-        let conn = database::acquire_connection().await?;
-        let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-        if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-            return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
-        }
-        if auth.role != "platform_admin" && auth.role != "admin" && requester_user_id != user_id {
-            return Err(YntraError::AuthError("Access denied: cannot add time report for another user".to_string()));
-        }
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+    if auth.role != "platform_admin" && auth.role != "admin" && requester_user_id != user_id {
+        return Err(YntraError::AuthError("Access denied: cannot add time report for another user".to_string()));
     }
 
     // 1. Calculate dates and convert target date to days
@@ -110,9 +108,7 @@ pub async fn add_time_report(
     };
 
     // 2. Fetch logged hours, workspace settings, and user preferences to determine national limits
-    let (settings_json, user_prefs_json, user_reports) = {
-        let conn = database::acquire_connection().await?;
-        
+    let (settings, user_prefs_json, user_reports) = {
         let mut settings_json = "{}".to_string();
         // Fetch workspace settings
         let mut w_stmt = conn.prepare("SELECT settings FROM workspaces WHERE id = ?1").await?;
@@ -129,8 +125,8 @@ pub async fn add_time_report(
             user_prefs_json = row.get::<Option<String>>(0)?.unwrap_or_else(|| "{}".to_string());
         }
 
-        let settings_parsed: serde_json::Value = serde_json::from_str(&settings_json).unwrap_or(serde_json::Value::Null);
-        let week_start_day = settings_parsed.get("week_start")
+        let settings: serde_json::Value = serde_json::from_str(&settings_json).unwrap_or(serde_json::Value::Null);
+        let week_start_day = settings.get("week_start")
             .and_then(|v| v.as_i64())
             .unwrap_or(1) as i32;
 
@@ -152,11 +148,10 @@ pub async fn add_time_report(
             let r_end: Option<String> = row.get(3)?;
             user_reports.push((r_date, r_hours, r_start, r_end));
         }
-        (settings_json, user_prefs_json, user_reports)
+        (settings, user_prefs_json, user_reports)
     };
 
     // Parse configuration fields
-    let settings: serde_json::Value = serde_json::from_str(&settings_json).unwrap_or(serde_json::Value::Null);
     let u_prefs: serde_json::Value = serde_json::from_str(&user_prefs_json).unwrap_or(serde_json::Value::Null);
 
     let target_region_raw = u_prefs.get("target_region")
@@ -445,13 +440,10 @@ pub async fn add_time_report(
     let created_at = crate::infra::time::get_current_datetime_str();
     let now_ms = crate::infra::time::get_current_time_ms();
     
-    // Log audit action first (releases its connection upon return)
-    crate::log_action(user_id.clone(), None, "add_time_report".to_string()).await?;
-    
     let item = TimeReport {
         id: id.clone(),
         workspace_id,
-        user_id,
+        user_id: user_id.clone(),
         team_id,
         date,
         start_time,
@@ -464,29 +456,41 @@ pub async fn add_time_report(
         sync_status: "pending".to_string(),
     };
 
-    // Re-acquire connection to perform insert
-    let conn = database::acquire_connection().await?;
-    conn.execute(
-        "INSERT INTO time_reports (id, workspace_id, user_id, team_id, date, start_time, end_time, hours, note, status, created_at, updated_at, sync_status)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending_attest', ?10, ?11, 'pending')",
-        crate::params![
-            &item.id,
-            &item.workspace_id,
-            &item.user_id,
-            &item.team_id,
-            &item.date,
-            &item.start_time,
-            &item.end_time,
-            &item.hours,
-            &item.note,
-            &item.created_at,
-            &item.updated_at
-        ],
-    ).await?;
+    conn.begin_transaction().await?;
+    let res = async {
+        crate::services::audit::log_action_with_conn(&conn, user_id, None, "add_time_report".to_string()).await?;
+        
+        conn.execute(
+            "INSERT INTO time_reports (id, workspace_id, user_id, team_id, date, start_time, end_time, hours, note, status, created_at, updated_at, sync_status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending_attest', ?10, ?11, 'pending')",
+            crate::params![
+                &item.id,
+                &item.workspace_id,
+                &item.user_id,
+                &item.team_id,
+                &item.date,
+                &item.start_time,
+                &item.end_time,
+                &item.hours,
+                &item.note,
+                &item.created_at,
+                &item.updated_at
+            ],
+        ).await?;
+        Ok::<(), YntraError>(())
+    }.await;
 
-    notify_observers();
-
-    Ok(item)
+    match res {
+        Ok(_) => {
+            conn.commit().await?;
+            notify_observers();
+            Ok(item)
+        }
+        Err(e) => {
+            let _ = conn.rollback().await;
+            Err(e)
+        }
+    }
 }
 
 #[uniffi::export]

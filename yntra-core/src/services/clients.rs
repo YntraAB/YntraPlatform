@@ -96,17 +96,32 @@ pub async fn get_clients(requester_user_id: String) -> Result<Vec<ClientProfile>
         )
     };
 
+    let mut cached_cipher: Option<(String, crate::infra::crypto::WorkspaceCipher)> = None;
+
     let mut stmt = conn.prepare(&query).await?;
     let list = stmt.query_map(crate::rusqlite::params_from_iter(params), |row| {
         let ws_id: String = row.get(1)?;
         let raw_pnum: Option<String> = row.get(5)?;
+        
+        let has_cached = cached_cipher.as_ref().map(|(id, _)| id == &ws_id).unwrap_or(false);
+        if !has_cached {
+            if let Ok(c) = crate::infra::crypto::WorkspaceCipher::new(&ws_id) {
+                cached_cipher = Some((ws_id.clone(), c));
+            } else {
+                cached_cipher = None;
+            }
+        }
+        
+        let decrypted_pnum = cached_cipher.as_ref()
+            .and_then(|(_, c)| c.decrypt_opt(raw_pnum.clone()));
+
         Ok(ClientProfile {
             id: row.get(0)?,
             workspace_id: ws_id.clone(),
             team_id: row.get(2)?,
             first_name: row.get(3)?,
             last_name: row.get(4)?,
-            personal_number: crate::infra::crypto::decrypt_opt_field(raw_pnum, &ws_id),
+            personal_number: decrypted_pnum,
             care_level: row.get(6)?,
             message_settings: row.get(7)?,
             created_at: row.get(8)?,
@@ -136,130 +151,160 @@ pub async fn get_clients(requester_user_id: String) -> Result<Vec<ClientProfile>
 
 #[uniffi::export]
 pub async fn get_medications(client_id: String, actor_id: String) -> Result<Vec<MedicationItem>, YntraError> {
-    crate::log_action(actor_id.clone(), Some(client_id.clone()), "read_medications".to_string()).await?;
-
     let conn = database::acquire_connection().await?;
+    conn.begin_transaction().await?;
 
-    // 1. Fetch client details to check workspace and team assignment
-    let client = {
-        let mut stmt = conn.prepare("SELECT workspace_id, team_id FROM clients WHERE id = ?1").await?;
-        let mut rows = stmt.query(crate::params![&client_id]).await?;
-        if let Some(row) = rows.next().await? {
-            let ws_id: String = row.get(0)?;
-            let team_id: Option<String> = row.get(1)?;
-            (ws_id, team_id)
-        } else {
-            return Err(YntraError::NotFoundError("Client not found".to_string()));
+    let res = async {
+        crate::services::audit::log_action_with_conn(&conn, actor_id.clone(), Some(client_id.clone()), "read_medications".to_string()).await?;
+
+        // 1. Fetch client details to check workspace and team assignment
+        let client = {
+            let mut stmt = conn.prepare("SELECT workspace_id, team_id FROM clients WHERE id = ?1").await?;
+            let mut rows = stmt.query(crate::params![&client_id]).await?;
+            if let Some(row) = rows.next().await? {
+                let ws_id: String = row.get(0)?;
+                let team_id: Option<String> = row.get(1)?;
+                (ws_id, team_id)
+            } else {
+                return Err(YntraError::NotFoundError("Client not found".to_string()));
+            }
+        };
+
+        // 2. Perform team access check (inre sekretess)
+        let auth = crate::AuthContext::authorize(&conn, &actor_id).await?;
+        let is_authorized = {
+            if auth.role == "platform_admin" {
+                true
+            } else if auth.role == "admin" {
+                auth.workspace_id == client.0
+            } else if let Some(tid) = &client.1 {
+                let mut member_stmt = conn.prepare("SELECT 1 FROM team_members WHERE team_id = ?1 AND user_id = ?2").await?;
+                let mut member_rows = member_stmt.query(crate::params![tid, &actor_id]).await?;
+                member_rows.next().await?.is_some()
+            } else {
+                false
+            }
+        };
+
+        if !is_authorized {
+            return Err(YntraError::AuthError("You are not authorized to view this client's health records".to_string()));
         }
-    };
 
-    // 2. Perform team access check (inre sekretess)
-    let auth = crate::AuthContext::authorize(&conn, &actor_id).await?;
-    let is_authorized = {
-        if auth.role == "platform_admin" {
-            true
-        } else if auth.role == "admin" {
-            auth.workspace_id == client.0
-        } else if let Some(tid) = &client.1 {
-            let mut member_stmt = conn.prepare("SELECT 1 FROM team_members WHERE team_id = ?1 AND user_id = ?2").await?;
-            let mut member_rows = member_stmt.query(crate::params![tid, &actor_id]).await?;
-            member_rows.next().await?.is_some()
-        } else {
-            false
+        let ws_id = client.0;
+        let cipher = crate::infra::crypto::WorkspaceCipher::new(&ws_id)?;
+
+        // 3. Query medications and decrypt sensitive fields
+        let mut stmt = conn.prepare("SELECT id, client_id, name, dosage, frequency, instructions, created_at, workspace_id, updated_at, sync_status FROM client_medications WHERE client_id = ?1").await?;
+
+        let list = stmt.query_map(crate::params![client_id], |row| {
+            let raw_dosage: Option<String> = row.get(3)?;
+            let raw_freq: Option<String> = row.get(4)?;
+            let raw_instr: Option<String> = row.get(5)?;
+            Ok(MedicationItem {
+                id: row.get(0)?,
+                client_id: row.get(1)?,
+                name: row.get(2)?,
+                dosage: cipher.decrypt_opt(raw_dosage),
+                frequency: cipher.decrypt_opt(raw_freq),
+                instructions: cipher.decrypt_opt(raw_instr),
+                created_at: row.get(6)?,
+                workspace_id: row.get(7)?,
+                updated_at: row.get(8)?,
+                sync_status: row.get(9)?,
+            })
+        }).await?;
+
+        Ok(list)
+    }.await;
+
+    match res {
+        Ok(list) => {
+            conn.commit().await?;
+            notify_observers();
+            Ok(list)
         }
-    };
-
-    if !is_authorized {
-        return Err(YntraError::AuthError("You are not authorized to view this client's health records".to_string()));
+        Err(e) => {
+            let _ = conn.rollback().await;
+            Err(e)
+        }
     }
-
-    let ws_id = client.0;
-    let cipher = crate::infra::crypto::WorkspaceCipher::new(&ws_id)?;
-
-    // 3. Query medications and decrypt sensitive fields
-    let mut stmt = conn.prepare("SELECT id, client_id, name, dosage, frequency, instructions, created_at, workspace_id, updated_at, sync_status FROM client_medications WHERE client_id = ?1").await?;
-
-    let list = stmt.query_map(crate::params![client_id], |row| {
-        let raw_dosage: Option<String> = row.get(3)?;
-        let raw_freq: Option<String> = row.get(4)?;
-        let raw_instr: Option<String> = row.get(5)?;
-        Ok(MedicationItem {
-            id: row.get(0)?,
-            client_id: row.get(1)?,
-            name: row.get(2)?,
-            dosage: cipher.decrypt_opt(raw_dosage),
-            frequency: cipher.decrypt_opt(raw_freq),
-            instructions: cipher.decrypt_opt(raw_instr),
-            created_at: row.get(6)?,
-            workspace_id: row.get(7)?,
-            updated_at: row.get(8)?,
-            sync_status: row.get(9)?,
-        })
-    }).await?;
-
-    Ok(list)
 }
 
 #[uniffi::export]
 pub async fn get_journals(client_id: String, actor_id: String) -> Result<Vec<JournalEntry>, YntraError> {
-    crate::log_action(actor_id.clone(), Some(client_id.clone()), "read_journals".to_string()).await?;
-
     let conn = database::acquire_connection().await?;
+    conn.begin_transaction().await?;
 
-    // 1. Fetch client details to check workspace and team assignment
-    let client = {
-        let mut stmt = conn.prepare("SELECT workspace_id, team_id FROM clients WHERE id = ?1").await?;
-        let mut rows = stmt.query(crate::params![&client_id]).await?;
-        if let Some(row) = rows.next().await? {
-            let ws_id: String = row.get(0)?;
-            let team_id: Option<String> = row.get(1)?;
-            (ws_id, team_id)
-        } else {
-            return Err(YntraError::NotFoundError("Client not found".to_string()));
+    let res = async {
+        crate::services::audit::log_action_with_conn(&conn, actor_id.clone(), Some(client_id.clone()), "read_journals".to_string()).await?;
+
+        // 1. Fetch client details to check workspace and team assignment
+        let client = {
+            let mut stmt = conn.prepare("SELECT workspace_id, team_id FROM clients WHERE id = ?1").await?;
+            let mut rows = stmt.query(crate::params![&client_id]).await?;
+            if let Some(row) = rows.next().await? {
+                let ws_id: String = row.get(0)?;
+                let team_id: Option<String> = row.get(1)?;
+                (ws_id, team_id)
+            } else {
+                return Err(YntraError::NotFoundError("Client not found".to_string()));
+            }
+        };
+
+        // 2. Perform team access check (inre sekretess)
+        let auth = crate::AuthContext::authorize(&conn, &actor_id).await?;
+        let is_authorized = {
+            if auth.role == "platform_admin" {
+                true
+            } else if auth.role == "admin" {
+                auth.workspace_id == client.0
+            } else if let Some(tid) = &client.1 {
+                let mut member_stmt = conn.prepare("SELECT 1 FROM team_members WHERE team_id = ?1 AND user_id = ?2").await?;
+                let mut member_rows = member_stmt.query(crate::params![tid, &actor_id]).await?;
+                member_rows.next().await?.is_some()
+            } else {
+                false
+            }
+        };
+
+        if !is_authorized {
+            return Err(YntraError::AuthError("You are not authorized to view this client's health records".to_string()));
         }
-    };
 
-    // 2. Perform team access check (inre sekretess)
-    let auth = crate::AuthContext::authorize(&conn, &actor_id).await?;
-    let is_authorized = {
-        if auth.role == "platform_admin" {
-            true
-        } else if auth.role == "admin" {
-            auth.workspace_id == client.0
-        } else if let Some(tid) = &client.1 {
-            let mut member_stmt = conn.prepare("SELECT 1 FROM team_members WHERE team_id = ?1 AND user_id = ?2").await?;
-            let mut member_rows = member_stmt.query(crate::params![tid, &actor_id]).await?;
-            member_rows.next().await?.is_some()
-        } else {
-            false
+        let ws_id = client.0;
+        let cipher = crate::infra::crypto::WorkspaceCipher::new(&ws_id)?;
+
+        // 3. Query journals and decrypt sensitive content field
+        let mut stmt = conn.prepare("SELECT id, client_id, author_id, content, created_at, workspace_id, updated_at, sync_status FROM client_journals WHERE client_id = ?1 ORDER BY created_at DESC").await?;
+
+        let list = stmt.query_map(crate::params![client_id], move |row| {
+            let raw_content: String = row.get(3)?;
+            Ok(JournalEntry {
+                id: row.get(0)?,
+                client_id: row.get(1)?,
+                author_id: row.get(2)?,
+                content: cipher.decrypt(&raw_content).unwrap_or(raw_content),
+                created_at: row.get(4)?,
+                workspace_id: row.get(5)?,
+                updated_at: row.get(6)?,
+                sync_status: row.get(7)?,
+            })
+        }).await?;
+
+        Ok(list)
+    }.await;
+
+    match res {
+        Ok(list) => {
+            conn.commit().await?;
+            notify_observers();
+            Ok(list)
         }
-    };
-
-    if !is_authorized {
-        return Err(YntraError::AuthError("You are not authorized to view this client's health records".to_string()));
+        Err(e) => {
+            let _ = conn.rollback().await;
+            Err(e)
+        }
     }
-
-    let ws_id = client.0;
-    let cipher = crate::infra::crypto::WorkspaceCipher::new(&ws_id)?;
-
-    // 3. Query journals and decrypt sensitive content field
-    let mut stmt = conn.prepare("SELECT id, client_id, author_id, content, created_at, workspace_id, updated_at, sync_status FROM client_journals WHERE client_id = ?1 ORDER BY created_at DESC").await?;
-
-    let list = stmt.query_map(crate::params![client_id], move |row| {
-        let raw_content: String = row.get(3)?;
-        Ok(JournalEntry {
-            id: row.get(0)?,
-            client_id: row.get(1)?,
-            author_id: row.get(2)?,
-            content: cipher.decrypt(&raw_content).unwrap_or(raw_content),
-            created_at: row.get(4)?,
-            workspace_id: row.get(5)?,
-            updated_at: row.get(6)?,
-            sync_status: row.get(7)?,
-        })
-    }).await?;
-
-    Ok(list)
 }
 
 #[uniffi::export]
@@ -269,8 +314,10 @@ pub async fn add_journal_entry(
     author_id: String,
     content: String,
 ) -> Result<JournalEntry, YntraError> {
-    {
-        let conn = database::acquire_connection().await?;
+    let conn = database::acquire_connection().await?;
+    conn.begin_transaction().await?;
+
+    let res = async {
         let auth = crate::AuthContext::authorize(&conn, &author_id).await?;
 
         if auth.workspace_id != workspace_id {
@@ -305,44 +352,53 @@ pub async fn add_journal_entry(
         if !is_authorized {
             return Err(YntraError::AuthError("You are not authorized to write to this client's records".to_string()));
         }
+
+        crate::services::audit::log_action_with_conn(&conn, author_id.clone(), Some(client_id.clone()), "add_journal_entry".to_string()).await?;
+
+        let id = uuid::Uuid::new_v4().to_string();
+        let created_at = crate::infra::time::get_current_datetime_str();
+        let now_ms = crate::infra::time::get_current_time_ms();
+        let item = JournalEntry {
+            id: id.clone(),
+            client_id,
+            author_id: Some(author_id),
+            content,
+            created_at,
+            workspace_id: workspace_id.clone(),
+            updated_at: now_ms,
+            sync_status: "pending".to_string(),
+        };
+
+        let enc_content = crate::infra::crypto::encrypt_field(&item.content, &workspace_id)?;
+
+        conn.execute(
+            "INSERT INTO client_journals (id, client_id, author_id, content, created_at, workspace_id, updated_at, sync_status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending')",
+            crate::params![
+                &item.id,
+                &item.client_id,
+                &item.author_id,
+                &enc_content,
+                &item.created_at,
+                &item.workspace_id,
+                &item.updated_at
+            ],
+        ).await?;
+
+        Ok(item)
+    }.await;
+
+    match res {
+        Ok(item) => {
+            conn.commit().await?;
+            notify_observers();
+            Ok(item)
+        }
+        Err(e) => {
+            let _ = conn.rollback().await;
+            Err(e)
+        }
     }
-
-    crate::log_action(author_id.clone(), Some(client_id.clone()), "add_journal_entry".to_string()).await?;
-
-    let id = uuid::Uuid::new_v4().to_string();
-    let created_at = crate::infra::time::get_current_datetime_str();
-    let now_ms = crate::infra::time::get_current_time_ms();
-    let item = JournalEntry {
-        id: id.clone(),
-        client_id,
-        author_id: Some(author_id),
-        content,
-        created_at,
-        workspace_id: workspace_id.clone(),
-        updated_at: now_ms,
-        sync_status: "pending".to_string(),
-    };
-
-    let enc_content = crate::infra::crypto::encrypt_field(&item.content, &workspace_id)?;
-
-    let conn = database::acquire_connection().await?;
-    conn.execute(
-        "INSERT INTO client_journals (id, client_id, author_id, content, created_at, workspace_id, updated_at, sync_status)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending')",
-        crate::params![
-            &item.id,
-            &item.client_id,
-            &item.author_id,
-            &enc_content,
-            &item.created_at,
-            &item.workspace_id,
-            &item.updated_at
-        ],
-    ).await?;
-
-    notify_observers();
-
-    Ok(item)
 }
 
 #[uniffi::export]
@@ -355,8 +411,10 @@ pub async fn add_medication(
     frequency: String,
     instructions: String,
 ) -> Result<MedicationItem, YntraError> {
-    {
-        let conn = database::acquire_connection().await?;
+    let conn = database::acquire_connection().await?;
+    conn.begin_transaction().await?;
+
+    let res = async {
         let auth = crate::AuthContext::authorize(&conn, &actor_id).await?;
 
         if auth.workspace_id != workspace_id {
@@ -391,51 +449,60 @@ pub async fn add_medication(
         if !is_authorized {
             return Err(YntraError::AuthError("You are not authorized to write to this client's records".to_string()));
         }
+
+        crate::services::audit::log_action_with_conn(&conn, actor_id.clone(), Some(client_id.clone()), "add_medication".to_string()).await?;
+
+        let id = uuid::Uuid::new_v4().to_string();
+        let created_at = crate::infra::time::get_current_datetime_str();
+        let now_ms = crate::infra::time::get_current_time_ms();
+        let item = MedicationItem {
+            id: id.clone(),
+            client_id,
+            name,
+            dosage: Some(dosage),
+            frequency: Some(frequency),
+            instructions: Some(instructions),
+            created_at,
+            workspace_id: workspace_id.clone(),
+            updated_at: now_ms,
+            sync_status: "pending".to_string(),
+        };
+
+        let cipher = crate::infra::crypto::WorkspaceCipher::new(&workspace_id)?;
+        let enc_dosage = cipher.encrypt_opt(item.dosage.clone())?;
+        let enc_freq = cipher.encrypt_opt(item.frequency.clone())?;
+        let enc_instr = cipher.encrypt_opt(item.instructions.clone())?;
+
+        conn.execute(
+            "INSERT INTO client_medications (id, client_id, name, dosage, frequency, instructions, created_at, workspace_id, updated_at, sync_status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending')",
+            crate::params![
+                &item.id,
+                &item.client_id,
+                &item.name,
+                &enc_dosage,
+                &enc_freq,
+                &enc_instr,
+                &item.created_at,
+                &item.workspace_id,
+                &item.updated_at
+            ],
+        ).await?;
+
+        Ok(item)
+    }.await;
+
+    match res {
+        Ok(item) => {
+            conn.commit().await?;
+            notify_observers();
+            Ok(item)
+        }
+        Err(e) => {
+            let _ = conn.rollback().await;
+            Err(e)
+        }
     }
-
-    crate::log_action(actor_id.clone(), Some(client_id.clone()), "add_medication".to_string()).await?;
-
-    let id = uuid::Uuid::new_v4().to_string();
-    let created_at = crate::infra::time::get_current_datetime_str();
-    let now_ms = crate::infra::time::get_current_time_ms();
-    let item = MedicationItem {
-        id: id.clone(),
-        client_id,
-        name,
-        dosage: Some(dosage),
-        frequency: Some(frequency),
-        instructions: Some(instructions),
-        created_at,
-        workspace_id: workspace_id.clone(),
-        updated_at: now_ms,
-        sync_status: "pending".to_string(),
-    };
-
-    let cipher = crate::infra::crypto::WorkspaceCipher::new(&workspace_id)?;
-    let enc_dosage = cipher.encrypt_opt(item.dosage.clone())?;
-    let enc_freq = cipher.encrypt_opt(item.frequency.clone())?;
-    let enc_instr = cipher.encrypt_opt(item.instructions.clone())?;
-
-    let conn = database::acquire_connection().await?;
-    conn.execute(
-        "INSERT INTO client_medications (id, client_id, name, dosage, frequency, instructions, created_at, workspace_id, updated_at, sync_status)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending')",
-        crate::params![
-            &item.id,
-            &item.client_id,
-            &item.name,
-            &enc_dosage,
-            &enc_freq,
-            &enc_instr,
-            &item.created_at,
-            &item.workspace_id,
-            &item.updated_at
-        ],
-    ).await?;
-
-    notify_observers();
-
-    Ok(item)
 }
 
 #[uniffi::export]

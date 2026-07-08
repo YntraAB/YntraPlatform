@@ -20,75 +20,81 @@ fn compute_hash(id: &str, actor_id: &str, target_client_id: Option<&str>, action
     hasher.finalize().to_hex().to_string()
 }
 
-#[uniffi::export]
-pub async fn log_action(actor_id: String, target_client_id: Option<String>, action_type: String) -> Result<AuditLogEntry, YntraError> {
+pub async fn log_action_with_conn(
+    conn: &database::DbConnection,
+    actor_id: String,
+    target_client_id: Option<String>,
+    action_type: String,
+) -> Result<AuditLogEntry, YntraError> {
     let id = Uuid::new_v4().to_string();
     let timestamp = crate::infra::time::get_current_time_ms();
+
+    // Find workspace_id of client or fallback to actor
+    let mut ws_id: Option<String> = None;
+    if let Some(ref client_id) = target_client_id {
+        ws_id = conn.query_row(
+            "SELECT workspace_id FROM clients WHERE id = ?1",
+            crate::params![client_id],
+            |r| r.get(0)
+        ).await.ok();
+    }
+
+    let ws_id = match ws_id {
+        Some(w) => w,
+        None => conn.query_row(
+            "SELECT workspace_id FROM users WHERE id = ?1",
+            crate::params![&actor_id],
+            |r| r.get(0)
+        ).await.unwrap_or_else(|_| "workspace-1".to_string()),
+    };
+
+    // Find previous hash and seq for this workspace
+    let mut prev_hash = "genesis".to_string();
+    let mut seq = 0;
+    let mut stmt = conn.prepare("SELECT curr_hash, seq FROM audit_logs WHERE workspace_id = ?1 ORDER BY seq DESC LIMIT 1").await?;
+    let mut rows = stmt.query(crate::params![&ws_id]).await?;
+    if let Some(row) = rows.next().await? {
+        prev_hash = row.get(0)?;
+        seq = row.get::<i64>(1)? + 1;
+    }
     
+    let curr_hash = compute_hash(&id, &actor_id, target_client_id.as_deref(), &action_type, timestamp, &prev_hash, seq);
+    
+    let entry = AuditLogEntry {
+        id: id.clone(),
+        actor_id: actor_id.clone(),
+        target_client_id: target_client_id.clone(),
+        action_type: action_type.clone(),
+        timestamp,
+        prev_hash,
+        curr_hash,
+        seq,
+    };
+    
+    conn.execute(
+        "INSERT INTO audit_logs (id, workspace_id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash, seq) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        crate::params![
+            entry.id,
+            ws_id,
+            entry.actor_id,
+            entry.target_client_id,
+            entry.action_type,
+            entry.timestamp,
+            entry.prev_hash,
+            entry.curr_hash,
+            entry.seq
+        ],
+    ).await?;
+    
+    Ok(entry)
+}
+
+#[uniffi::export]
+pub async fn log_action(actor_id: String, target_client_id: Option<String>, action_type: String) -> Result<AuditLogEntry, YntraError> {
     let conn = database::acquire_connection().await?;
-    
     conn.begin_transaction().await?;
     
-    let result = async {
-        // Find workspace_id of client or fallback to actor
-        let mut ws_id: Option<String> = None;
-        if let Some(ref client_id) = target_client_id {
-            ws_id = conn.query_row(
-                "SELECT workspace_id FROM clients WHERE id = ?1",
-                crate::params![client_id],
-                |r| r.get(0)
-            ).await.ok();
-        }
-
-        let ws_id = match ws_id {
-            Some(w) => w,
-            None => conn.query_row(
-                "SELECT workspace_id FROM users WHERE id = ?1",
-                crate::params![&actor_id],
-                |r| r.get(0)
-            ).await.unwrap_or_else(|_| "workspace-1".to_string()),
-        };
-
-        // Find previous hash and seq for this workspace
-        let mut prev_hash = "genesis".to_string();
-        let mut seq = 0;
-        let mut stmt = conn.prepare("SELECT curr_hash, seq FROM audit_logs WHERE workspace_id = ?1 ORDER BY seq DESC LIMIT 1").await?;
-        let mut rows = stmt.query(crate::params![&ws_id]).await?;
-        if let Some(row) = rows.next().await? {
-            prev_hash = row.get(0)?;
-            seq = row.get::<i64>(1)? + 1;
-        }
-        
-        let curr_hash = compute_hash(&id, &actor_id, target_client_id.as_deref(), &action_type, timestamp, &prev_hash, seq);
-        
-        let entry = AuditLogEntry {
-            id: id.clone(),
-            actor_id: actor_id.clone(),
-            target_client_id: target_client_id.clone(),
-            action_type: action_type.clone(),
-            timestamp,
-            prev_hash,
-            curr_hash,
-            seq,
-        };
-        
-        conn.execute(
-            "INSERT INTO audit_logs (id, workspace_id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash, seq) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            crate::params![
-                entry.id,
-                ws_id,
-                entry.actor_id,
-                entry.target_client_id,
-                entry.action_type,
-                entry.timestamp,
-                entry.prev_hash,
-                entry.curr_hash,
-                entry.seq
-            ],
-        ).await?;
-        
-        Ok::<AuditLogEntry, YntraError>(entry)
-    }.await;
+    let result = log_action_with_conn(&conn, actor_id, target_client_id, action_type).await;
 
     match result {
         Ok(entry) => {

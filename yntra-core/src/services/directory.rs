@@ -71,7 +71,22 @@ pub async fn invite_user_via_directory(
 
 #[uniffi::export]
 pub async fn activate_invitation_code(code: String) -> Result<WorkspaceUser, YntraError> {
-    let code_upper = code.trim().to_uppercase();
+    let trimmed = code.trim();
+    let parts: Vec<&str> = trimmed.split(':').collect();
+
+    let (lookup_code, pk_opt) = if parts.len() == 2 {
+        let lookup = parts[0].trim().to_uppercase();
+        let pk = parts[1].trim().to_lowercase();
+        // Validate pk is 64 hex chars (32 bytes)
+        let is_valid_hex = pk.len() == 64 && const_hex::decode(&pk).is_ok();
+        if is_valid_hex {
+            (lookup, Some(pk))
+        } else {
+            (trimmed.to_uppercase(), None)
+        }
+    } else {
+        (trimmed.to_uppercase(), None)
+    };
 
     let conn = database::acquire_connection().await?;
 
@@ -80,7 +95,7 @@ pub async fn activate_invitation_code(code: String) -> Result<WorkspaceUser, Ynt
         "SELECT code, workspace_id, email, full_name, role, activated, siths_card_id, nfc_badge_uid, encrypted_workspace_key FROM invitations WHERE UPPER(code) = ?1"
     ).await?;
 
-    let mut rows = stmt.query(crate::params![code_upper.clone()]).await?;
+    let mut rows = stmt.query(crate::params![lookup_code.clone()]).await?;
     if let Some(row) = rows.next().await? {
         let invitation_code: String = row.get(0)?;
         let workspace_id: String = row.get(1)?;
@@ -102,10 +117,20 @@ pub async fn activate_invitation_code(code: String) -> Result<WorkspaceUser, Ynt
         let res = async {
             // Decrypt workspace key using invitation code and cache it locally
             if let Some(ref enc_key) = enc_workspace_key {
-                if let Ok(dec_key) = crate::infra::crypto::decrypt_workspace_key_with_password(&code_upper, enc_key) {
+                if let Ok(dec_key) = crate::infra::crypto::decrypt_workspace_key_with_password(&lookup_code, enc_key) {
                     let _ = crate::infra::crypto::set_local_secret(&format!("workspace_key_{}", workspace_id), &const_hex::encode(&dec_key)).await;
                     crate::infra::crypto::set_session_key(dec_key);
                 }
+            }
+
+            // Write the out-of-band verified public key to the keyring if provided
+            if let Some(ref pk) = pk_opt {
+                let key_setting = format!("workspace_public_key_{}", workspace_id);
+                crate::infra::crypto::set_local_secret(&key_setting, pk).await?;
+
+                // Cache it in-memory
+                let mut cache = crate::infra::crypto::get_auth_key_cache().write().unwrap_or_else(|e| e.into_inner());
+                cache.insert(workspace_id.clone(), pk.clone());
             }
 
             // 2. Mark activated = 1
@@ -282,9 +307,30 @@ mod tests {
             panic!("Expected InvitationError");
         }
 
+        // 5. Test composite invitation code activation with creator public key
+        // Cleanup key cache before run to ensure clean state
+        let _ = crate::infra::crypto::set_local_secret("workspace_public_key_ws-dir-inv", "").await;
+        
+        let test_key_2 = vec![0u8; 32];
+        let enc_test_key_2 = crate::infra::crypto::encrypt_workspace_key_with_password("CODE456", test_key_2).unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO invitations (code, workspace_id, email, full_name, role, activated, updated_at, encrypted_workspace_key) VALUES ('CODE456', 'ws-dir-inv', 'guest2@dir.io', 'Guest User 2', 'user', 0, 0, ?1)",
+            crate::params![enc_test_key_2],
+        ).await.unwrap();
+
+        let mock_pk = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
+        let composite_code = format!("CODE456:{}", mock_pk);
+        let res_composite = activate_invitation_code(composite_code).await;
+        assert!(res_composite.is_ok());
+
+        // Verify public key is stored in the local keyring
+        let saved_pk = crate::infra::crypto::get_local_secret("workspace_public_key_ws-dir-inv").await.unwrap();
+        assert_eq!(saved_pk.as_deref(), Some(mock_pk));
+
         // Cleanup
-        conn.execute("DELETE FROM users WHERE email = 'guest@dir.io'", ()).await.unwrap();
-        conn.execute("DELETE FROM invitations WHERE code = 'CODE123'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE email IN ('guest@dir.io', 'guest2@dir.io')", ()).await.unwrap();
+        conn.execute("DELETE FROM invitations WHERE code IN ('CODE123', 'CODE456')", ()).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id = 'ws-dir-inv'", ()).await.unwrap();
+        let _ = crate::infra::crypto::set_local_secret("workspace_public_key_ws-dir-inv", "").await;
     }
 }
