@@ -28,6 +28,7 @@ pub async fn get_workspace() -> Result<Workspace, YntraError> {
 
 #[uniffi::export]
 pub async fn update_workspace_modules(requester_user_id: String, workspace_id: String, modules_json: String) -> Result<(), YntraError> {
+    println!("update_workspace_modules FFI called: requester_user_id={}, workspace_id={}, modules_json={}", requester_user_id, workspace_id, modules_json);
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if !auth.is_admin {
@@ -41,10 +42,12 @@ pub async fn update_workspace_modules(requester_user_id: String, workspace_id: S
     let reset_roles = modules_val.get("reset_roles").and_then(|v| v.as_bool()).unwrap_or(false);
 
     let now_ms = crate::infra::time::get_current_time_ms();
-    conn.execute(
+    let res = conn.execute(
         "UPDATE workspaces SET modules_active = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
         crate::params![modules_json, now_ms, workspace_id],
-    ).await?;
+    ).await;
+    println!("UPDATE workspaces query execution result: {:?}", res);
+    res?;
 
     if reset_roles {
         let default_settings = get_default_settings_for_modules(&modules_json);

@@ -1034,6 +1034,14 @@ internal open class UniffiVTableCallbackInterfaceDatabaseObserver(
 
 
 
+
+
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -1120,6 +1128,8 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
     fun uniffi_yntra_core_fn_func_delete_client(`requesterUserId`: RustBuffer.ByValue,`clientId`: RustBuffer.ByValue,
     ): Long
+    fun uniffi_yntra_core_fn_func_delete_dynamic_entity(`requesterUserId`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,
+    ): Long
     fun uniffi_yntra_core_fn_func_delete_event(`requesterUserId`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,
     ): Long
     fun uniffi_yntra_core_fn_func_delete_note(`requesterUserId`: RustBuffer.ByValue,`noteId`: RustBuffer.ByValue,
@@ -1166,6 +1176,8 @@ internal interface UniffiLib : Library {
     ): Long
     fun uniffi_yntra_core_fn_func_get_default_roles_json(`workspaceType`: RustBuffer.ByValue,`careSubtype`: RustBuffer.ByValue,`isScandi`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_yntra_core_fn_func_get_dynamic_entities(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`blockId`: RustBuffer.ByValue,
+    ): Long
     fun uniffi_yntra_core_fn_func_get_events(`requesterUserId`: RustBuffer.ByValue,`teamId`: RustBuffer.ByValue,
     ): Long
     fun uniffi_yntra_core_fn_func_get_health_incidents(`requesterUserId`: RustBuffer.ByValue,`studentId`: RustBuffer.ByValue,
@@ -1264,6 +1276,8 @@ internal interface UniffiLib : Library {
     ): Long
     fun uniffi_yntra_core_fn_func_save_attendance_record(`requesterUserId`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`studentId`: RustBuffer.ByValue,`courseId`: RustBuffer.ByValue,`date`: RustBuffer.ByValue,`status`: RustBuffer.ByValue,`notes`: RustBuffer.ByValue,
     ): Long
+    fun uniffi_yntra_core_fn_func_save_dynamic_entity(`requesterUserId`: RustBuffer.ByValue,`entity`: RustBuffer.ByValue,
+    ): Long
     fun uniffi_yntra_core_fn_func_save_health_incident(`requesterUserId`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`studentId`: RustBuffer.ByValue,`visitReason`: RustBuffer.ByValue,`treatment`: RustBuffer.ByValue,`checkedInAt`: RustBuffer.ByValue,`checkedOutAt`: RustBuffer.ByValue,`notes`: RustBuffer.ByValue,
     ): Long
     fun uniffi_yntra_core_fn_func_save_health_record(`requesterUserId`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,`workspaceId`: RustBuffer.ByValue,`studentId`: RustBuffer.ByValue,`vaccineName`: RustBuffer.ByValue,`status`: RustBuffer.ByValue,`administeredAt`: RustBuffer.ByValue,
@@ -1297,6 +1311,8 @@ internal interface UniffiLib : Library {
     fun uniffi_yntra_core_fn_func_toggle_todo(`requesterUserId`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,
     ): Long
     fun uniffi_yntra_core_fn_func_update_auth_session_status(`sessionId`: RustBuffer.ByValue,`status`: RustBuffer.ByValue,`progress`: Double,
+    ): Long
+    fun uniffi_yntra_core_fn_func_update_block_schema(`requesterUserId`: RustBuffer.ByValue,`blockId`: RustBuffer.ByValue,`fieldsSchema`: RustBuffer.ByValue,`uiConfig`: RustBuffer.ByValue,
     ): Long
     fun uniffi_yntra_core_fn_func_update_client_profile(`requesterUserId`: RustBuffer.ByValue,`clientId`: RustBuffer.ByValue,`firstName`: RustBuffer.ByValue,`lastName`: RustBuffer.ByValue,`personalNumber`: RustBuffer.ByValue,`careLevel`: RustBuffer.ByValue,
     ): Long
@@ -1520,6 +1536,8 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_yntra_core_checksum_func_delete_client(
     ): Short
+    fun uniffi_yntra_core_checksum_func_delete_dynamic_entity(
+    ): Short
     fun uniffi_yntra_core_checksum_func_delete_event(
     ): Short
     fun uniffi_yntra_core_checksum_func_delete_note(
@@ -1565,6 +1583,8 @@ internal interface UniffiLib : Library {
     fun uniffi_yntra_core_checksum_func_get_courses(
     ): Short
     fun uniffi_yntra_core_checksum_func_get_default_roles_json(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_get_dynamic_entities(
     ): Short
     fun uniffi_yntra_core_checksum_func_get_events(
     ): Short
@@ -1664,6 +1684,8 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_yntra_core_checksum_func_save_attendance_record(
     ): Short
+    fun uniffi_yntra_core_checksum_func_save_dynamic_entity(
+    ): Short
     fun uniffi_yntra_core_checksum_func_save_health_incident(
     ): Short
     fun uniffi_yntra_core_checksum_func_save_health_record(
@@ -1697,6 +1719,8 @@ internal interface UniffiLib : Library {
     fun uniffi_yntra_core_checksum_func_toggle_todo(
     ): Short
     fun uniffi_yntra_core_checksum_func_update_auth_session_status(
+    ): Short
+    fun uniffi_yntra_core_checksum_func_update_block_schema(
     ): Short
     fun uniffi_yntra_core_checksum_func_update_client_profile(
     ): Short
@@ -1863,6 +1887,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_yntra_core_checksum_func_delete_client() != 42354.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_yntra_core_checksum_func_delete_dynamic_entity() != 57293.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_yntra_core_checksum_func_delete_event() != 28823.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1930,6 +1957,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_get_default_roles_json() != 11789.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_get_dynamic_entities() != 12198.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_get_events() != 47064.toShort()) {
@@ -2079,6 +2109,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_yntra_core_checksum_func_save_attendance_record() != 62566.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_yntra_core_checksum_func_save_dynamic_entity() != 6737.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_yntra_core_checksum_func_save_health_incident() != 45365.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2128,6 +2161,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_update_auth_session_status() != 51181.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_yntra_core_checksum_func_update_block_schema() != 26421.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_yntra_core_checksum_func_update_client_profile() != 13544.toShort()) {
@@ -2748,7 +2784,10 @@ data class BlockItem (
     var `description`: kotlin.String?, 
     var `icon`: kotlin.String, 
     var `category`: kotlin.String, 
-    var `dependencies`: kotlin.String
+    var `dependencies`: kotlin.String, 
+    var `fieldsSchema`: kotlin.String?, 
+    var `navigationItems`: kotlin.String?, 
+    var `uiConfig`: kotlin.String?
 ) {
     
     companion object
@@ -2766,6 +2805,9 @@ public object FfiConverterTypeBlockItem: FfiConverterRustBuffer<BlockItem> {
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
         )
     }
 
@@ -2775,7 +2817,10 @@ public object FfiConverterTypeBlockItem: FfiConverterRustBuffer<BlockItem> {
             FfiConverterOptionalString.allocationSize(value.`description`) +
             FfiConverterString.allocationSize(value.`icon`) +
             FfiConverterString.allocationSize(value.`category`) +
-            FfiConverterString.allocationSize(value.`dependencies`)
+            FfiConverterString.allocationSize(value.`dependencies`) +
+            FfiConverterOptionalString.allocationSize(value.`fieldsSchema`) +
+            FfiConverterOptionalString.allocationSize(value.`navigationItems`) +
+            FfiConverterOptionalString.allocationSize(value.`uiConfig`)
     )
 
     override fun write(value: BlockItem, buf: ByteBuffer) {
@@ -2785,6 +2830,9 @@ public object FfiConverterTypeBlockItem: FfiConverterRustBuffer<BlockItem> {
             FfiConverterString.write(value.`icon`, buf)
             FfiConverterString.write(value.`category`, buf)
             FfiConverterString.write(value.`dependencies`, buf)
+            FfiConverterOptionalString.write(value.`fieldsSchema`, buf)
+            FfiConverterOptionalString.write(value.`navigationItems`, buf)
+            FfiConverterOptionalString.write(value.`uiConfig`, buf)
     }
 }
 
@@ -2971,6 +3019,62 @@ public object FfiConverterTypeDailyNote: FfiConverterRustBuffer<DailyNote> {
             FfiConverterString.write(value.`content`, buf)
             FfiConverterString.write(value.`editHistory`, buf)
             FfiConverterString.write(value.`createdAt`, buf)
+            FfiConverterLong.write(value.`updatedAt`, buf)
+            FfiConverterString.write(value.`syncStatus`, buf)
+    }
+}
+
+
+
+data class DynamicEntity (
+    var `id`: kotlin.String, 
+    var `workspaceId`: kotlin.String, 
+    var `blockId`: kotlin.String, 
+    var `entityType`: kotlin.String, 
+    var `data`: kotlin.String, 
+    var `createdAt`: kotlin.Long, 
+    var `updatedAt`: kotlin.Long, 
+    var `syncStatus`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeDynamicEntity: FfiConverterRustBuffer<DynamicEntity> {
+    override fun read(buf: ByteBuffer): DynamicEntity {
+        return DynamicEntity(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: DynamicEntity) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`workspaceId`) +
+            FfiConverterString.allocationSize(value.`blockId`) +
+            FfiConverterString.allocationSize(value.`entityType`) +
+            FfiConverterString.allocationSize(value.`data`) +
+            FfiConverterLong.allocationSize(value.`createdAt`) +
+            FfiConverterLong.allocationSize(value.`updatedAt`) +
+            FfiConverterString.allocationSize(value.`syncStatus`)
+    )
+
+    override fun write(value: DynamicEntity, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`workspaceId`, buf)
+            FfiConverterString.write(value.`blockId`, buf)
+            FfiConverterString.write(value.`entityType`, buf)
+            FfiConverterString.write(value.`data`, buf)
+            FfiConverterLong.write(value.`createdAt`, buf)
             FfiConverterLong.write(value.`updatedAt`, buf)
             FfiConverterString.write(value.`syncStatus`, buf)
     }
@@ -5339,6 +5443,34 @@ public object FfiConverterSequenceTypeDailyNote: FfiConverterRustBuffer<List<Dai
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeDynamicEntity: FfiConverterRustBuffer<List<DynamicEntity>> {
+    override fun read(buf: ByteBuffer): List<DynamicEntity> {
+        val len = buf.getInt()
+        return List<DynamicEntity>(len) {
+            FfiConverterTypeDynamicEntity.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<DynamicEntity>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeDynamicEntity.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<DynamicEntity>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeDynamicEntity.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeHealthIncident: FfiConverterRustBuffer<List<HealthIncident>> {
     override fun read(buf: ByteBuffer): List<HealthIncident> {
         val len = buf.getInt()
@@ -6472,6 +6604,22 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `deleteDynamicEntity`(`requesterUserId`: kotlin.String, `id`: kotlin.String) {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_delete_dynamic_entity(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`id`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
      suspend fun `deleteEvent`(`requesterUserId`: kotlin.String, `id`: kotlin.String) {
         return uniffiRustCallAsync(
         UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_delete_event(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`id`),),
@@ -6775,6 +6923,21 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
     )
     }
     
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getDynamicEntities`(`requesterUserId`: kotlin.String, `workspaceId`: kotlin.String, `blockId`: kotlin.String) : List<DynamicEntity> {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_get_dynamic_entities(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`blockId`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterSequenceTypeDynamicEntity.lift(it) },
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
@@ -7486,6 +7649,22 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
 
     @Throws(YntraException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `saveDynamicEntity`(`requesterUserId`: kotlin.String, `entity`: DynamicEntity) {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_save_dynamic_entity(FfiConverterString.lower(`requesterUserId`),FfiConverterTypeDynamicEntity.lower(`entity`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
      suspend fun `saveHealthIncident`(`requesterUserId`: kotlin.String, `id`: kotlin.String?, `workspaceId`: kotlin.String, `studentId`: kotlin.String, `visitReason`: kotlin.String, `treatment`: kotlin.String, `checkedInAt`: kotlin.String, `checkedOutAt`: kotlin.String?, `notes`: kotlin.String?) : HealthIncident {
         return uniffiRustCallAsync(
         UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_save_health_incident(FfiConverterString.lower(`requesterUserId`),FfiConverterOptionalString.lower(`id`),FfiConverterString.lower(`workspaceId`),FfiConverterString.lower(`studentId`),FfiConverterString.lower(`visitReason`),FfiConverterString.lower(`treatment`),FfiConverterString.lower(`checkedInAt`),FfiConverterOptionalString.lower(`checkedOutAt`),FfiConverterOptionalString.lower(`notes`),),
@@ -7708,6 +7887,22 @@ public object FfiConverterSequenceTypeWorkspaceUser: FfiConverterRustBuffer<List
      suspend fun `updateAuthSessionStatus`(`sessionId`: kotlin.String, `status`: kotlin.String, `progress`: kotlin.Double) {
         return uniffiRustCallAsync(
         UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_auth_session_status(FfiConverterString.lower(`sessionId`),FfiConverterString.lower(`status`),FfiConverterDouble.lower(`progress`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        YntraException.ErrorHandler,
+    )
+    }
+
+    @Throws(YntraException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `updateBlockSchema`(`requesterUserId`: kotlin.String, `blockId`: kotlin.String, `fieldsSchema`: kotlin.String, `uiConfig`: kotlin.String) {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_yntra_core_fn_func_update_block_schema(FfiConverterString.lower(`requesterUserId`),FfiConverterString.lower(`blockId`),FfiConverterString.lower(`fieldsSchema`),FfiConverterString.lower(`uiConfig`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_poll_void(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_complete_void(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_yntra_core_rust_future_free_void(future) },

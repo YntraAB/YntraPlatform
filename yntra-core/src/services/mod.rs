@@ -14,5 +14,6 @@ pub mod jobs;
 pub mod audit;
 pub mod school;
 pub mod role_templates;
+pub mod dynamic_entities;
 
 

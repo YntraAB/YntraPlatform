@@ -1055,16 +1055,22 @@ public struct BlockItem {
     public var icon: String
     public var category: String
     public var dependencies: String
+    public var fieldsSchema: String?
+    public var navigationItems: String?
+    public var uiConfig: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, name: String, description: String?, icon: String, category: String, dependencies: String) {
+    public init(id: String, name: String, description: String?, icon: String, category: String, dependencies: String, fieldsSchema: String?, navigationItems: String?, uiConfig: String?) {
         self.id = id
         self.name = name
         self.description = description
         self.icon = icon
         self.category = category
         self.dependencies = dependencies
+        self.fieldsSchema = fieldsSchema
+        self.navigationItems = navigationItems
+        self.uiConfig = uiConfig
     }
 }
 
@@ -1090,6 +1096,15 @@ extension BlockItem: Equatable, Hashable {
         if lhs.dependencies != rhs.dependencies {
             return false
         }
+        if lhs.fieldsSchema != rhs.fieldsSchema {
+            return false
+        }
+        if lhs.navigationItems != rhs.navigationItems {
+            return false
+        }
+        if lhs.uiConfig != rhs.uiConfig {
+            return false
+        }
         return true
     }
 
@@ -1100,6 +1115,9 @@ extension BlockItem: Equatable, Hashable {
         hasher.combine(icon)
         hasher.combine(category)
         hasher.combine(dependencies)
+        hasher.combine(fieldsSchema)
+        hasher.combine(navigationItems)
+        hasher.combine(uiConfig)
     }
 }
 
@@ -1116,7 +1134,10 @@ public struct FfiConverterTypeBlockItem: FfiConverterRustBuffer {
                 description: FfiConverterOptionString.read(from: &buf), 
                 icon: FfiConverterString.read(from: &buf), 
                 category: FfiConverterString.read(from: &buf), 
-                dependencies: FfiConverterString.read(from: &buf)
+                dependencies: FfiConverterString.read(from: &buf), 
+                fieldsSchema: FfiConverterOptionString.read(from: &buf), 
+                navigationItems: FfiConverterOptionString.read(from: &buf), 
+                uiConfig: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -1127,6 +1148,9 @@ public struct FfiConverterTypeBlockItem: FfiConverterRustBuffer {
         FfiConverterString.write(value.icon, into: &buf)
         FfiConverterString.write(value.category, into: &buf)
         FfiConverterString.write(value.dependencies, into: &buf)
+        FfiConverterOptionString.write(value.fieldsSchema, into: &buf)
+        FfiConverterOptionString.write(value.navigationItems, into: &buf)
+        FfiConverterOptionString.write(value.uiConfig, into: &buf)
     }
 }
 
@@ -1525,6 +1549,120 @@ public func FfiConverterTypeDailyNote_lift(_ buf: RustBuffer) throws -> DailyNot
 #endif
 public func FfiConverterTypeDailyNote_lower(_ value: DailyNote) -> RustBuffer {
     return FfiConverterTypeDailyNote.lower(value)
+}
+
+
+public struct DynamicEntity {
+    public var id: String
+    public var workspaceId: String
+    public var blockId: String
+    public var entityType: String
+    public var data: String
+    public var createdAt: Int64
+    public var updatedAt: Int64
+    public var syncStatus: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, workspaceId: String, blockId: String, entityType: String, data: String, createdAt: Int64, updatedAt: Int64, syncStatus: String) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.blockId = blockId
+        self.entityType = entityType
+        self.data = data
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.syncStatus = syncStatus
+    }
+}
+
+
+
+extension DynamicEntity: Equatable, Hashable {
+    public static func ==(lhs: DynamicEntity, rhs: DynamicEntity) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.workspaceId != rhs.workspaceId {
+            return false
+        }
+        if lhs.blockId != rhs.blockId {
+            return false
+        }
+        if lhs.entityType != rhs.entityType {
+            return false
+        }
+        if lhs.data != rhs.data {
+            return false
+        }
+        if lhs.createdAt != rhs.createdAt {
+            return false
+        }
+        if lhs.updatedAt != rhs.updatedAt {
+            return false
+        }
+        if lhs.syncStatus != rhs.syncStatus {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(workspaceId)
+        hasher.combine(blockId)
+        hasher.combine(entityType)
+        hasher.combine(data)
+        hasher.combine(createdAt)
+        hasher.combine(updatedAt)
+        hasher.combine(syncStatus)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDynamicEntity: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DynamicEntity {
+        return
+            try DynamicEntity(
+                id: FfiConverterString.read(from: &buf), 
+                workspaceId: FfiConverterString.read(from: &buf), 
+                blockId: FfiConverterString.read(from: &buf), 
+                entityType: FfiConverterString.read(from: &buf), 
+                data: FfiConverterString.read(from: &buf), 
+                createdAt: FfiConverterInt64.read(from: &buf), 
+                updatedAt: FfiConverterInt64.read(from: &buf), 
+                syncStatus: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: DynamicEntity, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.workspaceId, into: &buf)
+        FfiConverterString.write(value.blockId, into: &buf)
+        FfiConverterString.write(value.entityType, into: &buf)
+        FfiConverterString.write(value.data, into: &buf)
+        FfiConverterInt64.write(value.createdAt, into: &buf)
+        FfiConverterInt64.write(value.updatedAt, into: &buf)
+        FfiConverterString.write(value.syncStatus, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDynamicEntity_lift(_ buf: RustBuffer) throws -> DynamicEntity {
+    return try FfiConverterTypeDynamicEntity.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDynamicEntity_lower(_ value: DynamicEntity) -> RustBuffer {
+    return FfiConverterTypeDynamicEntity.lower(value)
 }
 
 
@@ -5378,6 +5516,31 @@ fileprivate struct FfiConverterSequenceTypeDailyNote: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeDynamicEntity: FfiConverterRustBuffer {
+    typealias SwiftType = [DynamicEntity]
+
+    public static func write(_ value: [DynamicEntity], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeDynamicEntity.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [DynamicEntity] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [DynamicEntity]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeDynamicEntity.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeHealthIncident: FfiConverterRustBuffer {
     typealias SwiftType = [HealthIncident]
 
@@ -6434,6 +6597,20 @@ public func deleteClient(requesterUserId: String, clientId: String)async throws 
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
+public func deleteDynamicEntity(requesterUserId: String, id: String)async throws  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_delete_dynamic_entity(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(id)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_void,
+            completeFunc: ffi_yntra_core_rust_future_complete_void,
+            freeFunc: ffi_yntra_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
 public func deleteEvent(requesterUserId: String, id: String)async throws  {
     return
         try  await uniffiRustCallAsync(
@@ -6706,6 +6883,20 @@ public func getDefaultRolesJson(workspaceType: String, careSubtype: String?, isS
         FfiConverterBool.lower(isScandi),$0
     )
 })
+}
+public func getDynamicEntities(requesterUserId: String, workspaceId: String, blockId: String)async throws  -> [DynamicEntity] {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_get_dynamic_entities(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(workspaceId),FfiConverterString.lower(blockId)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_yntra_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_yntra_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeDynamicEntity.lift,
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
 }
 public func getEvents(requesterUserId: String, teamId: String?)async throws  -> [TeamEvent] {
     return
@@ -7356,6 +7547,20 @@ public func saveAttendanceRecord(requesterUserId: String, workspaceId: String, s
             errorHandler: FfiConverterTypeYntraError.lift
         )
 }
+public func saveDynamicEntity(requesterUserId: String, entity: DynamicEntity)async throws  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_save_dynamic_entity(FfiConverterString.lower(requesterUserId),FfiConverterTypeDynamicEntity.lower(entity)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_void,
+            completeFunc: ffi_yntra_core_rust_future_complete_void,
+            freeFunc: ffi_yntra_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
 public func saveHealthIncident(requesterUserId: String, id: String?, workspaceId: String, studentId: String, visitReason: String, treatment: String, checkedInAt: String, checkedOutAt: String?, notes: String?)async throws  -> HealthIncident {
     return
         try  await uniffiRustCallAsync(
@@ -7552,6 +7757,20 @@ public func updateAuthSessionStatus(sessionId: String, status: String, progress:
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_yntra_core_fn_func_update_auth_session_status(FfiConverterString.lower(sessionId),FfiConverterString.lower(status),FfiConverterDouble.lower(progress)
+                )
+            },
+            pollFunc: ffi_yntra_core_rust_future_poll_void,
+            completeFunc: ffi_yntra_core_rust_future_complete_void,
+            freeFunc: ffi_yntra_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeYntraError.lift
+        )
+}
+public func updateBlockSchema(requesterUserId: String, blockId: String, fieldsSchema: String, uiConfig: String)async throws  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_yntra_core_fn_func_update_block_schema(FfiConverterString.lower(requesterUserId),FfiConverterString.lower(blockId),FfiConverterString.lower(fieldsSchema),FfiConverterString.lower(uiConfig)
                 )
             },
             pollFunc: ffi_yntra_core_rust_future_poll_void,
@@ -7964,6 +8183,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_yntra_core_checksum_func_delete_client() != 42354) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_yntra_core_checksum_func_delete_dynamic_entity() != 57293) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_yntra_core_checksum_func_delete_event() != 28823) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8031,6 +8253,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_get_default_roles_json() != 11789) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_get_dynamic_entities() != 12198) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_get_events() != 47064) {
@@ -8180,6 +8405,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_yntra_core_checksum_func_save_attendance_record() != 62566) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_yntra_core_checksum_func_save_dynamic_entity() != 6737) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_yntra_core_checksum_func_save_health_incident() != 45365) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8229,6 +8457,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_update_auth_session_status() != 51181) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_yntra_core_checksum_func_update_block_schema() != 26421) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_yntra_core_checksum_func_update_client_profile() != 13544) {

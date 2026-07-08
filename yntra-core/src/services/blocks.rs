@@ -6,7 +6,7 @@ pub async fn get_blocks() -> Result<Vec<BlockItem>, YntraError> {
     let conn = database::acquire_connection().await?;
 
     let mut stmt =
-        conn.prepare("SELECT id, name, description, icon, category, dependencies FROM blocks").await?;
+        conn.prepare("SELECT id, name, description, icon, category, dependencies, fields_schema, navigation_items, ui_config FROM blocks").await?;
 
     let list = stmt.query_map((), |row| {
         Ok(BlockItem {
@@ -16,6 +16,9 @@ pub async fn get_blocks() -> Result<Vec<BlockItem>, YntraError> {
             icon: row.get(3)?,
             category: row.get(4)?,
             dependencies: row.get(5)?,
+            fields_schema: row.get(6)?,
+            navigation_items: row.get(7)?,
+            ui_config: row.get(8)?,
         })
     }).await?;
 

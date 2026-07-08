@@ -451,6 +451,11 @@ RustBuffer uniffi_yntra_core_fn_func_decrypt_workspace_key_with_password(RustBuf
 uint64_t uniffi_yntra_core_fn_func_delete_client(RustBuffer requester_user_id, RustBuffer client_id
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_DELETE_DYNAMIC_ENTITY
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_DELETE_DYNAMIC_ENTITY
+uint64_t uniffi_yntra_core_fn_func_delete_dynamic_entity(RustBuffer requester_user_id, RustBuffer id
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_DELETE_EVENT
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_DELETE_EVENT
 uint64_t uniffi_yntra_core_fn_func_delete_event(RustBuffer requester_user_id, RustBuffer id
@@ -567,6 +572,11 @@ uint64_t uniffi_yntra_core_fn_func_get_courses(RustBuffer requester_user_id
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_DEFAULT_ROLES_JSON
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_DEFAULT_ROLES_JSON
 RustBuffer uniffi_yntra_core_fn_func_get_default_roles_json(RustBuffer workspace_type, RustBuffer care_subtype, int8_t is_scandi, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_DYNAMIC_ENTITIES
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_DYNAMIC_ENTITIES
+uint64_t uniffi_yntra_core_fn_func_get_dynamic_entities(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer block_id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_GET_EVENTS
@@ -817,6 +827,11 @@ uint64_t uniffi_yntra_core_fn_func_run_hardware_auth_simulation(RustBuffer sessi
 uint64_t uniffi_yntra_core_fn_func_save_attendance_record(RustBuffer requester_user_id, RustBuffer workspace_id, RustBuffer student_id, RustBuffer course_id, RustBuffer date, RustBuffer status, RustBuffer notes
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SAVE_DYNAMIC_ENTITY
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SAVE_DYNAMIC_ENTITY
+uint64_t uniffi_yntra_core_fn_func_save_dynamic_entity(RustBuffer requester_user_id, RustBuffer entity
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SAVE_HEALTH_INCIDENT
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_SAVE_HEALTH_INCIDENT
 uint64_t uniffi_yntra_core_fn_func_save_health_incident(RustBuffer requester_user_id, RustBuffer id, RustBuffer workspace_id, RustBuffer student_id, RustBuffer visit_reason, RustBuffer treatment, RustBuffer checked_in_at, RustBuffer checked_out_at, RustBuffer notes
@@ -902,6 +917,11 @@ uint64_t uniffi_yntra_core_fn_func_toggle_todo(RustBuffer requester_user_id, Rus
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_AUTH_SESSION_STATUS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_AUTH_SESSION_STATUS
 uint64_t uniffi_yntra_core_fn_func_update_auth_session_status(RustBuffer session_id, RustBuffer status, double progress
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_BLOCK_SCHEMA
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_BLOCK_SCHEMA
+uint64_t uniffi_yntra_core_fn_func_update_block_schema(RustBuffer requester_user_id, RustBuffer block_id, RustBuffer fields_schema, RustBuffer ui_config
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_FN_FUNC_UPDATE_CLIENT_PROFILE
@@ -1494,6 +1514,12 @@ uint16_t uniffi_yntra_core_checksum_func_delete_client(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_DELETE_DYNAMIC_ENTITY
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_DELETE_DYNAMIC_ENTITY
+uint16_t uniffi_yntra_core_checksum_func_delete_dynamic_entity(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_DELETE_EVENT
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_DELETE_EVENT
 uint16_t uniffi_yntra_core_checksum_func_delete_event(void
@@ -1629,6 +1655,12 @@ uint16_t uniffi_yntra_core_checksum_func_get_courses(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_DEFAULT_ROLES_JSON
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_DEFAULT_ROLES_JSON
 uint16_t uniffi_yntra_core_checksum_func_get_default_roles_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_DYNAMIC_ENTITIES
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_GET_DYNAMIC_ENTITIES
+uint16_t uniffi_yntra_core_checksum_func_get_dynamic_entities(void
     
 );
 #endif
@@ -1926,6 +1958,12 @@ uint16_t uniffi_yntra_core_checksum_func_save_attendance_record(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SAVE_DYNAMIC_ENTITY
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SAVE_DYNAMIC_ENTITY
+uint16_t uniffi_yntra_core_checksum_func_save_dynamic_entity(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SAVE_HEALTH_INCIDENT
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_SAVE_HEALTH_INCIDENT
 uint16_t uniffi_yntra_core_checksum_func_save_health_incident(void
@@ -2025,6 +2063,12 @@ uint16_t uniffi_yntra_core_checksum_func_toggle_todo(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_UPDATE_AUTH_SESSION_STATUS
 #define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_UPDATE_AUTH_SESSION_STATUS
 uint16_t uniffi_yntra_core_checksum_func_update_auth_session_status(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_UPDATE_BLOCK_SCHEMA
+#define UNIFFI_FFIDEF_UNIFFI_YNTRA_CORE_CHECKSUM_FUNC_UPDATE_BLOCK_SCHEMA
+uint16_t uniffi_yntra_core_checksum_func_update_block_schema(void
     
 );
 #endif

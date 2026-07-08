@@ -27,6 +27,7 @@ pub use services::jobs::*;
 pub use services::audit::*;
 pub use services::school::*;
 pub use services::role_templates::*;
+pub use services::dynamic_entities::*;
 
 
 // Support absolute paths inside submodules that import modules re-exported at the root
