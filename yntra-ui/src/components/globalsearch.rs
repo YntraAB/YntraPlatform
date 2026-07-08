@@ -1,6 +1,5 @@
 use crate::components::LucideIcon;
 use dioxus::prelude::*;
-use yntra_core::{DailyNote, MessageItem, Team, WorkspaceUser};
 
 #[derive(Props, Clone)]
 pub struct GlobalSearchProps {
@@ -11,10 +10,6 @@ pub struct GlobalSearchProps {
     pub report_type: Signal<String>,
     pub selected_note_team_id: Signal<String>,
     pub active_message_id: Signal<Option<String>>,
-    pub users: Vec<WorkspaceUser>,
-    pub teams: Vec<Team>,
-    pub notes: Vec<DailyNote>,
-    pub messages: Vec<MessageItem>,
 }
 
 impl PartialEq for GlobalSearchProps {
@@ -65,6 +60,10 @@ pub fn GlobalSearch(props: GlobalSearchProps) -> Element {
         return rsx! {};
     }
 
+    let state = use_context::<crate::state::AppState>();
+    let users_data = state.users.read().clone().unwrap_or_default();
+    let notes_data = state.notes.read().clone().unwrap_or_default();
+
     let search_query = query.read().to_lowercase();
 
     // 1. Navigation items
@@ -101,8 +100,7 @@ pub fn GlobalSearch(props: GlobalSearchProps) -> Element {
         .collect();
 
     // 3. Filtered Users
-    let filtered_users: Vec<_> = props
-        .users
+    let filtered_users: Vec<_> = users_data
         .iter()
         .filter(|u| {
             let name = u.full_name.clone().unwrap_or_default().to_lowercase();
@@ -112,8 +110,7 @@ pub fn GlobalSearch(props: GlobalSearchProps) -> Element {
         .collect();
 
     // 4. Filtered Notes
-    let filtered_notes: Vec<_> = props
-        .notes
+    let filtered_notes: Vec<_> = notes_data
         .iter()
         .filter(|n| n.subject.to_lowercase().contains(&search_query))
         .cloned()

@@ -44,11 +44,46 @@ pub fn map_error(err: &yntra_core::YntraError) -> UserFriendlyError {
                 description: detail.clone(),
             }
         }
-        other => {
-            log::error!("Unexpected error occurred: {:?}", other);
+        yntra_core::YntraError::SyncError(detail) => {
+            log::error!("Sync error: {}", detail);
             UserFriendlyError {
-                title: "Unexpected Error".to_string(),
-                description: "An unexpected error occurred. Please try again.".to_string(),
+                title: "Sync Failed".to_string(),
+                description: "Failed to synchronize changes with the remote server. Please try again.".to_string(),
+            }
+        }
+        yntra_core::YntraError::ConstraintError(detail) => {
+            log::error!("Database constraint violation: {}", detail);
+            UserFriendlyError {
+                title: "Data Constraint Violation".to_string(),
+                description: "This operation violates database integrity constraints.".to_string(),
+            }
+        }
+        yntra_core::YntraError::SerializationError(detail) => {
+            log::error!("Serialization error: {}", detail);
+            UserFriendlyError {
+                title: "Data Error".to_string(),
+                description: "Failed to encode or decode local storage payload.".to_string(),
+            }
+        }
+        yntra_core::YntraError::InvitationError(detail) => {
+            log::error!("Invitation error: {}", detail);
+            UserFriendlyError {
+                title: "Invitation Error".to_string(),
+                description: detail.clone(),
+            }
+        }
+        yntra_core::YntraError::CryptoError(detail) => {
+            log::error!("Cryptographic/Security error: {}", detail);
+            UserFriendlyError {
+                title: "Security Violation".to_string(),
+                description: "A cryptographic signature validation failed.".to_string(),
+            }
+        }
+        yntra_core::YntraError::NoRowsReturned => {
+            log::error!("Query returned no rows");
+            UserFriendlyError {
+                title: "Record Not Found".to_string(),
+                description: "The requested record was not found in the local database.".to_string(),
             }
         }
     }
@@ -80,4 +115,79 @@ impl ActionRunner {
 pub fn use_action_runner() -> ActionRunner {
     let toast = use_toast();
     ActionRunner { toast }
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum ActionStatus<E> {
+    Idle,
+    Loading,
+    Success,
+    Error(E),
+}
+
+#[derive(Clone, Copy)]
+pub struct UseAction<T: 'static, E: 'static> {
+    pub status: Signal<ActionStatus<E>>,
+    pub result: Signal<Option<T>>,
+    pub trigger: Callback<()>,
+}
+
+impl<T: Clone + 'static, E: Clone + 'static> UseAction<T, E> {
+    pub fn run(&self) {
+        self.trigger.call(());
+    }
+
+    pub fn is_loading(&self) -> bool {
+        matches!(*self.status.read(), ActionStatus::Loading)
+    }
+
+    pub fn error(&self) -> Option<E> {
+        match &*self.status.read() {
+            ActionStatus::Error(e) => Some(e.clone()),
+            _ => None,
+        }
+    }
+}
+
+pub fn use_action<F, Fut, T, E>(action_fn: F) -> UseAction<T, E>
+where
+    F: Fn() -> Fut + 'static,
+    Fut: Future<Output = Result<T, E>> + 'static,
+    T: Clone + 'static,
+    E: Clone + 'static,
+{
+    let status = use_signal(|| ActionStatus::Idle);
+    let result = use_signal(|| None);
+    let current_task: Signal<Option<dioxus::core::Task>> = use_signal(|| None);
+
+    let trigger = move || {
+        let mut current_task_mut = current_task;
+        if let Some(task) = current_task_mut.read().clone() {
+            task.cancel();
+        }
+        
+        let mut status_mut = status;
+        status_mut.set(ActionStatus::Loading);
+        let fut = action_fn();
+        let mut status_clone = status;
+        let mut result_clone = result;
+        let task = spawn(async move {
+            match fut.await {
+                Ok(val) => {
+                    result_clone.set(Some(val));
+                    status_clone.set(ActionStatus::Success);
+                }
+                Err(err) => {
+                    status_clone.set(ActionStatus::Error(err));
+                }
+            }
+        });
+        current_task_mut.set(Some(task));
+    };
+
+    UseAction {
+        status,
+        result,
+        trigger: Callback::new(move |_| trigger()),
+    }
 }

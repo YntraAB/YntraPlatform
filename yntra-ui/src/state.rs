@@ -7,7 +7,7 @@ use yntra_core::{
     clear_observers,
     get_user_by_email, init_wasm_db, init_tracing, start_background_sync,
     Workspace, WorkspaceUser, Team, TeamEvent, MessageItem, DailyNote, TimeReport,
-    ClientProfile, ReportItem, clear_session_key, get_session_key, load_local_workspace_key,
+    ClientProfile, ReportItem, clear_session_key, is_session_key_set, load_local_workspace_key,
 };
 use crate::locales::get_system_locale;
 use crate::utils::{DioxusDbObserver, get_supabase_user_email};
@@ -26,6 +26,7 @@ fn extract_access_token(hash: &str) -> Option<String> {
 #[derive(Clone, Copy)]
 pub struct AppState {
     pub db_trigger: Signal<u32>,
+    pub trigger_jobs: Signal<u32>,
     pub active_user_id: Signal<String>,
     pub active_section: Signal<String>,
     pub needs_setup: Signal<bool>,
@@ -38,6 +39,7 @@ pub struct AppState {
     pub login_password: Signal<String>,
     pub login_error: Signal<Option<String>>,
     pub auth_region: Signal<String>,
+    pub active_user_role: Signal<String>,
     
     // View state sub-signals
     pub selected_note_team_id: Signal<String>,
@@ -160,6 +162,7 @@ pub struct AppState {
 pub fn use_init_app_state() -> AppState {
     // Core state signals
     let mut db_trigger = use_signal(|| 0);
+    let mut trigger_jobs = use_signal(|| 0);
     let mut trigger_todos = use_signal(|| 0);
     let mut trigger_users = use_signal(|| 0);
     let mut trigger_teams = use_signal(|| 0);
@@ -175,6 +178,7 @@ pub fn use_init_app_state() -> AppState {
     let needs_setup = use_signal(|| false);
     let two_factor_user = use_signal(|| Option::<WorkspaceUser>::None);
     let background_error = use_signal(|| Option::<yntra_core::YntraError>::None);
+    let mut active_user_role = use_signal(|| "guest".to_string());
 
     // Login & Auth State Signals
     let logged_in = use_signal(|| false);
@@ -211,6 +215,7 @@ pub fn use_init_app_state() -> AppState {
                         all_users.into_iter().find(|u| u.id == uid)
                     }) {
                         active_uid.set(uid);
+                        active_user_role.set(user.role.clone());
                         if user.role == "client" {
                             active_sec.set("client_portal".to_string());
                         } else {
@@ -254,6 +259,7 @@ pub fn use_init_app_state() -> AppState {
 
     // Automatically set/clear session key when active_user_id changes
     let active_uid_for_session = active_user_id;
+    let mut active_role_sig = active_user_role;
     use_effect(move || {
         let uid = active_uid_for_session.read().clone();
         if !uid.is_empty() {
@@ -261,14 +267,16 @@ pub fn use_init_app_state() -> AppState {
                 if let Ok(all_users) = get_users(uid.clone()).await {
                     if let Some(user) = all_users.into_iter().find(|u| u.id == uid) {
                         let ws_id = user.workspace_id.clone().unwrap_or_else(|| "workspace-1".to_string());
-                        if get_session_key().is_none() {
+                        if !is_session_key_set() {
                             let _ = load_local_workspace_key(ws_id).await;
                         }
+                        active_role_sig.set(user.role.clone());
                     }
                 }
             });
         } else {
             clear_session_key();
+            active_role_sig.set("guest".to_string());
         }
     });
 
@@ -591,7 +599,7 @@ pub fn use_init_app_state() -> AppState {
                             let v = *trigger_messages.read();
                             trigger_messages.set(v + 1);
                         }
-                        "notes" => {
+                        "notes" | "note_updates" => {
                             let v = *trigger_notes.read();
                             trigger_notes.set(v + 1);
                         }
@@ -611,6 +619,13 @@ pub fn use_init_app_state() -> AppState {
                             let v = *trigger_workspaces.read();
                             trigger_workspaces.set(v + 1);
                         }
+                        "job_tickets" | "move_inventory" | "move_quotes" => {
+                            let v = *trigger_jobs.read();
+                            trigger_jobs.set(v + 1);
+                        }
+                        "audit_logs" | "bankid_auth_sessions" => {
+                            // Internal meta tables, no UI resource reload needed
+                        }
                         _ => {
                             let v_todos = *trigger_todos.read(); trigger_todos.set(v_todos + 1);
                             let v_users = *trigger_users.read(); trigger_users.set(v_users + 1);
@@ -622,6 +637,7 @@ pub fn use_init_app_state() -> AppState {
                             let v_clients = *trigger_clients.read(); trigger_clients.set(v_clients + 1);
                             let v_reports = *trigger_reports.read(); trigger_reports.set(v_reports + 1);
                             let v_workspaces = *trigger_workspaces.read(); trigger_workspaces.set(v_workspaces + 1);
+                            let v_jobs = *trigger_jobs.read(); trigger_jobs.set(v_jobs + 1);
                         }
                     }
                     let val = *db_trigger.read();
@@ -714,6 +730,7 @@ pub fn use_init_app_state() -> AppState {
                                             two_factor_user.set(Some(user.clone()));
                                         } else {
                                             active_uid.set(user.id.clone());
+                                            active_user_role.set(user.role.clone());
                                             if user.role == "client" {
                                                 active_sec.set("client_portal".to_string());
                                             } else {
@@ -901,6 +918,8 @@ pub fn use_init_app_state() -> AppState {
         leave_reason,
         leave_save_status,
         
+        active_user_role,
+        
         globalsearch_open,
         header_profile_open,
         time_group_expanded,
@@ -913,6 +932,8 @@ pub fn use_init_app_state() -> AppState {
         compose_body,
         compose_status,
 
+        trigger_jobs,
+        
         workspace,
         users,
         teams,

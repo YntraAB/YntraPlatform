@@ -265,7 +265,7 @@ pub fn LoginView(props: LoginViewProps) -> Element {
                 if let Ok(Some(s)) = yntra_core::get_bankid_auth_session(sid).await {
                     if s.provider == "siths" || s.provider == "nfc" || s.provider == "card_or_badge" {
                         hardware_reader_status.set(s.status.clone());
-                        if s.status == "reading" {
+                        if s.status == "reading" || s.status == "card_detected" {
                             show_hardware_modal.set(true);
                         } else if s.status == "error" {
                             let err_msg = s.pin.clone();
@@ -560,6 +560,20 @@ pub fn LoginView(props: LoginViewProps) -> Element {
                 hardware_error_msg,
                 region: region.clone(),
                 on_close: move |_| restart_passive_session(),
+                on_verify_pin: move |pin| {
+                    if let Some(session_id) = active_session_id.read().clone() {
+                        spawn(async move {
+                            hardware_reader_status.set("reading".to_string());
+                            match yntra_core::complete_hardware_auth(session_id, pin).await {
+                                Ok(_) => {}
+                                Err(e) => {
+                                    hardware_error_msg.set(Some(format!("login-hw-error-verification-failed: {}", e)));
+                                    hardware_reader_status.set("error".to_string());
+                                }
+                            }
+                        });
+                    }
+                },
             }
 
             // Invite code modal dialog

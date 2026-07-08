@@ -8,7 +8,7 @@ let isDbReady = false;
 const readyCallbacks = [];
 
 worker.onmessage = function(e) {
-  const { id, type, status, success, rows, rowsAffected, error } = e.data;
+  const { id, type, status, success, rows, rowsAffected, error, hasChanges } = e.data;
   
   if (type === "status") {
     if (status === "ready") {
@@ -31,6 +31,8 @@ worker.onmessage = function(e) {
         callbacks.resolve(JSON.stringify(rows));
       } else if (rowsAffected !== undefined) {
         callbacks.resolve(JSON.stringify({ rowsAffected }));
+      } else if (hasChanges !== undefined) {
+        callbacks.resolve(JSON.stringify({ hasChanges }));
       } else {
         callbacks.resolve(JSON.stringify(null));
       }

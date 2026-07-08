@@ -61,6 +61,7 @@ pub fn ClientLayout() -> Element {
     });
     let teams = state.teams.read().clone().unwrap_or_default();
     let db_trigger = state.db_trigger;
+    let trigger_jobs = state.trigger_jobs;
     
     let is_client = true;
     
@@ -212,6 +213,7 @@ pub fn ClientLayout() -> Element {
                                             clients: clients.clone(),
                                             events: events.clone(),
                                             db_trigger: db_trigger,
+                                            trigger_jobs: trigger_jobs,
                                             workspace: workspace.clone(),
                                         }
                                     }

@@ -59,6 +59,7 @@ pub fn EmployeeLayout() -> Element {
     let reports = state.reports.read().clone().unwrap_or_default();
     let workspaces = state.workspaces.read().clone().unwrap_or_default();
     let db_trigger = state.db_trigger;
+    let trigger_jobs = state.trigger_jobs;
 
     // Check module activation from JSON
     let modules_active_val: serde_json::Value =
@@ -416,7 +417,7 @@ pub fn EmployeeLayout() -> Element {
                                         views::JobsView {
                                             active_user_id: active_user_id,
                                             auth_region: auth_region,
-                                            db_trigger: db_trigger,
+                                            db_trigger: trigger_jobs,
                                         }
                                     }
                                 }
@@ -485,6 +486,7 @@ pub fn EmployeeLayout() -> Element {
                                             clients: clients.clone(),
                                             events: events.clone(),
                                             db_trigger: db_trigger,
+                                            trigger_jobs: trigger_jobs,
                                             workspace: workspace.clone(),
                                         }
                                     }

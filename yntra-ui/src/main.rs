@@ -1,7 +1,6 @@
 #![allow(clippy::collapsible_if)]
 // Trigger rebuild to pick up tailwind.css changes
 use dioxus::prelude::*;
-use yntra_core::WorkspaceUser;
 
 pub mod components;
 pub mod locales;
@@ -64,22 +63,7 @@ fn App() -> Element {
     let account_preferences = state.account_preferences;
 
     // Handle section changes with guards
-    let active_user = state.users.read().as_ref().and_then(|u_list| u_list.iter().find(|u| u.id == *active_user_id.read()).cloned()).unwrap_or_else(|| WorkspaceUser {
-        id: String::new(),
-        workspace_id: None,
-        email: String::new(),
-        full_name: Some("Guest User".to_string()),
-        phone: None,
-        role: "guest".to_string(),
-        preferences: "{}".to_string(),
-        siths_card_id: None,
-        nfc_badge_uid: None,
-        updated_at: 0,
-        sync_status: "synced".to_string(),
-        personal_number: None,
-    });
-    let current_role = active_user.role.clone();
-    let is_client = current_role == "client";
+    let is_client = *state.active_user_role.read() == "client";
 
     if is_client && *active_section.read() != "messaging" && *active_section.read() != "client_portal" && *active_section.read() != "directory"
     {
@@ -96,11 +80,6 @@ fn App() -> Element {
         block_settings: "{}".to_string(),
     });
     
-    let users_data = state.users.read().clone().unwrap_or_default();
-    let teams_data = state.teams.read().clone().unwrap_or_default();
-    let notes_data = state.notes.read().clone().unwrap_or_default();
-    let messages_data = state.messages.read().clone().unwrap_or_default();
-
     let on_desktop_oauth_callback = state.on_desktop_oauth.clone();
 
     rsx! {
@@ -128,10 +107,6 @@ fn App() -> Element {
                 report_type,
                 selected_note_team_id,
                 active_message_id,
-                users: users_data,
-                teams: teams_data,
-                notes: notes_data,
-                messages: messages_data,
             }
 
             if !*logged_in.read() {

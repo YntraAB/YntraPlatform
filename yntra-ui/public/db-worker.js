@@ -64,7 +64,7 @@ onmessage = async function(e) {
       postMessage({ id, success: true });
     } else if (type === "sync") {
       performSync(url, token)
-        .then(() => postMessage({ id, success: true }))
+        .then((hasChanges) => postMessage({ id, success: true, hasChanges }))
         .catch(err => {
           console.error("Sync error in worker:", err);
           postMessage({ id, success: false, error: err.toString() });
@@ -87,7 +87,30 @@ const TABLES_TO_SYNC = [
   "school_invoices", "school_payments", "library_books", "library_lending_logs"
 ];
 
+const schemaCache = {
+  exists: {},
+  columns: {},
+  pks: {}
+};
+
+function checkTableExists(tableName) {
+  if (schemaCache.exists[tableName] !== undefined) {
+    return schemaCache.exists[tableName];
+  }
+  let exists = false;
+  db.exec({
+    sql: `SELECT name FROM sqlite_master WHERE type='table' AND name='${tableName}'`,
+    rowMode: 'object',
+    callback: () => { exists = true; }
+  });
+  schemaCache.exists[tableName] = exists;
+  return exists;
+}
+
 function getTableColumns(tableName) {
+  if (schemaCache.columns[tableName]) {
+    return schemaCache.columns[tableName];
+  }
   const cols = [];
   db.exec({
     sql: `PRAGMA table_info(${tableName})`,
@@ -96,10 +119,14 @@ function getTableColumns(tableName) {
       cols.push(row.name);
     }
   });
+  schemaCache.columns[tableName] = cols;
   return cols;
 }
 
 function getPrimaryKeyColumn(tableName) {
+  if (schemaCache.pks[tableName]) {
+    return schemaCache.pks[tableName];
+  }
   let pkName = "id";
   db.exec({
     sql: `PRAGMA table_info(${tableName})`,
@@ -110,6 +137,7 @@ function getPrimaryKeyColumn(tableName) {
       }
     }
   });
+  schemaCache.pks[tableName] = pkName;
   return pkName;
 }
 
@@ -175,16 +203,11 @@ async function performSync(url, token) {
   const nowMs = Date.now();
   const remoteRequests = [];
   const localPendingUpdates = [];
+  let hasChanges = false;
 
   // --- 1. PUSH PHASE: Collect local pending writes ---
   for (const tableName of TABLES_TO_SYNC) {
-    let tableExists = false;
-    db.exec({
-      sql: `SELECT name FROM sqlite_master WHERE type='table' AND name='${tableName}'`,
-      rowMode: 'object',
-      callback: () => { tableExists = true; }
-    });
-    if (!tableExists) continue;
+    if (!checkTableExists(tableName)) continue;
 
     const cols = getTableColumns(tableName);
     const pkCol = getPrimaryKeyColumn(tableName);
@@ -225,13 +248,7 @@ async function performSync(url, token) {
   // --- 2. PULL PHASE: Request updates from remote ---
   const pullStartIndex = remoteRequests.length;
   for (const tableName of TABLES_TO_SYNC) {
-    let tableExists = false;
-    db.exec({
-      sql: `SELECT name FROM sqlite_master WHERE type='table' AND name='${tableName}'`,
-      rowMode: 'object',
-      callback: () => { tableExists = true; }
-    });
-    if (!tableExists) continue;
+    if (!checkTableExists(tableName)) continue;
 
     remoteRequests.push({
       type: "execute",
@@ -275,18 +292,13 @@ async function performSync(url, token) {
         sql: `UPDATE ${localUpdate.table} SET sync_status = 'synced' WHERE ${localUpdate.pkCol} = ?`,
         bind: [localUpdate.pkVal]
       });
+      hasChanges = true;
     }
 
     // B. Apply pulled updates
     let pullIdx = pullStartIndex;
     for (const tableName of TABLES_TO_SYNC) {
-      let tableExists = false;
-      db.exec({
-        sql: `SELECT name FROM sqlite_master WHERE type='table' AND name='${tableName}'`,
-        rowMode: 'object',
-        callback: () => { tableExists = true; }
-      });
-      if (!tableExists) continue;
+      if (!checkTableExists(tableName)) continue;
 
       const result = resData.results[pullIdx++];
       if (!result || result.type === "error") continue;
@@ -318,6 +330,7 @@ async function performSync(url, token) {
             sql: insertSql,
             bind: bindArgs
           });
+          hasChanges = true;
         }
       }
     }
@@ -328,4 +341,6 @@ async function performSync(url, token) {
     sql: "INSERT OR REPLACE INTO local_sync_meta (key, value) VALUES ('last_sync_timestamp', ?)",
     bind: [nowMs.toString()]
   });
+
+  return hasChanges;
 }

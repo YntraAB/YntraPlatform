@@ -3,6 +3,7 @@ use yntra_core::ClientProfile;
 use yntra_core::TeamEvent;
 use yntra_core::WorkspaceUser;
 use yntra_core::Workspace;
+use crate::components;
 
 pub mod care;
 pub mod moving;
@@ -19,6 +20,7 @@ pub struct ClientPortalViewProps {
     pub clients: Vec<ClientProfile>,
     pub events: Vec<TeamEvent>,
     pub db_trigger: Signal<u32>,
+    pub trigger_jobs: Signal<u32>,
     pub workspace: Workspace,
 }
 
@@ -35,6 +37,7 @@ pub fn ClientPortalView(props: ClientPortalViewProps) -> Element {
     let clients = props.clients.clone();
     let events = props.events.clone();
     let db_trigger = props.db_trigger;
+    let trigger_jobs = props.trigger_jobs;
     let workspace = props.workspace.clone();
 
     // Parse the template from workspace settings
@@ -44,65 +47,46 @@ pub fn ClientPortalView(props: ClientPortalViewProps) -> Element {
     let current_client = clients
         .iter()
         .find(|c| {
-            if let Some(ref name) = active_user.full_name {
-                name.contains(&c.first_name) && name.contains(&c.last_name)
-            } else {
-                false
-            }
+            if let Some(ref pn) = c.personal_number
+                && let Some(ref active_pn) = active_user.personal_number {
+                    pn == active_pn
+                } else {
+                    false
+                }
         })
-        .cloned()
-        .unwrap_or_else(|| {
-            clients
-                .iter()
-                .find(|c| c.id == "client-1")
-                .cloned()
-                .unwrap_or_else(|| ClientProfile {
-                    id: "client-1".to_string(),
-                    workspace_id: "workspace-1".to_string(),
-                    team_id: Some("team-1".to_string()),
-                    first_name: "Sven".to_string(),
-                    last_name: "Svensson".to_string(),
-                    personal_number: Some("19450312-1234".to_string()),
-                    care_level: Some("High Care".to_string()),
-                    message_settings: "{}".to_string(),
-                    created_at: "2026-06-30 00:00:00".to_string(),
-                    updated_at: 0,
-                    sync_status: "synced".to_string(),
-                })
-        });
+        .cloned();
 
-    let client_id = current_client.id.clone();
-    let client_name = format!("{} {}", current_client.first_name, current_client.last_name);
-
+    let client_id = current_client.as_ref().map(|c| c.id.clone()).unwrap_or_else(|| "client-1".to_string());
     let client_user_id = active_user.id.clone();
-    
-    // Filter visits for today (Care template)
+
+    // Filter events for the client
     let todays_events: Vec<TeamEvent> = events
-        .iter()
+        .into_iter()
         .filter(|ev| ev.user_id == Some(client_user_id.clone()))
-        .cloned()
         .collect();
 
     rsx! {
-        // Main Container matching mx-auto w-full max-w-5xl space-y-8
-        div { class: "mx-auto w-full max-w-5xl space-y-8 p-6 flex flex-col gap-8",
+        div { class: "space-y-6 animate-in fade-in duration-300",
             
-            // 1. Welcome Header (Template dependent)
-            div { class: "flex flex-col gap-2 md:flex-row md:items-center md:justify-between animate-in fade-in slide-in-from-top-2 duration-300",
-                div {
-                    h1 { class: "bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-3xl font-bold tracking-tight text-transparent m-0",
-                        "Välkommen tillbaka, {client_name}"
-                    }
-                    p { class: "text-sm text-muted-foreground m-0 mt-1",
-                        if template == "moving" {
-                            "Här är din flyttplanering, offertstatus och bokningsdetaljer."
-                        } else if template == "general" {
-                            "Här är en översikt av dina beställda uppdrag."
-                        } else {
-                            if let Some(ref care) = current_client.care_level {
-                                "Vårdnivå: {care}"
+            // Header / Greeting Card
+            components::Card {
+                class: "relative overflow-hidden border border-border/80 bg-sidebar p-6 shadow-md rounded-2xl",
+                div { class: "absolute right-0 top-0 -mr-16 -mt-16 h-48 w-48 rounded-full bg-primary/5 blur-3xl" }
+                div { class: "relative flex flex-col gap-4 md:flex-row md:items-center md:justify-between",
+                    div { class: "space-y-1.5",
+                        h2 { class: "text-2xl font-bold tracking-tight text-foreground m-0",
+                            "Välkommen, {active_user.full_name.clone().unwrap_or_else(|| \"Kund\".to_string())}!"
+                        }
+                        p { class: "text-xs text-muted-foreground font-semibold mt-0.5 tracking-wide m-0",
+                            if template == "moving" {
+                                "Här är en översikt av dina beställda uppdrag."
                             } else {
-                                "Här är en översikt av din vård och assistans."
+                                if let Some(ref client) = current_client
+                                    && let Some(ref care) = client.care_level {
+                                        "Vårdnivå: {care}"
+                                } else {
+                                    "Här är en översikt av din vård och assistans."
+                                }
                             }
                         }
                     }
@@ -112,12 +96,12 @@ pub fn ClientPortalView(props: ClientPortalViewProps) -> Element {
             if template == "moving" {
                 MovingPortal {
                     active_user_id: active_user.id.clone(),
-                    db_trigger
+                    db_trigger: trigger_jobs
                 }
             } else if template == "general" {
                 GeneralPortal {
                     active_user_id: active_user.id.clone(),
-                    db_trigger
+                    db_trigger: trigger_jobs
                 }
             } else {
                 CarePortal {

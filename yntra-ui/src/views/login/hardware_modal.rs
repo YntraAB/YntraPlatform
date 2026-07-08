@@ -11,6 +11,7 @@ pub struct HardwareModalProps {
     pub hardware_error_msg: Signal<Option<String>>,
     pub region: String,
     pub on_close: EventHandler<()>,
+    pub on_verify_pin: EventHandler<String>,
 }
 
 impl PartialEq for HardwareModalProps {
@@ -24,6 +25,7 @@ pub fn HardwareModal(props: HardwareModalProps) -> Element {
     let mut show_hardware_modal = props.show_hardware_modal;
     let hardware_reader_status = props.hardware_reader_status;
     let hardware_error_msg = props.hardware_error_msg;
+    let mut pin_val = use_signal(String::new);
 
     rsx! {
         components::Dialog {
@@ -74,6 +76,48 @@ pub fn HardwareModal(props: HardwareModalProps) -> Element {
                         div { class: "dxc-spinner", }
                         p { class: "text-muted-foreground m-0 text-sm",
                             "{t(\"login-hw-reading\", &props.region)}"
+                        }
+                    },
+                    "card_detected" => rsx! {
+                        div {
+                            class: "rounded-full border border-border flex items-center justify-center",
+                            style: "width: 64px; height: 64px; background: var(--primary-color-4); margin: 0.5rem 0;",
+                            components::LucideIcon { 
+                                name: "reporting",
+                                class: "h-8 w-8 text-secondary", 
+                            }
+                        }
+                        h4 { class: "m-0 font-extrabold text-foreground",
+                            "{t(\"login-hw-card-detected-title\", &props.region)}"
+                        }
+                        p { class: "text-muted-foreground m-0 text-xs",
+                            style: "line-height: 1.4;",
+                            "{t(\"login-hw-card-detected-enter-pin\", &props.region)}"
+                        }
+                        input {
+                            class: "yntra-input w-full text-center",
+                            r#type: "password",
+                            placeholder: {t("login-hw-pin-placeholder", &props.region)},
+                            value: "{pin_val}",
+                            autofocus: true,
+                            oninput: move |e| pin_val.set(e.value()),
+                            onkeydown: move |e| {
+                                if e.key() == Key::Enter && !pin_val.read().is_empty() {
+                                    let pin = pin_val.read().clone();
+                                    props.on_verify_pin.call(pin);
+                                    pin_val.set(String::new());
+                                }
+                            }
+                        }
+                        button {
+                            class: "yntra-btn w-full mt-2",
+                            disabled: pin_val.read().is_empty(),
+                            onclick: move |_| {
+                                let pin = pin_val.read().clone();
+                                props.on_verify_pin.call(pin);
+                                pin_val.set(String::new());
+                            },
+                            "{t(\"login-hw-btn-verify\", &props.region)}"
                         }
                     },
                     "success" => rsx! {
