@@ -93,6 +93,16 @@ pub async fn add_time_report(
         return Err(YntraError::AuthError("Access denied: cannot add time report for another user".to_string()));
     }
 
+    let target_user_ws: String = conn.query_row(
+        "SELECT workspace_id FROM users WHERE id = ?1",
+        crate::params![&user_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("User not found".to_string()))?;
+
+    if target_user_ws != workspace_id {
+        return Err(YntraError::ValidationError("User does not belong to the specified workspace".to_string()));
+    }
+
     // 1. Calculate dates and convert target date to days
     let target_days = match parse_date(&date) {
         Some((y, m, d)) => date_to_days(y, m, d),
@@ -101,13 +111,17 @@ pub async fn add_time_report(
 
     // 2. Fetch logged hours, workspace settings, and user preferences to determine national limits
     let (settings, user_prefs_json, user_reports) = {
-        let mut settings_json = "{}".to_string();
-        // Fetch workspace settings
-        let mut w_stmt = conn.prepare("SELECT settings FROM workspaces WHERE id = ?1").await?;
-        let mut w_rows = w_stmt.query(crate::params![&workspace_id]).await?;
-        if let Some(row) = w_rows.next().await? {
-            settings_json = row.get(0)?;
-        }
+        let settings_json = if auth.role != "platform_admin" && auth.workspace_id == workspace_id {
+            auth.workspace_settings.clone().unwrap_or_else(|| "{}".to_string())
+        } else {
+            let mut settings_json = "{}".to_string();
+            let mut w_stmt = conn.prepare("SELECT settings FROM workspaces WHERE id = ?1").await?;
+            let mut w_rows = w_stmt.query(crate::params![&workspace_id]).await?;
+            if let Some(row) = w_rows.next().await? {
+                settings_json = row.get(0)?;
+            }
+            settings_json
+        };
 
         let mut user_prefs_json = "{}".to_string();
         // Fetch user preferences
@@ -779,5 +793,43 @@ mod tests {
         conn.execute("DELETE FROM time_reports WHERE workspace_id = 'ws-ca-test'", ()).await.unwrap();
         conn.execute("DELETE FROM users WHERE id = 'u-ca-test'", ()).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id = 'ws-ca-test'", ()).await.unwrap();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_add_time_report_workspace_mismatch() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let _ = conn.execute("DELETE FROM users WHERE workspace_id IN ('ws-time-a', 'ws-time-b')", ()).await;
+        let _ = conn.execute("DELETE FROM workspaces WHERE id IN ('ws-time-a', 'ws-time-b')", ()).await;
+
+        conn.execute("INSERT INTO workspaces (id, name, modules_active, settings) VALUES ('ws-time-a', 'WS A', '[]', '{\"target_region\":\"SE\"}')", ()).await.unwrap();
+        conn.execute("INSERT INTO workspaces (id, name, modules_active, settings) VALUES ('ws-time-b', 'WS B', '[]', '{\"target_region\":\"SE\"}')", ()).await.unwrap();
+
+        // Admin of WS A
+        conn.execute("INSERT INTO users (id, workspace_id, email, role, preferences) VALUES ('u-admin-a', 'ws-time-a', 'admina@time.se', 'admin', '{}')", ()).await.unwrap();
+        
+        // User of WS B
+        conn.execute("INSERT INTO users (id, workspace_id, email, role, preferences) VALUES ('u-user-b', 'ws-time-b', 'userb@time.se', 'user', '{}')", ()).await.unwrap();
+
+        // Admin of WS A tries to log time report for User of WS B -> should fail with AuthError
+        let res = add_time_report(
+            "u-admin-a".to_string(),
+            "ws-time-a".to_string(),
+            "u-user-b".to_string(),
+            None,
+            "2026-07-10".to_string(),
+            8.0,
+            "Friday Shift".to_string(),
+            Some("08:00".to_string()),
+            Some("16:00".to_string()),
+        ).await;
+
+        assert!(res.is_err());
+        assert!(matches!(res.unwrap_err(), YntraError::ValidationError(_)));
+
+        conn.execute("DELETE FROM users WHERE workspace_id IN ('ws-time-a', 'ws-time-b')", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id IN ('ws-time-a', 'ws-time-b')", ()).await.unwrap();
     }
 }
