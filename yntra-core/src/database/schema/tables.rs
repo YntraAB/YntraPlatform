@@ -39,10 +39,7 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             role TEXT NOT NULL DEFAULT 'user',
             preferences TEXT NOT NULL DEFAULT '{}',
             password_hash TEXT,
-            siths_card_id TEXT,
-            siths_public_key TEXT,
-            nfc_badge_uid TEXT,
-            personal_number TEXT,
+            metadata TEXT DEFAULT '{}',
             updated_at INTEGER NOT NULL DEFAULT 0,
             sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
             role_signature TEXT,
@@ -169,32 +166,7 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             FOREIGN KEY(team_id) REFERENCES teams(id)
         );
 
-        CREATE TABLE IF NOT EXISTS client_medications (
-            id TEXT PRIMARY KEY,
-            client_id TEXT NOT NULL,
-            name TEXT NOT NULL,
-            dosage TEXT,
-            frequency TEXT,
-            instructions TEXT,
-            created_at TEXT NOT NULL,
-            workspace_id TEXT NOT NULL DEFAULT 'workspace-1',
-            updated_at INTEGER NOT NULL DEFAULT 0,
-            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
-            FOREIGN KEY(client_id) REFERENCES clients(id)
-        );
 
-        CREATE TABLE IF NOT EXISTS client_journals (
-            id TEXT PRIMARY KEY,
-            client_id TEXT NOT NULL,
-            author_id TEXT,
-            content TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            workspace_id TEXT NOT NULL DEFAULT 'workspace-1',
-            updated_at INTEGER NOT NULL DEFAULT 0,
-            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
-            FOREIGN KEY(client_id) REFERENCES clients(id),
-            FOREIGN KEY(author_id) REFERENCES users(id)
-        );
 
         CREATE TABLE IF NOT EXISTS blocks (
             id TEXT PRIMARY KEY,
@@ -263,14 +235,6 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             created_at TEXT NOT NULL,
             updated_at INTEGER NOT NULL,
             sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
-            origin_address TEXT,
-            destination_address TEXT,
-            origin_floor INTEGER DEFAULT 0,
-            destination_floor INTEGER DEFAULT 0,
-            origin_has_elevator INTEGER DEFAULT 0,
-            destination_has_elevator INTEGER DEFAULT 0,
-            origin_parking_permit_needed INTEGER DEFAULT 0,
-            destination_parking_permit_needed INTEGER DEFAULT 0,
             FOREIGN KEY(assigned_user_id) REFERENCES users(id)
         );
 
@@ -281,8 +245,7 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             full_name TEXT NOT NULL,
             role TEXT NOT NULL,
             activated INTEGER DEFAULT 0,
-            siths_card_id TEXT,
-            nfc_badge_uid TEXT,
+            metadata TEXT DEFAULT '{}',
             updated_at INTEGER NOT NULL DEFAULT 0,
             sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
             encrypted_workspace_key TEXT
@@ -301,6 +264,22 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             UNIQUE(workspace_id, seq)
         );
         
+        CREATE TABLE IF NOT EXISTS entities (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            block_id TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            data TEXT NOT NULL,
+            created_at INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(workspace_id) REFERENCES workspaces(id),
+            FOREIGN KEY(block_id) REFERENCES blocks(id)
+        );
+
+
+
+        -- Indices
         CREATE INDEX IF NOT EXISTS idx_users_workspace ON users(workspace_id);
         CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
         CREATE INDEX IF NOT EXISTS idx_users_email_lower ON users(LOWER(email));
@@ -322,30 +301,10 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
         CREATE INDEX IF NOT EXISTS idx_time_reports_user_date ON time_reports(user_id, date);
         CREATE INDEX IF NOT EXISTS idx_job_tickets_workspace ON job_tickets(workspace_id);
         CREATE INDEX IF NOT EXISTS idx_job_tickets_assigned_user ON job_tickets(assigned_user_id);
-        CREATE INDEX IF NOT EXISTS idx_client_medications_client ON client_medications(client_id);
-        CREATE INDEX IF NOT EXISTS idx_client_journals_client ON client_journals(client_id);
-            
-        CREATE TABLE IF NOT EXISTS entities (
-            id TEXT PRIMARY KEY,
-            workspace_id TEXT NOT NULL,
-            block_id TEXT NOT NULL,
-            entity_type TEXT NOT NULL,
-            data TEXT NOT NULL,
-            created_at INTEGER NOT NULL DEFAULT 0,
-            updated_at INTEGER NOT NULL DEFAULT 0,
-            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
-            FOREIGN KEY(workspace_id) REFERENCES workspaces(id),
-            FOREIGN KEY(block_id) REFERENCES blocks(id)
-        );
         CREATE INDEX IF NOT EXISTS idx_entities_block ON entities(workspace_id, block_id);"
     )
     .await
     .map_err(|e| YntraError::DbError(e.to_string()))?;
-
-    let _ = conn.execute("ALTER TABLE workspaces ADD COLUMN creator_public_key TEXT", ()).await;
-    let _ = conn.execute("ALTER TABLE users ADD COLUMN role_signature TEXT", ()).await;
-    let _ = conn.execute("ALTER TABLE invitations ADD COLUMN encrypted_workspace_key TEXT", ()).await;
-    let _ = conn.execute("ALTER TABLE notes ADD COLUMN content_plain TEXT", ()).await;
 
     Ok(())
 }

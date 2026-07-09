@@ -163,14 +163,23 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
         let alice_pub = const_hex::encode(ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]).verifying_key().to_bytes());
         let bob_pub = const_hex::encode(ed25519_dalek::SigningKey::from_bytes(&[2u8; 32]).verifying_key().to_bytes());
 
+        let alice_meta = format!(
+            r#"{{"siths_card_id":"SITHS-ALICE-123","siths_public_key":"{}","nfc_badge_uid":"NFC-ALICE-999"}}"#,
+            alice_pub
+        );
+        let bob_meta = format!(
+            r#"{{"siths_card_id":"SITHS-BOB-456","siths_public_key":"{}","nfc_badge_uid":"NFC-BOB-888"}}"#,
+            bob_pub
+        );
+
         conn.execute(
-            "UPDATE users SET siths_card_id = 'SITHS-ALICE-123', siths_public_key = :pub_key, nfc_badge_uid = 'NFC-ALICE-999' WHERE id = 'user-1'",
-            crate::named_params![":pub_key" => alice_pub],
+            "UPDATE users SET metadata = ?1 WHERE id = 'user-1'",
+            crate::params![alice_meta],
         ).await?;
 
         conn.execute(
-            "UPDATE users SET siths_card_id = 'SITHS-BOB-456', siths_public_key = :pub_key, nfc_badge_uid = 'NFC-BOB-888' WHERE id = 'user-2'",
-            crate::named_params![":pub_key" => bob_pub],
+            "UPDATE users SET metadata = ?1 WHERE id = 'user-2'",
+            crate::params![bob_meta],
         ).await?;
 
         // Seed Teams
@@ -197,12 +206,29 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
 
         // Seed Invitations
         if let Some(invitations) = data["invitations"].as_array() {
+            let mut modified_invitations = Vec::new();
+            for inv in invitations {
+                let mut inv_obj = inv.as_object().cloned().unwrap_or_default();
+                let mut metadata_map = serde_json::Map::new();
+                if let Some(s_id) = inv_obj.remove("siths_card_id") {
+                    metadata_map.insert("siths_card_id".to_string(), s_id);
+                }
+                if let Some(n_uid) = inv_obj.remove("nfc_badge_uid") {
+                    metadata_map.insert("nfc_badge_uid".to_string(), n_uid);
+                }
+                inv_obj.insert(
+                    "metadata".to_string(),
+                    serde_json::Value::String(serde_json::to_string(&metadata_map).unwrap_or_default()),
+                );
+                modified_invitations.push(serde_json::Value::Object(inv_obj));
+            }
+
             seed_table(
                 conn,
                 "INSERT OR IGNORE",
                 "invitations",
-                &["code", "workspace_id", "email", "full_name", "role", "activated", "siths_card_id", "nfc_badge_uid"],
-                invitations,
+                &["code", "workspace_id", "email", "full_name", "role", "activated", "metadata"],
+                &modified_invitations,
             ).await?;
         }
 
@@ -221,185 +247,9 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
                     &[
                         "id", "workspace_id", "title", "description", "location_address", "priority", "status",
                         "assigned_user_id", "scheduled_date", "checklist_json", "completion_report",
-                        "created_at", "updated_at", "sync_status",
-                        "origin_address", "destination_address", "origin_floor", "destination_floor",
-                        "origin_has_elevator", "destination_has_elevator",
-                        "origin_parking_permit_needed", "destination_parking_permit_needed"
+                        "created_at", "updated_at", "sync_status"
                     ],
                     job_tickets,
-                ).await?;
-            }
-
-            // Seed inventory
-            if let Some(move_inventory) = data["move_inventory"].as_array() {
-                seed_table(
-                    conn,
-                    "INSERT",
-                    "move_inventory",
-                    &["id", "workspace_id", "job_ticket_id", "item_category", "item_name", "quantity", "estimated_volume_m3", "handling_notes", "updated_at", "sync_status"],
-                    move_inventory,
-                ).await?;
-            }
-
-            // Seed quotes
-            if let Some(move_quotes) = data["move_quotes"].as_array() {
-                seed_table(
-                    conn,
-                    "INSERT",
-                    "move_quotes",
-                    &["id", "workspace_id", "job_ticket_id", "base_price", "distance_fee", "stairs_surcharge", "packing_supplies_fee", "total_price", "status", "accepted_at", "updated_at", "sync_status"],
-                    move_quotes,
-                ).await?;
-            }
-        }
-
-        // Seed Students (Education Module)
-        let students_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM student_profiles", (), |row| row.get(0))
-            .await
-            .unwrap_or(0);
-
-        if students_count == 0 {
-            // Seed student profiles
-            if let Some(student_profiles) = data["student_profiles"].as_array() {
-                seed_table(
-                    conn,
-                    "INSERT",
-                    "student_profiles",
-                    &["id", "workspace_id", "first_name", "last_name", "grade_level", "parent_contact", "updated_at", "sync_status"],
-                    student_profiles,
-                ).await?;
-            }
-
-            // Seed courses
-            if let Some(courses) = data["courses"].as_array() {
-                seed_table(
-                    conn,
-                    "INSERT",
-                    "courses",
-                    &["id", "workspace_id", "name", "subject", "teacher_id", "classroom", "updated_at", "sync_status"],
-                    courses,
-                ).await?;
-            }
-
-            // Seed assignments
-            if let Some(assignments) = data["assignments"].as_array() {
-                seed_table(
-                    conn,
-                    "INSERT",
-                    "assignments",
-                    &["id", "workspace_id", "course_id", "title", "description", "due_date", "max_points", "updated_at", "sync_status"],
-                    assignments,
-                ).await?;
-            }
-
-            // Seed submissions
-            if let Some(submissions) = data["submissions"].as_array() {
-                seed_table(
-                    conn,
-                    "INSERT",
-                    "submissions",
-                    &["id", "workspace_id", "assignment_id", "student_id", "content", "grade", "feedback", "submitted_at", "updated_at", "sync_status"],
-                    submissions,
-                ).await?;
-            }
-
-            // Seed attendance
-            if let Some(attendance_records) = data["attendance_records"].as_array() {
-                seed_table(
-                    conn,
-                    "INSERT",
-                    "attendance_records",
-                    &["id", "workspace_id", "student_id", "course_id", "date", "status", "notes", "updated_at", "sync_status"],
-                    attendance_records,
-                ).await?;
-            }
-
-            // Seed term grades
-            if let Some(term_grades) = data["term_grades"].as_array() {
-                seed_table(
-                    conn,
-                    "INSERT",
-                    "term_grades",
-                    &["id", "workspace_id", "student_id", "course_id", "term_name", "final_grade", "final_points", "teacher_comments", "updated_at", "sync_status"],
-                    term_grades,
-                ).await?;
-            }
-
-            // Seed report cards
-            if let Some(report_cards) = data["report_cards"].as_array() {
-                seed_table(
-                    conn,
-                    "INSERT",
-                    "report_cards",
-                    &["id", "workspace_id", "student_id", "term_name", "gpa", "principal_comments", "status", "updated_at", "sync_status"],
-                    report_cards,
-                ).await?;
-            }
-
-            // Seed health records
-            if let Some(health_records) = data["health_records"].as_array() {
-                seed_table(
-                    conn,
-                    "INSERT",
-                    "health_records",
-                    &["id", "workspace_id", "student_id", "vaccine_name", "status", "administered_at", "updated_at", "sync_status"],
-                    health_records,
-                ).await?;
-            }
-
-            // Seed health incidents
-            if let Some(health_incidents) = data["health_incidents"].as_array() {
-                seed_table(
-                    conn,
-                    "INSERT",
-                    "health_incidents",
-                    &["id", "workspace_id", "student_id", "visit_reason", "treatment", "checked_in_at", "checked_out_at", "notes", "updated_at", "sync_status"],
-                    health_incidents,
-                ).await?;
-            }
-
-            // Seed school invoices
-            if let Some(school_invoices) = data["school_invoices"].as_array() {
-                seed_table(
-                    conn,
-                    "INSERT",
-                    "school_invoices",
-                    &["id", "workspace_id", "student_id", "title", "amount", "due_date", "status", "paid_at", "updated_at", "sync_status"],
-                    school_invoices,
-                ).await?;
-            }
-
-            // Seed school payments
-            if let Some(school_payments) = data["school_payments"].as_array() {
-                seed_table(
-                    conn,
-                    "INSERT",
-                    "school_payments",
-                    &["id", "workspace_id", "invoice_id", "amount", "payment_method", "paid_at", "updated_at", "sync_status"],
-                    school_payments,
-                ).await?;
-            }
-
-            // Seed library books
-            if let Some(library_books) = data["library_books"].as_array() {
-                seed_table(
-                    conn,
-                    "INSERT",
-                    "library_books",
-                    &["id", "workspace_id", "title", "author", "isbn", "copies_available", "total_copies", "updated_at", "sync_status"],
-                    library_books,
-                ).await?;
-            }
-
-            // Seed library lending logs
-            if let Some(library_lending_logs) = data["library_lending_logs"].as_array() {
-                seed_table(
-                    conn,
-                    "INSERT",
-                    "library_lending_logs",
-                    &["id", "workspace_id", "book_id", "student_id", "checked_out_at", "due_date", "returned_at", "status", "updated_at", "sync_status"],
-                    library_lending_logs,
                 ).await?;
             }
         }

@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use crate::{JobTicket, YntraError};
 use uuid::Uuid;
 use crate::database;
@@ -18,13 +20,6 @@ fn validate_job_status(status: &str) -> Result<(), YntraError> {
     }
 }
 
-fn validate_quote_status(status: &str) -> Result<(), YntraError> {
-    match status {
-        "pending" | "draft" | "sent" | "accepted" | "rejected" => Ok(()),
-        _ => Err(YntraError::ValidationError(format!("Invalid quote status: {}", status))),
-    }
-}
-
 #[uniffi::export]
 pub async fn get_job_tickets(requester_user_id: String) -> Result<Vec<JobTicket>, YntraError> {
     let conn = database::acquire_connection().await?;
@@ -35,7 +30,7 @@ pub async fn get_job_tickets(requester_user_id: String) -> Result<Vec<JobTicket>
     }
 
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed FROM job_tickets WHERE workspace_id = ?1",
+        "SELECT id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status FROM job_tickets WHERE workspace_id = ?1",
     ).await?;
 
     let list = stmt.query_map(crate::params![auth.workspace_id], |row| {
@@ -54,14 +49,14 @@ pub async fn get_job_tickets(requester_user_id: String) -> Result<Vec<JobTicket>
             created_at: row.get(11)?,
             updated_at: row.get(12)?,
             sync_status: row.get(13)?,
-            origin_address: row.get(14)?,
-            destination_address: row.get(15)?,
-            origin_floor: row.get(16)?,
-            destination_floor: row.get(17)?,
-            origin_has_elevator: row.get::<i32>(18)? != 0,
-            destination_has_elevator: row.get::<i32>(19)? != 0,
-            origin_parking_permit_needed: row.get::<i32>(20)? != 0,
-            destination_parking_permit_needed: row.get::<i32>(21)? != 0,
+            origin_address: None,
+            destination_address: None,
+            origin_floor: 0,
+            destination_floor: 0,
+            origin_has_elevator: false,
+            destination_has_elevator: false,
+            origin_parking_permit_needed: false,
+            destination_parking_permit_needed: false,
         })
     }).await?;
 
@@ -136,7 +131,7 @@ pub async fn create_job_ticket(
     }
 
     conn.execute(
-        "INSERT INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+        "INSERT INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         crate::params![
             job.id,
             job.workspace_id,
@@ -151,15 +146,7 @@ pub async fn create_job_ticket(
             job.completion_report,
             job.created_at,
             job.updated_at,
-            job.sync_status,
-            job.origin_address,
-            job.destination_address,
-            job.origin_floor,
-            job.destination_floor,
-            job.origin_has_elevator,
-            job.destination_has_elevator,
-            job.origin_parking_permit_needed,
-            job.destination_parking_permit_needed
+            job.sync_status
         ],
     ).await?;
 
@@ -239,42 +226,8 @@ pub async fn submit_job_completion(
 #[uniffi::export]
 pub async fn get_move_inventory(requester_user_id: String, job_ticket_id: String) -> Result<Vec<MoveInventoryItem>, YntraError> {
     let conn = database::acquire_connection().await?;
-    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    
-    let job_ws: String = conn.query_row(
-        "SELECT workspace_id FROM job_tickets WHERE id = ?1",
-        crate::params![&job_ticket_id],
-        |r| r.get(0)
-    ).await.map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
-
-    if auth.workspace_id != job_ws {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
-    }
-
-    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" {
-        return Err(YntraError::AuthError("Access denied: insufficient permissions".to_string()));
-    }
-
-    let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, handling_notes, updated_at, sync_status FROM move_inventory WHERE job_ticket_id = ?1",
-    ).await?;
-
-    let list = stmt.query_map(crate::params![job_ticket_id], |row| {
-        Ok(MoveInventoryItem {
-            id: row.get(0)?,
-            workspace_id: row.get(1)?,
-            job_ticket_id: row.get(2)?,
-            item_category: row.get(3)?,
-            item_name: row.get(4)?,
-            quantity: row.get(5)?,
-            estimated_volume_m3: row.get(6)?,
-            handling_notes: row.get(7)?,
-            updated_at: row.get(8)?,
-            sync_status: row.get(9)?,
-        })
-    }).await?;
-
-    Ok(list)
+    let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    Ok(vec![])
 }
 
 #[uniffi::export]
@@ -287,107 +240,14 @@ pub async fn add_move_inventory_item(
     estimated_volume_m3: f64,
     handling_notes: Option<String>,
 ) -> Result<MoveInventoryItem, YntraError> {
-    if quantity <= 0 {
-        return Err(YntraError::ValidationError("Quantity must be positive".to_string()));
-    }
-    if estimated_volume_m3 < 0.0 {
-        return Err(YntraError::ValidationError("Estimated volume cannot be negative".to_string()));
-    }
-
-    let conn = database::acquire_connection().await?;
-    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    
-    let job_ws: String = conn.query_row(
-        "SELECT workspace_id FROM job_tickets WHERE id = ?1",
-        crate::params![&job_ticket_id],
-        |r| r.get(0)
-    ).await.map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
-
-    if auth.workspace_id != job_ws {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
-    }
-
-    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" {
-        return Err(YntraError::AuthError("Access denied: insufficient permissions".to_string()));
-    }
-
-    let id = uuid::Uuid::new_v4().to_string();
-    let now_ms = crate::infra::time::get_current_time_ms();
-    let item = MoveInventoryItem {
-        id: id.clone(),
-        workspace_id: job_ws.clone(),
-        job_ticket_id: job_ticket_id.clone(),
-        item_category,
-        item_name,
-        quantity,
-        estimated_volume_m3,
-        handling_notes,
-        updated_at: now_ms,
-        sync_status: "pending".to_string(),
-    };
-
-    conn.execute(
-        "INSERT INTO move_inventory (id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, handling_notes, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        crate::params![
-            item.id,
-            item.workspace_id,
-            item.job_ticket_id,
-            item.item_category,
-            item.item_name,
-            item.quantity,
-            item.estimated_volume_m3,
-            item.handling_notes,
-            item.updated_at,
-            item.sync_status
-        ],
-    ).await?;
-
-    notify_observers();
-    Ok(item)
+    Err(YntraError::AuthError("Logistics vertical is deprecated".to_string()))
 }
 
 #[uniffi::export]
 pub async fn get_move_quote(requester_user_id: String, job_ticket_id: String) -> Result<Option<MoveQuote>, YntraError> {
     let conn = database::acquire_connection().await?;
-    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    
-    let job_ws: String = conn.query_row(
-        "SELECT workspace_id FROM job_tickets WHERE id = ?1",
-        crate::params![&job_ticket_id],
-        |r| r.get(0)
-    ).await.map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
-
-    if auth.workspace_id != job_ws {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
-    }
-
-    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" {
-        return Err(YntraError::AuthError("Access denied: insufficient permissions".to_string()));
-    }
-
-    let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, accepted_at, updated_at, sync_status FROM move_quotes WHERE job_ticket_id = ?1",
-    ).await?;
-
-    let mut rows = stmt.query(crate::params![job_ticket_id]).await?;
-    if let Some(row) = rows.next().await? {
-        Ok(Some(MoveQuote {
-            id: row.get(0)?,
-            workspace_id: row.get(1)?,
-            job_ticket_id: row.get(2)?,
-            base_price: row.get::<f64>(3)? as i64,
-            distance_fee: row.get::<f64>(4)? as i64,
-            stairs_surcharge: row.get::<f64>(5)? as i64,
-            packing_supplies_fee: row.get::<f64>(6)? as i64,
-            total_price: row.get::<f64>(7)? as i64,
-            status: row.get(8)?,
-            accepted_at: row.get(9)?,
-            updated_at: row.get(10)?,
-            sync_status: row.get(11)?,
-        }))
-    } else {
-        Ok(None)
-    }
+    let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    Ok(None)
 }
 
 #[uniffi::export]
@@ -400,127 +260,13 @@ pub async fn create_or_update_move_quote(
     packing_supplies_fee: i64,
     status: String,
 ) -> Result<MoveQuote, YntraError> {
-    if base_price < 0 || distance_fee < 0 || stairs_surcharge < 0 || packing_supplies_fee < 0 {
-        return Err(YntraError::ValidationError("Prices cannot be negative".to_string()));
-    }
-    validate_quote_status(&status)?;
-
-    let conn = database::acquire_connection().await?;
-    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    
-    let job_ws: String = conn.query_row(
-        "SELECT workspace_id FROM job_tickets WHERE id = ?1",
-        crate::params![&job_ticket_id],
-        |r| r.get(0)
-    ).await.map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
-
-    if auth.workspace_id != job_ws {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
-    }
-
-    if !is_staff(&auth) {
-        return Err(YntraError::AuthError("Access denied: only staff can create or edit quotes".to_string()));
-    }
-
-    let total_price = base_price
-        .checked_add(distance_fee)
-        .and_then(|t| t.checked_add(stairs_surcharge))
-        .and_then(|t| t.checked_add(packing_supplies_fee))
-        .ok_or_else(|| YntraError::ValidationError("Price overflow detected".to_string()))?;
-    
-    let id = uuid::Uuid::new_v4().to_string();
-    let now_ms = crate::infra::time::get_current_time_ms();
-    let quote = MoveQuote {
-        id: id.clone(),
-        workspace_id: job_ws.clone(),
-        job_ticket_id: job_ticket_id.clone(),
-        base_price,
-        distance_fee,
-        stairs_surcharge,
-        packing_supplies_fee,
-        total_price,
-        status: status.clone(),
-        accepted_at: None,
-        updated_at: now_ms,
-        sync_status: "pending".to_string(),
-    };
-
-    conn.begin_transaction().await?;
-
-    let res = async {
-        // Delete existing quote for the job first
-        conn.execute("DELETE FROM move_quotes WHERE job_ticket_id = ?1", crate::params![job_ticket_id]).await?;
-
-        conn.execute(
-            "INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, accepted_at, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            crate::params![
-                quote.id,
-                quote.workspace_id,
-                quote.job_ticket_id,
-                quote.base_price,
-                quote.distance_fee,
-                quote.stairs_surcharge,
-                quote.packing_supplies_fee,
-                quote.total_price,
-                quote.status,
-                quote.accepted_at,
-                quote.updated_at,
-                quote.sync_status
-            ],
-        ).await?;
-        Ok::<(), YntraError>(())
-    }.await;
-
-    match res {
-        Ok(_) => {
-            let commit_res = conn.commit().await;
-            match commit_res {
-                Ok(_) => {
-                    notify_observers();
-                    Ok(quote)
-                }
-                Err(commit_err) => {
-                    let _ = conn.rollback().await;
-                    Err(commit_err)
-                }
-            }
-        }
-        Err(e) => {
-            let _ = conn.rollback().await;
-            Err(e)
-        }
-    }
+    Err(YntraError::AuthError("Logistics vertical is deprecated".to_string()))
 }
 
 #[uniffi::export]
 pub async fn accept_move_quote(requester_user_id: String, quote_id: String) -> Result<(), YntraError> {
-    let now_ms = crate::infra::time::get_current_time_ms();
-
-    let conn = database::acquire_connection().await?;
-    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    let job_ws: String = conn.query_row(
-        "SELECT jt.workspace_id FROM move_quotes mq JOIN job_tickets jt ON mq.job_ticket_id = jt.id WHERE mq.id = ?1",
-        crate::params![&quote_id],
-        |r| r.get(0)
-    ).await.map_err(|_| YntraError::NotFoundError("Quote not found".to_string()))?;
-
-    if auth.workspace_id != job_ws {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
-    }
-
-    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" {
-        return Err(YntraError::AuthError("Access denied: insufficient permissions".to_string()));
-    }
-
-    conn.execute(
-        "UPDATE move_quotes SET status = 'accepted', accepted_at = ?1, updated_at = ?1, sync_status = 'pending' WHERE id = ?2",
-        crate::params![now_ms, quote_id],
-    ).await?;
-
-    notify_observers();
-    Ok(())
+    Err(YntraError::AuthError("Logistics vertical is deprecated".to_string()))
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -566,61 +312,5 @@ mod tests {
         conn.execute("DELETE FROM job_tickets WHERE workspace_id IN ('ws-job-1', 'ws-job-2')", ()).await.unwrap();
         conn.execute("DELETE FROM users WHERE workspace_id IN ('ws-job-1', 'ws-job-2')", ()).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id IN ('ws-job-1', 'ws-job-2')", ()).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_move_quote_lifecycle() {
-        let _lock = database::DB_TEST_LOCK.lock().unwrap();
-        let conn = database::acquire_connection().await.unwrap();
-
-        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-job-q', 'Job Q WS', '[]', '{}')", ()).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-job-q-user', 'ws-job-q', 'uq@job.io', 'user')", ()).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-job-q-staff', 'ws-job-q', 'uqstaff@job.io', 'admin')", ()).await.unwrap();
-
-        // Create job
-        let job = create_job_ticket(
-            "u-job-q-user".to_string(),
-            "ws-job-q".to_string(),
-            "Move piano".to_string(),
-            "Grand piano".to_string(),
-            "123 Piano Rd".to_string(),
-            "medium".to_string(),
-            None,
-            "2026-07-05".to_string(),
-            "[]".to_string(),
-            None, None, 0, 0, false, false, false, false,
-        ).await.unwrap();
-
-        // Generate quote (requires staff role)
-        let quote = create_or_update_move_quote(
-            "u-job-q-staff".to_string(),
-            job.id.clone(),
-            200, // base
-            50,  // distance
-            100, // stairs
-            20,  // supplies
-            "pending".to_string(),
-        ).await.unwrap();
-
-        assert_eq!(quote.base_price, 200);
-        assert_eq!(quote.total_price, 370); // 200 + 50 + 100 + 20
-        assert_eq!(quote.status, "pending");
-
-        // Accept quote
-        let accept_res = accept_move_quote("u-job-q-user".to_string(), quote.id.clone()).await;
-        assert!(accept_res.is_ok());
-
-        // Get quote and verify status is accepted
-        let retrieved = get_move_quote("u-job-q-user".to_string(), job.id.clone()).await.unwrap();
-        assert!(retrieved.is_some());
-        let q = retrieved.unwrap();
-        assert_eq!(q.status, "accepted");
-        assert!(q.accepted_at.is_some());
-
-        // Cleanup
-        conn.execute("DELETE FROM move_quotes WHERE job_ticket_id = ?1", crate::params![job.id]).await.unwrap();
-        conn.execute("DELETE FROM job_tickets WHERE id = ?1", crate::params![job.id]).await.unwrap();
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-job-q'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-job-q'", ()).await.unwrap();
     }
 }

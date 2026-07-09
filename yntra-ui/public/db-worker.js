@@ -78,15 +78,6 @@ onmessage = async function(e) {
   }
 };
 
-const TABLES_TO_SYNC = [
-  "todos", "users", "teams", "team_members", "events", "messages", "notes", 
-  "time_reports", "clients", "client_medications", "client_journals", "reports", 
-  "job_tickets", "invitations", "move_inventory", "move_quotes", "student_profiles", 
-  "courses", "assignments", "submissions", "attendance_records", "term_grades", 
-  "report_cards", "timetable_slots", "health_records", "health_incidents", 
-  "school_invoices", "school_payments", "library_books", "library_lending_logs"
-];
-
 const schemaCache = {
   exists: {},
   columns: {},
@@ -123,6 +114,29 @@ function getTableColumns(tableName) {
   return cols;
 }
 
+// Convert results to key-value objects
+function responseRowsToObjects(result) {
+  if (!result || !result.rows || !result.cols) return [];
+  const cols = result.cols.map(c => c.name);
+  const rows = [];
+  for (const r of result.rows) {
+    const obj = {};
+    for (let i = 0; i < cols.length; i++) {
+      const valObj = r[i];
+      let val = null;
+      if (valObj) {
+        if (valObj.type === "integer") val = parseInt(valObj.value);
+        else if (valObj.type === "float") val = parseFloat(valObj.value);
+        else if (valObj.type === "text") val = valObj.value;
+        else if (valObj.type === "null") val = null;
+      }
+      obj[cols[i]] = val;
+    }
+    rows.push(obj);
+  }
+  return rows;
+}
+
 function getPrimaryKeyColumn(tableName) {
   if (schemaCache.pks[tableName]) {
     return schemaCache.pks[tableName];
@@ -148,28 +162,6 @@ function val2arg(val) {
     return { type: "float", value: val };
   }
   return { type: "text", value: val.toString() };
-}
-
-function responseRowsToObjects(result) {
-  if (!result || !result.rows || !result.cols) return [];
-  const cols = result.cols.map(c => c.name);
-  const rows = [];
-  for (const r of result.rows) {
-    const obj = {};
-    for (let i = 0; i < cols.length; i++) {
-      const valObj = r[i];
-      let val = null;
-      if (valObj) {
-        if (valObj.type === "integer") val = parseInt(valObj.value);
-        else if (valObj.type === "float") val = parseFloat(valObj.value);
-        else if (valObj.type === "text") val = valObj.value;
-        else if (valObj.type === "null") val = null;
-      }
-      obj[cols[i]] = val;
-    }
-    rows.push(obj);
-  }
-  return rows;
 }
 
 async function performSync(url, token) {
@@ -205,10 +197,18 @@ async function performSync(url, token) {
   const localPendingUpdates = [];
   let hasChanges = false;
 
-  // --- 1. PUSH PHASE: Collect local pending writes ---
-  for (const tableName of TABLES_TO_SYNC) {
-    if (!checkTableExists(tableName)) continue;
+  // Query tables dynamically from database schema
+  const tables = [];
+  db.exec({
+    sql: "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'local_%' AND name != 'system_settings'",
+    rowMode: 'object',
+    callback: (row) => {
+      tables.push(row.name);
+    }
+  });
 
+  // --- 1. PUSH PHASE: Collect local pending writes ---
+  for (const tableName of tables) {
     const cols = getTableColumns(tableName);
     const pkCol = getPrimaryKeyColumn(tableName);
 
@@ -247,9 +247,7 @@ async function performSync(url, token) {
 
   // --- 2. PULL PHASE: Request updates from remote ---
   const pullStartIndex = remoteRequests.length;
-  for (const tableName of TABLES_TO_SYNC) {
-    if (!checkTableExists(tableName)) continue;
-
+  for (const tableName of tables) {
     remoteRequests.push({
       type: "execute",
       stmt: {
@@ -297,9 +295,7 @@ async function performSync(url, token) {
 
     // B. Apply pulled updates
     let pullIdx = pullStartIndex;
-    for (const tableName of TABLES_TO_SYNC) {
-      if (!checkTableExists(tableName)) continue;
-
+    for (const tableName of tables) {
       const result = resData.results[pullIdx++];
       if (!result || result.type === "error") continue;
 
