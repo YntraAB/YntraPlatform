@@ -88,7 +88,16 @@ pub fn init_resources(
         let _trig = trigger_events.read();
         let uid = active_user_id.read().clone();
         let mut bg_err = background_error;
+        let ws_val = workspace.read().clone();
         async move {
+            let modules_active_val: serde_json::Value = ws_val
+                .as_ref()
+                .and_then(|w| serde_json::from_str(&w.modules_active).ok())
+                .unwrap_or_default();
+            let enabled = modules_active_val.get("scheduling").and_then(|v| v.as_bool()).unwrap_or(true);
+            if !enabled {
+                return Vec::new();
+            }
             match get_events(uid, None).await {
                 Ok(list) => list,
                 Err(e) => {
@@ -103,7 +112,16 @@ pub fn init_resources(
         let _trig = trigger_messages.read();
         let uid = active_user_id.read().clone();
         let mut bg_err = background_error;
+        let ws_val = workspace.read().clone();
         async move {
+            let modules_active_val: serde_json::Value = ws_val
+                .as_ref()
+                .and_then(|w| serde_json::from_str(&w.modules_active).ok())
+                .unwrap_or_default();
+            let enabled = modules_active_val.get("messaging").and_then(|v| v.as_bool()).unwrap_or(true);
+            if !enabled {
+                return Vec::new();
+            }
             match get_messages(uid.clone(), uid).await {
                 Ok(list) => list,
                 Err(e) => {
@@ -118,7 +136,16 @@ pub fn init_resources(
         let _trig = trigger_notes.read();
         let uid = active_user_id.read().clone();
         let mut bg_err = background_error;
+        let ws_val = workspace.read().clone();
         async move {
+            let modules_active_val: serde_json::Value = ws_val
+                .as_ref()
+                .and_then(|w| serde_json::from_str(&w.modules_active).ok())
+                .unwrap_or_default();
+            let enabled = modules_active_val.get("notes").and_then(|v| v.as_bool()).unwrap_or(true);
+            if !enabled {
+                return Vec::new();
+            }
             match get_notes(uid, None).await {
                 Ok(list) => list,
                 Err(e) => {
@@ -133,7 +160,16 @@ pub fn init_resources(
         let _trig = trigger_time.read();
         let uid = active_user_id.read().clone();
         let mut bg_err = background_error;
+        let ws_val = workspace.read().clone();
         async move {
+            let modules_active_val: serde_json::Value = ws_val
+                .as_ref()
+                .and_then(|w| serde_json::from_str(&w.modules_active).ok())
+                .unwrap_or_default();
+            let enabled = modules_active_val.get("time").and_then(|v| v.as_bool()).unwrap_or(true);
+            if !enabled {
+                return Vec::new();
+            }
             match get_time_reports(uid, None).await {
                 Ok(list) => list,
                 Err(e) => {
@@ -148,7 +184,18 @@ pub fn init_resources(
         let _trig = trigger_clients.read();
         let uid = active_user_id.read().clone();
         let mut bg_err = background_error;
+        let ws_val = workspace.read().clone();
         async move {
+            let modules_active_val: serde_json::Value = ws_val
+                .as_ref()
+                .and_then(|w| serde_json::from_str(&w.modules_active).ok())
+                .unwrap_or_default();
+            let enabled = modules_active_val.get("assistance").and_then(|v| v.as_bool()).unwrap_or(true)
+                || modules_active_val.get("journals").and_then(|v| v.as_bool()).unwrap_or(false)
+                || modules_active_val.get("medications").and_then(|v| v.as_bool()).unwrap_or(false);
+            if !enabled {
+                return Vec::new();
+            }
             match get_clients(uid).await {
                 Ok(list) => list,
                 Err(e) => {
@@ -163,7 +210,16 @@ pub fn init_resources(
         let _trig = trigger_reports.read();
         let uid = active_user_id.read().clone();
         let mut bg_err = background_error;
+        let ws_val = workspace.read().clone();
         async move {
+            let modules_active_val: serde_json::Value = ws_val
+                .as_ref()
+                .and_then(|w| serde_json::from_str(&w.modules_active).ok())
+                .unwrap_or_default();
+            let enabled = modules_active_val.get("reporting").and_then(|v| v.as_bool()).unwrap_or(true);
+            if !enabled {
+                return Vec::new();
+            }
             let mut eval = dioxus::document::eval(
                 r#"
                 try {
