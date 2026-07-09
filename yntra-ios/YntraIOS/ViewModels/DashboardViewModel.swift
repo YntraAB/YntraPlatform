@@ -6,6 +6,7 @@ class DashboardViewModel: ObservableObject {
     @Published var events: [TeamEvent] = []
     @Published var todosCount: Int = 0
     @Published var completedTodosCount: Int = 0
+    @Published var workspace: Workspace? = nil
     @Published var errorMessage: String? = nil
     
     private var observer: SwiftDbObserver?
@@ -26,6 +27,7 @@ class DashboardViewModel: ObservableObject {
                 let todos = try await getTodos(requesterUserId: "user-1", workspaceId: "workspace-1")
                 self.todosCount = todos.count
                 self.completedTodosCount = todos.filter { $0.completed }.count
+                self.workspace = try await getWorkspace()
             } catch {
                 self.errorMessage = error.localizedDescription
             }
