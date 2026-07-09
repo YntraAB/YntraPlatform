@@ -254,7 +254,7 @@ mod tests {
     #[tokio::test]
     async fn test_oauth_login_flow() {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
-        let conn = crate::database::acquire_connection().await.unwrap();
+        let _conn = crate::database::acquire_connection().await.unwrap();
 
         // 1. Initiate login
         let session_id = initiate_oauth_login("supabase".to_string(), "mock_token".to_string()).await.unwrap();
