@@ -300,13 +300,6 @@ mod tests {
         assert!(!password::verify_password_argon2("wrong_password", &hashed));
     }
 
-    #[test]
-    fn test_pbkdf2_fallback() {
-        let password = "legacy_password_abc";
-        let salt = b"salt123";
-        let hashed_pbkdf2 = password::hash_password_pbkdf2(password, salt);
-        assert!(password::verify_password_argon2(password, &hashed_pbkdf2));
-    }
 
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]

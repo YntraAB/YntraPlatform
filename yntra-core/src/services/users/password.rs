@@ -8,58 +8,6 @@ use argon2::{
     },
     Argon2
 };
-use zeroize::Zeroize;
-
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut result = 0;
-    for (x, y) in a.iter().zip(b.iter()) {
-        result |= x ^ y;
-    }
-    result == 0
-}
-
-#[allow(dead_code)]
-pub(crate) fn hash_password_pbkdf2(password: &str, salt: &[u8]) -> String {
-    let mut out_hash = [0u8; 32];
-    pbkdf2::pbkdf2_hmac::<sha2::Sha256>(password.as_bytes(), salt, 10_000, &mut out_hash);
-    let result = format!("{}:{}", const_hex::encode(salt), const_hex::encode(&out_hash));
-    out_hash.zeroize();
-    result
-}
-
-fn verify_password_pbkdf2(password: &str, stored_hash: &str) -> bool {
-    let parts: Vec<&str> = stored_hash.split(':').collect();
-    if parts.len() != 2 {
-        return false;
-    }
-
-    let mut salt_bytes = match const_hex::decode(parts[0]) {
-        Ok(b) => b,
-        Err(_) => return false,
-    };
-
-    let mut expected_hash_bytes = match const_hex::decode(parts[1]) {
-        Ok(b) => b,
-        Err(_) => {
-            salt_bytes.zeroize();
-            return false;
-        }
-    };
-
-    let mut out_hash = [0u8; 32];
-    pbkdf2::pbkdf2_hmac::<sha2::Sha256>(password.as_bytes(), &salt_bytes, 10_000, &mut out_hash);
-
-    let res = constant_time_eq(&out_hash, &expected_hash_bytes);
-    
-    salt_bytes.zeroize();
-    expected_hash_bytes.zeroize();
-    out_hash.zeroize();
-    
-    res
-}
 
 pub(crate) fn hash_password_argon2(password: &str) -> Result<String, YntraError> {
     use argon2::{Algorithm, Version, Params};
@@ -75,10 +23,6 @@ pub(crate) fn hash_password_argon2(password: &str) -> Result<String, YntraError>
 }
 
 pub(crate) fn verify_password_argon2(password: &str, stored_hash: &str) -> bool {
-    if !stored_hash.starts_with('$') {
-        return verify_password_pbkdf2(password, stored_hash);
-    }
-    
     if let Ok(parsed_hash) = PasswordHash::new(stored_hash) {
         Argon2::default().verify_password(password.as_bytes(), &parsed_hash).is_ok()
     } else {
