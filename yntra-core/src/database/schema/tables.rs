@@ -237,6 +237,17 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             challenge TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS oauth_auth_sessions (
+            id TEXT PRIMARY KEY,
+            provider TEXT NOT NULL,
+            token TEXT NOT NULL,
+            status TEXT NOT NULL,
+            error_message TEXT,
+            authenticated_user_id TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS job_tickets (
             id TEXT PRIMARY KEY,
             workspace_id TEXT NOT NULL,

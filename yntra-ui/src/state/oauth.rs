@@ -1,6 +1,5 @@
 use dioxus::prelude::*;
-use yntra_core::{get_user_by_email, WorkspaceUser};
-use crate::utils::get_supabase_user_email;
+use yntra_core::{initiate_oauth_login, get_oauth_login_status, get_users, WorkspaceUser};
 
 fn extract_access_token(hash: &str) -> Option<String> {
     let hash_clean = hash.trim_start_matches('#').trim_start_matches('?');
@@ -40,38 +39,59 @@ pub fn init_oauth_handlers(
                 while let Some(hash) = rx.recv().await {
                     log::info!("[Desktop OAuth] Receiver captured hash callback!");
                     if let Some(token) = extract_access_token(&hash) {
-                        log::info!("[Desktop OAuth] Extracted token, calling get_supabase_user_email...");
-                        match get_supabase_user_email(&token).await {
-                            Ok(email) => {
-                                log::info!("[Desktop OAuth] Supabase returned email: {}", email);
-                                if let Ok(Some(user)) = get_user_by_email(email.clone()).await {
-                                    log::info!("[Desktop OAuth] Found user in database: id={}, role={}", user.id, user.role);
-                                    let prefs: serde_json::Value = serde_json::from_str(&user.preferences).unwrap_or_default();
-                                    let mfa_enabled = prefs.get("two_factor_enabled").and_then(|v| v.as_bool()).unwrap_or(false);
-                                    if mfa_enabled {
-                                        log::info!("[Desktop OAuth] 2FA is enabled for user, showing 2FA modal");
-                                        tf_user.set(Some(user.clone()));
-                                    } else {
-                                        log::info!("[Desktop OAuth] Logging in user...");
-                                        active_uid.set(user.id.clone());
-                                        active_role.set(user.role.clone());
-                                        if user.role == "client" {
-                                            active_sec.set("client_portal".to_string());
-                                        } else {
-                                            active_sec.set("dashboard".to_string());
+                        log::info!("[Desktop OAuth] Extracted token, initiating OAuth login in DB...");
+                        match initiate_oauth_login("supabase".to_string(), token).await {
+                            Ok(session_id) => {
+                                log::info!("[Desktop OAuth] Created auth session ID: {}", session_id);
+                                loop {
+                                    match get_oauth_login_status(session_id.clone()).await {
+                                        Ok(Some(session)) => {
+                                            match session.status.as_str() {
+                                                "success" => {
+                                                    let uid = session.authenticated_user_id.unwrap();
+                                                    log::info!("[Desktop OAuth] Auth success, loading user ID: {}", uid);
+                                                    if let Ok(all_users) = get_users(uid.clone()).await {
+                                                        if let Some(user) = all_users.into_iter().find(|u| u.id == uid) {
+                                                            let prefs: serde_json::Value = serde_json::from_str(&user.preferences).unwrap_or_default();
+                                                            let mfa_enabled = prefs.get("two_factor_enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+                                                            if mfa_enabled {
+                                                                tf_user.set(Some(user.clone()));
+                                                            } else {
+                                                                active_uid.set(user.id.clone());
+                                                                active_role.set(user.role.clone());
+                                                                if user.role == "client" {
+                                                                    active_sec.set("client_portal".to_string());
+                                                                } else {
+                                                                    active_sec.set("dashboard".to_string());
+                                                                }
+                                                                let is_new_invite = user.phone.is_none() || user.phone.as_ref().map(|p| p.is_empty()).unwrap_or(true);
+                                                                setup_needed.set(is_new_invite);
+                                                                is_logged_in.set(true);
+                                                            }
+                                                        }
+                                                    }
+                                                    break;
+                                                }
+                                                "error" => {
+                                                    let err_msg = session.error_message.unwrap_or_else(|| "Unknown error".to_string());
+                                                    log::error!("[Desktop OAuth] Auth error: {}", err_msg);
+                                                    log_error.set(Some(err_msg));
+                                                    break;
+                                                }
+                                                _ => {
+                                                    // Pending, wait a moment
+                                                    crate::utils::sleep_ms(100).await;
+                                                }
+                                            }
                                         }
-                                        let is_new_invite = user.phone.is_none() || user.phone.as_ref().map(|p| p.is_empty()).unwrap_or(true);
-                                        setup_needed.set(is_new_invite);
-                                        is_logged_in.set(true);
+                                        _ => {
+                                            break;
+                                        }
                                     }
-                                } else {
-                                    let err_msg = format!("User '{}' authenticated by Supabase is not registered in this Yntra workspace.", email);
-                                    log::error!("[Desktop OAuth] Error: {}", err_msg);
-                                    log_error.set(Some(err_msg));
                                 }
                             }
                             Err(e) => {
-                                let err_msg = format!("Supabase authentication failed: {}", e);
+                                let err_msg = format!("Failed to initiate login session: {}", e);
                                 log::error!("[Desktop OAuth] Error: {}", err_msg);
                                 log_error.set(Some(err_msg));
                             }
@@ -96,34 +116,56 @@ pub fn init_oauth_handlers(
             let mut eval = dioxus::document::eval("dioxus.send(window.location.hash);");
             if let Ok(serde_json::Value::String(hash)) = eval.recv::<serde_json::Value>().await {
                 if let Some(token) = extract_access_token(&hash) {
-                    match get_supabase_user_email(&token).await {
-                        Ok(email) => {
-                            if let Ok(Some(user)) = get_user_by_email(email.clone()).await {
-                                let prefs: serde_json::Value = serde_json::from_str(&user.preferences).unwrap_or_default();
-                                let mfa_enabled = prefs.get("two_factor_enabled").and_then(|v| v.as_bool()).unwrap_or(false);
-                                if mfa_enabled {
-                                    tf_user.set(Some(user.clone()));
-                                } else {
-                                    active_uid.set(user.id.clone());
-                                    active_role_sig.set(user.role.clone());
-                                    if user.role == "client" {
-                                        active_sec.set("client_portal".to_string());
-                                    } else {
-                                        active_sec.set("dashboard".to_string());
+                    log::info!("[Web OAuth] Extracted token, initiating OAuth login in DB...");
+                    match initiate_oauth_login("supabase".to_string(), token).await {
+                        Ok(session_id) => {
+                            loop {
+                                match get_oauth_login_status(session_id.clone()).await {
+                                    Ok(Some(session)) => {
+                                        match session.status.as_str() {
+                                            "success" => {
+                                                let uid = session.authenticated_user_id.unwrap();
+                                                if let Ok(all_users) = get_users(uid.clone()).await {
+                                                    if let Some(user) = all_users.into_iter().find(|u| u.id == uid) {
+                                                        let prefs: serde_json::Value = serde_json::from_str(&user.preferences).unwrap_or_default();
+                                                        let mfa_enabled = prefs.get("two_factor_enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+                                                        if mfa_enabled {
+                                                            tf_user.set(Some(user.clone()));
+                                                        } else {
+                                                            active_uid.set(user.id.clone());
+                                                            active_role_sig.set(user.role.clone());
+                                                            if user.role == "client" {
+                                                                active_sec.set("client_portal".to_string());
+                                                            } else {
+                                                                active_sec.set("dashboard".to_string());
+                                                            }
+                                                            let is_new_invite = user.phone.is_none() || user.phone.as_ref().map(|p| p.is_empty()).unwrap_or(true);
+                                                            setup_needed.set(is_new_invite);
+                                                            is_logged_in.set(true);
+                                                        }
+                                                    }
+                                                }
+                                                // Clean up url hash
+                                                let _ = dioxus::document::eval("window.location.hash = '';");
+                                                break;
+                                            }
+                                            "error" => {
+                                                log_error.set(Some(session.error_message.unwrap_or_else(|| "Unknown error".to_string())));
+                                                break;
+                                            }
+                                            _ => {
+                                                crate::utils::sleep_ms(100).await;
+                                            }
+                                        }
                                     }
-                                    let is_new_invite = user.phone.is_none() || user.phone.as_ref().map(|p| p.is_empty()).unwrap_or(true);
-                                    setup_needed.set(is_new_invite);
-                                    is_logged_in.set(true);
+                                    _ => {
+                                        break;
+                                    }
                                 }
-                                
-                                // Clean up url hash
-                                let _ = dioxus::document::eval("window.location.hash = '';");
-                            } else {
-                                log_error.set(Some(format!("User '{}' authenticated by Supabase is not registered in this Yntra workspace.", email)));
                             }
                         }
                         Err(e) => {
-                            log_error.set(Some(format!("Supabase authentication failed: {}", e)));
+                            log_error.set(Some(format!("Failed to initiate login session: {}", e)));
                         }
                     }
                 }

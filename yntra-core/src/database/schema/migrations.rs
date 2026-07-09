@@ -405,5 +405,21 @@ pub async fn run_schema_migrations(conn: &DbConnection, current_version: i32) ->
         execute_migration_sql(conn, "ALTER TABLE workspaces ADD COLUMN sync_status TEXT DEFAULT 'pending'").await?;
         version = 8;
     }
+    if version < 9 {
+        execute_migration_batch(
+            conn,
+            "CREATE TABLE IF NOT EXISTS oauth_auth_sessions (
+                id TEXT PRIMARY KEY,
+                provider TEXT NOT NULL,
+                token TEXT NOT NULL,
+                status TEXT NOT NULL,
+                error_message TEXT,
+                authenticated_user_id TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );"
+        ).await?;
+        version = 9;
+    }
     Ok(version)
 }

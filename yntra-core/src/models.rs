@@ -276,6 +276,19 @@ pub struct BankIdAuthSession {
 
 #[derive(uniffi::Record, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 #[rkyv(compare(PartialEq), derive(Debug))]
+pub struct OauthAuthSession {
+    pub id: String,
+    pub provider: String,
+    pub token: String,
+    pub status: String,
+    pub error_message: Option<String>,
+    pub authenticated_user_id: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(uniffi::Record, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[rkyv(compare(PartialEq), derive(Debug))]
 pub struct JobTicket {
     pub id: String,
     pub workspace_id: String,
