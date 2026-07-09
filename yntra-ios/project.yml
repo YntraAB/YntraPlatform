@@ -1,0 +1,40 @@
+name: YntraIOS
+options:
+  bundleIdPrefix: com.yntra
+targets:
+  YntraIOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - YntraIOS
+      - path: ../generated_bindings/yntra_core.swift
+        name: yntra_core.swift
+    settings:
+      INFOPLIST_FILE: YntraIOS/Info.plist
+      HEADER_SEARCH_PATHS:
+        - $(inherited)
+        - ../generated_bindings
+      LIBRARY_SEARCH_PATHS:
+        - $(inherited)
+        - ../target/aarch64-apple-ios/release
+        - ../target/aarch64-apple-ios-sim/release
+        - ../target/universal/release
+      OTHER_LDFLAGS:
+        - $(inherited)
+        - -lyntra_core
+        - -lresolv
+      SWIFT_OBJC_BRIDGING_HEADER: ../generated_bindings/yntra_coreFFI.h
+    preBuildScripts:
+      - name: Compile Rust Core
+        script: |
+          if [ -f "$HOME/.cargo/env" ]; then
+            source "$HOME/.cargo/env"
+          fi
+          cd ..
+          if [ "$PLATFORM_NAME" == "iphonesimulator" ]; then
+            cargo build -p yntra-core --release --target aarch64-apple-ios-sim
+          else
+            cargo build -p yntra-core --release --target aarch64-apple-ios
+          fi
+          cargo run -p yntra-uniffi-bindgen
