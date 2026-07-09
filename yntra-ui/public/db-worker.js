@@ -33,7 +33,7 @@ self.sqlite3InitModule({
 
 // Handle messages from the main thread
 onmessage = async function(e) {
-  const { id, type, sql, params } = e.data;
+  const { id, type, sql, params, url, token } = e.data;
   
   if (!isReady) {
     postMessage({ id, success: false, error: "Database is not initialized yet" });
