@@ -15,14 +15,82 @@ pub fn set_database_directory(dir_path: String) -> Result<(), YntraError> {
         .map_err(|_| YntraError::CryptoError("Database directory already initialized".to_string()))
 }
 
-pub fn get_database_path(filename: &str) -> String {
-    if let Some(dir) = DATABASE_DIR.get() {
-        let mut path = std::path::PathBuf::from(dir);
-        path.push(filename);
-        path.to_string_lossy().to_string()
-    } else {
-        filename.to_string()
+fn find_workspace_root() -> Option<std::path::PathBuf> {
+    let mut dir = std::env::current_dir().ok()?;
+    loop {
+        let cargo_toml = dir.join("Cargo.toml");
+        if cargo_toml.exists() {
+            if let Ok(content) = std::fs::read_to_string(&cargo_toml) {
+                if content.contains("[workspace]") {
+                    return Some(dir);
+                }
+            }
+        }
+        if !dir.pop() {
+            break;
+        }
     }
+    None
+}
+
+fn resolve_default_database_dir() -> std::path::PathBuf {
+    if cfg!(debug_assertions) {
+        // Local development: redirect to target/local_runtime/
+        if let Some(ws_root) = find_workspace_root() {
+            ws_root.join("target").join("local_runtime")
+        } else {
+            std::env::current_dir()
+                .unwrap_or_default()
+                .join("target")
+                .join("local_runtime")
+        }
+    } else {
+        // Production: platform-specific AppData paths
+        #[cfg(target_os = "windows")]
+        {
+            if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
+                std::path::PathBuf::from(local_appdata).join("YntraPlatform")
+            } else {
+                std::env::current_dir().unwrap_or_default()
+            }
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            if let Ok(home) = std::env::var("HOME") {
+                std::path::PathBuf::from(home)
+                    .join("Library")
+                    .join("Application Support")
+                    .join("YntraPlatform")
+            } else {
+                std::env::current_dir().unwrap_or_default()
+            }
+        }
+
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        {
+            if let Ok(xdg_data) = std::env::var("XDG_DATA_HOME") {
+                std::path::PathBuf::from(xdg_data).join("yntraplatform")
+            } else if let Ok(home) = std::env::var("HOME") {
+                std::path::PathBuf::from(home).join(".local").join("share").join("yntraplatform")
+            } else {
+                std::env::current_dir().unwrap_or_default()
+            }
+        }
+    }
+}
+
+pub fn get_database_path(filename: &str) -> String {
+    let dir = if let Some(dir) = DATABASE_DIR.get() {
+        std::path::PathBuf::from(dir)
+    } else {
+        resolve_default_database_dir()
+    };
+    
+    // Ensure the resolved directory exists
+    let _ = std::fs::create_dir_all(&dir);
+    
+    dir.join(filename).to_string_lossy().to_string()
 }
 
 #[cfg(test)]
@@ -518,15 +586,19 @@ mod tests {
     fn test_dynamic_database_directory_resolution() {
         // Test resolution with no directory configured
         let path1 = get_database_path("test_file.db");
-        assert_eq!(path1, "test_file.db");
+        let expected_default = resolve_default_database_dir().join("test_file.db");
+        assert_eq!(path1, expected_default.to_string_lossy().to_string());
 
-        // Set the directory
-        let set_res = set_database_directory("/tmp/yntra_test_sandbox".to_string());
-        assert!(set_res.is_ok());
+        // Set the directory if not already set
+        if DATABASE_DIR.get().is_none() {
+            let set_res = set_database_directory("/tmp/yntra_test_sandbox".to_string());
+            assert!(set_res.is_ok());
+        }
 
         // Test resolution with directory configured
         let path2 = get_database_path("test_file.db");
-        let expected = std::path::PathBuf::from("/tmp/yntra_test_sandbox").join("test_file.db");
+        let configured_dir = DATABASE_DIR.get().unwrap();
+        let expected = std::path::PathBuf::from(configured_dir).join("test_file.db");
         assert_eq!(path2, expected.to_string_lossy().to_string());
 
         // Attempting to set directory again should fail
