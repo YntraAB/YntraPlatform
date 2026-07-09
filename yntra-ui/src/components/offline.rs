@@ -24,7 +24,7 @@ pub fn OfflineIndicator() -> Element {
                     "online" => {
                         is_online.set(true);
                         is_syncing.set(true);
-                        match yntra_core::sync_database() {
+                        match yntra_core::sync_database().await {
                             Ok(_) => {
                                 has_sync_error.set(false);
                                 pending_count.set(0);
@@ -51,7 +51,7 @@ pub fn OfflineIndicator() -> Element {
         if online && !syncing {
             spawn(async move {
                 is_syncing.set(true);
-                match yntra_core::sync_database() {
+                match yntra_core::sync_database().await {
                     Ok(_) => {
                         has_sync_error.set(false);
                         pending_count.set(0);

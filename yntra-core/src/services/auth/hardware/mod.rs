@@ -2,6 +2,7 @@ pub mod simulation;
 pub mod native;
 
 pub use simulation::*;
+#[cfg(not(target_arch = "wasm32"))]
 pub use native::*;
 pub use crate::infra::time::sleep_ms;
 

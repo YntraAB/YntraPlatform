@@ -33,7 +33,7 @@ extern "C" {
 }
 
 #[uniffi::export]
-pub fn sync_database() -> Result<(), YntraError> {
+pub async fn sync_database() -> Result<(), YntraError> {
     // Check dynamic config first
     let config = if let Ok(lock) = DB_CONFIG.get_or_init(|| Mutex::new(None)).lock() {
         lock.clone()
@@ -46,9 +46,8 @@ pub fn sync_database() -> Result<(), YntraError> {
         let has_sync_env = std::env::var("LIBSQL_URL").is_ok();
         if config.is_some() || has_sync_env {
             let db = super::native::get_database();
-            super::native::block_on(async {
-                db.sync().await
-            }).map_err(|e| YntraError::SyncError(e.to_string()))?;
+            db.sync().await.map_err(|e| YntraError::SyncError(e.to_string()))?;
+            let _ = crate::services::notes::merge_unmerged_notes().await;
             crate::infra::observer::notify_observers();
         }
     }
@@ -69,28 +68,29 @@ pub fn sync_database() -> Result<(), YntraError> {
         };
 
         if let (Some(url), Some(token)) = (url, token) {
-            wasm_bindgen_futures::spawn_local(async move {
-                match js_sync_db(&url, &token).await {
-                    Ok(val) => {
-                        let has_changes = if let Some(s) = val.as_string() {
-                            if let Ok(serde_json::Value::Object(obj)) = serde_json::from_str(&s) {
-                                obj.get("hasChanges").and_then(|v| v.as_bool()).unwrap_or(true)
-                            } else {
-                                true
-                            }
+            let fut = js_sync_db(&url, &token);
+            let send_fut = crate::database::wasm::SendFuture::new(fut);
+            match send_fut.await {
+                Ok(val) => {
+                    let has_changes = if let Some(s) = val.as_string() {
+                        if let Ok(serde_json::Value::Object(obj)) = serde_json::from_str(&s) {
+                            obj.get("hasChanges").and_then(|v| v.as_bool()).unwrap_or(true)
                         } else {
                             true
-                        };
-                        if has_changes {
-                            crate::infra::observer::notify_observers();
                         }
-                    }
-                    Err(e) => {
-                        let msg = e.as_string().unwrap_or_else(|| "Unknown JS sync error".to_string());
-                        tracing::error!("WASM database sync failed: {}", msg);
+                    } else {
+                        true
+                    };
+                    if has_changes {
+                        let _ = crate::services::notes::merge_unmerged_notes().await;
+                        crate::infra::observer::notify_observers();
                     }
                 }
-            });
+                Err(e) => {
+                    let msg = e.as_string().unwrap_or_else(|| "Unknown JS sync error".to_string());
+                    return Err(YntraError::SyncError(msg));
+                }
+            }
         }
     }
     Ok(())
@@ -121,7 +121,7 @@ pub fn start_background_sync(interval_secs: u32) {
                     SYNC_RUNNING.store(false, Ordering::SeqCst);
                     break;
                 }
-                let _ = sync_database();
+                let _ = sync_database().await;
             }
         });
     }
@@ -135,7 +135,7 @@ pub fn start_background_sync(interval_secs: u32) {
                     SYNC_RUNNING.store(false, Ordering::SeqCst);
                     break;
                 }
-                let _ = sync_database();
+                let _ = sync_database().await;
             }
         });
     }

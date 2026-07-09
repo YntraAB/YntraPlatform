@@ -1,4 +1,6 @@
+#[cfg(not(target_arch = "wasm32"))]
 use crate::database;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::infra::observer::notify_observers;
 
 #[cfg(not(target_arch = "wasm32"))]

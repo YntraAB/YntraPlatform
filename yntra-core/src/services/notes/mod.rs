@@ -551,3 +551,78 @@ pub async fn apply_note_loro_update(note_id: String, update_bytes: Vec<u8>) -> R
         }
     }
 }
+
+#[uniffi::export]
+pub async fn merge_unmerged_notes() -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    
+    // Find candidate notes that have at least one update in note_updates
+    let mut stmt = conn.prepare(
+        "SELECT id, content FROM notes WHERE EXISTS (SELECT 1 FROM note_updates WHERE note_updates.note_id = notes.id)"
+    ).await?;
+    
+    let mut rows = stmt.query(()).await?;
+    let mut candidates = Vec::new();
+    while let Some(row) = rows.next().await? {
+        let id: String = row.get(0)?;
+        let content: String = row.get(1)?;
+        candidates.push((id, content));
+    }
+    
+    let mut repairs = Vec::new();
+    for (id, base_content) in candidates {
+        let (last_merged_seq, hex_or_plain) = parse_loro_state(&base_content);
+        
+        let max_seq: i64 = conn.query_row(
+            "SELECT IFNULL(MAX(seq), -1) FROM note_updates WHERE note_id = ?1",
+            crate::params![&id],
+            |r| r.get(0)
+        ).await.unwrap_or(-1);
+        
+        if max_seq > last_merged_seq {
+            let doc = loro::LoroDoc::new();
+            if base_content.starts_with("loro:") {
+                if let Some(bytes) = crate::infra::crypto::hex_decode(hex_or_plain) {
+                    doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+            } else {
+                doc.get_text("content").insert(0, hex_or_plain).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            }
+            
+            let mut stmt_updates = conn.prepare(
+                "SELECT seq, update_data FROM note_updates WHERE note_id = ?1 AND seq > ?2 ORDER BY seq ASC, created_at ASC"
+            ).await?;
+            let mut rows_updates = stmt_updates.query(crate::params![&id, last_merged_seq]).await?;
+            let mut final_max_seq = last_merged_seq;
+            while let Some(row_up) = rows_updates.next().await? {
+                let seq: i64 = row_up.get(0)?;
+                let update_data_hex: String = row_up.get(1)?;
+                if let Some(bytes) = crate::infra::crypto::hex_decode(&update_data_hex) {
+                    doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if seq > final_max_seq {
+                    final_max_seq = seq;
+                }
+            }
+            
+            let plain = doc.get_text("content").to_string();
+            let snapshot_bytes = doc.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            let loro_content = format!("loro:{}:{}", final_max_seq, crate::infra::crypto::hex_encode(&snapshot_bytes));
+            
+            repairs.push((loro_content, plain, id));
+        }
+    }
+    
+    if !repairs.is_empty() {
+        conn.begin_transaction().await?;
+        for (loro_content, plain, id) in repairs {
+            let _ = conn.execute(
+                "/* background_repair */ UPDATE notes SET content = ?1, content_plain = ?2 WHERE id = ?3",
+                crate::params![loro_content, plain, id],
+            ).await;
+        }
+        conn.commit().await?;
+    }
+    
+    Ok(())
+}
