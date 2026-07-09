@@ -58,8 +58,38 @@ fun AppNavigationShell() {
     val directoryViewModel: DirectoryViewModel = viewModel()
     val settingsViewModel: SettingsViewModel = viewModel()
 
+    val workspace by settingsViewModel.workspace.collectAsState()
     val isLoggedIn by authViewModel.isLoggedIn.collectAsState()
     var currentScreen by remember { mutableStateOf("home") } // "home" | "messaging" | "directory" | "settings"
+
+    val activeModules = remember(workspace) {
+        val modules = mutableMapOf<String, Boolean>()
+        workspace?.modules_active?.let { jsonStr ->
+            try {
+                val jsonObj = org.json.JSONObject(jsonStr)
+                val keys = jsonObj.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    modules[key] = jsonObj.optBoolean(key, false)
+                }
+            } catch (e: Exception) {
+                // Ignore parsing errors
+            }
+        }
+        modules
+    }
+
+    val isMessagingActive = workspace == null || activeModules["messaging"] == true
+    val isDirectoryActive = workspace == null || activeModules["directory"] == true
+
+    LaunchedEffect(isMessagingActive, isDirectoryActive) {
+        if (currentScreen == "messaging" && !isMessagingActive) {
+            currentScreen = "home"
+        }
+        if (currentScreen == "directory" && !isDirectoryActive) {
+            currentScreen = "home"
+        }
+    }
 
     if (!isLoggedIn) {
         AuthView(viewModel = authViewModel)
@@ -82,32 +112,36 @@ fun AppNavigationShell() {
                             indicatorColor = Color(0xFF4F46E5)
                         )
                     )
-                    NavigationBarItem(
-                        selected = currentScreen == "messaging",
-                        onClick = { currentScreen = "messaging" },
-                        icon = { Icon(imageVector = Icons.Default.Email, contentDescription = "Messages") },
-                        label = { Text("Messages") },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Color.White,
-                            selectedTextColor = Color.White,
-                            unselectedIconColor = Color(0xFF94A3B8),
-                            unselectedTextColor = Color(0xFF94A3B8),
-                            indicatorColor = Color(0xFF4F46E5)
+                    if (isMessagingActive) {
+                        NavigationBarItem(
+                            selected = currentScreen == "messaging",
+                            onClick = { currentScreen = "messaging" },
+                            icon = { Icon(imageVector = Icons.Default.Email, contentDescription = "Messages") },
+                            label = { Text("Messages") },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = Color.White,
+                                selectedTextColor = Color.White,
+                                unselectedIconColor = Color(0xFF94A3B8),
+                                unselectedTextColor = Color(0xFF94A3B8),
+                                indicatorColor = Color(0xFF4F46E5)
+                            )
                         )
-                    )
-                    NavigationBarItem(
-                        selected = currentScreen == "directory",
-                        onClick = { currentScreen = "directory" },
-                        icon = { Icon(imageVector = Icons.Default.Person, contentDescription = "Directory") },
-                        label = { Text("Directory") },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Color.White,
-                            selectedTextColor = Color.White,
-                            unselectedIconColor = Color(0xFF94A3B8),
-                            unselectedTextColor = Color(0xFF94A3B8),
-                            indicatorColor = Color(0xFF4F46E5)
+                    }
+                    if (isDirectoryActive) {
+                        NavigationBarItem(
+                            selected = currentScreen == "directory",
+                            onClick = { currentScreen = "directory" },
+                            icon = { Icon(imageVector = Icons.Default.Person, contentDescription = "Directory") },
+                            label = { Text("Directory") },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = Color.White,
+                                selectedTextColor = Color.White,
+                                unselectedIconColor = Color(0xFF94A3B8),
+                                unselectedTextColor = Color(0xFF94A3B8),
+                                indicatorColor = Color(0xFF4F46E5)
+                            )
                         )
-                    )
+                    }
                     NavigationBarItem(
                         selected = currentScreen == "settings",
                         onClick = { currentScreen = "settings" },
@@ -131,8 +165,8 @@ fun AppNavigationShell() {
             ) {
                 when (currentScreen) {
                     "home" -> DashboardView(viewModel = dashboardViewModel)
-                    "messaging" -> MessagingView(viewModel = messagingViewModel)
-                    "directory" -> DirectoryView(viewModel = directoryViewModel)
+                    "messaging" -> if (isMessagingActive) MessagingView(viewModel = messagingViewModel) else DashboardView(viewModel = dashboardViewModel)
+                    "directory" -> if (isDirectoryActive) DirectoryView(viewModel = directoryViewModel) else DashboardView(viewModel = dashboardViewModel)
                     "settings" -> SettingsView(viewModel = settingsViewModel, onLogout = { authViewModel.logout() })
                 }
             }

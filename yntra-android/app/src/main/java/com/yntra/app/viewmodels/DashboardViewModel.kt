@@ -9,6 +9,9 @@ import uniffi.yntra_core.*
 import com.yntra.app.KotlinDbObserver
 
 class DashboardViewModel : ViewModel() {
+    private val _workspace = MutableStateFlow<Workspace?>(null)
+    val workspace: StateFlow<Workspace?> = _workspace
+
     private val _events = MutableStateFlow<List<TeamEvent>>(emptyList())
     val events: StateFlow<List<TeamEvent>> = _events
 
@@ -33,6 +36,9 @@ class DashboardViewModel : ViewModel() {
     fun refreshDashboardData() {
         viewModelScope.launch {
             try {
+                // Fetch workspace
+                _workspace.value = getWorkspace()
+
                 // Fetch events
                 _events.value = getEvents("user-1", null)
                 

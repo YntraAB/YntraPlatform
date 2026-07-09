@@ -22,10 +22,31 @@ import com.yntra.app.viewmodels.DashboardViewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardView(viewModel: DashboardViewModel) {
+    val workspace by viewModel.workspace.collectAsState()
     val events by viewModel.events.collectAsState()
     val todosCount by viewModel.todosCount.collectAsState()
     val completedTodosCount by viewModel.completedTodosCount.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
+
+    val activeModules = remember(workspace) {
+        val modules = mutableMapOf<String, Boolean>()
+        workspace?.modules_active?.let { jsonStr ->
+            try {
+                val jsonObj = org.json.JSONObject(jsonStr)
+                val keys = jsonObj.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    modules[key] = jsonObj.optBoolean(key, false)
+                }
+            } catch (e: Exception) {
+                // Ignore parsing errors
+            }
+        }
+        modules
+    }
+
+    val isTodosActive = workspace == null || activeModules["todos"] == true
+    val isSchedulingActive = workspace == null || activeModules["scheduling"] == true
 
     Column(
         modifier = Modifier
@@ -56,53 +77,59 @@ fun DashboardView(viewModel: DashboardViewModel) {
         }
 
         // Stats summary block
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = RoundedCornerShape(20.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+        if (isTodosActive || isSchedulingActive) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Text(
-                    text = "Active Modules Overview",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
-                )
-                
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Todos Card
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF334155)),
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp)
+                    Text(
+                        text = "Active Modules Overview",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        Column(
-                            modifier = Modifier.padding(14.dp)
-                        ) {
-                            Text(text = "Tasks Done", color = Color(0xFF94A3B8), fontSize = 11.sp)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(text = "$completedTodosCount/$todosCount", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        // Todos Card
+                        if (isTodosActive) {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF334155)),
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(14.dp)
+                                ) {
+                                    Text(text = "Tasks Done", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(text = "$completedTodosCount/$todosCount", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
-                    }
 
-                    // Events Card
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF334155)),
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(14.dp)
-                        ) {
-                            Text(text = "Active Events", color = Color(0xFF94A3B8), fontSize = 11.sp)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(text = "${events.size}", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        // Events Card
+                        if (isSchedulingActive) {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF334155)),
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(14.dp)
+                                ) {
+                                    Text(text = "Active Events", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(text = "${events.size}", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
                     }
                 }
@@ -124,74 +151,76 @@ fun DashboardView(viewModel: DashboardViewModel) {
             }
         }
 
-        // Events header
-        Text(
-            text = "Upcoming Schedule / Timetable",
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-            fontSize = 16.sp,
-            modifier = Modifier.padding(top = 8.dp)
-        )
+        // Events/Timetable section
+        if (isSchedulingActive) {
+            Text(
+                text = "Upcoming Schedule / Timetable",
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp,
+                modifier = Modifier.padding(top = 8.dp)
+            )
 
-        if (events.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .background(Color(0xFF1E293B), RoundedCornerShape(16.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+            if (events.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .background(Color(0xFF1E293B), RoundedCornerShape(16.dp)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.DateRange,
-                        contentDescription = "Empty",
-                        tint = Color(0xFF94A3B8),
-                        modifier = Modifier.size(36.dp)
-                    )
-                    Text(text = "No upcoming events scheduled", color = Color(0xFF94A3B8), fontSize = 14.sp)
-                }
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                items(events) { event ->
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                        shape = RoundedCornerShape(16.dp)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Icon(
+                            imageVector = Icons.Default.DateRange,
+                            contentDescription = "Empty",
+                            tint = Color(0xFF94A3B8),
+                            modifier = Modifier.size(36.dp)
+                        )
+                        Text(text = "No upcoming events scheduled", color = Color(0xFF94A3B8), fontSize = 14.sp)
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(events) { event ->
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                            shape = RoundedCornerShape(16.dp)
                         ) {
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = event.title,
-                                    color = Color.White,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    text = "${event.startTime} - ${event.endTime}",
-                                    color = Color(0xFF94A3B8),
-                                    fontSize = 12.sp
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = event.title,
+                                        color = Color.White,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = "${event.startTime} - ${event.endTime}",
+                                        color = Color(0xFF94A3B8),
+                                        fontSize = 12.sp
+                                    )
+                                }
+                                
+                                Icon(
+                                    imageVector = Icons.Default.Info,
+                                    contentDescription = "Detail",
+                                    tint = Color(0xFF8B5CF6)
                                 )
                             }
-                            
-                            Icon(
-                                imageVector = Icons.Default.Info,
-                                contentDescription = "Detail",
-                                tint = Color(0xFF8B5CF6)
-                            )
                         }
                     }
                 }
