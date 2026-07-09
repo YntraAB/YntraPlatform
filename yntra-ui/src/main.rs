@@ -178,11 +178,8 @@ fn BackgroundErrorListener() -> Element {
 #[component]
 fn Stylesheet() -> Element {
     rsx! {
-        // Load DX Components Theme
-        style { {include_str!("../public/dx-components-theme.css")} }
-        // Load compiled Tailwind CSS
-        style { {include_str!("../public/tailwind.css")} }
-        // Load extracted global CSS stylesheet
-        style { {include_str!("../public/global.css")} }
+        document::Link { rel: "stylesheet", href: "/dx-components-theme.css" }
+        document::Link { rel: "stylesheet", href: "/tailwind.css" }
+        document::Link { rel: "stylesheet", href: "/global.css" }
     }
 }
