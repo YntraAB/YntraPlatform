@@ -73,6 +73,18 @@ To build the optimized client applications:
 dx build --release
 ```
 
+### 5. Local Database Sync Server (Optional)
+To test offline-first synchronization locally, start the local `sqld` (libSQL) sync server:
+```bash
+# Start primary server using Docker Compose
+docker compose up -d
+```
+Then configure your `.env` replication URL to point to the local instance:
+```env
+LIBSQL_URL="http://localhost:8080"
+LIBSQL_AUTH_TOKEN="mock-token"
+```
+
 ---
 
 ## Data Model & Sync
