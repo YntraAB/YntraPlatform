@@ -33,7 +33,10 @@ pub use services::dynamic_entities::*;
 // Support absolute paths inside submodules that import modules re-exported at the root
 pub use infra::errors;
 pub use infra::observer;
-pub use infra::crypto::{set_session_key, clear_session_key, encrypt_field, decrypt_field, is_session_key_set, load_local_workspace_key};
+pub use infra::crypto::{
+    set_session_key, clear_session_key, encrypt_field, decrypt_field, is_session_key_set, load_local_workspace_key,
+    register_secure_storage_provider, SecureStorageProvider
+};
 #[cfg(target_arch = "wasm32")]
 pub use database::schema::setup_schema;
 
