@@ -236,7 +236,7 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
                     conn,
                     "INSERT",
                     "move_inventory",
-                    &["id", "job_ticket_id", "item_category", "item_name", "quantity", "estimated_volume_m3", "handling_notes"],
+                    &["id", "workspace_id", "job_ticket_id", "item_category", "item_name", "quantity", "estimated_volume_m3", "handling_notes", "updated_at", "sync_status"],
                     move_inventory,
                 ).await?;
             }
@@ -247,7 +247,7 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
                     conn,
                     "INSERT",
                     "move_quotes",
-                    &["id", "job_ticket_id", "base_price", "distance_fee", "stairs_surcharge", "packing_supplies_fee", "total_price", "status", "accepted_at"],
+                    &["id", "workspace_id", "job_ticket_id", "base_price", "distance_fee", "stairs_surcharge", "packing_supplies_fee", "total_price", "status", "accepted_at", "updated_at", "sync_status"],
                     move_quotes,
                 ).await?;
             }

@@ -104,16 +104,20 @@ pub async fn run_schema_migrations(conn: &DbConnection, current_version: i32) ->
             conn,
             "CREATE TABLE IF NOT EXISTS move_inventory (
                 id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL DEFAULT 'workspace-1',
                 job_ticket_id TEXT NOT NULL,
                 item_category TEXT NOT NULL,
                 item_name TEXT NOT NULL,
                 quantity INTEGER NOT NULL,
                 estimated_volume_m3 REAL NOT NULL,
                 handling_notes TEXT,
+                updated_at INTEGER NOT NULL DEFAULT 0,
+                sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
                 FOREIGN KEY(job_ticket_id) REFERENCES job_tickets(id)
             );
             CREATE TABLE IF NOT EXISTS move_quotes (
                 id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL DEFAULT 'workspace-1',
                 job_ticket_id TEXT NOT NULL,
                 base_price REAL NOT NULL,
                 distance_fee REAL NOT NULL,
@@ -122,6 +126,8 @@ pub async fn run_schema_migrations(conn: &DbConnection, current_version: i32) ->
                 total_price REAL NOT NULL,
                 status TEXT NOT NULL,
                 accepted_at INTEGER,
+                updated_at INTEGER NOT NULL DEFAULT 0,
+                sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
                 FOREIGN KEY(job_ticket_id) REFERENCES job_tickets(id)
             );
             CREATE INDEX IF NOT EXISTS idx_move_inventory_job ON move_inventory(job_ticket_id);
@@ -145,6 +151,9 @@ pub async fn run_schema_migrations(conn: &DbConnection, current_version: i32) ->
             CREATE TABLE IF NOT EXISTS student_parents (
                 student_id TEXT NOT NULL,
                 parent_user_id TEXT NOT NULL,
+                workspace_id TEXT NOT NULL DEFAULT 'workspace-1',
+                updated_at INTEGER NOT NULL DEFAULT 0,
+                sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
                 PRIMARY KEY(student_id, parent_user_id),
                 FOREIGN KEY(student_id) REFERENCES student_profiles(id),
                 FOREIGN KEY(parent_user_id) REFERENCES users(id)
@@ -317,16 +326,6 @@ pub async fn run_schema_migrations(conn: &DbConnection, current_version: i32) ->
         ).await?;
 
         execute_migration_sql(conn, "ALTER TABLE student_profiles ADD COLUMN user_id TEXT").await?;
-        execute_migration_batch(
-            conn,
-            "CREATE TABLE IF NOT EXISTS student_parents (
-                student_id TEXT NOT NULL,
-                parent_user_id TEXT NOT NULL,
-                PRIMARY KEY(student_id, parent_user_id),
-                FOREIGN KEY(student_id) REFERENCES student_profiles(id),
-                FOREIGN KEY(parent_user_id) REFERENCES users(id)
-            );"
-        ).await?;
 
         version = 2;
     }

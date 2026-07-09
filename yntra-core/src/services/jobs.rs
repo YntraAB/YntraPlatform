@@ -256,18 +256,21 @@ pub async fn get_move_inventory(requester_user_id: String, job_ticket_id: String
     }
 
     let mut stmt = conn.prepare(
-        "SELECT id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, handling_notes FROM move_inventory WHERE job_ticket_id = ?1",
+        "SELECT id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, handling_notes, updated_at, sync_status FROM move_inventory WHERE job_ticket_id = ?1",
     ).await?;
 
     let list = stmt.query_map(crate::params![job_ticket_id], |row| {
         Ok(MoveInventoryItem {
             id: row.get(0)?,
-            job_ticket_id: row.get(1)?,
-            item_category: row.get(2)?,
-            item_name: row.get(3)?,
-            quantity: row.get(4)?,
-            estimated_volume_m3: row.get(5)?,
-            handling_notes: row.get(6)?,
+            workspace_id: row.get(1)?,
+            job_ticket_id: row.get(2)?,
+            item_category: row.get(3)?,
+            item_name: row.get(4)?,
+            quantity: row.get(5)?,
+            estimated_volume_m3: row.get(6)?,
+            handling_notes: row.get(7)?,
+            updated_at: row.get(8)?,
+            sync_status: row.get(9)?,
         })
     }).await?;
 
@@ -309,26 +312,33 @@ pub async fn add_move_inventory_item(
     }
 
     let id = uuid::Uuid::new_v4().to_string();
+    let now_ms = crate::infra::time::get_current_time_ms();
     let item = MoveInventoryItem {
         id: id.clone(),
+        workspace_id: job_ws.clone(),
         job_ticket_id: job_ticket_id.clone(),
         item_category,
         item_name,
         quantity,
         estimated_volume_m3,
         handling_notes,
+        updated_at: now_ms,
+        sync_status: "pending".to_string(),
     };
 
     conn.execute(
-        "INSERT INTO move_inventory (id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, handling_notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO move_inventory (id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, handling_notes, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         crate::params![
             item.id,
+            item.workspace_id,
             item.job_ticket_id,
             item.item_category,
             item.item_name,
             item.quantity,
             item.estimated_volume_m3,
-            item.handling_notes
+            item.handling_notes,
+            item.updated_at,
+            item.sync_status
         ],
     ).await?;
 
@@ -356,21 +366,24 @@ pub async fn get_move_quote(requester_user_id: String, job_ticket_id: String) ->
     }
 
     let mut stmt = conn.prepare(
-        "SELECT id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, accepted_at FROM move_quotes WHERE job_ticket_id = ?1",
+        "SELECT id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, accepted_at, updated_at, sync_status FROM move_quotes WHERE job_ticket_id = ?1",
     ).await?;
 
     let mut rows = stmt.query(crate::params![job_ticket_id]).await?;
     if let Some(row) = rows.next().await? {
         Ok(Some(MoveQuote {
             id: row.get(0)?,
-            job_ticket_id: row.get(1)?,
-            base_price: row.get::<f64>(2)? as i64,
-            distance_fee: row.get::<f64>(3)? as i64,
-            stairs_surcharge: row.get::<f64>(4)? as i64,
-            packing_supplies_fee: row.get::<f64>(5)? as i64,
-            total_price: row.get::<f64>(6)? as i64,
-            status: row.get(7)?,
-            accepted_at: row.get(8)?,
+            workspace_id: row.get(1)?,
+            job_ticket_id: row.get(2)?,
+            base_price: row.get::<f64>(3)? as i64,
+            distance_fee: row.get::<f64>(4)? as i64,
+            stairs_surcharge: row.get::<f64>(5)? as i64,
+            packing_supplies_fee: row.get::<f64>(6)? as i64,
+            total_price: row.get::<f64>(7)? as i64,
+            status: row.get(8)?,
+            accepted_at: row.get(9)?,
+            updated_at: row.get(10)?,
+            sync_status: row.get(11)?,
         }))
     } else {
         Ok(None)
@@ -416,8 +429,10 @@ pub async fn create_or_update_move_quote(
         .ok_or_else(|| YntraError::ValidationError("Price overflow detected".to_string()))?;
     
     let id = uuid::Uuid::new_v4().to_string();
+    let now_ms = crate::infra::time::get_current_time_ms();
     let quote = MoveQuote {
         id: id.clone(),
+        workspace_id: job_ws.clone(),
         job_ticket_id: job_ticket_id.clone(),
         base_price,
         distance_fee,
@@ -426,6 +441,8 @@ pub async fn create_or_update_move_quote(
         total_price,
         status: status.clone(),
         accepted_at: None,
+        updated_at: now_ms,
+        sync_status: "pending".to_string(),
     };
 
     conn.begin_transaction().await?;
@@ -435,9 +452,10 @@ pub async fn create_or_update_move_quote(
         conn.execute("DELETE FROM move_quotes WHERE job_ticket_id = ?1", crate::params![job_ticket_id]).await?;
 
         conn.execute(
-            "INSERT INTO move_quotes (id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, accepted_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, accepted_at, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             crate::params![
                 quote.id,
+                quote.workspace_id,
                 quote.job_ticket_id,
                 quote.base_price,
                 quote.distance_fee,
@@ -445,7 +463,9 @@ pub async fn create_or_update_move_quote(
                 quote.packing_supplies_fee,
                 quote.total_price,
                 quote.status,
-                quote.accepted_at
+                quote.accepted_at,
+                quote.updated_at,
+                quote.sync_status
             ],
         ).await?;
         Ok::<(), YntraError>(())
@@ -493,7 +513,7 @@ pub async fn accept_move_quote(requester_user_id: String, quote_id: String) -> R
     }
 
     conn.execute(
-        "UPDATE move_quotes SET status = 'accepted', accepted_at = ?1 WHERE id = ?2",
+        "UPDATE move_quotes SET status = 'accepted', accepted_at = ?1, updated_at = ?1, sync_status = 'pending' WHERE id = ?2",
         crate::params![now_ms, quote_id],
     ).await?;
 

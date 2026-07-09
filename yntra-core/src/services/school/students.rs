@@ -110,9 +110,10 @@ pub async fn associate_parent_student(
         return Err(YntraError::AuthError("Access denied: workspace mismatch for parent".to_string()));
     }
 
+    let now_ms = crate::infra::time::get_current_time_ms();
     conn.execute(
-        "INSERT OR IGNORE INTO student_parents (student_id, parent_user_id) VALUES (?1, ?2)",
-        crate::params![&student_id, &parent_user_id],
+        "INSERT OR IGNORE INTO student_parents (student_id, parent_user_id, workspace_id, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5)",
+        crate::params![&student_id, &parent_user_id, &parent_ws, &now_ms, "pending"],
     ).await?;
     notify_observers();
     Ok(())
