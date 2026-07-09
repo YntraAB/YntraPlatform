@@ -37,6 +37,10 @@ pub use infra::crypto::{set_session_key, clear_session_key, encrypt_field, decry
 #[cfg(target_arch = "wasm32")]
 pub use database::schema::setup_schema;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub use database::native::set_database_directory;
+
+
 
 // Setup UniFFI scaffolding for mobile bindings generation
 uniffi::setup_scaffolding!();

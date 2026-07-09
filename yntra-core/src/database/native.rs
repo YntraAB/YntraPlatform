@@ -7,6 +7,24 @@ static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 static DATABASE: OnceLock<libsql::Database> = OnceLock::new();
 static POOL: OnceLock<Mutex<std::collections::VecDeque<libsql::Connection>>> = OnceLock::new();
 
+static DATABASE_DIR: OnceLock<String> = OnceLock::new();
+
+#[uniffi::export]
+pub fn set_database_directory(dir_path: String) -> Result<(), YntraError> {
+    DATABASE_DIR.set(dir_path)
+        .map_err(|_| YntraError::CryptoError("Database directory already initialized".to_string()))
+}
+
+pub fn get_database_path(filename: &str) -> String {
+    if let Some(dir) = DATABASE_DIR.get() {
+        let mut path = std::path::PathBuf::from(dir);
+        path.push(filename);
+        path.to_string_lossy().to_string()
+    } else {
+        filename.to_string()
+    }
+}
+
 #[cfg(test)]
 static KEEP_ALIVE_CONN: OnceLock<libsql::Connection> = OnceLock::new();
 
@@ -47,9 +65,9 @@ pub fn get_database() -> &'static libsql::Database {
     DATABASE.get_or_init(|| {
         block_on(async {
             let db_path = if cfg!(test) {
-                "file:memdb1?mode=memory&cache=shared"
+                "file:memdb1?mode=memory&cache=shared".to_string()
             } else {
-                "yntra_local.db"
+                get_database_path("yntra_local.db")
             };
             let credentials = if let Some(creds) = super::sync::get_configured_credentials() {
                 Some(creds)
@@ -61,16 +79,17 @@ pub fn get_database() -> &'static libsql::Database {
             let is_replica = credentials.is_some();
 
             let db = if let Some((url, token)) = credentials {
-                libsql::Builder::new_remote_replica(db_path, url, token)
+                libsql::Builder::new_remote_replica(&db_path, url, token)
                     .build()
                     .await
                     .expect("Failed to build remote replica database")
             } else {
-                libsql::Builder::new_local(db_path)
+                libsql::Builder::new_local(&db_path)
                     .build()
                     .await
                     .expect("Failed to build local database")
             };
+
             
             // Try sync once if using replica
             if is_replica {
@@ -493,5 +512,25 @@ mod tests {
         // Now we should be able to acquire a connection successfully again
         let conn_retry = acquire_connection().await;
         assert!(conn_retry.is_ok());
+    }
+
+    #[test]
+    fn test_dynamic_database_directory_resolution() {
+        // Test resolution with no directory configured
+        let path1 = get_database_path("test_file.db");
+        assert_eq!(path1, "test_file.db");
+
+        // Set the directory
+        let set_res = set_database_directory("/tmp/yntra_test_sandbox".to_string());
+        assert!(set_res.is_ok());
+
+        // Test resolution with directory configured
+        let path2 = get_database_path("test_file.db");
+        let expected = std::path::PathBuf::from("/tmp/yntra_test_sandbox").join("test_file.db");
+        assert_eq!(path2, expected.to_string_lossy().to_string());
+
+        // Attempting to set directory again should fail
+        let set_res2 = set_database_directory("/another/path".to_string());
+        assert!(set_res2.is_err());
     }
 }

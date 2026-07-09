@@ -22,7 +22,7 @@ pub(crate) fn get_local_client_pepper() -> String {
         }
         use std::fs;
         use std::path::PathBuf;
-        let path = PathBuf::from("yntra_client_pepper.bin");
+        let path = PathBuf::from(crate::database::native::get_database_path("yntra_client_pepper.bin"));
         if let Ok(pepper) = fs::read_to_string(&path) {
             pepper
         } else {
