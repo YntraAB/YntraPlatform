@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ci:
+    name: Continuous Integration
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust Toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: wasm32-unknown-unknown
+
+    - name: Cache Cargo Dependencies
+      uses: Swatinem/rust-cache@v2
+
+    - name: Compile All Targets
+      run: cargo check --workspace
+
+    - name: Verify WASM Core Compatibility
+      run: cargo check --target wasm32-unknown-unknown -p yntra-core
+
+    - name: Validate Translation Key Consistency
+      run: cargo run -p yntra-uniffi-bindgen -- check-locales
+
+    - name: Run All Tests
+      run: cargo test --workspace
