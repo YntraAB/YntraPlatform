@@ -18,16 +18,29 @@ pub async fn authenticate_with_siths(
     let conn = database::acquire_connection().await?;
 
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, email, full_name, phone, role, preferences, siths_card_id, nfc_badge_uid, updated_at, sync_status, personal_number, siths_public_key FROM users WHERE siths_card_id = ?1"
+        "SELECT id, workspace_id, email, full_name, phone, role, preferences, metadata, updated_at, sync_status FROM users WHERE metadata ->> 'siths_card_id' = ?1"
     ).await?;
 
     let mut rows = stmt.query(crate::params![card_id]).await?;
     if let Some(row) = rows.next().await? {
         let ws_id: Option<String> = row.get(1)?;
-        let raw_pnum: Option<String> = row.get(11)?;
-        let pubkey_hex: Option<String> = row.get(12)?;
         let user_id: String = row.get(0)?;
         let role: String = row.get(5)?;
+        let metadata_str: Option<String> = row.get(7)?;
+
+        let mut siths_card_id = None;
+        let mut nfc_badge_uid = None;
+        let mut raw_pnum = None;
+        let mut pubkey_hex = None;
+
+        if let Some(ref m_str) = metadata_str {
+            if let Ok(meta_val) = serde_json::from_str::<serde_json::Value>(m_str) {
+                siths_card_id = meta_val.get("siths_card_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+                nfc_badge_uid = meta_val.get("nfc_badge_uid").and_then(|v| v.as_str()).map(|s| s.to_string());
+                raw_pnum = meta_val.get("personal_number").and_then(|v| v.as_str()).map(|s| s.to_string());
+                pubkey_hex = meta_val.get("siths_public_key").and_then(|v| v.as_str()).map(|s| s.to_string());
+            }
+        }
 
         if let (Some(ch), Some(sig)) = (challenge, signature) {
             if let Some(ref pubkey) = pubkey_hex {
@@ -82,10 +95,10 @@ pub async fn authenticate_with_siths(
             phone: row.get(4)?,
             role,
             preferences: row.get(6)?,
-            siths_card_id: row.get(7)?,
-            nfc_badge_uid: row.get(8)?,
-            updated_at: row.get(9)?,
-            sync_status: row.get(10)?,
+            siths_card_id,
+            nfc_badge_uid,
+            updated_at: row.get(8)?,
+            sync_status: row.get(9)?,
             personal_number: crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id.as_deref().unwrap_or("")),
         })
     } else {
@@ -98,14 +111,26 @@ pub async fn authenticate_with_nfc(badge_uid: String, pin: Option<String>) -> Re
     let conn = database::acquire_connection().await?;
 
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, email, full_name, phone, role, preferences, siths_card_id, nfc_badge_uid, updated_at, sync_status, personal_number FROM users WHERE nfc_badge_uid = ?1"
+        "SELECT id, workspace_id, email, full_name, phone, role, preferences, metadata, updated_at, sync_status FROM users WHERE metadata ->> 'nfc_badge_uid' = ?1"
     ).await?;
 
     let mut rows = stmt.query(crate::params![badge_uid]).await?;
     if let Some(row) = rows.next().await? {
         let ws_id: Option<String> = row.get(1)?;
-        let raw_pnum: Option<String> = row.get(11)?;
         let prefs_str: String = row.get(6)?;
+        let metadata_str: Option<String> = row.get(7)?;
+
+        let mut siths_card_id = None;
+        let mut nfc_badge_uid = None;
+        let mut raw_pnum = None;
+
+        if let Some(ref m_str) = metadata_str {
+            if let Ok(meta_val) = serde_json::from_str::<serde_json::Value>(m_str) {
+                siths_card_id = meta_val.get("siths_card_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+                nfc_badge_uid = meta_val.get("nfc_badge_uid").and_then(|v| v.as_str()).map(|s| s.to_string());
+                raw_pnum = meta_val.get("personal_number").and_then(|v| v.as_str()).map(|s| s.to_string());
+            }
+        }
 
         let ws_settings = {
             if let Some(ref w_id) = ws_id {
@@ -158,10 +183,10 @@ pub async fn authenticate_with_nfc(badge_uid: String, pin: Option<String>) -> Re
             phone: row.get(4)?,
             role: row.get(5)?,
             preferences: prefs_str,
-            siths_card_id: row.get(7)?,
-            nfc_badge_uid: row.get(8)?,
-            updated_at: row.get(9)?,
-            sync_status: row.get(10)?,
+            siths_card_id,
+            nfc_badge_uid,
+            updated_at: row.get(8)?,
+            sync_status: row.get(9)?,
             personal_number: crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id.as_deref().unwrap_or("")),
         })
     } else {
@@ -198,7 +223,7 @@ mod tests {
         let enc_pnum = crate::infra::crypto::encrypt_opt_field(Some(pnum.to_string()), "ws-hw-1").unwrap();
 
         conn.execute(
-            "INSERT OR REPLACE INTO users (id, workspace_id, email, role, siths_card_id, nfc_badge_uid, personal_number) VALUES ('u-hw-1', 'ws-hw-1', 'user1@hw.io', 'user', 'siths-card-123', 'nfc-badge-456', ?1)",
+            "INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-hw-1', 'ws-hw-1', 'user1@hw.io', 'user', json_object('siths_card_id', 'siths-card-123', 'nfc_badge_uid', 'nfc-badge-456', 'personal_number', ?1))",
             crate::params![enc_pnum],
         ).await.unwrap();
 
@@ -228,14 +253,14 @@ mod tests {
         let _lock = database::DB_TEST_LOCK.lock().unwrap();
         let conn = database::acquire_connection().await.unwrap();
 
-        conn.execute("UPDATE users SET siths_card_id = NULL, nfc_badge_uid = NULL WHERE id = 'user-2'", ()).await.unwrap();
+        conn.execute("UPDATE users SET metadata = '{}' WHERE id = 'user-2'", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-hw-2', 'HW WS 2', '[]', '{}')", ()).await.unwrap();
 
         let verifying_key = ed25519_dalek::SigningKey::from_bytes(&[1; 32]).verifying_key();
         let pubkey_hex = const_hex::encode(verifying_key.to_bytes());
 
         conn.execute(
-            "INSERT OR REPLACE INTO users (id, workspace_id, email, role, siths_card_id, siths_public_key) VALUES ('user-1', 'ws-hw-2', 'marie@hw.io', 'admin', 'siths-card-marie', ?1)",
+            "INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('user-1', 'ws-hw-2', 'marie@hw.io', 'admin', json_object('siths_card_id', 'siths-card-marie', 'siths_public_key', ?1))",
             crate::params![pubkey_hex],
         ).await.unwrap();
 
@@ -265,13 +290,13 @@ mod tests {
         conn.execute("DELETE FROM bankid_auth_sessions WHERE id = ?1", crate::params![session_id]).await.unwrap();
         
         conn.execute(
-            "UPDATE users SET workspace_id = 'workspace-1', email = 'marie.andersson@yntra.se', role = 'assistant', siths_card_id = 'SITHS-ALICE-123', siths_public_key = ?1, nfc_badge_uid = 'NFC-ALICE-999' WHERE id = 'user-1'",
+            "UPDATE users SET workspace_id = 'workspace-1', email = 'marie.andersson@yntra.se', role = 'assistant', metadata = json_object('siths_card_id', 'SITHS-ALICE-123', 'siths_public_key', ?1, 'nfc_badge_uid', 'NFC-ALICE-999') WHERE id = 'user-1'",
             crate::params![&pubkey_hex],
         ).await.unwrap();
 
         let bob_pub = const_hex::encode(ed25519_dalek::SigningKey::from_bytes(&[2; 32]).verifying_key().to_bytes());
         conn.execute(
-            "UPDATE users SET siths_card_id = 'SITHS-BOB-456', siths_public_key = ?1, nfc_badge_uid = 'NFC-BOB-888' WHERE id = 'user-2'",
+            "UPDATE users SET metadata = json_object('siths_card_id', 'SITHS-BOB-456', 'siths_public_key', ?1, 'nfc_badge_uid', 'NFC-BOB-888') WHERE id = 'user-2'",
             crate::params![bob_pub],
         ).await.unwrap();
 

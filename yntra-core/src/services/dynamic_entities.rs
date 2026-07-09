@@ -36,6 +36,81 @@ pub async fn get_dynamic_entities(
     Ok(entities)
 }
 
+#[derive(serde::Deserialize, Debug)]
+struct FieldDefinition {
+    name: String,
+    #[serde(rename = "type")]
+    field_type: String,
+    #[serde(default)]
+    required: bool,
+}
+
+fn validate_entity_data(data_json: &str, schema_json: &str) -> Result<(), YntraError> {
+    let fields: Vec<FieldDefinition> = serde_json::from_str(schema_json)
+        .map_err(|e| YntraError::ValidationError(format!("Invalid fields_schema JSON: {}", e)))?;
+
+    let data_val: serde_json::Value = serde_json::from_str(data_json)
+        .map_err(|e| YntraError::ValidationError(format!("Invalid dynamic entity data JSON: {}", e)))?;
+
+    let data_map = data_val.as_object().ok_or_else(|| {
+        YntraError::ValidationError("Entity data must be a JSON object".to_string())
+    })?;
+
+    for field in fields {
+        let value_opt = data_map.get(&field.name);
+        match value_opt {
+            Some(value) => {
+                if value.is_null() {
+                    if field.required {
+                        return Err(YntraError::ValidationError(format!(
+                            "Field '{}' is required but is null",
+                            field.name
+                        )));
+                    }
+                } else {
+                    match field.field_type.as_str() {
+                        "text" | "select" => {
+                            if !value.is_string() {
+                                return Err(YntraError::ValidationError(format!(
+                                    "Field '{}' expects text, but got {:?}",
+                                    field.name, value
+                                )));
+                            }
+                        }
+                        "number" => {
+                            if !value.is_number() {
+                                return Err(YntraError::ValidationError(format!(
+                                    "Field '{}' expects number, but got {:?}",
+                                    field.name, value
+                                )));
+                            }
+                        }
+                        "boolean" => {
+                            if !value.is_boolean() {
+                                return Err(YntraError::ValidationError(format!(
+                                    "Field '{}' expects boolean, but got {:?}",
+                                    field.name, value
+                                )));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            None => {
+                if field.required {
+                    return Err(YntraError::ValidationError(format!(
+                        "Field '{}' is required but missing",
+                        field.name
+                    )));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[uniffi::export]
 pub async fn save_dynamic_entity(
     requester_user_id: String,
@@ -45,6 +120,23 @@ pub async fn save_dynamic_entity(
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != entity.workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    // Retrieve fields_schema for the block to perform validation
+    let block_schema: Option<String> = conn
+        .query_row(
+            "SELECT fields_schema FROM blocks WHERE id = ?1",
+            crate::params![&entity.block_id],
+            |r| r.get(0),
+        )
+        .await
+        .ok()
+        .flatten();
+
+    if let Some(schema_str) = block_schema {
+        if !schema_str.trim().is_empty() {
+            validate_entity_data(&entity.data, &schema_str)?;
+        }
     }
 
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -194,5 +286,105 @@ mod tests {
         conn.execute("DELETE FROM blocks WHERE id = 'block-dyn-test'", ()).await.unwrap();
         conn.execute("DELETE FROM users WHERE workspace_id = 'ws-dyn-test'", ()).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id = 'ws-dyn-test'", ()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_dynamic_entity_schema_validation() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        // Setup a test workspace & user
+        conn.execute(
+            "INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-val-test', 'Val WS', '[]', '{}')",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-val-user', 'ws-val-test', 'val@user.com', 'user')",
+            (),
+        )
+        .await
+        .unwrap();
+
+        // 1. Create a block with a defined schema
+        // Schema requires: "name" (text), "age" (number, optional), "is_active" (boolean, required)
+        let fields_schema = r#"[
+            {"name": "name", "type": "text", "required": true},
+            {"name": "age", "type": "number", "required": false},
+            {"name": "is_active", "type": "boolean", "required": true}
+        ]"#;
+
+        conn.execute(
+            "INSERT OR REPLACE INTO blocks (id, name, icon, category, fields_schema, created_at)
+             VALUES ('block-val-test', 'Val Block', 'Shield', 'Security', ?1, '2026-07-08T00:00:00Z')",
+            crate::params![fields_schema],
+        )
+        .await
+        .unwrap();
+
+        // Case A: Valid entity data should save successfully
+        let valid_entity = DynamicEntity {
+            id: "val-ent-ok".to_string(),
+            workspace_id: "ws-val-test".to_string(),
+            block_id: "block-val-test".to_string(),
+            entity_type: "person".to_string(),
+            data: r#"{"name": "Alice", "age": 30, "is_active": true}"#.to_string(),
+            created_at: 0,
+            updated_at: 0,
+            sync_status: "pending".to_string(),
+        };
+        assert!(save_dynamic_entity("u-val-user".to_string(), valid_entity).await.is_ok());
+
+        // Case B: Missing required field ("is_active") should fail
+        let missing_required = DynamicEntity {
+            id: "val-ent-fail1".to_string(),
+            workspace_id: "ws-val-test".to_string(),
+            block_id: "block-val-test".to_string(),
+            entity_type: "person".to_string(),
+            data: r#"{"name": "Bob"}"#.to_string(),
+            created_at: 0,
+            updated_at: 0,
+            sync_status: "pending".to_string(),
+        };
+        let res = save_dynamic_entity("u-val-user".to_string(), missing_required).await;
+        assert!(res.is_err());
+        assert!(matches!(res.unwrap_err(), YntraError::ValidationError(_)));
+
+        // Case C: Mismatching field type ("age" expects number, got text) should fail
+        let type_mismatch = DynamicEntity {
+            id: "val-ent-fail2".to_string(),
+            workspace_id: "ws-val-test".to_string(),
+            block_id: "block-val-test".to_string(),
+            entity_type: "person".to_string(),
+            data: r#"{"name": "Charlie", "age": "thirty", "is_active": false}"#.to_string(),
+            created_at: 0,
+            updated_at: 0,
+            sync_status: "pending".to_string(),
+        };
+        let res = save_dynamic_entity("u-val-user".to_string(), type_mismatch).await;
+        assert!(res.is_err());
+        assert!(matches!(res.unwrap_err(), YntraError::ValidationError(_)));
+
+        // Case D: Invalid JSON format should fail
+        let invalid_json = DynamicEntity {
+            id: "val-ent-fail3".to_string(),
+            workspace_id: "ws-val-test".to_string(),
+            block_id: "block-val-test".to_string(),
+            entity_type: "person".to_string(),
+            data: r#"{"name": "Charlie", "#.to_string(),
+            created_at: 0,
+            updated_at: 0,
+            sync_status: "pending".to_string(),
+        };
+        let res = save_dynamic_entity("u-val-user".to_string(), invalid_json).await;
+        assert!(res.is_err());
+        assert!(matches!(res.unwrap_err(), YntraError::ValidationError(_)));
+
+        // Cleanup
+        let _ = conn.execute("DELETE FROM entities WHERE workspace_id = 'ws-val-test'", ()).await;
+        let _ = conn.execute("DELETE FROM blocks WHERE id = 'block-val-test'", ()).await;
+        let _ = conn.execute("DELETE FROM users WHERE workspace_id = 'ws-val-test'", ()).await;
+        let _ = conn.execute("DELETE FROM workspaces WHERE id = 'ws-val-test'", ()).await;
     }
 }

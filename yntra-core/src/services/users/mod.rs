@@ -46,24 +46,32 @@ pub async fn get_users(requester_user_id: String) -> Result<Vec<WorkspaceUser>, 
     let cipher = crate::infra::crypto::WorkspaceCipher::new(&auth.workspace_id)?;
 
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, email, full_name, phone, role, preferences, siths_card_id, nfc_badge_uid, updated_at, sync_status, personal_number FROM users WHERE workspace_id = ?1",
+        "SELECT id, workspace_id, email, full_name, phone, role, preferences, metadata, updated_at, sync_status FROM users WHERE workspace_id = ?1",
     ).await?;
 
     let list = stmt.query_map(crate::params![&auth.workspace_id], |row| {
         let id: String = row.get(0)?;
         let ws_id: Option<String> = row.get(1)?;
-        let raw_pnum: Option<String> = row.get(11)?;
+        let metadata_str: Option<String> = row.get(7)?;
         
         let is_self = id == requester_user_id;
         
-        let personal_number = if (auth.is_admin || is_self) && raw_pnum.is_some() {
-            cipher.decrypt_opt(raw_pnum)
-        } else {
-            None
-        };
-        
-        let siths_card_id = if auth.is_admin || is_self { row.get(7)? } else { None };
-        let nfc_badge_uid = if auth.is_admin || is_self { row.get(8)? } else { None };
+        let mut siths_card_id = None;
+        let mut nfc_badge_uid = None;
+        let mut personal_number = None;
+
+        if auth.is_admin || is_self {
+            if let Some(ref m_str) = metadata_str {
+                if let Ok(meta_val) = serde_json::from_str::<serde_json::Value>(m_str) {
+                    siths_card_id = meta_val.get("siths_card_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    nfc_badge_uid = meta_val.get("nfc_badge_uid").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    let raw_pnum = meta_val.get("personal_number").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    if raw_pnum.is_some() {
+                        personal_number = cipher.decrypt_opt(raw_pnum);
+                    }
+                }
+            }
+        }
 
         Ok(WorkspaceUser {
             id,
@@ -75,8 +83,8 @@ pub async fn get_users(requester_user_id: String) -> Result<Vec<WorkspaceUser>, 
             preferences: row.get(6)?,
             siths_card_id,
             nfc_badge_uid,
-            updated_at: row.get(9)?,
-            sync_status: row.get(10)?,
+            updated_at: row.get(8)?,
+            sync_status: row.get(9)?,
             personal_number,
         })
     }).await?;
@@ -259,10 +267,7 @@ pub async fn delete_user(requester_user_id: String, user_id: String) -> Result<(
                  full_name = 'Deleted User', 
                  phone = NULL, 
                  password_hash = NULL, 
-                 siths_card_id = NULL, 
-                 siths_public_key = NULL, 
-                 nfc_badge_uid = NULL, 
-                 personal_number = NULL, 
+                 metadata = '{}', 
                  role = 'deleted', 
                  role_signature = NULL, 
                  updated_at = ?2, 
@@ -329,7 +334,7 @@ mod tests {
         let email = "sensitive@yntra.io";
         
         conn.execute(
-            "INSERT OR REPLACE INTO users (id, workspace_id, email, password_hash, role, personal_number, siths_card_id, nfc_badge_uid) VALUES (?1, 'workspace-1', ?2, NULL, 'user', '19850101-9999', 'card-123', 'badge-456')",
+            "INSERT OR REPLACE INTO users (id, workspace_id, email, password_hash, role, metadata) VALUES (?1, 'workspace-1', ?2, NULL, 'user', '{\"personal_number\":\"19850101-9999\",\"siths_card_id\":\"card-123\",\"nfc_badge_uid\":\"badge-456\"}')",
             crate::params![user_id, email],
         ).await.unwrap();
 
@@ -357,12 +362,12 @@ mod tests {
         let enc_pnum = crate::infra::crypto::encrypt_opt_field(Some(personal_number.to_string()), "workspace-1").unwrap();
         
         conn.execute(
-            "INSERT OR REPLACE INTO users (id, workspace_id, email, role, personal_number) VALUES (?1, 'workspace-1', 'user1@yntra.io', 'assistant', ?2)",
+            "INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES (?1, 'workspace-1', 'user1@yntra.io', 'assistant', json_object('personal_number', ?2))",
             crate::params![user1_id, enc_pnum.clone()],
         ).await.unwrap();
         
         conn.execute(
-            "INSERT OR REPLACE INTO users (id, workspace_id, email, role, personal_number) VALUES (?1, 'workspace-1', 'user2@yntra.io', 'assistant', ?2)",
+            "INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES (?1, 'workspace-1', 'user2@yntra.io', 'assistant', json_object('personal_number', ?2))",
             crate::params![user2_id, enc_pnum.clone()],
         ).await.unwrap();
 

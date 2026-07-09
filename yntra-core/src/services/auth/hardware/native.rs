@@ -165,11 +165,11 @@ async fn run_real_hardware_auth_native(ctx: pcsc::Context, session_id: String, _
 
                         let user_pubkey = {
                             if let Ok(conn) = database::acquire_connection().await {
-                                conn.query_row(
-                                    "SELECT siths_public_key FROM users WHERE siths_card_id = ?1",
-                                    crate::params![&unique_id],
-                                    |r| r.get::<Option<String>>(0)
-                                ).await.ok().flatten()
+                                 conn.query_row(
+                                     "SELECT metadata ->> 'siths_public_key' FROM users WHERE metadata ->> 'siths_card_id' = ?1",
+                                     crate::params![&unique_id],
+                                     |r| r.get::<Option<String>>(0)
+                                 ).await.ok().flatten()
                             } else {
                                 None
                             }
@@ -218,7 +218,7 @@ async fn run_real_hardware_auth_native(ctx: pcsc::Context, session_id: String, _
                             {
                                 let mut resolved_user_info = None;
                                 if let Ok(conn) = database::acquire_connection().await {
-                                    if let Ok(mut stmt) = conn.prepare("SELECT id, siths_public_key FROM users WHERE siths_card_id IS NOT NULL AND siths_card_id != ''").await {
+                                     if let Ok(mut stmt) = conn.prepare("SELECT id, metadata ->> 'siths_public_key' FROM users WHERE metadata ->> 'siths_card_id' IS NOT NULL AND metadata ->> 'siths_card_id' != ''").await {
                                         if let Ok(mut rows) = stmt.query(()).await {
                                             if let Ok(Some(row)) = rows.next().await {
                                                 resolved_user_info = Some((row.get::<String>(0).unwrap(), row.get::<Option<String>>(1).unwrap()));

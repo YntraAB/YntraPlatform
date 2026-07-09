@@ -92,7 +92,7 @@ pub async fn activate_invitation_code(code: String) -> Result<WorkspaceUser, Ynt
 
     // 1. Fetch the invitation
     let mut stmt = conn.prepare(
-        "SELECT code, workspace_id, email, full_name, role, activated, siths_card_id, nfc_badge_uid, encrypted_workspace_key FROM invitations WHERE UPPER(code) = ?1"
+        "SELECT code, workspace_id, email, full_name, role, activated, metadata, encrypted_workspace_key FROM invitations WHERE UPPER(code) = ?1"
     ).await?;
 
     let mut rows = stmt.query(crate::params![lookup_code.clone()]).await?;
@@ -103,9 +103,17 @@ pub async fn activate_invitation_code(code: String) -> Result<WorkspaceUser, Ynt
         let full_name: String = row.get(3)?;
         let role: String = row.get(4)?;
         let activated: i64 = row.get(5)?;
-        let siths_card_id: Option<String> = row.get(6)?;
-        let nfc_badge_uid: Option<String> = row.get(7)?;
-        let enc_workspace_key: Option<String> = row.get(8)?;
+        let metadata_str: Option<String> = row.get(6)?;
+        let enc_workspace_key: Option<String> = row.get(7)?;
+
+        let mut siths_card_id = None;
+        let mut nfc_badge_uid = None;
+        if let Some(ref m_str) = metadata_str {
+            if let Ok(meta_val) = serde_json::from_str::<serde_json::Value>(m_str) {
+                siths_card_id = meta_val.get("siths_card_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+                nfc_badge_uid = meta_val.get("nfc_badge_uid").and_then(|v| v.as_str()).map(|s| s.to_string());
+            }
+        }
 
         if activated != 0 {
             return Err(YntraError::InvitationError("Invitation code already activated".to_string()));
@@ -128,10 +136,14 @@ pub async fn activate_invitation_code(code: String) -> Result<WorkspaceUser, Ynt
                 #[cfg(target_arch = "wasm32")]
                 let dec_res = crate::infra::crypto::decrypt_workspace_key_with_password(&lookup_code, enc_key);
 
-                if let Ok(dec_key) = dec_res {
-                    let _ = crate::infra::crypto::set_local_secret(&format!("workspace_key_{}", workspace_id), &const_hex::encode(&dec_key)).await;
-                    crate::infra::crypto::set_session_key(dec_key);
-                }
+                let pk = dec_res?;
+                let key_setting = format!("workspace_key_{}", workspace_id);
+                crate::infra::crypto::set_local_secret(&key_setting, &const_hex::encode(&pk)).await?;
+
+                // Cache it in-memory
+                let mut cache = crate::infra::crypto::get_auth_key_cache().write().unwrap_or_else(|e| e.into_inner());
+                cache.insert(workspace_id.clone(), const_hex::encode(&pk));
+                crate::infra::crypto::set_session_key(pk);
             }
 
             // Write the out-of-band verified public key to the keyring if provided
@@ -152,16 +164,24 @@ pub async fn activate_invitation_code(code: String) -> Result<WorkspaceUser, Ynt
 
             // 3. Create the user in `users` table
             let user_id = uuid::Uuid::new_v4().to_string();
+            let mut metadata_map = serde_json::Map::new();
+            if let Some(ref s_id) = siths_card_id {
+                metadata_map.insert("siths_card_id".to_string(), serde_json::Value::String(s_id.clone()));
+            }
+            if let Some(ref n_uid) = nfc_badge_uid {
+                metadata_map.insert("nfc_badge_uid".to_string(), serde_json::Value::String(n_uid.clone()));
+            }
+            let metadata_json = serde_json::to_string(&metadata_map).unwrap_or_else(|_| "{}".to_string());
+
             conn.execute(
-                "INSERT INTO users (id, workspace_id, email, full_name, role, siths_card_id, nfc_badge_uid, preferences, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, '{}', ?8, 'pending')",
+                "INSERT INTO users (id, workspace_id, email, full_name, role, metadata, preferences, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, '{}', ?7, 'pending')",
                 crate::params![
                     &user_id,
                     &workspace_id,
                     &email,
                     &full_name,
                     &role,
-                    &siths_card_id,
-                    &nfc_badge_uid,
+                    &metadata_json,
                     &now_ms
                 ],
             ).await?;

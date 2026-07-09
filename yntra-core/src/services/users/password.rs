@@ -38,7 +38,7 @@ pub async fn verify_email_password(email: String, password: String) -> Result<Op
     let conn = database::acquire_connection().await?;
 
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, email, full_name, phone, role, preferences, password_hash, siths_card_id, nfc_badge_uid, updated_at, sync_status, personal_number FROM users WHERE LOWER(email) = ?1",
+        "SELECT id, workspace_id, email, full_name, phone, role, preferences, password_hash, metadata, updated_at, sync_status FROM users WHERE LOWER(email) = ?1",
     ).await?;
 
     let mut rows = stmt.query(crate::params![email_lower]).await?;
@@ -66,7 +66,19 @@ pub async fn verify_email_password(email: String, password: String) -> Result<Op
             return Ok(None);
         }
         let ws_id: Option<String> = row.get(1)?;
-        let raw_pnum: Option<String> = row.get(12)?;
+        let metadata_str: Option<String> = row.get(8)?;
+        
+        let mut siths_card_id = None;
+        let mut nfc_badge_uid = None;
+        let mut raw_pnum = None;
+
+        if let Some(ref m_str) = metadata_str {
+            if let Ok(meta_val) = serde_json::from_str::<serde_json::Value>(m_str) {
+                siths_card_id = meta_val.get("siths_card_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+                nfc_badge_uid = meta_val.get("nfc_badge_uid").and_then(|v| v.as_str()).map(|s| s.to_string());
+                raw_pnum = meta_val.get("personal_number").and_then(|v| v.as_str()).map(|s| s.to_string());
+            }
+        }
         
         let mut preferences: String = row.get(6)?;
         if let Some(ref ws) = ws_id {
@@ -78,31 +90,27 @@ pub async fn verify_email_password(email: String, password: String) -> Result<Op
                     #[cfg(not(target_arch = "wasm32"))]
                     let pwd = zeroizing_password.to_string();
                     #[cfg(not(target_arch = "wasm32"))]
-                    let ws_key_vec = ws_key.to_vec();
+                    let pwd_clone = pwd.clone();
+                    
                     #[cfg(not(target_arch = "wasm32"))]
-                    let enc_res = tokio::task::spawn_blocking(move || {
-                        let zeroing = zeroize::Zeroizing::new(pwd);
-                        crate::infra::crypto::encrypt_workspace_key_with_password(&zeroing, ws_key_vec)
+                    let enc_key_res = tokio::task::spawn_blocking(move || {
+                        let zeroing = zeroize::Zeroizing::new(pwd_clone);
+                        crate::infra::crypto::encrypt_workspace_key_with_password(&zeroing, ws_key.to_vec())
                     }).await.unwrap_or_else(|e| Err(YntraError::CryptoError(e.to_string())));
                     #[cfg(target_arch = "wasm32")]
-                    let enc_res = crate::infra::crypto::encrypt_workspace_key_with_password(&zeroizing_password, ws_key.to_vec());
+                    let enc_key_res = crate::infra::crypto::encrypt_workspace_key_with_password(&zeroizing_password, ws_key.to_vec());
 
-                    if let Ok(enc_key) = enc_res {
-                        prefs_val["encrypted_workspace_key"] = serde_json::json!(enc_key);
+                    if let Ok(enc_key) = enc_key_res {
+                        prefs_val.as_object_mut().unwrap().insert("encrypted_workspace_key".to_string(), serde_json::Value::String(enc_key));
                         if let Ok(updated_prefs) = serde_json::to_string(&prefs_val) {
-                            let user_id: String = row.get(0)?;
-                            let _ = conn.execute(
-                                "UPDATE users SET preferences = ?1 WHERE id = ?2",
-                                crate::params![&updated_prefs, &user_id],
-                            ).await;
                             preferences = updated_prefs;
+                            let _ = conn.execute("UPDATE users SET preferences = ?1 WHERE id = ?2", crate::params![&preferences, row.get::<String>(0)?]).await;
                         }
                     }
                 }
             }
             
             // Decrypt and set the Workspace Master Key as active session key
-            let prefs_val: serde_json::Value = serde_json::from_str(&preferences).unwrap_or_default();
             if let Some(enc_key) = prefs_val.get("encrypted_workspace_key").and_then(|v| v.as_str()) {
                 #[cfg(not(target_arch = "wasm32"))]
                 let pwd = zeroizing_password.to_string();
@@ -131,10 +139,10 @@ pub async fn verify_email_password(email: String, password: String) -> Result<Op
             phone: row.get(4)?,
             role: row.get(5)?,
             preferences,
-            siths_card_id: row.get(8)?,
-            nfc_badge_uid: row.get(9)?,
-            updated_at: row.get(10)?,
-            sync_status: row.get(11)?,
+            siths_card_id,
+            nfc_badge_uid,
+            updated_at: row.get(9)?,
+            sync_status: row.get(10)?,
             personal_number: crate::infra::crypto::decrypt_opt_field(raw_pnum, ws_id.as_deref().unwrap_or("")),
         }))
     } else {

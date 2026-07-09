@@ -29,13 +29,23 @@ pub async fn run_hardware_auth_simulation(session_id: String, provider: String) 
         let mut resolved_user_info = None;
         {
             let conn = database::acquire_connection().await?;
-            let mut stmt = conn.prepare("SELECT id, siths_card_id, nfc_badge_uid, siths_public_key FROM users").await?;
+            let mut stmt = conn.prepare("SELECT id, metadata FROM users").await?;
             let mut rows = stmt.query(()).await?;
             while let Some(row) = rows.next().await? {
                 let uid: String = row.get(0)?;
-                let siths: Option<String> = row.get(1)?;
-                let nfc: Option<String> = row.get(2)?;
-                let pubkey: Option<String> = row.get(3)?;
+                let metadata_str: Option<String> = row.get(1)?;
+                
+                let mut siths = None;
+                let mut nfc = None;
+                let mut pubkey = None;
+
+                if let Some(ref m_str) = metadata_str {
+                    if let Ok(meta_val) = serde_json::from_str::<serde_json::Value>(m_str) {
+                        siths = meta_val.get("siths_card_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+                        nfc = meta_val.get("nfc_badge_uid").and_then(|v| v.as_str()).map(|s| s.to_string());
+                        pubkey = meta_val.get("siths_public_key").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    }
+                }
                 
                 let has_siths = siths.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
                 let has_nfc = nfc.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
@@ -147,7 +157,7 @@ pub async fn complete_hardware_auth(session_id: String, pin: String) -> Result<(
             }
 
             let mut resolved_user_info = None;
-            let mut stmt = conn.prepare("SELECT id, siths_public_key FROM users").await?;
+            let mut stmt = conn.prepare("SELECT id, metadata ->> 'siths_public_key' FROM users").await?;
             let mut rows = stmt.query(()).await?;
             while let Some(row) = rows.next().await? {
                 let uid: String = row.get(0)?;
@@ -189,7 +199,7 @@ pub async fn complete_hardware_auth(session_id: String, pin: String) -> Result<(
             }
 
             let mut resolved_user_info = None;
-            let mut stmt = conn.prepare("SELECT id, siths_public_key FROM users").await?;
+            let mut stmt = conn.prepare("SELECT id, metadata ->> 'siths_public_key' FROM users").await?;
             let mut rows = stmt.query(()).await?;
             while let Some(row) = rows.next().await? {
                 let uid: String = row.get(0)?;
@@ -248,7 +258,7 @@ pub async fn complete_hardware_auth(session_id: String, pin: String) -> Result<(
                 .map_err(|e| YntraError::AuthError(format!("Failed to read card identity: {:?}", e)))?;
 
             let user_info: Option<(String, String)> = conn.query_row(
-                "SELECT id, siths_public_key FROM users WHERE siths_card_id = ?1",
+                "SELECT id, metadata ->> 'siths_public_key' FROM users WHERE metadata ->> 'siths_card_id' = ?1",
                 crate::params![&unique_card_id],
                 |r| Ok((r.get(0)?, r.get(1)?))
             ).await.ok();

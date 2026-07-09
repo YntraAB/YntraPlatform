@@ -9,7 +9,7 @@ pub async fn get_clients(requester_user_id: String) -> Result<Vec<ClientProfile>
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     let personal_number: Option<String> = conn.query_row(
-        "SELECT personal_number FROM users WHERE id = ?1",
+        "SELECT metadata ->> 'personal_number' FROM users WHERE id = ?1",
         crate::params![&requester_user_id],
         |r| r.get(0)
     ).await.ok().flatten();
@@ -261,7 +261,7 @@ mod tests {
         // Insert the client user with encrypted personal number
         let enc_user_pnum = crate::infra::crypto::encrypt_opt_field(Some(personal_number.to_string()), ws_id).unwrap();
         conn.execute(
-            "INSERT OR REPLACE INTO users (id, workspace_id, email, password_hash, role, personal_number) VALUES (?1, ?2, ?3, NULL, 'client', ?4)",
+            "INSERT OR REPLACE INTO users (id, workspace_id, email, password_hash, role, metadata) VALUES (?1, ?2, ?3, NULL, 'client', json_object('personal_number', ?4))",
             crate::params![user_id, ws_id, email, enc_user_pnum],
         ).await.unwrap();
 

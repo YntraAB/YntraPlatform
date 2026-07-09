@@ -569,7 +569,7 @@ pub async fn verify_hardware_auth_signature(
     }
     
     // 4. Lookup user by siths_public_key
-    let mut stmt = conn.prepare("SELECT id FROM users WHERE siths_public_key = ?1 LIMIT 1").await?;
+    let mut stmt = conn.prepare("SELECT id FROM users WHERE metadata ->> 'siths_public_key' = ?1 LIMIT 1").await?;
     let mut rows = stmt.query(crate::params![public_key_hex]).await?;
     if let Some(row) = rows.next().await? {
         let user_id: String = row.get(0)?;
