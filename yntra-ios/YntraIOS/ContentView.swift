@@ -8,6 +8,9 @@ struct ContentView: View {
     @StateObject private var directoryViewModel = DirectoryViewModel()
     @StateObject private var settingsViewModel = SettingsViewModel()
 
+    @StateObject private var careViewModel = CareViewModel()
+    @StateObject private var jobsViewModel = JobsViewModel()
+
     private var activeModules: [String: Bool] {
         guard let jsonStr = settingsViewModel.workspace?.modulesActive,
               let data = jsonStr.data(using: .utf8),
@@ -25,6 +28,14 @@ struct ContentView: View {
         settingsViewModel.workspace == nil || activeModules["directory"] == true
     }
 
+    private var isAssistanceActive: Bool {
+        settingsViewModel.workspace == nil || activeModules["assistance"] == true
+    }
+
+    private var isJobsActive: Bool {
+        settingsViewModel.workspace == nil || activeModules["jobs"] == true
+    }
+
     var body: some View {
         if !authViewModel.isLoggedIn {
             AuthView(viewModel: authViewModel)
@@ -39,6 +50,20 @@ struct ContentView: View {
                     MessagingView(viewModel: messagingViewModel)
                         .tabItem {
                             Label("Messages", systemImage: "envelope.fill")
+                        }
+                }
+                
+                if isAssistanceActive {
+                    CareView(viewModel: careViewModel)
+                        .tabItem {
+                            Label("Care", systemImage: "heart.text.square.fill")
+                        }
+                }
+                
+                if isJobsActive {
+                    JobsView(viewModel: jobsViewModel)
+                        .tabItem {
+                            Label("Jobs", systemImage: "shippingbox.fill")
                         }
                 }
                 
