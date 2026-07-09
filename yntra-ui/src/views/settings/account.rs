@@ -461,11 +461,11 @@ pub fn AccountSettings(props: AccountSettingsProps) -> Element {
                                             update_preference("language", serde_json::json!(val));
                                         }
                                     },
-                                    option { value: "SE", "{t(\"settings-languages-sv\", &props.locale)}" }
-                                    option { value: "NO", "{t(\"settings-languages-no\", &props.locale)}" }
-                                    option { value: "DK", "{t(\"settings-languages-da\", &props.locale)}" }
-                                    option { value: "FI", "{t(\"settings-languages-fi\", &props.locale)}" }
-                                    option { value: "US", "{t(\"settings-languages-en\", &props.locale)}" }
+                                    option { value: "sv", "{t(\"settings-languages-sv\", &props.locale)}" }
+                                    option { value: "no", "{t(\"settings-languages-no\", &props.locale)}" }
+                                    option { value: "da", "{t(\"settings-languages-da\", &props.locale)}" }
+                                    option { value: "fi", "{t(\"settings-languages-fi\", &props.locale)}" }
+                                    option { value: "en", "{t(\"settings-languages-en\", &props.locale)}" }
                                 }
                             }
                         }

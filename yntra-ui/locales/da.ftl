@@ -347,12 +347,12 @@ messages-selected = markeret
 messages-send = Send
 messages-sending = Sender...
 messages-sent = Sendt
-messages-sent-to = Til {{navn}}:
+messages-sent-to = Til {{name}}:
 messages-subject = Emne
 messages-subject-placeholder = Emne...
 messages-system = System
 messages-team = Hele holdet
-messages-team-collective = Samlet til {{navn}}
+messages-team-collective = Samlet til {{name}}
 messages-title = Beskeder
 messages-to = Til
 messages-trash = Papirkurv
@@ -429,6 +429,11 @@ reporting-list-reporter = Indsendt af
 reporting-list-status = Status
 reporting-list-type = Indtast
 reporting-notifications-admin-body = Der er indsendt en ny rapport.
+    
+    Type: {{type}}
+    Emne: {{subject}}
+    
+    Du kan se detaljerne under Indberetning i menuen.
 reporting-notifications-admin-subject = Ny rapport: {{type}}
 reporting-stats-total = Samlet antal rapporter
 reporting-status-error = Kunne ikke opdatere status

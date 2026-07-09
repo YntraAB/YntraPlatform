@@ -1,6 +1,6 @@
-const LOCALE_SE: &str = include_str!("../locales/se.ftl");
+const LOCALE_SV: &str = include_str!("../locales/sv.ftl");
 const LOCALE_NO: &str = include_str!("../locales/no.ftl");
-const LOCALE_DK: &str = include_str!("../locales/dk.ftl");
+const LOCALE_DA: &str = include_str!("../locales/da.ftl");
 const LOCALE_FI: &str = include_str!("../locales/fi.ftl");
 const LOCALE_EN: &str = include_str!("../locales/en.ftl");
 
@@ -15,19 +15,19 @@ pub fn get_system_locale() -> String {
             if let Some(lang) = window.navigator().language() {
                 let lang = lang.to_lowercase();
                 if lang.starts_with("sv") {
-                    return "SE".to_string();
+                    return "sv".to_string();
                 } else if lang.starts_with("nb") || lang.starts_with("nn") || lang.starts_with("no")
                 {
-                    return "NO".to_string();
+                    return "no".to_string();
                 } else if lang.starts_with("da") {
-                    return "DK".to_string();
+                    return "da".to_string();
                 } else if lang.starts_with("fi") {
-                    return "FI".to_string();
+                    return "fi".to_string();
                 }
             }
         }
     }
-    "US".to_string()
+    "en".to_string()
 }
 
 pub fn t(key: &str, locale: &str) -> String {
@@ -39,11 +39,11 @@ pub fn t_with_args(key: &str, locale: &str, args: &[(&str, &str)]) -> String {
         let mut bundles_borrow = bundles.borrow_mut();
         if bundles_borrow.is_empty() {
             for (lang, source) in [
-                ("SE", LOCALE_SE),
-                ("NO", LOCALE_NO),
-                ("DK", LOCALE_DK),
-                ("FI", LOCALE_FI),
-                ("US", LOCALE_EN),
+                ("sv", LOCALE_SV),
+                ("no", LOCALE_NO),
+                ("da", LOCALE_DA),
+                ("fi", LOCALE_FI),
+                ("en", LOCALE_EN),
             ] {
                 let res = fluent_bundle::FluentResource::try_new(source.to_string())
                     .expect("Failed to parse an FTL resource.");
@@ -57,10 +57,10 @@ pub fn t_with_args(key: &str, locale: &str, args: &[(&str, &str)]) -> String {
             }
         }
 
-        // Find bundle for target locale, fallback to US
+        // Find bundle for target locale, fallback to en
         let bundle = bundles_borrow
             .get(locale)
-            .unwrap_or_else(|| bundles_borrow.get("US").expect("US bundle must exist"));
+            .unwrap_or_else(|| bundles_borrow.get("en").expect("en bundle must exist"));
 
         // Try looking up the message in target locale
         if let Some(msg) = bundle.get_message(key)
@@ -74,10 +74,10 @@ pub fn t_with_args(key: &str, locale: &str, args: &[(&str, &str)]) -> String {
                 return formatted.to_string();
             }
 
-        // Key-by-key fallback chain: if missing from target locale, try "US"
-        if locale != "US"
-            && let Some(us_bundle) = bundles_borrow.get("US")
-                && let Some(msg) = us_bundle.get_message(key)
+        // Key-by-key fallback chain: if missing from target locale, try "en"
+        if locale != "en"
+            && let Some(en_bundle) = bundles_borrow.get("en")
+                && let Some(msg) = en_bundle.get_message(key)
                     && let Some(pattern) = msg.value() {
                         let mut fluent_args = fluent_bundle::FluentArgs::new();
                         for &(k, v) in args {
@@ -85,7 +85,7 @@ pub fn t_with_args(key: &str, locale: &str, args: &[(&str, &str)]) -> String {
                         }
                         let mut errors = vec![];
                         let formatted =
-                            us_bundle.format_pattern(pattern, Some(&fluent_args), &mut errors);
+                            en_bundle.format_pattern(pattern, Some(&fluent_args), &mut errors);
                         return formatted.to_string();
                     }
 

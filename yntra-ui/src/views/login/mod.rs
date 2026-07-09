@@ -52,9 +52,9 @@ pub fn LoginView(props: LoginViewProps) -> Element {
     let region = props.auth_region.read().clone();
     
     let dropdown_label = match props.auth_region.read().as_str() {
-        "SE" => "Svenska",
-        "NO" => "Norsk",
-        "DK" => "Dansk",
+        "sv" => "Svenska",
+        "no" => "Norsk",
+        "da" => "Dansk",
         _ => "English",
     };
     
@@ -211,9 +211,9 @@ pub fn LoginView(props: LoginViewProps) -> Element {
 
     let trigger_bankid_employee = move |_| {
         let provider_name = match auth_region.read().as_str() {
-            "SE" => "se_bankid",
-            "NO" => "no_bankid",
-            "DK" => "dk_mitid",
+            "sv" => "se_bankid",
+            "no" => "no_bankid",
+            "da" => "dk_mitid",
             _ => "us_global",
         }.to_string();
 
@@ -472,12 +472,12 @@ pub fn LoginView(props: LoginViewProps) -> Element {
     let hardware_title = match hw_type.as_str() {
         "siths" => t("login-hw-title-siths", &region),
         "nfc" => t("login-hw-title-nfc", &region),
-        _ => if region.as_str() == "SE" { "SITHS-kort / NFC-bricka".to_string() } else { "Smart Card / NFC Badge".to_string() },
+        _ => if region.as_str() == "sv" { "SITHS-kort / NFC-bricka".to_string() } else { "Smart Card / NFC Badge".to_string() },
     };
     let hardware_polling_label = match hw_type.as_str() {
         "siths" => t("login-hw-polling-siths", &region),
         "nfc" => t("login-hw-polling-nfc", &region),
-        _ => if region.as_str() == "SE" { "Vänligen anslut ditt SITHS-kort eller håll din NFC-bricka mot läsaren...".to_string() } else { "Please insert your Smart Card or tap your NFC badge against the reader...".to_string() },
+        _ => if region.as_str() == "sv" { "Vänligen anslut ditt SITHS-kort eller håll din NFC-bricka mot läsaren...".to_string() } else { "Please insert your Smart Card or tap your NFC badge against the reader...".to_string() },
     };
 
     let keyframes_css = get_keyframes_css(&props.workspace.brand_color);
@@ -505,28 +505,28 @@ pub fn LoginView(props: LoginViewProps) -> Element {
                     components::DropdownItem {
                         label: "Svenska".to_string(),
                         onclick: move |_| {
-                            auth_region.set("SE".to_string());
+                            auth_region.set("sv".to_string());
                             dropdown_open.set(false);
                         }
                     }
                     components::DropdownItem {
                         label: "Norsk".to_string(),
                         onclick: move |_| {
-                            auth_region.set("NO".to_string());
+                            auth_region.set("no".to_string());
                             dropdown_open.set(false);
                         }
                     }
                     components::DropdownItem {
                         label: "Dansk".to_string(),
                         onclick: move |_| {
-                            auth_region.set("DK".to_string());
+                            auth_region.set("da".to_string());
                             dropdown_open.set(false);
                         }
                     }
                     components::DropdownItem {
                         label: "English".to_string(),
                         onclick: move |_| {
-                            auth_region.set("US".to_string());
+                            auth_region.set("en".to_string());
                             dropdown_open.set(false);
                         }
                     }
@@ -641,18 +641,18 @@ pub fn LoginView(props: LoginViewProps) -> Element {
 
                     div { class: "flex flex-col gap-3",
                         // 1. Swedish / Norwegian / Danish National eID (BankID / MitID)
-                        if region == "SE" || region == "NO" || region == "DK" {
+                        if region == "sv" || region == "no" || region == "da" {
                             {
                                 let bankid_label = match region.as_str() {
-                                    "SE" => "Mobilt BankID",
-                                    "NO" => "BankID",
-                                    "DK" => "MitID",
+                                    "sv" => "Mobilt BankID",
+                                    "no" => "BankID",
+                                    "da" => "MitID",
                                     _ => "National eID",
                                 };
                                 let bankid_desc = match region.as_str() {
-                                    "SE" => "Legitimera dig med BankID-appen",
-                                    "NO" => "Logg inn med BankID på mobil",
-                                    "DK" => "Log ind med MitID",
+                                    "sv" => "Legitimera dig med BankID-appen",
+                                    "no" => "Logg inn med BankID på mobil",
+                                    "da" => "Log ind med MitID",
                                     _ => "Secure electronic identification",
                                 };
                                 rsx! {
@@ -677,11 +677,11 @@ pub fn LoginView(props: LoginViewProps) -> Element {
                             // 2. Hardware Smart Card / NFC Badge authentication
                             {
                                 let hw_label = match region.as_str() {
-                                    "SE" => "SITHS-kort / NFC-bricka",
+                                    "sv" => "SITHS-kort / NFC-bricka",
                                     _ => "Smart Card / NFC Badge",
                                 };
                                 let hw_desc = match region.as_str() {
-                                    "SE" => "Identifiera dig med kortläsare eller NFC",
+                                    "sv" => "Identifiera dig med kortläsare eller NFC",
                                     _ => "Authenticate using secure hardware reader",
                                 };
                                 rsx! {

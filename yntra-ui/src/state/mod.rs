@@ -590,11 +590,11 @@ pub fn use_init_app_state() -> AppState {
             
             if let Some(lang) = lang_opt {
                 let norm_lang = match lang.to_lowercase().as_str() {
-                    "sv" | "se" => "SE",
-                    "no" | "nb" | "nn" => "NO",
-                    "da" | "dk" => "DK",
-                    "fi" => "FI",
-                    _ => "US",
+                    "sv" | "se" => "sv",
+                    "no" | "nb" | "nn" => "no",
+                    "da" | "dk" => "da",
+                    "fi" => "fi",
+                    _ => "en",
                 };
                 if *auth_region.read() != norm_lang {
                     auth_region.set(norm_lang.to_string());

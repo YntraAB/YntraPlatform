@@ -60,7 +60,7 @@ fn get_formatted_today_date(today_str: &str, locale: &str) -> String {
     let weekday = (total_days + 4) % 7;
 
     let (wd_str, m_str) = match locale {
-        "SE" => {
+        "sv" => {
             let wd = match weekday {
                 0 => "söndag",
                 1 => "måndag",
@@ -88,7 +88,7 @@ fn get_formatted_today_date(today_str: &str, locale: &str) -> String {
             };
             (wd, m)
         }
-        "NO" => {
+        "no" => {
             let wd = match weekday {
                 0 => "søndag",
                 1 => "mandag",
@@ -116,7 +116,7 @@ fn get_formatted_today_date(today_str: &str, locale: &str) -> String {
             };
             (wd, m)
         }
-        "DK" => {
+        "da" => {
             let wd = match weekday {
                 0 => "søndag",
                 1 => "mandag",
@@ -174,7 +174,7 @@ fn get_formatted_today_date(today_str: &str, locale: &str) -> String {
         }
     };
 
-    if locale == "SE" || locale == "NO" || locale == "DK" {
+    if locale == "sv" || locale == "no" || locale == "da" {
         format!("{}, {} {} {}", wd_str, day, m_str, year)
     } else {
         format!("{}, {} {}, {}", wd_str, m_str, day, year)
@@ -318,15 +318,15 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
         let val = t(key, locale);
         if val == key || val.is_empty() {
             match id {
-                "scheduling" => match locale { "SE" => "Kommande händelser", "NO" => "Kommende hendelser", "DK" => "Kommende begivenheder", _ => "Upcoming Events" }.to_string(),
-                "messaging" => match locale { "SE" => "Kommunikation", "NO" => "Kommunikasjon", "DK" => "Kommunikation", _ => "Communications" }.to_string(),
-                "jobs" => match locale { "SE" => "Arbetspass & Uppdrag", "NO" => "Arbeidspass & Oppdrag", "DK" => "Arbejdspas & Opgaver", _ => "Job Tickets" }.to_string(),
-                "todos" => match locale { "SE" => "Uppgifter & Att göra", "NO" => "Oppgaver & Gjøremål", "DK" => "Opgaver & To-do", _ => "Todos" }.to_string(),
-                "time" => match locale { "SE" => "Tidrapportering", "NO" => "Tidsrapportering", "DK" => "Tidsrapportering", _ => "Time Sheets" }.to_string(),
-                "assistance" => match locale { "SE" => "Omsorg & Assistans", "NO" => "Omsorg & Assistanse", "DK" => "Omsorg & Assistance", _ => "Care & Assistance" }.to_string(),
-                "academics" => match locale { "SE" => "Skola & Kurser", "NO" => "Skole & Kurs", "DK" => "Skole & Kurser", _ => "School Academics" }.to_string(),
-                "library" => match locale { "SE" => "Skolbibliotek", "NO" => "Skolebibliotek", "DK" => "Skolebibliotek", _ => "School Library" }.to_string(),
-                "finance" => match locale { "SE" => "Skolfakturering", "NO" => "Skolefakturering", "DK" => "Skolefakturering", _ => "School Billing" }.to_string(),
+                "scheduling" => match locale { "sv" => "Kommande händelser", "no" => "Kommende hendelser", "da" => "Kommende begivenheder", _ => "Upcoming Events" }.to_string(),
+                "messaging" => match locale { "sv" => "Kommunikation", "no" => "Kommunikasjon", "da" => "Kommunikation", _ => "Communications" }.to_string(),
+                "jobs" => match locale { "sv" => "Arbetspass & Uppdrag", "no" => "Arbeidspass & Oppdrag", "da" => "Arbejdspas & Opgaver", _ => "Job Tickets" }.to_string(),
+                "todos" => match locale { "sv" => "Uppgifter & Att göra", "no" => "Oppgaver & Gjøremål", "da" => "Opgaver & To-do", _ => "Todos" }.to_string(),
+                "time" => match locale { "sv" => "Tidrapportering", "no" => "Tidsrapportering", "da" => "Tidsrapportering", _ => "Time Sheets" }.to_string(),
+                "assistance" => match locale { "sv" => "Omsorg & Assistans", "no" => "Omsorg & Assistanse", "da" => "Omsorg & Assistance", _ => "Care & Assistance" }.to_string(),
+                "academics" => match locale { "sv" => "Skola & Kurser", "no" => "Skole & Kurs", "da" => "Skole & Kurser", _ => "School Academics" }.to_string(),
+                "library" => match locale { "sv" => "Skolbibliotek", "no" => "Skolebibliotek", "da" => "Skolebibliotek", _ => "School Library" }.to_string(),
+                "finance" => match locale { "sv" => "Skolfakturering", "no" => "Skolefakturering", "da" => "Skolefakturering", _ => "School Billing" }.to_string(),
                 _ => id.to_string(),
             }
         } else {
@@ -339,9 +339,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
         let val = t(key, &locale);
         if val == key {
             match locale.as_str() {
-                "SE" => "Anpassa översikt".to_string(),
-                "NO" => "Tilpass oversikt".to_string(),
-                "DK" => "Tilpas oversigt".to_string(),
+                "sv" => "Anpassa översikt".to_string(),
+                "no" => "Tilpass oversikt".to_string(),
+                "da" => "Tilpas oversigt".to_string(),
                 _ => "Customize Dashboard".to_string(),
             }
         } else {
@@ -626,9 +626,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                 }
                                 components::CardDescription {
                                     match locale.as_str() {
-                                        "SE" => "Dina tilldelade uppdrag och arbetsordrar.",
-                                        "NO" => "Dine tildelte oppdrag og arbeidsordrer.",
-                                        "DK" => "Dine tildelte opgaver og arbejdsordrer.",
+                                        "sv" => "Dina tilldelade uppdrag och arbetsordrar.",
+                                        "no" => "Dine tildelte oppdrag og arbeidsordrer.",
+                                        "da" => "Dine tildelte opgaver og arbejdsordrer.",
                                         _ => "Your assigned jobs and service tickets."
                                     }
                                 }
@@ -640,9 +640,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                     if pending_tickets.is_empty() {
                                         p { class: "text-sm text-muted-foreground m-0 py-4", 
                                             match locale.as_str() {
-                                                "SE" => "Inga pågående uppdrag.",
-                                                "NO" => "Ingen pågående oppdrag.",
-                                                "DK" => "Ingen igangværende opgaver.",
+                                                "sv" => "Inga pågående uppdrag.",
+                                                "no" => "Ingen pågående oppdrag.",
+                                                "da" => "Ingen igangværende opgaver.",
                                                 _ => "No active job tickets."
                                             }
                                         }
@@ -665,9 +665,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                     onclick: move |_| active_section.set("jobs".to_string()),
                                     span { 
                                         match locale.as_str() {
-                                            "SE" => "Visa alla uppdrag",
-                                            "NO" => "Vis alle oppdrag",
-                                            "DK" => "Vis alle opgaver",
+                                            "sv" => "Visa alla uppdrag",
+                                            "no" => "Vis alle oppdrag",
+                                            "da" => "Vis alle opgaver",
                                             _ => "View all jobs"
                                         }
                                     }
@@ -693,9 +693,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                 }
                                 components::CardDescription {
                                     match locale.as_str() {
-                                        "SE" => "Dina personliga uppgifter och kom-ihåg-lista.",
-                                        "NO" => "Dine personlige oppgaver og huskeliste.",
-                                        "DK" => "Dine personlige opgaver og huskeliste.",
+                                        "sv" => "Dina personliga uppgifter och kom-ihåg-lista.",
+                                        "no" => "Dine personlige oppgaver og huskeliste.",
+                                        "da" => "Dine personlige opgaver og huskeliste.",
                                         _ => "Your personal checklist and todo items."
                                     }
                                 }
@@ -707,9 +707,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                     if active_todos.is_empty() {
                                         p { class: "text-sm text-muted-foreground m-0 py-2",
                                             match locale.as_str() {
-                                                "SE" => "Inga kvarstående uppgifter! 🎉",
-                                                "NO" => "Ingen gjenværende oppgaver! 🎉",
-                                                "DK" => "Ingen udestående opgaver! 🎉",
+                                                "sv" => "Inga kvarstående uppgifter! 🎉",
+                                                "no" => "Ingen gjenværende oppgaver! 🎉",
+                                                "da" => "Ingen udestående opgaver! 🎉",
                                                 _ => "All tasks completed! 🎉"
                                             }
                                         }
@@ -744,9 +744,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                         input {
                                             r#type: "text",
                                             placeholder: match locale.as_str() {
-                                                "SE" => "Skriv ny uppgift...",
-                                                "NO" => "Skriv ny oppgave...",
-                                                "DK" => "Skriv ny opgave...",
+                                                "sv" => "Skriv ny uppgift...",
+                                                "no" => "Skriv ny oppgave...",
+                                                "da" => "Skriv ny opgave...",
                                                 _ => "Write new todo..."
                                             },
                                             class: "flex-1 px-3 py-1.5 text-xs rounded-lg border border-border bg-white/[0.02] text-foreground outline-none focus:border-primary",
@@ -791,9 +791,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                 }
                                 components::CardDescription {
                                     match locale.as_str() {
-                                        "SE" => "Registrerad arbetstid för idag.",
-                                        "NO" => "Registrert arbeidstid for i dag.",
-                                        "DK" => "Registreret arbejdstid for i dag.",
+                                        "sv" => "Registrerad arbetstid för idag.",
+                                        "no" => "Registrert arbeidstid for i dag.",
+                                        "da" => "Registreret arbejdstid for i dag.",
                                         _ => "Logged working hours for today."
                                     }
                                 }
@@ -805,9 +805,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                     span { class: "text-4xl font-extrabold text-foreground", "{today_hours}" }
                                     span { class: "text-xs font-semibold uppercase tracking-wider text-muted-foreground",
                                         match locale.as_str() {
-                                            "SE" => "timmar rapporterade",
-                                            "NO" => "timer rapportert",
-                                            "DK" => "timer rapporteret",
+                                            "sv" => "timmar rapporterade",
+                                            "no" => "timer rapportert",
+                                            "da" => "timer rapporteret",
                                             _ => "hours reported"
                                         }
                                     }
@@ -817,9 +817,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                     onclick: move |_| active_section.set("time".to_string()),
                                     span {
                                         match locale.as_str() {
-                                            "SE" => "Visa tidrapport",
-                                            "NO" => "Vis tidsrapport",
-                                            "DK" => "Vis tidsrapport",
+                                            "sv" => "Visa tidrapport",
+                                            "no" => "Vis tidsrapport",
+                                            "da" => "Vis tidsrapport",
                                             _ => "View timesheet"
                                         }
                                     }
@@ -845,9 +845,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                 }
                                 components::CardDescription {
                                     match locale.as_str() {
-                                        "SE" => "Snabböversikt över vårdtagare och omsorgsloggar.",
-                                        "NO" => "Hurtigoversikt over brukere og omsorgslogger.",
-                                        "DK" => "Hurtigt overblik over borgere og omsorgslogger.",
+                                        "sv" => "Snabböversikt över vårdtagare och omsorgsloggar.",
+                                        "no" => "Hurtigoversikt over brukere og omsorgslogger.",
+                                        "da" => "Hurtigt overblik over borgere og omsorgslogger.",
                                         _ => "Quick overview of clients and care logs."
                                     }
                                 }
@@ -861,9 +861,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                         span {
                                             class: "text-sm font-medium",
                                             match locale.as_str() {
-                                                "SE" => "Antal vårdtagare",
-                                                "NO" => "Antall brukere",
-                                                "DK" => "Antal borgere",
+                                                "sv" => "Antal vårdtagare",
+                                                "no" => "Antall brukere",
+                                                "da" => "Antal borgere",
                                                 _ => "Active clients"
                                             }
                                         }
@@ -878,9 +878,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                     onclick: move |_| active_section.set("assistance".to_string()),
                                     span {
                                         match locale.as_str() {
-                                            "SE" => "Öppna omsorgsportal",
-                                            "NO" => "Åpne omsorgsportal",
-                                            "DK" => "Åbn omsorgsportal",
+                                            "sv" => "Öppna omsorgsportal",
+                                            "no" => "Åpne omsorgsportal",
+                                            "da" => "Åbn omsorgsportal",
                                             _ => "Open care portal"
                                         }
                                     }
@@ -906,9 +906,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                 }
                                 components::CardDescription {
                                     match locale.as_str() {
-                                        "SE" => "Översikt av kurser och ditt schema.",
-                                        "NO" => "Oversikt over kurs og din timeplan.",
-                                        "DK" => "Oversigt over kurser og dit skema.",
+                                        "sv" => "Översikt av kurser och ditt schema.",
+                                        "no" => "Oversikt over kurs og din timeplan.",
+                                        "da" => "Oversigt over kurser og dit skema.",
                                         _ => "Overview of academic courses and timetable."
                                     }
                                 }
@@ -922,9 +922,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                         span {
                                             class: "text-sm font-medium",
                                             match locale.as_str() {
-                                                "SE" => "Mina kurser",
-                                                "NO" => "Mine kurs",
-                                                "DK" => "Mine kurser",
+                                                "sv" => "Mina kurser",
+                                                "no" => "Mine kurs",
+                                                "da" => "Mine kurser",
                                                 _ => "My courses"
                                             }
                                         }
@@ -938,9 +938,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                         span {
                                             class: "text-sm font-medium",
                                             match locale.as_str() {
-                                                "SE" => "Schematillfällen",
-                                                "NO" => "Timeplantimer",
-                                                "DK" => "Skematimer",
+                                                "sv" => "Schematillfällen",
+                                                "no" => "Timeplantimer",
+                                                "da" => "Skematimer",
                                                 _ => "Timetable slots"
                                             }
                                         }
@@ -955,9 +955,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                     onclick: move |_| active_section.set("school".to_string()),
                                     span {
                                         match locale.as_str() {
-                                            "SE" => "Öppna skolportal",
-                                            "NO" => "Åpne skoleportal",
-                                            "DK" => "Åbn skoleportal",
+                                            "sv" => "Öppna skolportal",
+                                            "no" => "Åpne skoleportal",
+                                            "da" => "Åbn skoleportal",
                                             _ => "Open school portal"
                                         }
                                     }
@@ -983,9 +983,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                 }
                                 components::CardDescription {
                                     match locale.as_str() {
-                                        "SE" => "Status för skolbiblioteket.",
-                                        "NO" => "Status for skolebiblioteket.",
-                                        "DK" => "Status for skolebiblioteket.",
+                                        "sv" => "Status för skolbiblioteket.",
+                                        "no" => "Status for skolebiblioteket.",
+                                        "da" => "Status for skolebiblioteket.",
                                         _ => "Catalog status of school library."
                                     }
                                 }
@@ -999,9 +999,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                         span {
                                             class: "text-sm font-medium",
                                             match locale.as_str() {
-                                                "SE" => "Böcker i katalog",
-                                                "NO" => "Bøker i katalog",
-                                                "DK" => "Bøger i katalog",
+                                                "sv" => "Böcker i katalog",
+                                                "no" => "Bøker i katalog",
+                                                "da" => "Bøger i katalog",
                                                 _ => "Catalog books"
                                             }
                                         }
@@ -1015,9 +1015,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                         span {
                                             class: "text-sm font-medium",
                                             match locale.as_str() {
-                                                "SE" => "Tillgängliga exemplar",
-                                                "NO" => "Tilgjengelige eksemplarer",
-                                                "DK" => "Tilgængelige eksemplarer",
+                                                "sv" => "Tillgängliga exemplar",
+                                                "no" => "Tilgjengelige eksemplarer",
+                                                "da" => "Tilgængelige eksemplarer",
                                                 _ => "Available copies"
                                             }
                                         }
@@ -1034,9 +1034,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                     },
                                     span {
                                         match locale.as_str() {
-                                            "SE" => "Hantera bibliotek",
-                                            "NO" => "Administrer bibliotek",
-                                            "DK" => "Administrer bibliotek",
+                                            "sv" => "Hantera bibliotek",
+                                            "no" => "Administrer bibliotek",
+                                            "da" => "Administrer bibliotek",
                                             _ => "Manage library"
                                         }
                                     }
@@ -1062,9 +1062,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                 }
                                 components::CardDescription {
                                     match locale.as_str() {
-                                        "SE" => "Skolavgifter, fakturering och ekonomisk status.",
-                                        "NO" => "Skolepenger, fakturering og økonomisk status.",
-                                        "DK" => "Skolepenge, fakturering og økonomisk status.",
+                                        "sv" => "Skolavgifter, fakturering och ekonomisk status.",
+                                        "no" => "Skolepenger, fakturering og økonomisk status.",
+                                        "da" => "Skolepenge, fakturering og økonomisk status.",
                                         _ => "Tuition invoices, billing, and account balances."
                                     }
                                 }
@@ -1075,9 +1075,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                     class: "flex flex-col gap-4 py-2",
                                     p { class: "text-xs text-muted-foreground m-0 leading-relaxed",
                                         match locale.as_str() {
-                                            "SE" => "Se fakturor, registrera inbetalningar och ställ ut nya fordringar.",
-                                            "NO" => "Se fakturaer, registrer innbetalinger og utsted nye krav.",
-                                            "DK" => "Se fakturaer, registrer indbetalinger og udsted nye krav.",
+                                            "sv" => "Se fakturor, registrera inbetalningar och ställ ut nya fordringar.",
+                                            "no" => "Se fakturaer, registrer innbetalinger og utsted nye krav.",
+                                            "da" => "Se fakturaer, registrer indbetalinger og udsted nye krav.",
                                             _ => "Review school billing invoices, track incoming tuition, and dispatch claims."
                                         }
                                     }
@@ -1089,9 +1089,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                     },
                                     span {
                                         match locale.as_str() {
-                                            "SE" => "Hantera ekonomi",
-                                            "NO" => "Administrer økonomi",
-                                            "DK" => "Administrer økonomi",
+                                            "sv" => "Hantera ekonomi",
+                                            "no" => "Administrer økonomi",
+                                            "da" => "Administrer økonomi",
                                             _ => "Manage billing"
                                         }
                                     }
@@ -1127,9 +1127,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                         }
                         components::CardDescription {
                             match locale.as_str() {
-                                "SE" => "Välj vilka paneler som ska visas på din översiktssida.",
-                                "NO" => "Velg hvilke paneler som skal vises på oversiktssiden din.",
-                                "DK" => "Vælg hvilke paneler der skal vises på din oversigtsside.",
+                                "sv" => "Välj vilka paneler som ska visas på din översiktssida.",
+                                "no" => "Velg hvilke paneler som skal vises på oversiktssiden din.",
+                                "da" => "Vælg hvilke paneler der skal vises på din oversigtsside.",
                                 _ => "Choose which widgets you want to show on your overview dashboard."
                             }
                         }
@@ -1194,9 +1194,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                             variant: components::ButtonVariant::Secondary,
                             onclick: move |_| show_customize_modal.set(false),
                             match locale.as_str() {
-                                "SE" => "Stäng",
-                                "NO" => "Lukk",
-                                "DK" => "Luk",
+                                "sv" => "Stäng",
+                                "no" => "Lukk",
+                                "da" => "Luk",
                                 _ => "Close"
                             }
                         }

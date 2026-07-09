@@ -61,13 +61,13 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
     let is_school = modules_val.get("school").and_then(|v| v.as_bool()).unwrap_or(false);
     
     let mut language = use_signal(|| {
-        let raw = settings_val.get("language").and_then(|v| v.as_str()).unwrap_or("US");
+        let raw = settings_val.get("language").and_then(|v| v.as_str()).unwrap_or("en");
         match raw.to_lowercase().as_str() {
-            "sv" | "se" => "SE",
-            "no" | "nb" | "nn" => "NO",
-            "da" | "dk" => "DK",
-            "fi" => "FI",
-            _ => "US",
+            "sv" | "se" => "sv",
+            "no" | "nb" | "nn" => "no",
+            "da" | "dk" => "da",
+            "fi" => "fi",
+            _ => "en",
         }.to_string()
     });
     let mut timezone = use_signal(|| {
@@ -321,11 +321,11 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
                                         save_settings();
                                     }
                                 },
-                                option { value: "SE", "{t(\"settings-languages-sv\", &props.locale)}" }
-                                option { value: "NO", "{t(\"settings-languages-no\", &props.locale)}" }
-                                option { value: "DK", "{t(\"settings-languages-da\", &props.locale)}" }
-                                option { value: "FI", "{t(\"settings-languages-fi\", &props.locale)}" }
-                                option { value: "US", "{t(\"settings-languages-en\", &props.locale)}" }
+                                option { value: "sv", "{t(\"settings-languages-sv\", &props.locale)}" }
+                                option { value: "no", "{t(\"settings-languages-no\", &props.locale)}" }
+                                option { value: "da", "{t(\"settings-languages-da\", &props.locale)}" }
+                                option { value: "fi", "{t(\"settings-languages-fi\", &props.locale)}" }
+                                option { value: "en", "{t(\"settings-languages-en\", &props.locale)}" }
                             }
                         }
 
