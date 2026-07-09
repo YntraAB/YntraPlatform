@@ -5,97 +5,107 @@ use crate::infra::time::sleep_ms;
 
 #[uniffi::export]
 pub async fn run_hardware_auth_simulation(session_id: String, provider: String) -> Result<(), YntraError> {
-    sleep_ms(600).await;
+    #[cfg(not(debug_assertions))]
     {
-        let conn = database::acquire_connection().await?;
-        conn.execute(
-            "UPDATE bankid_auth_sessions SET status = 'polling', progress = 20.0 WHERE id = ?1",
-            crate::params![&session_id],
-        ).await?;
-    }
-    notify_observers();
-
-    sleep_ms(1500).await;
-    
-    let mut resolved_user_info = None;
-    {
-        let conn = database::acquire_connection().await?;
-        let mut stmt = conn.prepare("SELECT id, siths_card_id, nfc_badge_uid, siths_public_key FROM users").await?;
-        let mut rows = stmt.query(()).await?;
-        while let Some(row) = rows.next().await? {
-            let uid: String = row.get(0)?;
-            let siths: Option<String> = row.get(1)?;
-            let nfc: Option<String> = row.get(2)?;
-            let pubkey: Option<String> = row.get(3)?;
-            
-            let has_siths = siths.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
-            let has_nfc = nfc.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
-            
-            if (provider == "siths" && has_siths)
-                || (provider == "nfc" && has_nfc)
-                || (provider == "card_or_badge" && (has_siths || has_nfc))
-            {
-                resolved_user_info = Some((uid, pubkey));
-                break;
-            }
-        }
+        let _ = session_id;
+        let _ = provider;
+        return Err(YntraError::AuthError("Hardware authentication simulation is disabled in release builds".to_string()));
     }
 
-    if let Some((uid, pubkey_opt)) = resolved_user_info {
+    #[cfg(debug_assertions)]
+    {
+        sleep_ms(600).await;
         {
             let conn = database::acquire_connection().await?;
             conn.execute(
-                "UPDATE bankid_auth_sessions SET status = 'reading', progress = 60.0 WHERE id = ?1",
+                "UPDATE bankid_auth_sessions SET status = 'polling', progress = 20.0 WHERE id = ?1",
                 crate::params![&session_id],
             ).await?;
         }
         notify_observers();
 
-        sleep_ms(600).await;
-
-        let challenge_opt = {
+        sleep_ms(1500).await;
+        
+        let mut resolved_user_info = None;
+        {
             let conn = database::acquire_connection().await?;
-            conn.query_row(
-                "SELECT challenge FROM bankid_auth_sessions WHERE id = ?1",
-                crate::params![&session_id],
-                |r| r.get::<Option<String>>(0)
-            ).await.ok().flatten()
-        };
+            let mut stmt = conn.prepare("SELECT id, siths_card_id, nfc_badge_uid, siths_public_key FROM users").await?;
+            let mut rows = stmt.query(()).await?;
+            while let Some(row) = rows.next().await? {
+                let uid: String = row.get(0)?;
+                let siths: Option<String> = row.get(1)?;
+                let nfc: Option<String> = row.get(2)?;
+                let pubkey: Option<String> = row.get(3)?;
+                
+                let has_siths = siths.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
+                let has_nfc = nfc.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
+                
+                if (provider == "siths" && has_siths)
+                    || (provider == "nfc" && has_nfc)
+                    || (provider == "card_or_badge" && (has_siths || has_nfc))
+                {
+                    resolved_user_info = Some((uid, pubkey));
+                    break;
+                }
+            }
+        }
 
-        if let (Some(challenge_hex), Some(pubkey_hex)) = (challenge_opt, pubkey_opt) {
-            let challenge_bytes = const_hex::decode(&challenge_hex).unwrap_or_default();
-            
-            let seed_val = if uid == "user-1" { 1 } else { 2 };
-            let signing_key = ed25519_dalek::SigningKey::from_bytes(&[seed_val; 32]);
-            
-            use ed25519_dalek::Signer;
-            let signature = signing_key.sign(&challenge_bytes);
-            let sig_hex = const_hex::encode(signature.to_bytes());
-            
-            crate::services::auth::bankid::verify_hardware_auth_signature(session_id, pubkey_hex, sig_hex).await?;
-        } else {
+        if let Some((uid, pubkey_opt)) = resolved_user_info {
             {
                 let conn = database::acquire_connection().await?;
                 conn.execute(
-                    "UPDATE bankid_auth_sessions SET status = 'error', progress = 0.0, error_message = 'login-hw-error-missing-crypto-params' WHERE id = ?1",
+                    "UPDATE bankid_auth_sessions SET status = 'reading', progress = 60.0 WHERE id = ?1",
                     crate::params![&session_id],
                 ).await?;
             }
             notify_observers();
-            return Err(YntraError::AuthError("Cryptographic parameters missing during hardware simulation".to_string()));
+
+            sleep_ms(600).await;
+
+            let challenge_opt = {
+                let conn = database::acquire_connection().await?;
+                conn.query_row(
+                    "SELECT challenge FROM bankid_auth_sessions WHERE id = ?1",
+                    crate::params![&session_id],
+                    |r| r.get::<Option<String>>(0)
+                ).await.ok().flatten()
+            };
+
+            if let (Some(challenge_hex), Some(pubkey_hex)) = (challenge_opt, pubkey_opt) {
+                let challenge_bytes = const_hex::decode(&challenge_hex).unwrap_or_default();
+                
+                let seed_val = if uid == "user-1" { 1 } else { 2 };
+                let signing_key = ed25519_dalek::SigningKey::from_bytes(&[seed_val; 32]);
+                
+                use ed25519_dalek::Signer;
+                let signature = signing_key.sign(&challenge_bytes);
+                let sig_hex = const_hex::encode(signature.to_bytes());
+                
+                crate::services::auth::bankid::verify_hardware_auth_signature(session_id, pubkey_hex, sig_hex).await?;
+            } else {
+                {
+                    let conn = database::acquire_connection().await?;
+                    conn.execute(
+                        "UPDATE bankid_auth_sessions SET status = 'error', progress = 0.0, error_message = 'login-hw-error-missing-crypto-params' WHERE id = ?1",
+                        crate::params![&session_id],
+                    ).await?;
+                }
+                notify_observers();
+                return Err(YntraError::AuthError("Cryptographic parameters missing during hardware simulation".to_string()));
+            }
+        } else {
+            {
+                let conn = database::acquire_connection().await?;
+                conn.execute(
+                    "UPDATE bankid_auth_sessions SET status = 'error', progress = 0.0, error_message = 'login-hw-error-card-unregistered:simulation' WHERE id = ?1",
+                    crate::params![&session_id],
+                ).await?;
+            }
+            notify_observers();
         }
-    } else {
-        {
-            let conn = database::acquire_connection().await?;
-            conn.execute(
-                "UPDATE bankid_auth_sessions SET status = 'error', progress = 0.0, error_message = 'login-hw-error-card-unregistered:simulation' WHERE id = ?1",
-                crate::params![&session_id],
-            ).await?;
-        }
-        notify_observers();
+        
+        Ok(())
     }
-    
-    Ok(())
 }
 
 #[uniffi::export]
@@ -124,34 +134,43 @@ pub async fn complete_hardware_auth(session_id: String, pin: String) -> Result<(
 
     #[cfg(target_arch = "wasm32")]
     {
-        if pin.is_empty() {
-            return Err(YntraError::AuthError("PIN cannot be empty".to_string()));
+        #[cfg(not(debug_assertions))]
+        {
+            let _ = pin;
+            return Err(YntraError::AuthError("Hardware authentication simulation is disabled in release builds".to_string()));
         }
 
-        let mut resolved_user_info = None;
-        let mut stmt = conn.prepare("SELECT id, siths_public_key FROM users").await?;
-        let mut rows = stmt.query(()).await?;
-        while let Some(row) = rows.next().await? {
-            let uid: String = row.get(0)?;
-            let pubkey: Option<String> = row.get(1)?;
-            if let Some(pk) = pubkey {
-                resolved_user_info = Some((uid, pk));
-                break;
+        #[cfg(debug_assertions)]
+        {
+            if pin.is_empty() {
+                return Err(YntraError::AuthError("PIN cannot be empty".to_string()));
             }
-        }
 
-        if let Some((uid, pubkey_hex)) = resolved_user_info {
-            let challenge_bytes = const_hex::decode(&challenge_hex).unwrap_or_default();
-            let seed_val = if uid == "user-1" { 1 } else { 2 };
-            let signing_key = ed25519_dalek::SigningKey::from_bytes(&[seed_val; 32]);
-            
-            use ed25519_dalek::Signer;
-            let signature = signing_key.sign(&challenge_bytes);
-            let sig_hex = const_hex::encode(signature.to_bytes());
-            
-            crate::services::auth::bankid::verify_hardware_auth_signature(session_id, pubkey_hex, sig_hex).await?;
-        } else {
-            return Err(YntraError::NotFoundError("No user registered for smart card authentication".to_string()));
+            let mut resolved_user_info = None;
+            let mut stmt = conn.prepare("SELECT id, siths_public_key FROM users").await?;
+            let mut rows = stmt.query(()).await?;
+            while let Some(row) = rows.next().await? {
+                let uid: String = row.get(0)?;
+                let pubkey: Option<String> = row.get(1)?;
+                if let Some(pk) = pubkey {
+                    resolved_user_info = Some((uid, pk));
+                    break;
+                }
+            }
+
+            if let Some((uid, pubkey_hex)) = resolved_user_info {
+                let challenge_bytes = const_hex::decode(&challenge_hex).unwrap_or_default();
+                let seed_val = if uid == "user-1" { 1 } else { 2 };
+                let signing_key = ed25519_dalek::SigningKey::from_bytes(&[seed_val; 32]);
+                
+                use ed25519_dalek::Signer;
+                let signature = signing_key.sign(&challenge_bytes);
+                let sig_hex = const_hex::encode(signature.to_bytes());
+                
+                crate::services::auth::bankid::verify_hardware_auth_signature(session_id, pubkey_hex, sig_hex).await?;
+            } else {
+                return Err(YntraError::NotFoundError("No user registered for smart card authentication".to_string()));
+            }
         }
     }
 
