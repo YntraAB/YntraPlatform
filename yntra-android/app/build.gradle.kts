@@ -44,6 +44,11 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+    sourceSets {
+        getByName("main") {
+            java.srcDirs("src/main/java", "../../generated_bindings/uniffi")
+        }
+    }
 }
 
 dependencies {
@@ -66,24 +71,31 @@ tasks.register<Copy>("copyRustJniLibs") {
     description = "Copies the compiled Rust shared libraries into the JNI libs folder"
     group = "build"
     
-    from("../target/aarch64-linux-android/release") {
-        include("libyntra_core.so")
-        into("jniLibs/arm64-v8a")
-    }
-    from("../target/armv7-linux-androideabi/release") {
-        include("libyntra_core.so")
-        into("jniLibs/armeabi-v7a")
-    }
-    from("../target/i686-linux-android/release") {
-        include("libyntra_core.so")
-        into("jniLibs/x86")
-    }
-    from("../target/x86_64-linux-android/release") {
-        include("libyntra_core.so")
-        into("jniLibs/x86_64")
+    val targetAbis = mapOf(
+        "aarch64-linux-android" to "arm64-v8a",
+        "armv7-linux-androideabi" to "armeabi-v7a",
+        "i686-linux-android" to "x86",
+        "x86_64-linux-android" to "x86_64"
+    )
+    
+    for ((rustTarget, androidAbi) in targetAbis) {
+        // Find which profile directory contains the library (prefer release)
+        val releaseFile = file("../target/$rustTarget/release/libyntra_core.so")
+        val debugFile = file("../target/$rustTarget/debug/libyntra_core.so")
+        val sourceDir = if (releaseFile.exists()) {
+            "../target/$rustTarget/release"
+        } else {
+            "../target/$rustTarget/debug"
+        }
+        
+        from(sourceDir) {
+            include("libyntra_core.so")
+            into("jniLibs/$androidAbi")
+        }
     }
     
     into("src/main")
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
 }
 
 tasks.configureEach {
@@ -91,3 +103,4 @@ tasks.configureEach {
         dependsOn("copyRustJniLibs")
     }
 }
+

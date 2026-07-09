@@ -36,3 +36,9 @@ Thumbs.db
 *.db-wal
 *.db-shm
 
+# Generated bindings
+/generated_bindings/
+
+# Compiled CSS output
+/yntra-ui/public/tailwind.css
+
