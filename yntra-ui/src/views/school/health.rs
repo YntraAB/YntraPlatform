@@ -337,44 +337,7 @@ pub fn HealthRegistry(props: HealthRegistryProps) -> Element {
                                                     let reason = visit_reason.read().clone();
                                                     let treat = treatment.read().clone();
                                                     let note_text = Some(notes.read().clone()).filter(|s| !s.is_empty());
-                                                    let now_str = std::time::SystemTime::now()
-                                                        .duration_since(std::time::UNIX_EPOCH)
-                                                        .map(|d| {
-                                                            let secs = d.as_secs() as i64;
-                                                            let mut days = secs / 86400;
-                                                            let mut year = 1970;
-                                                            loop {
-                                                                let leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
-                                                                let days_in_year = if leap { 366 } else { 365 };
-                                                                if days >= days_in_year {
-                                                                    days -= days_in_year;
-                                                                    year += 1;
-                                                                } else {
-                                                                    break;
-                                                                }
-                                                            }
-                                                            let leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
-                                                            let month_lengths = if leap {
-                                                                [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-                                                            } else {
-                                                                [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-                                                            };
-                                                            let mut month = 1;
-                                                            for &length in month_lengths.iter() {
-                                                                if days >= length {
-                                                                    days -= length;
-                                                                    month += 1;
-                                                                } else {
-                                                                    break;
-                                                                }
-                                                            }
-                                                            let day = days + 1;
-                                                            let tod_secs = secs % 86400;
-                                                            let hour = tod_secs / 3600;
-                                                            let min = (tod_secs % 3600) / 60;
-                                                            format!("{:04}-{:02}-{:02} {:02}:{:02}", year, month, day, hour, min)
-                                                        })
-                                                        .unwrap_or_else(|_| "2026-07-04 12:00".to_string());
+                                                    let now_str = yntra_core::infra::time::get_current_datetime_str();
                                                         
                                                     let req_id = requester_user_id.clone();
                                                     spawn(async move {
