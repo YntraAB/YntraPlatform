@@ -241,11 +241,12 @@ pub async fn delete_workspace_via_hub(requester_user_id: String, workspace_id: S
         conn.execute("DELETE FROM notes WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
         conn.execute("DELETE FROM teams WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
 
-        // Delete messages & time reports & reports & todos
+        // Delete messages & time reports & reports & todos & entities
         conn.execute("DELETE FROM messages WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
         conn.execute("DELETE FROM time_reports WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
         conn.execute("DELETE FROM reports WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
         conn.execute("DELETE FROM todos WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+        conn.execute("DELETE FROM entities WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
 
         // Delete school child tables first
         conn.execute("DELETE FROM student_parents WHERE student_id IN (SELECT id FROM student_profiles WHERE workspace_id = ?1)", crate::params![&workspace_id]).await?;

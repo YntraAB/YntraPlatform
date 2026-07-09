@@ -95,7 +95,7 @@ pub fn AttendanceTracker(props: AttendanceTrackerProps) -> Element {
                                     {
                                         let student_id = s.id.clone();
                                         let record = attendance_map.get(&student_id).copied();
-                                        let current_status = record.map(|r| r.status.clone()).unwrap_or_else(|| "present".to_string());
+                                        let current_status = record.map(|r| r.status.clone()).unwrap_or_else(|| "unmarked".to_string());
                                         let ws = workspace_id.clone();
                                         let cid = course_id.clone();
                                         let adate = attendance_date.read().clone();

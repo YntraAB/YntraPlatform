@@ -38,20 +38,24 @@ pub(crate) fn check_permission_for_auth(
         }
     }
 
-    if auth.role == "rektor" || auth.role == "principal" || auth.role == "principal_head" {
+    const PRINCIPAL_ROLES: &[&str] = &["rektor", "principal", "principal_head"];
+    if PRINCIPAL_ROLES.contains(&auth.role.as_str()) {
         return true;
     }
+
+    const NURSE_ROLES: &[&str] = &[
+        "nurse",
+        "skoterska",
+        "sköterska",
+        "helsesykepleier",
+        "helsesøster",
+        "sundhedsplejerske",
+        "terveydenhoitaja",
+        "kouluterveydenhoitaja",
+        "hoitaja",
+    ];
     let r = auth.role.as_str();
-    if r.contains("nurse")
-        || r.contains("skoterska")
-        || r.contains("sköterska")
-        || r.contains("helsesykepleier")
-        || r.contains("helsesøster")
-        || r.contains("sundhedsplejerske")
-        || r.contains("terveydenhoitaja")
-        || r.contains("kouluterveydenhoitaja")
-        || r.contains("hoitaja")
-    {
+    if NURSE_ROLES.iter().any(|role| r.contains(role)) {
         return permission == "can_access_health_records" || permission == "can_submit_reports";
     }
 

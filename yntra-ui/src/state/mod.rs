@@ -475,7 +475,8 @@ pub fn use_init_app_state() -> AppState {
                                         "courses" | "assignments" | "submissions" | "attendance_records" | "timetable_slots" 
                                         | "health_records" | "health_incidents" | "school_invoices" | "school_payments" 
                                         | "library_books" | "library_lending_logs" | "student_profiles" => update_school = true,
-                                        "audit_logs" | "bankid_auth_sessions" => {},
+                                        "audit_logs" => {},
+                                        "bankid_auth_sessions" => {},
                                         _ => {
                                             update_todos = true;
                                             update_users = true;
@@ -491,7 +492,7 @@ pub fn use_init_app_state() -> AppState {
                                             update_school = true;
                                         }
                                     }
-                                    if table != "audit_logs" && table != "bankid_auth_sessions" {
+                                    if table != "audit_logs" {
                                         update_db = true;
                                     }
                                 }
