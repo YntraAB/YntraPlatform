@@ -6,6 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Home
@@ -57,10 +58,11 @@ fun AppNavigationShell() {
     val messagingViewModel: MessagingViewModel = viewModel()
     val directoryViewModel: DirectoryViewModel = viewModel()
     val settingsViewModel: SettingsViewModel = viewModel()
+    val jobsViewModel: JobsViewModel = viewModel()
 
     val workspace by settingsViewModel.workspace.collectAsState()
     val isLoggedIn by authViewModel.isLoggedIn.collectAsState()
-    var currentScreen by remember { mutableStateOf("home") } // "home" | "messaging" | "directory" | "settings"
+    var currentScreen by remember { mutableStateOf("home") } // "home" | "messaging" | "directory" | "jobs" | "settings"
 
     val activeModules = remember(workspace) {
         val modules = mutableMapOf<String, Boolean>()
@@ -81,12 +83,16 @@ fun AppNavigationShell() {
 
     val isMessagingActive = workspace == null || activeModules["messaging"] == true
     val isDirectoryActive = workspace == null || activeModules["directory"] == true
+    val isJobsActive = workspace == null || activeModules["jobs"] == true
 
-    LaunchedEffect(isMessagingActive, isDirectoryActive) {
+    LaunchedEffect(isMessagingActive, isDirectoryActive, isJobsActive) {
         if (currentScreen == "messaging" && !isMessagingActive) {
             currentScreen = "home"
         }
         if (currentScreen == "directory" && !isDirectoryActive) {
+            currentScreen = "home"
+        }
+        if (currentScreen == "jobs" && !isJobsActive) {
             currentScreen = "home"
         }
     }
@@ -142,6 +148,21 @@ fun AppNavigationShell() {
                             )
                         )
                     }
+                    if (isJobsActive) {
+                        NavigationBarItem(
+                            selected = currentScreen == "jobs",
+                            onClick = { currentScreen = "jobs" },
+                            icon = { Icon(imageVector = Icons.Default.Build, contentDescription = "Jobs") },
+                            label = { Text("Jobs") },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = Color.White,
+                                selectedTextColor = Color.White,
+                                unselectedIconColor = Color(0xFF94A3B8),
+                                unselectedTextColor = Color(0xFF94A3B8),
+                                indicatorColor = Color(0xFF4F46E5)
+                            )
+                        )
+                    }
                     NavigationBarItem(
                         selected = currentScreen == "settings",
                         onClick = { currentScreen = "settings" },
@@ -167,6 +188,7 @@ fun AppNavigationShell() {
                     "home" -> DashboardView(viewModel = dashboardViewModel)
                     "messaging" -> if (isMessagingActive) MessagingView(viewModel = messagingViewModel) else DashboardView(viewModel = dashboardViewModel)
                     "directory" -> if (isDirectoryActive) DirectoryView(viewModel = directoryViewModel) else DashboardView(viewModel = dashboardViewModel)
+                    "jobs" -> if (isJobsActive) JobsView(viewModel = jobsViewModel) else DashboardView(viewModel = dashboardViewModel)
                     "settings" -> SettingsView(viewModel = settingsViewModel, onLogout = { authViewModel.logout() })
                 }
             }
