@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
@@ -59,10 +60,11 @@ fun AppNavigationShell() {
     val directoryViewModel: DirectoryViewModel = viewModel()
     val settingsViewModel: SettingsViewModel = viewModel()
     val jobsViewModel: JobsViewModel = viewModel()
+    val careViewModel: CareViewModel = viewModel()
 
     val workspace by settingsViewModel.workspace.collectAsState()
     val isLoggedIn by authViewModel.isLoggedIn.collectAsState()
-    var currentScreen by remember { mutableStateOf("home") } // "home" | "messaging" | "directory" | "jobs" | "settings"
+    var currentScreen by remember { mutableStateOf("home") } // "home" | "messaging" | "directory" | "jobs" | "care" | "settings"
 
     val activeModules = remember(workspace) {
         val modules = mutableMapOf<String, Boolean>()
@@ -84,8 +86,9 @@ fun AppNavigationShell() {
     val isMessagingActive = workspace == null || activeModules["messaging"] == true
     val isDirectoryActive = workspace == null || activeModules["directory"] == true
     val isJobsActive = workspace == null || activeModules["jobs"] == true
+    val isCareActive = workspace == null || activeModules["assistance"] == true
 
-    LaunchedEffect(isMessagingActive, isDirectoryActive, isJobsActive) {
+    LaunchedEffect(isMessagingActive, isDirectoryActive, isJobsActive, isCareActive) {
         if (currentScreen == "messaging" && !isMessagingActive) {
             currentScreen = "home"
         }
@@ -93,6 +96,9 @@ fun AppNavigationShell() {
             currentScreen = "home"
         }
         if (currentScreen == "jobs" && !isJobsActive) {
+            currentScreen = "home"
+        }
+        if (currentScreen == "care" && !isCareActive) {
             currentScreen = "home"
         }
     }
@@ -163,6 +169,21 @@ fun AppNavigationShell() {
                             )
                         )
                     }
+                    if (isCareActive) {
+                        NavigationBarItem(
+                            selected = currentScreen == "care",
+                            onClick = { currentScreen = "care" },
+                            icon = { Icon(imageVector = Icons.Default.Favorite, contentDescription = "Care") },
+                            label = { Text("Care") },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = Color.White,
+                                selectedTextColor = Color.White,
+                                unselectedIconColor = Color(0xFF94A3B8),
+                                unselectedTextColor = Color(0xFF94A3B8),
+                                indicatorColor = Color(0xFF4F46E5)
+                            )
+                        )
+                    }
                     NavigationBarItem(
                         selected = currentScreen == "settings",
                         onClick = { currentScreen = "settings" },
@@ -189,6 +210,7 @@ fun AppNavigationShell() {
                     "messaging" -> if (isMessagingActive) MessagingView(viewModel = messagingViewModel) else DashboardView(viewModel = dashboardViewModel)
                     "directory" -> if (isDirectoryActive) DirectoryView(viewModel = directoryViewModel) else DashboardView(viewModel = dashboardViewModel)
                     "jobs" -> if (isJobsActive) JobsView(viewModel = jobsViewModel) else DashboardView(viewModel = dashboardViewModel)
+                    "care" -> if (isCareActive) CareView(viewModel = careViewModel) else DashboardView(viewModel = dashboardViewModel)
                     "settings" -> SettingsView(viewModel = settingsViewModel, onLogout = { authViewModel.logout() })
                 }
             }
