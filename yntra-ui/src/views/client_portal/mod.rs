@@ -5,11 +5,9 @@ use yntra_core::WorkspaceUser;
 use yntra_core::Workspace;
 use crate::components;
 
-pub mod care;
 pub mod moving;
 pub mod general;
 
-pub use care::CarePortal;
 pub use moving::MovingPortal;
 pub use general::GeneralPortal;
 
@@ -33,16 +31,13 @@ impl PartialEq for ClientPortalViewProps {
 #[component]
 pub fn ClientPortalView(props: ClientPortalViewProps) -> Element {
     let active_user = props.active_user;
-    let users = props.users.clone();
     let clients = props.clients.clone();
-    let events = props.events.clone();
-    let db_trigger = props.db_trigger;
     let trigger_jobs = props.trigger_jobs;
     let workspace = props.workspace.clone();
 
     // Parse the template from workspace settings
     let settings_val: serde_json::Value = serde_json::from_str(&workspace.settings).unwrap_or_default();
-    let template = settings_val.get("template").and_then(|v| v.as_str()).unwrap_or("care").to_string();
+    let template = settings_val.get("template").and_then(|v| v.as_str()).unwrap_or("general").to_string();
 
     let current_client = clients
         .iter()
@@ -55,15 +50,6 @@ pub fn ClientPortalView(props: ClientPortalViewProps) -> Element {
                 }
         })
         .cloned();
-
-    let client_id = current_client.as_ref().map(|c| c.id.clone()).unwrap_or_else(|| "client-1".to_string());
-    let client_user_id = active_user.id.clone();
-
-    // Filter events for the client
-    let todays_events: Vec<TeamEvent> = events
-        .into_iter()
-        .filter(|ev| ev.user_id == Some(client_user_id.clone()))
-        .collect();
 
     rsx! {
         div { class: "space-y-6 animate-in fade-in duration-300",
@@ -85,7 +71,7 @@ pub fn ClientPortalView(props: ClientPortalViewProps) -> Element {
                                     && let Some(ref care) = client.care_level {
                                         "Vårdnivå: {care}"
                                 } else {
-                                    "Här är en översikt av din vård och assistans."
+                                    "Här är en översikt av din portal."
                                 }
                             }
                         }
@@ -98,18 +84,10 @@ pub fn ClientPortalView(props: ClientPortalViewProps) -> Element {
                     active_user_id: active_user.id.clone(),
                     db_trigger: trigger_jobs
                 }
-            } else if template == "general" {
+            } else {
                 GeneralPortal {
                     active_user_id: active_user.id.clone(),
                     db_trigger: trigger_jobs
-                }
-            } else {
-                CarePortal {
-                    client_id,
-                    active_user,
-                    users,
-                    todays_events,
-                    db_trigger
                 }
             }
         }

@@ -8,7 +8,6 @@ pub mod sidebar;
 pub mod add_event_modal;
 pub mod time_off_modal;
 pub mod detail_modal;
-pub mod timetable;
 
 pub use month::MonthView;
 pub use week::WeekView;
@@ -104,39 +103,6 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
 
     let is_admin = active_user.role == "platform_admin" || active_user.role == "admin";
 
-    let db_trig_val = *db_trigger.read();
-    let courses_res = use_resource(move || {
-        let _ = db_trig_val;
-        async move {
-            yntra_core::get_courses("user-1".to_string()).await.unwrap_or_default()
-        }
-    });
-    let courses = courses_res.read().clone().unwrap_or_default();
-
-    let req_id_timetable = active_user.id.clone();
-    let slots_res = use_resource(move || {
-        let _ = db_trig_val;
-        let r_id = req_id_timetable.clone();
-        async move {
-            yntra_core::get_timetable_slots(r_id).await.unwrap_or_default()
-        }
-    });
-    let mut slots = slots_res.read().clone().unwrap_or_default();
-    slots.sort_by(|a, b| a.start_time.cmp(&b.start_time));
-
-    let mut selected_course_id = use_signal(String::new);
-    let selected_day = use_signal(|| 1); // 1 = Monday
-    let timetable_start_time = use_signal(|| "08:30".to_string());
-    let timetable_end_time = use_signal(|| "09:45".to_string());
-    let classroom_input = use_signal(String::new);
-    let sync_success = use_signal(|| false);
-
-    use_effect(move || {
-        let cs = courses_res.read().clone().unwrap_or_default();
-        if selected_course_id.read().is_empty() && !cs.is_empty() {
-            selected_course_id.set(cs[0].id.clone());
-        }
-    });
 
     // Setup initial select defaults if empty
     let effect_teams = teams.clone();
@@ -472,7 +438,7 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
 
                             // View mode selector
                             div { class: "flex items-center rounded-lg bg-secondary/30 p-1 border border-border/50",
-                                for item in ["month", "week", "day", "agenda", "timetable"].iter().map(|mode| {
+                                for item in ["month", "week", "day", "agenda"].iter().map(|mode| {
                                     let mode_str = mode.to_string();
                                     let is_active = *calendar_view_mode.read() == mode_str;
                                     let active_class = if is_active {
@@ -601,21 +567,6 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
                             };
 
                             match calendar_view_mode.read().as_str() {
-                                "timetable" => rsx! {
-                                    timetable::TimetableSlotsView {
-                                        active_user: active_user.clone(),
-                                        courses,
-                                        slots,
-                                        selected_course_id,
-                                        selected_day,
-                                        timetable_start_time,
-                                        timetable_end_time,
-                                        classroom_input,
-                                        sync_success,
-                                        db_trigger,
-                                        locale: props.locale.clone(),
-                                    }
-                                },
                                 "week" => {
                                     let week_has_today = week_cells.iter().any(|c| c.is_today);
                                     rsx! {

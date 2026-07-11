@@ -61,7 +61,6 @@ pub fn EmployeeLayout() -> Element {
     let workspaces = state.workspaces.read().clone().unwrap_or_default();
     let db_trigger = state.db_trigger;
     let trigger_jobs = state.trigger_jobs;
-    let trigger_school = state.trigger_school;
 
     // Check module activation from JSON
     let modules_active_val: serde_json::Value =
@@ -82,14 +81,6 @@ pub fn EmployeeLayout() -> Element {
         .get("time")
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
-    let journals_enabled = modules_active_val
-        .get("journals")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let medications_enabled = modules_active_val
-        .get("medications")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
     let directory_enabled = modules_active_val
         .get("directory")
         .and_then(|v| v.as_bool())
@@ -106,22 +97,7 @@ pub fn EmployeeLayout() -> Element {
         .get("todos")
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
-    let academics_enabled = modules_active_val
-        .get("academics")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let attendance_enabled = modules_active_val
-        .get("attendance")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let finance_enabled = modules_active_val
-        .get("finance")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let library_enabled = modules_active_val
-        .get("library")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+
 
 
     let current_role = active_user.role.clone();
@@ -172,12 +148,6 @@ pub fn EmployeeLayout() -> Element {
     let time_filter_status = state.time_filter_status;
     let selected_time_reports = state.selected_time_reports;
     let time_search_query = state.time_search_query;
-    let selected_client_id = state.selected_client_id;
-    let med_name = state.med_name;
-    let med_dosage = state.med_dosage;
-    let med_frequency = state.med_frequency;
-    let med_instructions = state.med_instructions;
-    let journal_content = state.journal_content;
     let settings_save_status = state.settings_save_status;
     let account_save_status = state.account_save_status;
     let settings_tab = state.settings_tab;
@@ -246,16 +216,10 @@ pub fn EmployeeLayout() -> Element {
                 scheduling_enabled,
                 notes_enabled,
                 time_enabled,
-                journals_enabled,
-                medications_enabled,
                 directory_enabled,
                 reporting_enabled,
                 jobs_enabled,
                 todos_enabled,
-                academics_enabled,
-                attendance_enabled,
-                finance_enabled,
-                library_enabled,
             }
 
             // 2. Main Content Frame
@@ -364,32 +328,7 @@ pub fn EmployeeLayout() -> Element {
                                         }
                                     }
                                 }
-                                "assistance" | "journals" | "medications" => {
-                                    let init_tab = match active_section.read().as_str() {
-                                        "journals" => "journal",
-                                        "medications" => "medication",
-                                        _ => "journal"
-                                    }.to_string();
-                                    rsx! {
-                                        views::AssistanceView {
-                                            active_user: active_user.clone(),
-                                            users: users.clone(),
-                                            clients: clients.clone(),
-                                            selected_client_id: selected_client_id,
-                                            med_name: med_name,
-                                            med_dosage: med_dosage,
-                                            med_frequency: med_frequency,
-                                            med_instructions: med_instructions,
-                                            journal_content: journal_content,
-                                            db_trigger: db_trigger,
-                                            is_client,
-                                            locale: auth_region.read().clone(),
-                                            journals_enabled,
-                                            medications_enabled,
-                                            initial_tab: Some(init_tab),
-                                        }
-                                    }
-                                }
+
                                 "jobs" => {
                                     rsx! {
                                         views::JobsView {
@@ -400,23 +339,7 @@ pub fn EmployeeLayout() -> Element {
                                     }
                                 }
 
-                                "academics" | "attendance" | "finance" | "library" => {
-                                    let init_tab = match active_section.read().as_str() {
-                                        "academics" => "courses",
-                                        "attendance" => "attendance",
-                                        "finance" => "billing",
-                                        "library" => "library",
-                                        _ => "dashboard"
-                                    }.to_string();
-                                    rsx! {
-                                        views::SchoolView {
-                                            active_user: active_user.clone(),
-                                            db_trigger: trigger_school,
-                                            locale: auth_region.read().clone(),
-                                            initial_tab: Some(init_tab),
-                                        }
-                                    }
-                                }
+
                                 "settings" => {
                                     rsx! {
                                         views::SettingsView {
@@ -432,14 +355,8 @@ pub fn EmployeeLayout() -> Element {
                                             scheduling_enabled,
                                             notes_enabled,
                                             time_enabled,
-                                            journals_enabled,
-                                            medications_enabled,
                                             directory_enabled,
                                             reporting_enabled,
-                                            academics_enabled,
-                                            attendance_enabled,
-                                            finance_enabled,
-                                            library_enabled,
                                             account_name: account_name,
                                             account_phone: account_phone,
                                             account_preferences: account_preferences,
@@ -448,6 +365,93 @@ pub fn EmployeeLayout() -> Element {
                                         }
                                     }
                                 }
+                                "todos" => {
+                                    let use_custom = get_block_use_custom_ui(&workspace, "todos");
+                                    if use_custom {
+                                        rsx! {
+                                            views::TodosView {
+                                                active_user_id: active_user_id.clone(),
+                                                auth_region: auth_region,
+                                                db_trigger: db_trigger,
+                                            }
+                                        }
+                                    } else {
+                                        rsx! {
+                                            views::DynamicBlockView {
+                                                active_user_id: active_user_id.read().clone(),
+                                                workspace_id: workspace.id.clone(),
+                                                block_id: active_section.read().clone(),
+                                                db_trigger: db_trigger,
+                                                locale: auth_region.read().clone(),
+                                            }
+                                        }
+                                    }
+                                }
+
+                                "notes" => {
+                                    let use_custom = get_block_use_custom_ui(&workspace, "notes");
+                                    if use_custom {
+                                        rsx! {
+                                            views::NotesView {
+                                                active_user: active_user.clone(),
+                                                users: users.clone(),
+                                                teams: teams.clone(),
+                                                notes: notes.clone(),
+                                                selected_note_team_id: selected_note_team_id,
+                                                note_subject: state.note_subject,
+                                                note_content: state.note_content,
+                                                active_note_id: selected_note_id,
+                                                is_composing: is_note_composing,
+                                                locale: auth_region.read().clone(),
+                                            }
+                                        }
+                                    } else {
+                                        rsx! {
+                                            views::DynamicBlockView {
+                                                active_user_id: active_user_id.read().clone(),
+                                                workspace_id: workspace.id.clone(),
+                                                block_id: active_section.read().clone(),
+                                                db_trigger: db_trigger,
+                                                locale: auth_region.read().clone(),
+                                            }
+                                        }
+                                    }
+                                }
+
+                                "reporting" => {
+                                    let use_custom = get_block_use_custom_ui(&workspace, "reporting");
+                                    if use_custom {
+                                        let reports = state.reports.read().clone().unwrap_or_default();
+                                        rsx! {
+                                            views::ReportingView {
+                                                active_user: active_user.clone(),
+                                                users: users.clone(),
+                                                reports: reports,
+                                                report_tab: state.report_tab,
+                                                report_status_filter: state.report_status_filter,
+                                                report_type_filter: state.report_type_filter,
+                                                report_type: state.report_type,
+                                                report_date: state.report_date,
+                                                report_subject: state.report_subject,
+                                                report_description: state.report_description,
+                                                report_is_anonymous: state.report_is_anonymous,
+                                                selected_report_id: state.selected_report_id,
+                                                show_report_details_modal: state.show_report_details_modal,
+                                            }
+                                        }
+                                    } else {
+                                        rsx! {
+                                            views::DynamicBlockView {
+                                                active_user_id: active_user_id.read().clone(),
+                                                workspace_id: workspace.id.clone(),
+                                                block_id: active_section.read().clone(),
+                                                db_trigger: db_trigger,
+                                                locale: auth_region.read().clone(),
+                                            }
+                                        }
+                                    }
+                                }
+
                                 "client_portal" => {
                                     rsx! {
                                         views::ClientPortalView {
@@ -506,4 +510,13 @@ pub fn EmployeeLayout() -> Element {
             }
         }
     }
+}
+
+fn get_block_use_custom_ui(workspace: &yntra_core::Workspace, block_id: &str) -> bool {
+    let block_settings_val: serde_json::Value =
+        serde_json::from_str(&workspace.block_settings).unwrap_or_default();
+    block_settings_val.get(block_id)
+        .and_then(|b| b.get("use_custom_ui"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true)
 }

@@ -9,6 +9,7 @@ async fn execute_migration_sql(conn: &DbConnection, sql: &str) -> Result<(), Ynt
             if err_str.contains("duplicate column name") 
                 || err_str.contains("already exists") 
                 || err_str.contains("duplicate column") 
+                || err_str.contains("no such table")
             {
                 Ok(())
             } else {
@@ -27,6 +28,7 @@ async fn execute_migration_batch(conn: &DbConnection, sql: &str) -> Result<(), Y
                 || err_str.contains("already exists") 
                 || err_str.contains("duplicate column") 
                 || err_str.contains("duplicate table")
+                || err_str.contains("no such table")
             {
                 Ok(())
             } else {
@@ -422,4 +424,39 @@ pub async fn run_schema_migrations(conn: &DbConnection, current_version: i32) ->
         version = 9;
     }
     Ok(version)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_migration_sanity() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+
+        let db = libsql::Builder::new_local(":memory:").build().await.unwrap();
+        let raw_conn = db.connect().unwrap();
+        let mut conn = crate::database::DbConnection {
+            inner: Some(raw_conn),
+            in_transaction: std::sync::atomic::AtomicBool::new(false),
+            _permit: None,
+        };
+
+        crate::database::schema::tables::create_initial_tables(&conn).await.unwrap();
+
+        conn.execute("PRAGMA user_version = 0", ()).await.unwrap();
+
+        let migrated_version = run_schema_migrations(&conn, 0).await.unwrap();
+        assert_eq!(migrated_version, 9);
+        
+        let has_oauth_sessions = conn.query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='oauth_auth_sessions'",
+            (),
+            |r| r.get::<i64>(0),
+        ).await.unwrap_or(0) > 0;
+        assert!(has_oauth_sessions);
+
+        // Take the inner connection out to prevent it from being recycled into the global pool
+        let _ = conn.inner.take();
+    }
 }

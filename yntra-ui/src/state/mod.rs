@@ -18,7 +18,6 @@ pub struct AppState {
     pub db_trigger: Signal<u32>,
     pub trigger_jobs: Signal<u32>,
     pub trigger_todos: Signal<u32>,
-    pub trigger_school: Signal<u32>,
     pub trigger_clients: Signal<u32>,
     pub active_user_id: Signal<String>,
     pub active_section: Signal<String>,
@@ -166,7 +165,6 @@ pub fn use_init_app_state() -> AppState {
     let mut trigger_clients = use_signal(|| 0);
     let mut trigger_reports = use_signal(|| 0);
     let mut trigger_workspaces = use_signal(|| 0);
-    let mut trigger_school = use_signal(|| 0);
     let active_user_id = use_signal(|| "user-1".to_string());
     let active_section = use_signal(|| "dashboard".to_string());
     let needs_setup = use_signal(|| false);
@@ -456,7 +454,6 @@ pub fn use_init_app_state() -> AppState {
                                 let mut update_reports = false;
                                 let mut update_workspaces = false;
                                 let mut update_jobs = false;
-                                let mut update_school = false;
                                 let mut update_db = false;
 
                                 for table in pending_tables.drain() {
@@ -472,9 +469,6 @@ pub fn use_init_app_state() -> AppState {
                                         "reports" => update_reports = true,
                                         "workspaces" => update_workspaces = true,
                                         "job_tickets" | "move_inventory" | "move_quotes" => update_jobs = true,
-                                        "courses" | "assignments" | "submissions" | "attendance_records" | "timetable_slots" 
-                                        | "health_records" | "health_incidents" | "school_invoices" | "school_payments" 
-                                        | "library_books" | "library_lending_logs" | "student_profiles" => update_school = true,
                                         "audit_logs" => {},
                                         "bankid_auth_sessions" => {},
                                         _ => {
@@ -489,7 +483,6 @@ pub fn use_init_app_state() -> AppState {
                                             update_reports = true;
                                             update_workspaces = true;
                                             update_jobs = true;
-                                            update_school = true;
                                         }
                                     }
                                     if table != "audit_logs" {
@@ -508,7 +501,6 @@ pub fn use_init_app_state() -> AppState {
                                  if update_reports { let next = *trigger_reports.read() + 1; trigger_reports.set(next); }
                                  if update_workspaces { let next = *trigger_workspaces.read() + 1; trigger_workspaces.set(next); }
                                  if update_jobs { let next = *trigger_jobs.read() + 1; trigger_jobs.set(next); }
-                                 if update_school { let next = *trigger_school.read() + 1; trigger_school.set(next); }
                                  if update_db { let next = *db_trigger.read() + 1; db_trigger.set(next); }
                             } else {
                                 break;
@@ -714,7 +706,6 @@ pub fn use_init_app_state() -> AppState {
 
         trigger_jobs,
         trigger_todos,
-        trigger_school,
         trigger_clients,
         
         workspace,

@@ -107,38 +107,6 @@ pub static BLOCK_REGISTRY: &[BlockDefinition] = &[
         ]
     },
     BlockDefinition {
-        id: "journals",
-        name: "Care Journals",
-        navigation: &[
-            BlockNavItem {
-                id: "journals",
-                label_key: "section-journals",
-                path: "journals",
-                icon: "notes",
-                allowed_roles: Some(&["platform_admin", "admin", "user", "assistant"]),
-                section: "main",
-                children: None,
-                badge_key: None,
-            }
-        ]
-    },
-    BlockDefinition {
-        id: "medications",
-        name: "Medications",
-        navigation: &[
-            BlockNavItem {
-                id: "medications",
-                label_key: "section-medications",
-                path: "medications",
-                icon: "pill",
-                allowed_roles: Some(&["platform_admin", "admin", "user", "assistant"]),
-                section: "main",
-                children: None,
-                badge_key: None,
-            }
-        ]
-    },
-    BlockDefinition {
         id: "client_portal",
         name: "Client Portal",
         navigation: &[
@@ -212,70 +180,6 @@ pub static BLOCK_REGISTRY: &[BlockDefinition] = &[
                 path: "todos",
                 icon: "check-square",
                 allowed_roles: None,
-                section: "main",
-                children: None,
-                badge_key: None,
-            }
-        ]
-    },
-    BlockDefinition {
-        id: "academics",
-        name: "Academics",
-        navigation: &[
-            BlockNavItem {
-                id: "academics",
-                label_key: "section-academics",
-                path: "academics",
-                icon: "graduation-cap",
-                allowed_roles: Some(&["platform_admin", "admin", "user", "assistant", "parent"]),
-                section: "main",
-                children: None,
-                badge_key: None,
-            }
-        ]
-    },
-    BlockDefinition {
-        id: "attendance",
-        name: "Attendance",
-        navigation: &[
-            BlockNavItem {
-                id: "attendance",
-                label_key: "section-attendance",
-                path: "attendance",
-                icon: "check-circle",
-                allowed_roles: Some(&["platform_admin", "admin", "user", "assistant", "parent"]),
-                section: "main",
-                children: None,
-                badge_key: None,
-            }
-        ]
-    },
-    BlockDefinition {
-        id: "finance",
-        name: "Finance",
-        navigation: &[
-            BlockNavItem {
-                id: "finance",
-                label_key: "section-finance",
-                path: "finance",
-                icon: "credit-card",
-                allowed_roles: Some(&["platform_admin", "admin", "user", "assistant", "parent"]),
-                section: "main",
-                children: None,
-                badge_key: None,
-            }
-        ]
-    },
-    BlockDefinition {
-        id: "library",
-        name: "Library",
-        navigation: &[
-            BlockNavItem {
-                id: "library",
-                label_key: "section-library",
-                path: "library",
-                icon: "book-open",
-                allowed_roles: Some(&["platform_admin", "admin", "user", "assistant", "parent"]),
                 section: "main",
                 children: None,
                 badge_key: None,

@@ -24,14 +24,8 @@ pub struct BlockSettingsProps {
     pub scheduling_enabled: bool,
     pub notes_enabled: bool,
     pub time_enabled: bool,
-    pub journals_enabled: bool,
-    pub medications_enabled: bool,
     pub directory_enabled: bool,
     pub reporting_enabled: bool,
-    pub academics_enabled: bool,
-    pub attendance_enabled: bool,
-    pub finance_enabled: bool,
-    pub library_enabled: bool,
     pub active_user: yntra_core::WorkspaceUser,
     pub account_preferences: Signal<String>,
     pub workspace: Workspace,
@@ -237,8 +231,8 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
                             let block_icon = block.icon.clone();
                             
                             let static_block_ids = vec![
-                                "messaging", "scheduling", "notes", "time", "journals", "medications",
-                                "directory", "reporting", "academics", "attendance", "finance", "library"
+                                "messaging", "scheduling", "notes", "time",
+                                "directory", "reporting", "jobs", "todos"
                             ];
                             let is_static = static_block_ids.contains(&block_id.as_str());
 
@@ -260,14 +254,19 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
                                 serde_json::from_str(&props.workspace.modules_active).unwrap_or_default();
                             
                             let is_enabled = if block_id == "assistance" {
-                                props.journals_enabled || props.medications_enabled
+                                false
                             } else {
                                 modules_active_val.get(&block_id)
                                     .and_then(|v| v.as_bool())
                                     .unwrap_or_else(|| get_module_default_state(&block_id))
                             };
                             
-                            let is_configurable = block.id == "scheduling" || block.id == "messaging" || block.id == "finance";
+                            let is_configurable = block.id == "scheduling"
+                                || block.id == "messaging"
+                                || block.id == "finance"
+                                || block.id == "todos"
+                                || block.id == "notes"
+                                || block.id == "reporting";
                             
                             rsx! {
                                 components::Card {
@@ -349,8 +348,8 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
                     let cfg_block_icon = cfg_block.icon.clone();
                     
                     let static_block_ids = vec![
-                        "messaging", "scheduling", "notes", "time", "journals", "medications",
-                        "directory", "reporting", "academics", "attendance", "finance", "library"
+                        "messaging", "scheduling", "notes", "time",
+                        "directory", "reporting", "jobs", "todos"
                     ];
                     let is_static = static_block_ids.contains(&cfg_block_id.as_str());
 
@@ -416,6 +415,14 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
                                             db_trigger: props.db_trigger,
                                             locale: props.locale.clone(),
                                         }
+                                    } else if cfg_block_id == "todos" || cfg_block_id == "notes" || cfg_block_id == "reporting" {
+                                        BlockCustomUiSettings {
+                                            block_id: cfg_block_id.clone(),
+                                            settings_save_status: props.settings_save_status,
+                                            db_trigger: props.db_trigger,
+                                            workspace: props.workspace.clone(),
+                                            locale: props.locale.clone(),
+                                        }
                                     } else {
                                         div { class: "flex flex-col items-center justify-center py-12 text-center",
                                             div { class: "mb-4 rounded-full bg-muted p-4",
@@ -436,6 +443,89 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[derive(Props, Clone)]
+struct BlockCustomUiSettingsProps {
+    block_id: String,
+    settings_save_status: Signal<String>,
+    db_trigger: Signal<u32>,
+    workspace: Workspace,
+    locale: String,
+}
+
+impl PartialEq for BlockCustomUiSettingsProps {
+    fn eq(&self, _other: &Self) -> bool {
+        false
+    }
+}
+
+#[component]
+fn BlockCustomUiSettings(props: BlockCustomUiSettingsProps) -> Element {
+    let block_id = props.block_id.clone();
+    let mut db_trigger = props.db_trigger;
+    let mut settings_save_status = props.settings_save_status;
+
+    let block_settings_val: serde_json::Value =
+        serde_json::from_str(&props.workspace.block_settings).unwrap_or_default();
+    
+    let use_custom_ui = block_settings_val.get(&block_id)
+        .and_then(|b| b.get("use_custom_ui"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+
+    rsx! {
+        div { class: "space-y-4 py-2",
+            div { class: "flex items-center justify-between gap-4 p-4 rounded-xl border border-border/60 bg-muted/20",
+                div { class: "flex-1",
+                    h5 { class: "text-sm font-bold text-foreground m-0", "Use Specialized App Interface" }
+                    p { class: "text-xs text-muted-foreground m-0 mt-1 leading-relaxed", 
+                        "When enabled, the app renders a tailored, high-fidelity experience optimized for this module. When disabled, it uses generic forms and database schemas defined by the administrator."
+                    }
+                }
+                components::Switch {
+                    checked: use_custom_ui,
+                    onchange: {
+                        let block_id = block_id.clone();
+                        let workspace_id = props.workspace.id.clone();
+                        let user_id = use_context::<crate::state::AppState>().active_user_id.read().clone();
+                        let ws_block_settings_raw = props.workspace.block_settings.clone();
+                        
+                        move |val| {
+                            settings_save_status.set("saving".to_string());
+                            let mut settings_map: serde_json::Value = serde_json::from_str(&ws_block_settings_raw).unwrap_or_default();
+                            
+                            let mut block_map = settings_map.get(&block_id)
+                                .and_then(|b| b.as_object())
+                                .cloned()
+                                .unwrap_or_default();
+                                
+                            block_map.insert("use_custom_ui".to_string(), serde_json::Value::Bool(val));
+                            if let Some(obj) = settings_map.as_object_mut() {
+                                obj.insert(block_id.clone(), serde_json::Value::Object(block_map));
+                            }
+                            
+                            let settings_str = serde_json::to_string(&settings_map).unwrap_or_default();
+                            let ws_id = workspace_id.clone();
+                            let requester_uid = user_id.clone();
+                            spawn(async move {
+                                match yntra_core::update_workspace_block_settings(requester_uid, ws_id, settings_str).await {
+                                    Ok(_) => {
+                                        let current = *db_trigger.read();
+                                        db_trigger.set(current + 1);
+                                        settings_save_status.set("saved".to_string());
+                                    }
+                                    Err(e) => {
+                                        settings_save_status.set(format!("error:{}", e));
+                                    }
+                                }
+                            });
                         }
                     }
                 }

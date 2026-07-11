@@ -45,12 +45,7 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
         }
     });
 
-    // Fetch courses list for School templates
-    let courses_res = use_resource(move || {
-        async move {
-            yntra_core::get_courses("user-1".to_string()).await.unwrap_or_default()
-        }
-    });
+
 
     // Form inputs local states
     let mut category = use_signal(|| "assistance_time".to_string());
@@ -232,7 +227,6 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
 
     let template = template_type_res.read().as_ref().and_then(|r| r.as_ref().ok().copied()).unwrap_or(yntra_core::WorkspaceTemplateType::General);
     let cats_list = get_categories_for_template(template);
-    let courses = courses_res.read().clone().unwrap_or_default();
     let quick_cats = match template {
         yntra_core::WorkspaceTemplateType::Care => vec!["assistance_time", "on_call", "administrative_hours", "meeting", "other"],
         yntra_core::WorkspaceTemplateType::School => vec!["lectures", "lab_slots", "grading_hours", "meeting", "other"],
@@ -435,7 +429,6 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
                     vehicle_id_text,
                     cargo_volume_text,
                     destination_text,
-                    courses,
                     locale: props.locale.clone(),
                 }
 
@@ -554,16 +547,7 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
 
                             let metadata_str = serde_json::to_string(&metadata_obj).unwrap_or_else(|_| "{}".to_string());
                             
-                            let courses_list = courses_res.read().clone().unwrap_or_default();
-                            let title_val = if let Some(ref cid) = course_val {
-                                if let Some(course) = courses_list.iter().find(|c| &c.id == cid) {
-                                    format!("{} - {}", course.name, t(&format!("scheduler-categories-{}", cat_val), &props.locale))
-                                } else {
-                                    t(&format!("scheduler-categories-{}", cat_val), &props.locale)
-                                }
-                            } else {
-                                t(&format!("scheduler-categories-{}", cat_val), &props.locale)
-                            };
+                            let title_val = t(&format!("scheduler-categories-{}", cat_val), &props.locale);
 
                             let state = use_context::<crate::state::AppState>();
                             let active_user_id = state.active_user_id.read().clone();

@@ -25,7 +25,6 @@ pub use services::directory::*;
 pub use services::auth::*;
 pub use services::jobs::*;
 pub use services::audit::*;
-pub use services::school::*;
 pub use services::role_templates::*;
 pub use services::dynamic_entities::*;
 

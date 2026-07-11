@@ -21,16 +21,10 @@ pub struct LayoutSidebarProps {
     pub scheduling_enabled: bool,
     pub notes_enabled: bool,
     pub time_enabled: bool,
-    pub journals_enabled: bool,
-    pub medications_enabled: bool,
     pub directory_enabled: bool,
     pub reporting_enabled: bool,
     pub jobs_enabled: bool,
     pub todos_enabled: bool,
-    pub academics_enabled: bool,
-    pub attendance_enabled: bool,
-    pub finance_enabled: bool,
-    pub library_enabled: bool,
 }
 
 impl PartialEq for LayoutSidebarProps {
@@ -50,7 +44,6 @@ pub fn LayoutSidebar(props: LayoutSidebarProps) -> Element {
     let mut globalsearch_open = props.globalsearch_open;
     let mut selected_note_team_id = props.selected_note_team_id;
     let mut time_group_expanded = props.time_group_expanded;
-    let mut filter_categories = props.filter_categories;
     let auth_region = props.auth_region;
     let mut dropdown_open = use_signal(|| false);
 
@@ -189,18 +182,11 @@ pub fn LayoutSidebar(props: LayoutSidebarProps) -> Element {
                             "messaging" => props.messaging_enabled,
                             "scheduling" => props.scheduling_enabled,
                             "notes" => props.notes_enabled,
-                            "assistance" => props.journals_enabled || props.medications_enabled,
-                            "journals" => props.journals_enabled,
-                            "medications" => props.medications_enabled,
-                            "client_portal" => props.journals_enabled || props.medications_enabled,
+                            "client_portal" => false,
                             "directory" => props.directory_enabled,
                             "reporting" => props.reporting_enabled,
                             "jobs" => props.jobs_enabled,
                             "todos" => props.todos_enabled,
-                            "academics" => props.academics_enabled,
-                            "attendance" => props.attendance_enabled,
-                            "finance" => props.finance_enabled,
-                            "library" => props.library_enabled,
                             _ => false,
                         }
                     };
@@ -347,57 +333,7 @@ pub fn LayoutSidebar(props: LayoutSidebarProps) -> Element {
                 }
             }
             
-            // Filter Section
-            if props.journals_enabled || props.medications_enabled {
-                div { class: "border-t border-border px-3 py-3 flex flex-col gap-3",
-                    h4 { class: "m-0 text-xs font-bold uppercase tracking-wide text-muted-foreground/60 px-3",
-                        "{t(\"sidebar-show\", &auth_region.read())}"
-                    }
-                    div { class: "flex flex-col gap-1",
-                        for (id, label, color) in [
-                            ("schedule", t("sidebar-general-schedule", &auth_region.read()), "rgb(139, 92, 246)"),
-                            ("bookings", t("sidebar-bookings", &auth_region.read()), "rgb(59, 130, 246)"),
-                            ("personal", t("sidebar-personal", &auth_region.read()), "rgb(236, 72, 153)"),
-                            ("assistance", t("sidebar-assistance-time", &auth_region.read()), "rgb(245, 158, 11)"),
-                            ("medical", t("sidebar-medication-deviations", &auth_region.read()), "rgb(6, 182, 212)"),
-                        ].iter() {
-                            {
-                                let category_id = id.to_string();
-                                let is_checked = filter_categories.read().contains(&category_id);
-                                rsx! {
-                                    label {
-                                        key: "{category_id}",
-                                        class: "flex items-center gap-3 rounded-md px-3 py-1.5 transition-colors hover:bg-secondary cursor-pointer",
-                                        style: "user-select: none;",
-                                        input {
-                                            r#type: "checkbox",
-                                            checked: is_checked,
-                                            class: "h-4 w-4 rounded border-border bg-secondary text-primary focus:ring-primary cursor-pointer m-0",
-                                            onchange: move |e| {
-                                                let checked = e.value() == "true";
-                                                let mut list = filter_categories.read().clone();
-                                                if checked {
-                                                    if !list.contains(&category_id) {
-                                                        list.push(category_id.clone());
-                                                    }
-                                                } else {
-                                                    list.retain(|c| c != &category_id);
-                                                }
-                                                filter_categories.set(list);
-                                            }
-                                        }
-                                        span {
-                                            class: "h-2.5 w-2.5 rounded-full inline-block",
-                                            style: "background: {color};",
-                                        }
-                                        span { class: "text-sm text-muted-foreground", "{label}" }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+
     }
+}
 }

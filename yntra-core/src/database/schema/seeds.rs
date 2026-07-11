@@ -90,7 +90,6 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
         .map_err(|e| YntraError::SerializationError(e.to_string()))?;
 
     // 1. Seed Blocks (Static Metadata)
-    conn.execute("DELETE FROM blocks WHERE id = 'school'", ()).await?;
     if let Some(blocks) = data["blocks"].as_array() {
         seed_table(
             conn,

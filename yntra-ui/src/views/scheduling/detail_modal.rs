@@ -40,10 +40,7 @@ pub fn EventDetailModal(props: EventDetailModalProps) -> Element {
         }
     });
 
-    // Fetch courses list for School templates
-    let courses_res = use_resource(move || async move {
-        yntra_core::get_courses("user-1".to_string()).await.unwrap_or_default()
-    });
+
 
     if let Some(ref ev) = *show_event_detail_modal.read() {
         let ev_id = ev.id.clone();
@@ -53,17 +50,7 @@ pub fn EventDetailModal(props: EventDetailModalProps) -> Element {
         let metadata_obj = parse_metadata(&ev.metadata);
 
         let template = template_type_res.read().as_ref().and_then(|r| r.as_ref().ok().copied()).unwrap_or(yntra_core::WorkspaceTemplateType::General);
-        let courses = courses_res.read().clone().unwrap_or_default();
-        
-        let course_name = if let Some(ref cid) = metadata_obj.course_id {
-            if cid != "none" && !cid.is_empty() {
-                Some(courses.iter().find(|c| &c.id == cid).map(|c| c.name.clone()).unwrap_or_else(|| cid.clone()))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let course_name: Option<String> = None;
         
         let classroom = metadata_obj.classroom.clone().filter(|r| !r.trim().is_empty());
         let vehicle = metadata_obj.vehicle_id.clone().filter(|v| !v.trim().is_empty());

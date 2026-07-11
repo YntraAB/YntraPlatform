@@ -129,12 +129,6 @@ pub async fn get_workspace_template_type(workspace_id: String) -> Result<crate::
 
 fn get_default_settings_for_modules(modules_json: &str) -> String {
     let modules_val: serde_json::Value = serde_json::from_str(modules_json).unwrap_or_default();
-    let is_school = modules_val.get("school").and_then(|v| v.as_bool()).unwrap_or(false)
-        || modules_val.get("academics").and_then(|v| v.as_bool()).unwrap_or(false)
-        || modules_val.get("attendance").and_then(|v| v.as_bool()).unwrap_or(false)
-        || modules_val.get("finance").and_then(|v| v.as_bool()).unwrap_or(false)
-        || modules_val.get("library").and_then(|v| v.as_bool()).unwrap_or(false)
-        || modules_val.get("timetable").and_then(|v| v.as_bool()).unwrap_or(false);
     let is_assistance = modules_val.get("assistance").and_then(|v| v.as_bool()).unwrap_or(false)
         || modules_val.get("journals").and_then(|v| v.as_bool()).unwrap_or(false)
         || modules_val.get("medications").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -145,10 +139,7 @@ fn get_default_settings_for_modules(modules_json: &str) -> String {
 
     let mut settings_map = serde_json::Map::new();
     
-    if is_school {
-        let school_roles = super::role_templates::get_school_roles(is_scandi);
-        settings_map.insert("roles".to_string(), school_roles);
-    } else if is_moving_company {
+    if is_moving_company {
         let moving_roles = super::role_templates::get_moving_company_roles(is_scandi);
         settings_map.insert("roles".to_string(), moving_roles);
     } else if is_assistance {

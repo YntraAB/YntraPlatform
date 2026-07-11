@@ -234,32 +234,7 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
         }
     });
 
-    let user_id_courses = active_user.id.clone();
-    let courses = use_resource(move || {
-        let _trig = db_trigger.read();
-        let user_id = user_id_courses.clone();
-        async move {
-            yntra_core::get_courses(user_id).await.unwrap_or_default()
-        }
-    });
 
-    let user_id_timetable = active_user.id.clone();
-    let timetable = use_resource(move || {
-        let _trig = db_trigger.read();
-        let user_id = user_id_timetable.clone();
-        async move {
-            yntra_core::get_timetable_slots(user_id).await.unwrap_or_default()
-        }
-    });
-
-    let user_id_library = active_user.id.clone();
-    let library_books = use_resource(move || {
-        let _trig = db_trigger.read();
-        let user_id = user_id_library.clone();
-        async move {
-            yntra_core::get_library_books(user_id).await.unwrap_or_default()
-        }
-    });
 
     // Parse active modules from workspace
     let modules_active: serde_json::Value =
@@ -409,14 +384,9 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
         .map(|r| r.hours)
         .sum();
 
-    let course_count = courses.read().clone().unwrap_or_default().len();
-    let slot_count = timetable.read().clone().unwrap_or_default().len();
-
-    let (total_books, available_copies) = {
-        let books = library_books.read().clone().unwrap_or_default();
-        let copies: i32 = books.iter().map(|b| b.copies_available).sum();
-        (books.len(), copies)
-    };
+    let course_count = 0;
+    let slot_count = 0;
+    let (total_books, available_copies) = (0, 0);
 
     struct RenderedWidget {
         id: String,
