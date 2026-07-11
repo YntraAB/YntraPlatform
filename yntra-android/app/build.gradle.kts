@@ -64,6 +64,11 @@ dependencies {
     
     // JNA is required by UniFFI on Android
     implementation("net.java.dev.jna:jna:5.14.0@aar")
+
+    // Instrumented tests
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    androidTestImplementation("androidx.test:runner:1.5.2")
+    androidTestImplementation("androidx.test:rules:1.5.0")
 }
 
 // Automatically copy compiled Rust JNI .so libraries to the app's jniLibs folder on build

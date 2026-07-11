@@ -38,3 +38,12 @@ targets:
             cargo build -p yntra-core --release --target aarch64-apple-ios
           fi
           cargo run -p yntra-uniffi-bindgen
+
+  YntraIOSTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - YntraIOSTests
+    dependencies:
+      - target: YntraIOS
