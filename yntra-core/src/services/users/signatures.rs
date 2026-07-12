@@ -22,10 +22,18 @@ pub async fn ensure_user_role_signature_impl(
 ) -> Result<(), YntraError> {
     let needs_signature = role != "anonymous" && role != "deleted";
     if !needs_signature {
-        conn.execute(
-            "UPDATE users SET role_signature = NULL WHERE id = ?1",
+        let current_sig: Option<String> = conn.query_row(
+            "SELECT role_signature FROM users WHERE id = ?1",
             crate::params![user_id],
-        ).await?;
+            |r| r.get(0)
+        ).await.ok().flatten();
+        if current_sig.is_some() {
+            let now_ms = crate::infra::time::get_current_time_ms();
+            conn.execute(
+                "UPDATE users SET role_signature = NULL, updated_at = ?1, sync_status = 'pending' WHERE id = ?2",
+                crate::params![now_ms, user_id],
+            ).await?;
+        }
         return Ok(());
     }
 
@@ -60,9 +68,10 @@ pub async fn ensure_user_role_signature_impl(
             let pub_hex = &keys[0];
             let priv_hex = &keys[1];
             
+            let now_ms = crate::infra::time::get_current_time_ms();
             conn.execute(
-                "UPDATE workspaces SET creator_public_key = ?1 WHERE id = ?2",
-                crate::params![pub_hex, workspace_id],
+                "UPDATE workspaces SET creator_public_key = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
+                crate::params![pub_hex, now_ms, workspace_id],
             ).await?;
 
             crate::infra::crypto::set_local_secret(&private_key_setting, priv_hex).await?;
@@ -82,9 +91,10 @@ pub async fn ensure_user_role_signature_impl(
             private_key_array.copy_from_slice(&private_key_bytes[..32]);
             let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key_array);
             let pub_hex = const_hex::encode(signing_key.verifying_key().to_bytes());
+            let now_ms = crate::infra::time::get_current_time_ms();
             conn.execute(
-                "UPDATE workspaces SET creator_public_key = ?1 WHERE id = ?2",
-                crate::params![pub_hex, workspace_id],
+                "UPDATE workspaces SET creator_public_key = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
+                crate::params![pub_hex, now_ms, workspace_id],
             ).await?;
             *cached_pk = Some(pub_hex);
         }
@@ -95,10 +105,18 @@ pub async fn ensure_user_role_signature_impl(
     // 3. Generate role signature and save to users table
     if let Some(ref sk) = active_sk {
         let sig = crate::infra::crypto::generate_role_signature(sk, user_id, role, workspace_id)?;
-        conn.execute(
-            "UPDATE users SET role_signature = ?1 WHERE id = ?2",
-            crate::params![&sig, user_id],
-        ).await?;
+        let current_sig: Option<String> = conn.query_row(
+            "SELECT role_signature FROM users WHERE id = ?1",
+            crate::params![user_id],
+            |r| r.get(0)
+        ).await.ok().flatten();
+        if current_sig.as_ref() != Some(&sig) {
+            let now_ms = crate::infra::time::get_current_time_ms();
+            conn.execute(
+                "UPDATE users SET role_signature = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
+                crate::params![&sig, now_ms, user_id],
+            ).await?;
+        }
     }
 
     Ok(())

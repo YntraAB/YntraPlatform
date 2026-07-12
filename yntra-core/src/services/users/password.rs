@@ -104,7 +104,11 @@ pub async fn verify_email_password(email: String, password: String) -> Result<Op
                         prefs_val.as_object_mut().unwrap().insert("encrypted_workspace_key".to_string(), serde_json::Value::String(enc_key));
                         if let Ok(updated_prefs) = serde_json::to_string(&prefs_val) {
                             preferences = updated_prefs;
-                            let _ = conn.execute("UPDATE users SET preferences = ?1 WHERE id = ?2", crate::params![&preferences, row.get::<String>(0)?]).await;
+                            let now_ms = crate::infra::time::get_current_time_ms();
+                            let _ = conn.execute(
+                                "UPDATE users SET preferences = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
+                                crate::params![&preferences, now_ms, row.get::<String>(0)?]
+                            ).await;
                         }
                     }
                 }
