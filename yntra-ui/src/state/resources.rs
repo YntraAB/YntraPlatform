@@ -91,10 +91,11 @@ pub fn init_resources(
         let mut bg_err = background_error;
         let ws_val = workspace.read().clone();
         async move {
-            let modules_active_val: serde_json::Value = ws_val
-                .as_ref()
-                .and_then(|w| serde_json::from_str(&w.modules_active).ok())
-                .unwrap_or_default();
+            let ws = match ws_val {
+                Some(ws) => ws,
+                None => return Vec::new(),
+            };
+            let modules_active_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
             let enabled = modules_active_val.get("scheduling").and_then(|v| v.as_bool()).unwrap_or(true);
             if !enabled {
                 return Vec::new();
@@ -117,10 +118,11 @@ pub fn init_resources(
         let mut bg_err = background_error;
         let ws_val = workspace.read().clone();
         async move {
-            let modules_active_val: serde_json::Value = ws_val
-                .as_ref()
-                .and_then(|w| serde_json::from_str(&w.modules_active).ok())
-                .unwrap_or_default();
+            let ws = match ws_val {
+                Some(ws) => ws,
+                None => return Vec::new(),
+            };
+            let modules_active_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
             let enabled = modules_active_val.get("messaging").and_then(|v| v.as_bool()).unwrap_or(true);
             if !enabled {
                 return Vec::new();
@@ -143,10 +145,11 @@ pub fn init_resources(
         let mut bg_err = background_error;
         let ws_val = workspace.read().clone();
         async move {
-            let modules_active_val: serde_json::Value = ws_val
-                .as_ref()
-                .and_then(|w| serde_json::from_str(&w.modules_active).ok())
-                .unwrap_or_default();
+            let ws = match ws_val {
+                Some(ws) => ws,
+                None => return Vec::new(),
+            };
+            let modules_active_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
             let enabled = modules_active_val.get("notes").and_then(|v| v.as_bool()).unwrap_or(true);
             if !enabled {
                 return Vec::new();
@@ -167,10 +170,11 @@ pub fn init_resources(
         let mut bg_err = background_error;
         let ws_val = workspace.read().clone();
         async move {
-            let modules_active_val: serde_json::Value = ws_val
-                .as_ref()
-                .and_then(|w| serde_json::from_str(&w.modules_active).ok())
-                .unwrap_or_default();
+            let ws = match ws_val {
+                Some(ws) => ws,
+                None => return Vec::new(),
+            };
+            let modules_active_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
             let enabled = modules_active_val.get("time").and_then(|v| v.as_bool()).unwrap_or(true);
             if !enabled {
                 return Vec::new();
@@ -193,10 +197,11 @@ pub fn init_resources(
         let mut bg_err = background_error;
         let ws_val = workspace.read().clone();
         async move {
-            let modules_active_val: serde_json::Value = ws_val
-                .as_ref()
-                .and_then(|w| serde_json::from_str(&w.modules_active).ok())
-                .unwrap_or_default();
+            let ws = match ws_val {
+                Some(ws) => ws,
+                None => return Vec::new(),
+            };
+            let modules_active_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
             let enabled = modules_active_val.get("assistance").and_then(|v| v.as_bool()).unwrap_or(true)
                 || modules_active_val.get("journals").and_then(|v| v.as_bool()).unwrap_or(false)
                 || modules_active_val.get("medications").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -221,10 +226,11 @@ pub fn init_resources(
         let mut bg_err = background_error;
         let ws_val = workspace.read().clone();
         async move {
-            let modules_active_val: serde_json::Value = ws_val
-                .as_ref()
-                .and_then(|w| serde_json::from_str(&w.modules_active).ok())
-                .unwrap_or_default();
+            let ws = match ws_val {
+                Some(ws) => ws,
+                None => return Vec::new(),
+            };
+            let modules_active_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
             let enabled = modules_active_val.get("reporting").and_then(|v| v.as_bool()).unwrap_or(true);
             if !enabled {
                 return Vec::new();
