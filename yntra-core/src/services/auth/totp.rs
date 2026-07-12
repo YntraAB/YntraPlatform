@@ -8,38 +8,36 @@ pub fn generate_totp_secret() -> String {
 }
 
 #[uniffi::export]
-pub fn verify_user_totp(mut secret: String, mut code: String) -> bool {
+pub fn verify_user_totp(secret: String, mut code: String) -> bool {
     let timestamp = Utc::now().timestamp() as u64;
-    let res = verify_totp(secret.clone(), &code, timestamp);
-    secret.zeroize();
+    let res = verify_totp(secret, &code, timestamp);
     code.zeroize();
     res
 }
 
-fn verify_totp(mut secret: String, code: &str, timestamp: u64) -> bool {
-    let secret_bytes_res = Secret::Encoded(secret.clone()).to_bytes();
-    secret.zeroize();
+fn verify_totp(secret: String, code: &str, timestamp: u64) -> bool {
+    let secret_bytes_res = Secret::Encoded(secret).to_bytes();
 
     let mut secret_bytes = match secret_bytes_res {
         Ok(b) => b,
         Err(_) => return false,
     };
 
-    let totp = match TOTP::new(
+    let totp_res = TOTP::new(
         Algorithm::SHA1,
         6,
         1, // Skew: checks drift [-1, 0, 1]
         30,
         secret_bytes.clone(),
-    ) {
-        Ok(t) => t,
-        Err(_) => {
-            secret_bytes.zeroize();
-            return false;
-        }
-    };
+    );
 
     secret_bytes.zeroize();
+
+    let totp = match totp_res {
+        Ok(t) => t,
+        Err(_) => return false,
+    };
+
     totp.check(code, timestamp)
 }
 

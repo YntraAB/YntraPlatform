@@ -22,35 +22,42 @@ pub fn TodosView(props: TodosViewProps) -> Element {
     let region = props.auth_region.read().clone();
     let state = use_context::<AppState>();
     
-    let ws_res = state.workspace;
-    
-    // Fetch todos from FFI
+    // Fetch todos from core
     let uid_res = props.active_user_id.clone();
     let todos_resource = use_resource(move || {
         let _trig = *state.trigger_todos.read();
-        let ws_id = ws_res.read().as_ref().map(|w| w.id.clone()).unwrap_or_else(|| "workspace-1".to_string());
+        let ws_id = state.workspace_id.read().clone();
         let u = uid_res.clone();
         async move {
-            yntra_core::get_todos(u.read().clone(), ws_id).await.unwrap_or_default()
+            match yntra_core::get_todos(u.read().clone(), ws_id).await {
+                Ok(list) => list,
+                Err(_) => Vec::new(),
+            }
         }
     });
 
-    let todos = todos_resource.read().clone().unwrap_or_default();
+    let _todos = todos_resource.read().clone().unwrap_or_default();
     
     let mut new_todo_text = use_signal(String::new);
     let mut active_filter = use_signal(|| "all".to_string());
 
-    // Filter todos
-    let filter = active_filter.read().clone();
-    let filtered_todos: Vec<TodoItem> = todos
-        .iter()
-        .filter(|t| match filter.as_str() {
-            "active" => !t.completed,
-            "completed" => t.completed,
-            _ => true,
-        })
-        .cloned()
-        .collect();
+    // Filter todos (memoized signal)
+    let filtered_todos = use_memo(move || {
+        let current_todos = todos_resource.read();
+        let current_todos = current_todos.as_ref().map(|v| v.as_slice()).unwrap_or(&[]);
+        let filter = active_filter.read().clone();
+        let list: Vec<TodoItem> = current_todos
+            .iter()
+            .filter(|t| match filter.as_str() {
+                "active" => !t.completed,
+                "completed" => t.completed,
+                _ => true,
+            })
+            .cloned()
+            .collect();
+        list
+    });
+    let filtered_todos = filtered_todos.read().clone();
 
     let tab_items = vec![
         components::tabs::TabItem {
@@ -100,7 +107,7 @@ pub fn TodosView(props: TodosViewProps) -> Element {
                     onclick: move |_| {
                         let text = new_todo_text.read().trim().to_string();
                         if !text.is_empty() {
-                            let workspace_id = state.workspace.read().as_ref().map(|w| w.id.clone()).unwrap_or_else(|| "workspace-1".to_string());
+                            let workspace_id = state.workspace_id.read().clone();
                             let uid = props.active_user_id.read().clone();
                             spawn(async move {
                                 let _ = yntra_core::add_todo(uid, workspace_id, text).await;

@@ -93,10 +93,13 @@ pub async fn add_time_report(
         return Err(YntraError::AuthError("Access denied: cannot add time report for another user".to_string()));
     }
 
-    let (target_user_ws, user_prefs_json_raw): (String, Option<String>) = conn.query_row(
-        "SELECT workspace_id, preferences FROM users WHERE id = ?1",
+    let (target_user_ws, user_prefs_json_raw, settings_json_raw): (String, Option<String>, Option<String>) = conn.query_row(
+        "SELECT u.workspace_id, u.preferences, w.settings \
+         FROM users u \
+         LEFT JOIN workspaces w ON u.workspace_id = w.id \
+         WHERE u.id = ?1",
         crate::params![&user_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))
     ).await.map_err(|_| YntraError::NotFoundError("User not found".to_string()))?;
 
     if target_user_ws != workspace_id {
@@ -114,13 +117,7 @@ pub async fn add_time_report(
         let settings_json = if auth.role != "platform_admin" && auth.workspace_id == workspace_id {
             auth.workspace_settings.clone().unwrap_or_else(|| "{}".to_string())
         } else {
-            let mut settings_json = "{}".to_string();
-            let mut w_stmt = conn.prepare("SELECT settings FROM workspaces WHERE id = ?1").await?;
-            let mut w_rows = w_stmt.query(crate::params![&workspace_id]).await?;
-            if let Some(row) = w_rows.next().await? {
-                settings_json = row.get(0)?;
-            }
-            settings_json
+            settings_json_raw.unwrap_or_else(|| "{}".to_string())
         };
 
         let user_prefs_json = user_prefs_json_raw.unwrap_or_else(|| "{}".to_string());

@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 use yntra_core::{
     get_notes, get_reports, get_teams,
     get_users, get_workspace, get_workspaces,
-    get_clients_rkyv, get_messages_rkyv, get_time_reports_rkyv, get_events_rkyv,
+    get_clients, get_messages, get_time_reports, get_events,
     Workspace, WorkspaceUser, Team, TeamEvent, MessageItem, DailyNote, TimeReport,
     ClientProfile, ReportItem,
 };
@@ -55,6 +55,62 @@ pub fn init_resources(
         }
     });
 
+    let scheduling_enabled = use_memo(move || {
+        if let Some(ws) = workspace.read().as_ref() {
+            let modules_active_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
+            modules_active_val.get("scheduling").and_then(|v| v.as_bool()).unwrap_or(true)
+        } else {
+            false
+        }
+    });
+
+    let messaging_enabled = use_memo(move || {
+        if let Some(ws) = workspace.read().as_ref() {
+            let modules_active_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
+            modules_active_val.get("messaging").and_then(|v| v.as_bool()).unwrap_or(true)
+        } else {
+            false
+        }
+    });
+
+    let notes_enabled = use_memo(move || {
+        if let Some(ws) = workspace.read().as_ref() {
+            let modules_active_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
+            modules_active_val.get("notes").and_then(|v| v.as_bool()).unwrap_or(true)
+        } else {
+            false
+        }
+    });
+
+    let time_enabled = use_memo(move || {
+        if let Some(ws) = workspace.read().as_ref() {
+            let modules_active_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
+            modules_active_val.get("time").and_then(|v| v.as_bool()).unwrap_or(true)
+        } else {
+            false
+        }
+    });
+
+    let assistance_enabled = use_memo(move || {
+        if let Some(ws) = workspace.read().as_ref() {
+            let modules_active_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
+            modules_active_val.get("assistance").and_then(|v| v.as_bool()).unwrap_or(true)
+                || modules_active_val.get("journals").and_then(|v| v.as_bool()).unwrap_or(false)
+                || modules_active_val.get("medications").and_then(|v| v.as_bool()).unwrap_or(false)
+        } else {
+            false
+        }
+    });
+
+    let reporting_enabled = use_memo(move || {
+        if let Some(ws) = workspace.read().as_ref() {
+            let modules_active_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
+            modules_active_val.get("reporting").and_then(|v| v.as_bool()).unwrap_or(true)
+        } else {
+            false
+        }
+    });
+
     let users = use_resource(move || {
         let _trig = trigger_users.read();
         let uid = active_user_id.read().clone();
@@ -89,21 +145,13 @@ pub fn init_resources(
         let _trig = trigger_events.read();
         let uid = active_user_id.read().clone();
         let mut bg_err = background_error;
-        let ws_val = workspace.read().clone();
+        let enabled = *scheduling_enabled.read();
         async move {
-            let ws = match ws_val {
-                Some(ws) => ws,
-                None => return Vec::new(),
-            };
-            let modules_active_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
-            let enabled = modules_active_val.get("scheduling").and_then(|v| v.as_bool()).unwrap_or(true);
             if !enabled {
                 return Vec::new();
             }
-            match get_events_rkyv(uid, None).await {
-                Ok(bytes) => {
-                    rkyv::from_bytes::<Vec<TeamEvent>, rkyv::rancor::Error>(&bytes).unwrap_or_default()
-                }
+            match get_events(uid, None).await {
+                Ok(list) => list,
                 Err(e) => {
                     bg_err.set(Some(e));
                     Vec::new()
@@ -116,21 +164,13 @@ pub fn init_resources(
         let _trig = trigger_messages.read();
         let uid = active_user_id.read().clone();
         let mut bg_err = background_error;
-        let ws_val = workspace.read().clone();
+        let enabled = *messaging_enabled.read();
         async move {
-            let ws = match ws_val {
-                Some(ws) => ws,
-                None => return Vec::new(),
-            };
-            let modules_active_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
-            let enabled = modules_active_val.get("messaging").and_then(|v| v.as_bool()).unwrap_or(true);
             if !enabled {
                 return Vec::new();
             }
-            match get_messages_rkyv(uid.clone(), uid).await {
-                Ok(bytes) => {
-                    rkyv::from_bytes::<Vec<MessageItem>, rkyv::rancor::Error>(&bytes).unwrap_or_default()
-                }
+            match get_messages(uid.clone(), uid).await {
+                Ok(list) => list,
                 Err(e) => {
                     bg_err.set(Some(e));
                     Vec::new()
@@ -143,14 +183,8 @@ pub fn init_resources(
         let _trig = trigger_notes.read();
         let uid = active_user_id.read().clone();
         let mut bg_err = background_error;
-        let ws_val = workspace.read().clone();
+        let enabled = *notes_enabled.read();
         async move {
-            let ws = match ws_val {
-                Some(ws) => ws,
-                None => return Vec::new(),
-            };
-            let modules_active_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
-            let enabled = modules_active_val.get("notes").and_then(|v| v.as_bool()).unwrap_or(true);
             if !enabled {
                 return Vec::new();
             }
@@ -168,21 +202,13 @@ pub fn init_resources(
         let _trig = trigger_time.read();
         let uid = active_user_id.read().clone();
         let mut bg_err = background_error;
-        let ws_val = workspace.read().clone();
+        let enabled = *time_enabled.read();
         async move {
-            let ws = match ws_val {
-                Some(ws) => ws,
-                None => return Vec::new(),
-            };
-            let modules_active_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
-            let enabled = modules_active_val.get("time").and_then(|v| v.as_bool()).unwrap_or(true);
             if !enabled {
                 return Vec::new();
             }
-            match get_time_reports_rkyv(uid, None).await {
-                Ok(bytes) => {
-                    rkyv::from_bytes::<Vec<TimeReport>, rkyv::rancor::Error>(&bytes).unwrap_or_default()
-                }
+            match get_time_reports(uid, None).await {
+                Ok(list) => list,
                 Err(e) => {
                     bg_err.set(Some(e));
                     Vec::new()
@@ -195,23 +221,13 @@ pub fn init_resources(
         let _trig = trigger_clients.read();
         let uid = active_user_id.read().clone();
         let mut bg_err = background_error;
-        let ws_val = workspace.read().clone();
+        let enabled = *assistance_enabled.read();
         async move {
-            let ws = match ws_val {
-                Some(ws) => ws,
-                None => return Vec::new(),
-            };
-            let modules_active_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
-            let enabled = modules_active_val.get("assistance").and_then(|v| v.as_bool()).unwrap_or(true)
-                || modules_active_val.get("journals").and_then(|v| v.as_bool()).unwrap_or(false)
-                || modules_active_val.get("medications").and_then(|v| v.as_bool()).unwrap_or(false);
             if !enabled {
                 return Vec::new();
             }
-            match get_clients_rkyv(uid).await {
-                Ok(bytes) => {
-                    rkyv::from_bytes::<Vec<ClientProfile>, rkyv::rancor::Error>(&bytes).unwrap_or_default()
-                }
+            match get_clients(uid).await {
+                Ok(list) => list,
                 Err(e) => {
                     bg_err.set(Some(e));
                     Vec::new()
@@ -224,14 +240,8 @@ pub fn init_resources(
         let _trig = trigger_reports.read();
         let uid = active_user_id.read().clone();
         let mut bg_err = background_error;
-        let ws_val = workspace.read().clone();
+        let enabled = *reporting_enabled.read();
         async move {
-            let ws = match ws_val {
-                Some(ws) => ws,
-                None => return Vec::new(),
-            };
-            let modules_active_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
-            let enabled = modules_active_val.get("reporting").and_then(|v| v.as_bool()).unwrap_or(true);
             if !enabled {
                 return Vec::new();
             }

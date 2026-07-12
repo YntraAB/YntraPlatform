@@ -61,7 +61,8 @@ pub fn track_write_batch(sql: &str) {
 }
 
 pub fn check_transaction_sql(sql: &str) -> Option<bool> {
-    let sql_trimmed = sql.trim_start();
+    let cleaned = self::parser::clean_sql(sql);
+    let sql_trimmed = cleaned.trim_start();
     if sql_trimmed.len() >= 5 {
         let prefix = &sql_trimmed[..5];
         if prefix.eq_ignore_ascii_case("BEGIN") {
@@ -81,6 +82,18 @@ pub fn check_transaction_sql(sql: &str) -> Option<bool> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_check_transaction_sql_comments() {
+        assert_eq!(check_transaction_sql("-- test\nBEGIN IMMEDIATE TRANSACTION;"), Some(true));
+        assert_eq!(check_transaction_sql("/* comment */ COMMIT;"), Some(false));
+        assert_eq!(check_transaction_sql("   -- comment\n   ROLLBACK;"), Some(false));
+    }
 }
 
 

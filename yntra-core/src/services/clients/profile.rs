@@ -63,7 +63,7 @@ pub async fn get_clients(requester_user_id: String) -> Result<Vec<ClientProfile>
         }
         
         let decrypted_pnum = cached_ciphers.get(&ws_id)
-            .and_then(|c| c.decrypt_opt(raw_pnum.clone()));
+            .and_then(|c| c.decrypt_opt(raw_pnum));
 
         Ok(ClientProfile {
             id: row.get(0)?,

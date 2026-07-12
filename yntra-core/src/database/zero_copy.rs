@@ -1133,7 +1133,7 @@ impl ZeroCopyMessageStore {
                 let is_sender = archived_msg.sender_id.as_ref().map(|s| s.as_str()) == Some(user_id.as_str());
                 let is_receiver = archived_msg.receiver_id.as_ref().map(|r| r.as_str()) == Some(user_id.as_str());
                 let is_team_recipient = archived_msg.target_team_id.as_ref()
-                    .map(|tid| user_teams.contains(&tid.to_string()))
+                    .map(|tid| user_teams.iter().any(|team| team.as_str() == tid.as_str()))
                     .unwrap_or(false);
                     
                 if is_sender || is_receiver || is_team_recipient {

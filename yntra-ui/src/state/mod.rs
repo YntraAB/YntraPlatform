@@ -145,6 +145,7 @@ pub struct AppState {
     pub clients: Resource<Vec<ClientProfile>>,
     pub reports: Resource<Vec<ReportItem>>,
     pub workspaces: Resource<Vec<Workspace>>,
+    pub workspace_id: Memo<String>,
 
     // Desktop OAuth flow triggers
     pub on_desktop_oauth: Callback<String>,
@@ -402,6 +403,10 @@ pub fn use_init_app_state() -> AppState {
         trigger_clients,
         trigger_reports,
     );
+
+    let workspace_id = use_memo(move || {
+        workspace.read().as_ref().map(|w| w.id.clone()).unwrap_or_else(|| "workspace-1".to_string())
+    });
 
     // Multi-thread channel mapping database notifications to the Dioxus UI thread
     let channel = use_hook(move || {
@@ -722,6 +727,7 @@ pub fn use_init_app_state() -> AppState {
         clients,
         reports,
         workspaces,
+        workspace_id,
         on_desktop_oauth,
         background_error,
     }

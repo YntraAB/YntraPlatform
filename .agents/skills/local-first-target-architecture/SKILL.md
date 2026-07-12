@@ -1,5 +1,5 @@
 ---
-name: absolute-sota
+name: local-first-target-architecture
 description: Reference guide defining the target absolute SOTA local-first architecture (PGlite / Zero / Loro CRDT) for future codebase enhancements.
 ---
 

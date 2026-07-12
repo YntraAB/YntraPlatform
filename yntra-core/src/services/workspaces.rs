@@ -66,9 +66,15 @@ pub async fn get_workspaces(requester_user_id: String) -> Result<Vec<Workspace>,
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    let mut stmt = conn.prepare("SELECT id, name, modules_active, settings, brand_color, logo_url, block_settings, updated_at, sync_status FROM workspaces").await?;
+    let (sql, params) = if auth.role == "platform_admin" {
+        ("SELECT id, name, modules_active, settings, brand_color, logo_url, block_settings, updated_at, sync_status FROM workspaces", crate::params![])
+    } else {
+        ("SELECT id, name, modules_active, settings, brand_color, logo_url, block_settings, updated_at, sync_status FROM workspaces WHERE id = ?1", crate::params![&auth.workspace_id])
+    };
 
-    let list = stmt.query_map((), |row| {
+    let mut stmt = conn.prepare(sql).await?;
+
+    let list = stmt.query_map(params, |row| {
         Ok(Workspace {
             id: row.get(0)?,
             name: row.get(1)?,
@@ -82,13 +88,7 @@ pub async fn get_workspaces(requester_user_id: String) -> Result<Vec<Workspace>,
         })
     }).await?;
 
-    let filtered = if auth.role == "platform_admin" {
-        list
-    } else {
-        list.into_iter().filter(|w| w.id == auth.workspace_id).collect()
-    };
-
-    Ok(filtered)
+    Ok(list)
 }
 
 #[uniffi::export]

@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use yntra_core::get_job_tickets_rkyv;
+use yntra_core::get_job_tickets;
 
 #[derive(Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct MoveInventoryItem {
@@ -71,10 +71,8 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
         let _trig = db_trigger.read();
         let uid = active_uid_for_jobs.clone();
         async move {
-            match get_job_tickets_rkyv(uid).await {
-                Ok(bytes) => {
-                    rkyv::from_bytes::<Vec<yntra_core::JobTicket>, rkyv::rancor::Error>(&bytes).unwrap_or_default()
-                }
+            match get_job_tickets(uid).await {
+                Ok(list) => list,
                 Err(_) => Vec::new(),
             }
         }

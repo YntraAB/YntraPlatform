@@ -12,17 +12,19 @@ async fn get_supabase_config() -> Result<(String, String), YntraError> {
     
     // 1. Try retrieving from database
     if let Ok(conn) = crate::database::acquire_connection().await {
-        db_url = conn.query_row(
-            "SELECT value FROM system_settings WHERE key = 'supabase_url'",
-            (),
-            |r| r.get::<String>(0)
-        ).await.ok();
-        
-        db_key = conn.query_row(
-            "SELECT value FROM system_settings WHERE key = 'supabase_anon_key'",
-            (),
-            |r| r.get::<String>(0)
-        ).await.ok();
+        if let Ok(mut stmt) = conn.prepare("SELECT key, value FROM system_settings WHERE key IN ('supabase_url', 'supabase_anon_key')").await {
+            if let Ok(mut rows) = stmt.query(()).await {
+                while let Ok(Some(row)) = rows.next().await {
+                    if let (Ok(key), Ok(val)) = (row.get::<String>(0), row.get::<String>(1)) {
+                        if key == "supabase_url" {
+                            db_url = Some(val);
+                        } else if key == "supabase_anon_key" {
+                            db_key = Some(val);
+                        }
+                    }
+                }
+            }
+        }
     }
     
     // 2. Try retrieving from environment variables (native target only)
