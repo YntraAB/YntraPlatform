@@ -1,4 +1,5 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, LazyLock};
+use std::collections::HashMap;
 use crate::models::TodoItem;
 use crate::infra::errors::YntraError;
 
@@ -74,43 +75,15 @@ impl ZeroCopyStore {
         let rkyv_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&todos)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             
-        // 2. Export Loro Snapshot
+        // 2. Put rkyv bytes into Loro Map
+        let map = inner.loro.get_map("db");
+        let _ = map.insert("bytes", rkyv_bytes.to_vec());
+
+        // 3. Export Loro Snapshot
         let loro_bytes = inner.loro.export(loro::ExportMode::Snapshot)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             
-        let rkyv_len = rkyv_bytes.len() as u64;
-        
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let total_len = 8 + rkyv_bytes.len() + loro_bytes.len();
-            let file = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(&inner.file_path)
-                .map_err(|e| YntraError::DbError(e.to_string()))?;
-                
-            file.set_len(total_len as u64)
-                .map_err(|e| YntraError::DbError(e.to_string()))?;
-                
-            let mut m = unsafe { memmap2::MmapMut::map_mut(&file).map_err(|e| YntraError::DbError(e.to_string()))? };
-            
-            m[0..8].copy_from_slice(&rkyv_len.to_be_bytes());
-            m[8..8+rkyv_bytes.len()].copy_from_slice(&rkyv_bytes);
-            m[8+rkyv_bytes.len()..total_len].copy_from_slice(&loro_bytes);
-            
-            m.flush().map_err(|e| YntraError::DbError(e.to_string()))?;
-            inner.mmap = Some(m);
-        }
-        
-        #[cfg(target_arch = "wasm32")]
-        {
-            let mut buf = Vec::new();
-            buf.extend_from_slice(&rkyv_len.to_be_bytes());
-            buf.extend_from_slice(&rkyv_bytes);
-            buf.extend_from_slice(&loro_bytes);
-            inner.buffer = buf;
-        }
-        
+        inner.save_to_disk(&rkyv_bytes, &loro_bytes)?;
         Ok(())
     }
 
@@ -204,9 +177,20 @@ impl ZeroCopyStore {
     }
     
     pub fn apply_loro_update(&self, update_bytes: Vec<u8>) -> Result<(), YntraError> {
-        let inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap();
         inner.loro.import(&update_bytes)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            
+        let map = inner.loro.get_map("db");
+        if let Some(val) = map.get("bytes") {
+            if let Some(val_ref) = val.as_value() {
+                if let Some(bytes) = val_ref.as_binary() {
+                    let loro_bytes = inner.loro.export(loro::ExportMode::Snapshot)
+                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                    inner.save_to_disk(bytes, &loro_bytes)?;
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -221,6 +205,40 @@ impl ZeroCopyStoreInner {
         {
             &self.buffer
         }
+    }
+    
+    fn save_to_disk(&mut self, rkyv_bytes: &[u8], loro_bytes: &[u8]) -> Result<(), YntraError> {
+        let rkyv_len = rkyv_bytes.len() as u64;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let total_len = 8 + rkyv_bytes.len() + loro_bytes.len();
+            let file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&self.file_path)
+                .map_err(|e| YntraError::DbError(e.to_string()))?;
+                
+            file.set_len(total_len as u64)
+                .map_err(|e| YntraError::DbError(e.to_string()))?;
+                
+            let mut m = unsafe { memmap2::MmapMut::map_mut(&file).map_err(|e| YntraError::DbError(e.to_string()))? };
+            
+            m[0..8].copy_from_slice(&rkyv_len.to_be_bytes());
+            m[8..8+rkyv_bytes.len()].copy_from_slice(rkyv_bytes);
+            m[8+rkyv_bytes.len()..total_len].copy_from_slice(loro_bytes);
+            
+            m.flush().map_err(|e| YntraError::DbError(e.to_string()))?;
+            self.mmap = Some(m);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let mut buf = Vec::new();
+            buf.extend_from_slice(&rkyv_len.to_be_bytes());
+            buf.extend_from_slice(rkyv_bytes);
+            buf.extend_from_slice(loro_bytes);
+            self.buffer = buf;
+        }
+        Ok(())
     }
     
     #[cfg(not(target_arch = "wasm32"))]
@@ -242,6 +260,25 @@ impl ZeroCopyStoreInner {
 }
 
 // --- Pillar 2: Geo-Distributed Edge Replicas + P2P Mesh Sync ---
+
+static IN_MEMORY_RELAY: LazyLock<Mutex<HashMap<String, Vec<Vec<u8>>>>> = LazyLock::new(|| {
+    Mutex::new(HashMap::new())
+});
+
+fn in_memory_broadcast(from_peer: &str, data: Vec<u8>, peers: &[String]) {
+    let mut relay = IN_MEMORY_RELAY.lock().unwrap();
+    for peer in peers {
+        if peer != from_peer {
+            relay.entry(peer.clone()).or_default().push(data.clone());
+        }
+    }
+}
+
+fn in_memory_poll(peer_id: &str) -> Vec<Vec<u8>> {
+    let mut relay = IN_MEMORY_RELAY.lock().unwrap();
+    let updates = relay.remove(peer_id).unwrap_or_default();
+    updates
+}
 
 #[derive(Clone, uniffi::Object)]
 pub struct P2PMeshSyncRouter {
@@ -314,6 +351,11 @@ impl P2PMeshSyncRouter {
 
     pub fn broadcast_write_network(&self, from_peer: String, data: Vec<u8>) {
         let relay_opt = self.relay_url.lock().unwrap().clone();
+        let peers = self.peers.lock().unwrap().clone();
+        
+        // Always store in-memory fallback
+        in_memory_broadcast(&from_peer, data.clone(), &peers);
+        
         if let Some(relay_url) = relay_opt {
             #[cfg(not(target_arch = "wasm32"))]
             {
@@ -356,6 +398,12 @@ impl P2PMeshSyncRouter {
         Ok(())
     }
 
+    pub fn receive_note_update(&self, from_peer: String, update: Vec<u8>, store: Arc<ZeroCopyNoteStore>) -> Result<(), YntraError> {
+        store.apply_loro_update(update)?;
+        tracing::info!("Consolidated P2P note update from peer: {}", from_peer);
+        Ok(())
+    }
+
     pub fn trigger_poll_relay_updates(&self, peer_id: String, store: Arc<ZeroCopyStore>) {
         let relay_opt = self.relay_url.lock().unwrap().clone();
         if let Some(relay_url) = relay_opt {
@@ -364,9 +412,11 @@ impl P2PMeshSyncRouter {
             {
                 tokio::spawn(async move {
                     let client = reqwest::Client::new();
+                    let mut success = false;
                     if let Ok(res) = client.get(&format!("{}/relay/updates?peer_id={}", relay_url, peer_id)).send().await {
                         if res.status().is_success() {
                             if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
+                                success = true;
                                 for u in updates {
                                     if let (Some(from_peer), Some(data_hex)) = (u.get("from_peer").and_then(|v| v.as_str()), u.get("data_hex").and_then(|v| v.as_str())) {
                                         if let Ok(update_bytes) = const_hex::decode(data_hex) {
@@ -378,15 +428,26 @@ impl P2PMeshSyncRouter {
                             }
                         }
                     }
+                    if !success {
+                        let updates = in_memory_poll(&peer_id);
+                        if !updates.is_empty() {
+                            for u in updates {
+                                let _ = store.apply_loro_update(u);
+                            }
+                            crate::infra::observer::notify_observers();
+                        }
+                    }
                 });
             }
             #[cfg(target_arch = "wasm32")]
             {
                 wasm_bindgen_futures::spawn_local(async move {
                     let client = reqwest::Client::new();
+                    let mut success = false;
                     if let Ok(res) = client.get(&format!("{}/relay/updates?peer_id={}", relay_url, peer_id)).send().await {
                         if res.status().is_success() {
                             if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
+                                success = true;
                                 for u in updates {
                                     if let (Some(from_peer), Some(data_hex)) = (u.get("from_peer").and_then(|v| v.as_str()), u.get("data_hex").and_then(|v| v.as_str())) {
                                         if let Ok(update_bytes) = const_hex::decode(data_hex) {
@@ -396,6 +457,15 @@ impl P2PMeshSyncRouter {
                                 }
                                 crate::infra::observer::notify_observers();
                             }
+                        }
+                    }
+                    if !success {
+                        let updates = in_memory_poll(&peer_id);
+                        if !updates.is_empty() {
+                            for u in updates {
+                                let _ = store.apply_loro_update(u);
+                            }
+                            crate::infra::observer::notify_observers();
                         }
                     }
                 });
@@ -411,9 +481,11 @@ impl P2PMeshSyncRouter {
             {
                 tokio::spawn(async move {
                     let client = reqwest::Client::new();
+                    let mut success = false;
                     if let Ok(res) = client.get(&format!("{}/relay/updates?peer_id={}", relay_url, peer_id)).send().await {
                         if res.status().is_success() {
                             if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
+                                success = true;
                                 for u in updates {
                                     if let (Some(from_peer), Some(data_hex)) = (u.get("from_peer").and_then(|v| v.as_str()), u.get("data_hex").and_then(|v| v.as_str())) {
                                         if let Ok(update_bytes) = const_hex::decode(data_hex) {
@@ -425,15 +497,26 @@ impl P2PMeshSyncRouter {
                             }
                         }
                     }
+                    if !success {
+                        let updates = in_memory_poll(&peer_id);
+                        if !updates.is_empty() {
+                            for u in updates {
+                                let _ = store.apply_loro_update(u);
+                            }
+                            crate::infra::observer::notify_observers();
+                        }
+                    }
                 });
             }
             #[cfg(target_arch = "wasm32")]
             {
                 wasm_bindgen_futures::spawn_local(async move {
                     let client = reqwest::Client::new();
+                    let mut success = false;
                     if let Ok(res) = client.get(&format!("{}/relay/updates?peer_id={}", relay_url, peer_id)).send().await {
                         if res.status().is_success() {
                             if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
+                                success = true;
                                 for u in updates {
                                     if let (Some(from_peer), Some(data_hex)) = (u.get("from_peer").and_then(|v| v.as_str()), u.get("data_hex").and_then(|v| v.as_str())) {
                                         if let Ok(update_bytes) = const_hex::decode(data_hex) {
@@ -443,6 +526,84 @@ impl P2PMeshSyncRouter {
                                 }
                                 crate::infra::observer::notify_observers();
                             }
+                        }
+                    }
+                    if !success {
+                        let updates = in_memory_poll(&peer_id);
+                        if !updates.is_empty() {
+                            for u in updates {
+                                let _ = store.apply_loro_update(u);
+                            }
+                            crate::infra::observer::notify_observers();
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    pub fn trigger_poll_relay_note_updates(&self, peer_id: String, store: Arc<ZeroCopyNoteStore>) {
+        let relay_opt = self.relay_url.lock().unwrap().clone();
+        if let Some(relay_url) = relay_opt {
+            let self_clone = self.clone();
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                tokio::spawn(async move {
+                    let client = reqwest::Client::new();
+                    let mut success = false;
+                    if let Ok(res) = client.get(&format!("{}/relay/updates?peer_id={}", relay_url, peer_id)).send().await {
+                        if res.status().is_success() {
+                            if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
+                                success = true;
+                                for u in updates {
+                                    if let (Some(from_peer), Some(data_hex)) = (u.get("from_peer").and_then(|v| v.as_str()), u.get("data_hex").and_then(|v| v.as_str())) {
+                                        if let Ok(update_bytes) = const_hex::decode(data_hex) {
+                                            let _ = self_clone.receive_note_update(from_peer.to_string(), update_bytes, store.clone());
+                                        }
+                                    }
+                                }
+                                crate::infra::observer::notify_observers();
+                            }
+                        }
+                    }
+                    if !success {
+                        let updates = in_memory_poll(&peer_id);
+                        if !updates.is_empty() {
+                            for u in updates {
+                                let _ = store.apply_loro_update(u);
+                            }
+                            crate::infra::observer::notify_observers();
+                        }
+                    }
+                });
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                wasm_bindgen_futures::spawn_local(async move {
+                    let client = reqwest::Client::new();
+                    let mut success = false;
+                    if let Ok(res) = client.get(&format!("{}/relay/updates?peer_id={}", relay_url, peer_id)).send().await {
+                        if res.status().is_success() {
+                            if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
+                                success = true;
+                                for u in updates {
+                                    if let (Some(from_peer), Some(data_hex)) = (u.get("from_peer").and_then(|v| v.as_str()), u.get("data_hex").and_then(|v| v.as_str())) {
+                                        if let Ok(update_bytes) = const_hex::decode(data_hex) {
+                                            let _ = self_clone.receive_note_update(from_peer.to_string(), update_bytes, store.clone());
+                                        }
+                                    }
+                                }
+                                crate::infra::observer::notify_observers();
+                            }
+                        }
+                    }
+                    if !success {
+                        let updates = in_memory_poll(&peer_id);
+                        if !updates.is_empty() {
+                            for u in updates {
+                                let _ = store.apply_loro_update(u);
+                            }
+                            crate::infra::observer::notify_observers();
                         }
                     }
                 });
@@ -1323,42 +1484,13 @@ impl ZeroCopyNoteStore {
         let rkyv_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&notes)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             
+        let map = inner.loro.get_map("db");
+        let _ = map.insert("bytes", rkyv_bytes.to_vec());
+
         let loro_bytes = inner.loro.export(loro::ExportMode::Snapshot)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             
-        let rkyv_len = rkyv_bytes.len() as u64;
-        
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let total_len = 8 + rkyv_bytes.len() + loro_bytes.len();
-            let file = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(&inner.file_path)
-                .map_err(|e| YntraError::DbError(e.to_string()))?;
-                
-            file.set_len(total_len as u64)
-                .map_err(|e| YntraError::DbError(e.to_string()))?;
-                
-            let mut m = unsafe { memmap2::MmapMut::map_mut(&file).map_err(|e| YntraError::DbError(e.to_string()))? };
-            
-            m[0..8].copy_from_slice(&rkyv_len.to_be_bytes());
-            m[8..8+rkyv_bytes.len()].copy_from_slice(&rkyv_bytes);
-            m[8+rkyv_bytes.len()..total_len].copy_from_slice(&loro_bytes);
-            
-            m.flush().map_err(|e| YntraError::DbError(e.to_string()))?;
-            inner.mmap = Some(m);
-        }
-        
-        #[cfg(target_arch = "wasm32")]
-        {
-            let mut buf = Vec::new();
-            buf.extend_from_slice(&rkyv_len.to_be_bytes());
-            buf.extend_from_slice(&rkyv_bytes);
-            buf.extend_from_slice(&loro_bytes);
-            inner.buffer = buf;
-        }
-        
+        inner.save_to_disk(&rkyv_bytes, &loro_bytes)?;
         Ok(())
     }
 
@@ -1450,9 +1582,20 @@ impl ZeroCopyNoteStore {
     }
     
     pub fn apply_loro_update(&self, update_bytes: Vec<u8>) -> Result<(), YntraError> {
-        let inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap();
         inner.loro.import(&update_bytes)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            
+        let map = inner.loro.get_map("db");
+        if let Some(val) = map.get("bytes") {
+            if let Some(val_ref) = val.as_value() {
+                if let Some(bytes) = val_ref.as_binary() {
+                    let loro_bytes = inner.loro.export(loro::ExportMode::Snapshot)
+                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                    inner.save_to_disk(bytes, &loro_bytes)?;
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -1467,6 +1610,40 @@ impl ZeroCopyNoteStoreInner {
         {
             &self.buffer
         }
+    }
+    
+    fn save_to_disk(&mut self, rkyv_bytes: &[u8], loro_bytes: &[u8]) -> Result<(), YntraError> {
+        let rkyv_len = rkyv_bytes.len() as u64;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let total_len = 8 + rkyv_bytes.len() + loro_bytes.len();
+            let file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&self.file_path)
+                .map_err(|e| YntraError::DbError(e.to_string()))?;
+                
+            file.set_len(total_len as u64)
+                .map_err(|e| YntraError::DbError(e.to_string()))?;
+                
+            let mut m = unsafe { memmap2::MmapMut::map_mut(&file).map_err(|e| YntraError::DbError(e.to_string()))? };
+            
+            m[0..8].copy_from_slice(&rkyv_len.to_be_bytes());
+            m[8..8+rkyv_bytes.len()].copy_from_slice(rkyv_bytes);
+            m[8+rkyv_bytes.len()..total_len].copy_from_slice(loro_bytes);
+            
+            m.flush().map_err(|e| YntraError::DbError(e.to_string()))?;
+            self.mmap = Some(m);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let mut buf = Vec::new();
+            buf.extend_from_slice(&rkyv_len.to_be_bytes());
+            buf.extend_from_slice(rkyv_bytes);
+            buf.extend_from_slice(loro_bytes);
+            self.buffer = buf;
+        }
+        Ok(())
     }
     
     #[cfg(not(target_arch = "wasm32"))]
@@ -1701,4 +1878,54 @@ mod tests {
         
         let _ = std::fs::remove_file(&file_path);
     }
+
+    #[test]
+    fn test_p2p_mesh_note_sync_in_memory_fallback() {
+        let temp_dir = std::env::temp_dir();
+        let path_a = temp_dir.join("test_note_sync_a.db").to_string_lossy().to_string();
+        let path_b = temp_dir.join("test_note_sync_b.db").to_string_lossy().to_string();
+        
+        let _ = std::fs::remove_file(&path_a);
+        let _ = std::fs::remove_file(&path_b);
+        
+        let store_a = Arc::new(ZeroCopyNoteStore::new(path_a.clone()).unwrap());
+        let store_b = Arc::new(ZeroCopyNoteStore::new(path_b.clone()).unwrap());
+        
+        let router = P2PMeshSyncRouter::new();
+        router.register_peer("peer_a".to_string());
+        router.register_peer("peer_b".to_string());
+        
+        let note = crate::models::DailyNote {
+            id: "note_x".to_string(),
+            workspace_id: "ws_abc".to_string(),
+            team_id: "team_1".to_string(),
+            author_id: Some("peer_a".to_string()),
+            subject: "ZK Sync Test".to_string(),
+            content: "Encrypted data here".to_string(),
+            edit_history: "[]".to_string(),
+            created_at: "2026-07-12".to_string(),
+            updated_at: 1000,
+            sync_status: "pending".to_string(),
+        };
+        
+        store_a.write_notes(vec![note.clone()]).unwrap();
+        
+        let changes = store_a.get_loro_changes().unwrap();
+        router.broadcast_write_network("peer_a".to_string(), changes);
+        
+        let updates = in_memory_poll("peer_b");
+        assert_eq!(updates.len(), 1);
+        
+        store_b.apply_loro_update(updates[0].clone()).unwrap();
+        
+        let notes_b = store_b.read_all_notes().unwrap();
+        assert_eq!(notes_b.len(), 1);
+        assert_eq!(notes_b[0].id, "note_x");
+        assert_eq!(notes_b[0].subject, "ZK Sync Test");
+        
+        let _ = std::fs::remove_file(&path_a);
+        let _ = std::fs::remove_file(&path_b);
+    }
+
+
 }
