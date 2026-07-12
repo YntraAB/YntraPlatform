@@ -4,7 +4,7 @@ use crate::{JobTicket, YntraError};
 use uuid::Uuid;
 use crate::database;
 use crate::infra::observer::notify_observers;
-use crate::{MoveInventoryItem, MoveQuote};
+
 
 fn is_staff(auth: &crate::AuthContext) -> bool {
     auth.role == "platform_admin"
@@ -223,49 +223,13 @@ pub async fn submit_job_completion(
     Ok(())
 }
 
-#[uniffi::export]
-pub async fn get_move_inventory(requester_user_id: String, job_ticket_id: String) -> Result<Vec<MoveInventoryItem>, YntraError> {
-    let conn = database::acquire_connection().await?;
-    let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    Ok(vec![])
-}
 
 #[uniffi::export]
-pub async fn add_move_inventory_item(
-    requester_user_id: String,
-    job_ticket_id: String,
-    item_category: String,
-    item_name: String,
-    quantity: i32,
-    estimated_volume_m3: f64,
-    handling_notes: Option<String>,
-) -> Result<MoveInventoryItem, YntraError> {
-    Err(YntraError::AuthError("Logistics vertical is deprecated".to_string()))
-}
-
-#[uniffi::export]
-pub async fn get_move_quote(requester_user_id: String, job_ticket_id: String) -> Result<Option<MoveQuote>, YntraError> {
-    let conn = database::acquire_connection().await?;
-    let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    Ok(None)
-}
-
-#[uniffi::export]
-pub async fn create_or_update_move_quote(
-    requester_user_id: String,
-    job_ticket_id: String,
-    base_price: i64,
-    distance_fee: i64,
-    stairs_surcharge: i64,
-    packing_supplies_fee: i64,
-    status: String,
-) -> Result<MoveQuote, YntraError> {
-    Err(YntraError::AuthError("Logistics vertical is deprecated".to_string()))
-}
-
-#[uniffi::export]
-pub async fn accept_move_quote(requester_user_id: String, quote_id: String) -> Result<(), YntraError> {
-    Err(YntraError::AuthError("Logistics vertical is deprecated".to_string()))
+pub async fn get_job_tickets_rkyv(requester_user_id: String) -> Result<Vec<u8>, YntraError> {
+    let tickets = get_job_tickets(requester_user_id).await?;
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&tickets)
+        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    Ok(bytes.into_vec())
 }
 
 #[cfg(test)]
@@ -303,6 +267,12 @@ mod tests {
         let list1 = get_job_tickets("u-job-user1".to_string()).await.unwrap();
         assert_eq!(list1.len(), 1);
         assert_eq!(list1[0].id, job1.id);
+
+        // Retrieve tickets as user 1 with rkyv
+        let bytes = get_job_tickets_rkyv("u-job-user1".to_string()).await.unwrap();
+        let rkyv_list: Vec<JobTicket> = rkyv::from_bytes::<Vec<JobTicket>, rkyv::rancor::Error>(&bytes).unwrap();
+        assert_eq!(rkyv_list.len(), 1);
+        assert_eq!(rkyv_list[0].id, job1.id);
 
         // Retrieve tickets as user 2 (should see 0, since ws-job-2 has no jobs)
         let list2 = get_job_tickets("u-job-user2".to_string()).await.unwrap();

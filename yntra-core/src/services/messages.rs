@@ -156,6 +156,14 @@ pub async fn mark_message_read(requester_user_id: String, id: String) -> Result<
     Ok(())
 }
 
+#[uniffi::export]
+pub async fn get_messages_rkyv(requester_user_id: String, user_id: String) -> Result<Vec<u8>, YntraError> {
+    let messages = get_messages(requester_user_id, user_id).await?;
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&messages)
+        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    Ok(bytes.into_vec())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,6 +181,12 @@ mod tests {
         // Verify user 1 can get their own messages
         let res1 = get_messages("test-msg-user-1".to_string(), "test-msg-user-1".to_string()).await;
         assert!(res1.is_ok());
+
+        // Verify user 1 can get their own messages with rkyv
+        let bytes1 = get_messages_rkyv("test-msg-user-1".to_string(), "test-msg-user-1".to_string()).await;
+        assert!(bytes1.is_ok());
+        let rkyv_msgs: Vec<MessageItem> = rkyv::from_bytes::<Vec<MessageItem>, rkyv::rancor::Error>(&bytes1.unwrap()).unwrap();
+        assert_eq!(rkyv_msgs.len(), res1.unwrap().len());
 
         // Verify user 1 cannot get user 2's messages
         let res2 = get_messages("test-msg-user-1".to_string(), "test-msg-user-2".to_string()).await;

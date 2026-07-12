@@ -243,6 +243,14 @@ pub async fn delete_client(requester_user_id: String, client_id: String) -> Resu
     }
 }
 
+#[uniffi::export]
+pub async fn get_clients_rkyv(requester_user_id: String) -> Result<Vec<u8>, YntraError> {
+    let clients = get_clients(requester_user_id).await?;
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&clients)
+        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    Ok(bytes.into_vec())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -280,9 +288,68 @@ mod tests {
         assert_eq!(clients_list[0].first_name, "Alice");
         assert_eq!(clients_list[0].personal_number, Some(personal_number.to_string()));
 
+        // Retrieve the client profile as the logged-in client user with rkyv
+        let bytes = get_clients_rkyv(user_id.to_string()).await.unwrap();
+        let rkyv_clients: Vec<ClientProfile> = rkyv::from_bytes::<Vec<ClientProfile>, rkyv::rancor::Error>(&bytes).unwrap();
+        assert_eq!(rkyv_clients.len(), 1);
+        assert_eq!(rkyv_clients[0].id, client_id);
+
         // Clean up
         conn.execute("DELETE FROM users WHERE id = ?1", crate::params![user_id]).await.unwrap();
         conn.execute("DELETE FROM clients WHERE id = ?1", crate::params![client_id]).await.unwrap();
+        crate::infra::crypto::clear_session_key();
+    }
+
+    #[tokio::test]
+    async fn test_delete_client_works_without_errors() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        crate::infra::crypto::set_session_key("test-session-key-delete".to_string().into_bytes());
+
+        let conn = database::acquire_connection().await.unwrap();
+        let requester_user_id = "test-admin-user-delete";
+        let ws_id = "workspace-delete-test";
+
+        // Create workspace and admin user
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Delete Workspace', '[]', '{}')", crate::params![ws_id]).await.unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES (?1, ?2, 'admin-delete@yntra.io', 'admin')",
+            crate::params![requester_user_id, ws_id],
+        ).await.unwrap();
+
+        // Create a client
+        let client_id = "client-to-delete-123";
+        conn.execute(
+            "INSERT OR REPLACE INTO clients (id, workspace_id, first_name, last_name, created_at, updated_at) VALUES (?1, ?2, 'Bob', 'Jones', '2026-07-05', 0)",
+            crate::params![client_id, ws_id],
+        ).await.unwrap();
+
+        // Insert dummy records for client medications and journals to verify foreign keys and deletions
+        conn.execute(
+            "INSERT OR REPLACE INTO client_medications (id, client_id, workspace_id, name, updated_at) VALUES ('med-1', ?1, ?2, 'Aspirin', 0)",
+            crate::params![client_id, ws_id],
+        ).await.unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO client_journals (id, client_id, workspace_id, content, updated_at) VALUES ('journal-1', ?1, ?2, 'Patient felt good', 0)",
+            crate::params![client_id, ws_id],
+        ).await.unwrap();
+
+        // Perform the deletion
+        let delete_res = delete_client(requester_user_id.to_string(), client_id.to_string()).await;
+        assert!(delete_res.is_ok(), "delete_client failed: {:?}", delete_res.err());
+
+        // Verify the client, medications, and journals are indeed gone
+        let client_exists: i64 = conn.query_row("SELECT count(*) FROM clients WHERE id = ?1", crate::params![client_id], |r| r.get(0)).await.unwrap();
+        assert_eq!(client_exists, 0);
+
+        let meds_exists: i64 = conn.query_row("SELECT count(*) FROM client_medications WHERE client_id = ?1", crate::params![client_id], |r| r.get(0)).await.unwrap();
+        assert_eq!(meds_exists, 0);
+
+        let journals_exists: i64 = conn.query_row("SELECT count(*) FROM client_journals WHERE client_id = ?1", crate::params![client_id], |r| r.get(0)).await.unwrap();
+        assert_eq!(journals_exists, 0);
+
+        // Cleanup workspace and admin
+        conn.execute("DELETE FROM users WHERE id = ?1", crate::params![requester_user_id]).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
         crate::infra::crypto::clear_session_key();
     }
 }

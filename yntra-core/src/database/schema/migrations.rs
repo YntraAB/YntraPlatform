@@ -423,6 +423,10 @@ pub async fn run_schema_migrations(conn: &DbConnection, current_version: i32) ->
         ).await?;
         version = 9;
     }
+    if version < 10 {
+        execute_migration_sql(conn, "ALTER TABLE audit_logs ADD COLUMN signature TEXT").await?;
+        version = 10;
+    }
     Ok(version)
 }
 
@@ -447,7 +451,7 @@ mod tests {
         conn.execute("PRAGMA user_version = 0", ()).await.unwrap();
 
         let migrated_version = run_schema_migrations(&conn, 0).await.unwrap();
-        assert_eq!(migrated_version, 9);
+        assert_eq!(migrated_version, 10);
         
         let has_oauth_sessions = conn.query_row(
             "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='oauth_auth_sessions'",

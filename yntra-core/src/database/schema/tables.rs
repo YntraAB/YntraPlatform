@@ -166,6 +166,29 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             FOREIGN KEY(team_id) REFERENCES teams(id)
         );
 
+        CREATE TABLE IF NOT EXISTS client_medications (
+            id TEXT PRIMARY KEY,
+            client_id TEXT NOT NULL,
+            workspace_id TEXT NOT NULL DEFAULT 'workspace-1',
+            name TEXT NOT NULL,
+            dosage TEXT,
+            frequency TEXT,
+            instructions TEXT,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(client_id) REFERENCES clients(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS client_journals (
+            id TEXT PRIMARY KEY,
+            client_id TEXT NOT NULL,
+            workspace_id TEXT NOT NULL DEFAULT 'workspace-1',
+            content TEXT NOT NULL,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(client_id) REFERENCES clients(id)
+        );
+
 
 
         CREATE TABLE IF NOT EXISTS blocks (
@@ -261,6 +284,7 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             prev_hash TEXT NOT NULL,
             curr_hash TEXT NOT NULL,
             seq INTEGER NOT NULL DEFAULT 0,
+            signature TEXT,
             UNIQUE(workspace_id, seq)
         );
         
@@ -276,7 +300,6 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             FOREIGN KEY(workspace_id) REFERENCES workspaces(id),
             FOREIGN KEY(block_id) REFERENCES blocks(id)
         );
-
 
 
         -- Indices

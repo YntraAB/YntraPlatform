@@ -20,6 +20,61 @@ fn compute_hash(id: &str, actor_id: &str, target_client_id: Option<&str>, action
     hasher.finalize().to_hex().to_string()
 }
 
+async fn get_workspace_signing_key(workspace_id: &str) -> Option<String> {
+    let private_key_setting = format!("creator_private_key_{}", workspace_id);
+    let creator_sk: Option<String> = crate::infra::crypto::get_local_secret(&private_key_setting).await.unwrap_or(None);
+    if let Some(ref sk) = creator_sk {
+        if !sk.trim().is_empty() {
+            return Some(sk.clone());
+        }
+    }
+    None
+}
+
+fn sign_hash(private_key_hex: &str, hash_hex: &str) -> Result<String, YntraError> {
+    let private_key_bytes = zeroize::Zeroizing::new(
+        const_hex::decode(private_key_hex)
+            .map_err(|e| YntraError::CryptoError(e.to_string()))?
+    );
+    if private_key_bytes.len() != 32 {
+        return Err(YntraError::CryptoError("Invalid private key length".to_string()));
+    }
+    let mut private_key_array = zeroize::Zeroizing::new([0u8; 32]);
+    private_key_array.copy_from_slice(&private_key_bytes[..32]);
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key_array);
+
+    use ed25519_dalek::Signer;
+    let signature = signing_key.sign(hash_hex.as_bytes());
+    Ok(const_hex::encode(&signature.to_bytes()))
+}
+
+fn verify_signature(public_key_hex: &str, hash_hex: &str, signature_hex: &str) -> bool {
+    let public_key_bytes = match const_hex::decode(public_key_hex) {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+    let signature_bytes = match const_hex::decode(signature_hex) {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+    let public_key_array: [u8; 32] = match public_key_bytes.try_into() {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+    let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(&public_key_array) {
+        Ok(k) => k,
+        Err(_) => return false,
+    };
+    let signature_array: [u8; 64] = match signature_bytes.try_into() {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+    let signature = ed25519_dalek::Signature::from_bytes(&signature_array);
+
+    use ed25519_dalek::Verifier;
+    verifying_key.verify(hash_hex.as_bytes(), &signature).is_ok()
+}
+
 pub async fn log_action_with_conn(
     conn: &database::DbConnection,
     actor_id: String,
@@ -59,6 +114,13 @@ pub async fn log_action_with_conn(
     }
     
     let curr_hash = compute_hash(&id, &actor_id, target_client_id.as_deref(), &action_type, timestamp, &prev_hash, seq);
+
+    // Retrieve private key and sign hash
+    let signature = if let Some(sk) = get_workspace_signing_key(&ws_id).await {
+        sign_hash(&sk, &curr_hash).ok()
+    } else {
+        None
+    };
     
     let entry = AuditLogEntry {
         id: id.clone(),
@@ -69,10 +131,11 @@ pub async fn log_action_with_conn(
         prev_hash,
         curr_hash,
         seq,
+        signature: signature.clone(),
     };
     
     conn.execute(
-        "INSERT INTO audit_logs (id, workspace_id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash, seq) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        "INSERT INTO audit_logs (id, workspace_id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash, seq, signature) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         crate::params![
             entry.id,
             ws_id,
@@ -82,7 +145,8 @@ pub async fn log_action_with_conn(
             entry.timestamp,
             entry.prev_hash,
             entry.curr_hash,
-            entry.seq
+            entry.seq,
+            entry.signature
         ],
     ).await?;
     
@@ -117,12 +181,12 @@ pub async fn get_audit_logs(requester_user_id: String) -> Result<Vec<AuditLogEnt
 
     let (query, params) = if auth.role == "platform_admin" {
         (
-            "SELECT id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash, seq FROM audit_logs ORDER BY timestamp DESC".to_string(),
+            "SELECT id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash, seq, signature FROM audit_logs ORDER BY timestamp DESC".to_string(),
             vec![],
         )
     } else if auth.role == "admin" {
         (
-            "SELECT id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash, seq
+            "SELECT id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash, seq, signature
              FROM audit_logs
              WHERE workspace_id = ?1
              ORDER BY timestamp DESC".to_string(),
@@ -145,6 +209,7 @@ pub async fn get_audit_logs(requester_user_id: String) -> Result<Vec<AuditLogEnt
             prev_hash: row.get(5)?,
             curr_hash: row.get(6)?,
             seq: row.get(7)?,
+            signature: row.get(8)?,
         });
     }
     Ok(logs)
@@ -162,8 +227,14 @@ pub async fn verify_audit_log_chain() -> Result<bool, YntraError> {
         workspaces.push(row.get::<String>(0)?);
     }
     
-    let mut stmt = conn.prepare("SELECT id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash, seq FROM audit_logs WHERE workspace_id = ?1 ORDER BY seq ASC").await?;
+    let mut stmt = conn.prepare("SELECT id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash, seq, signature FROM audit_logs WHERE workspace_id = ?1 ORDER BY seq ASC").await?;
     for ws_id in workspaces {
+        let creator_pub: Option<String> = conn.query_row(
+            "SELECT creator_public_key FROM workspaces WHERE id = ?1",
+            crate::params![&ws_id],
+            |r| r.get(0)
+        ).await.ok();
+
         let mut rows = stmt.query(crate::params![&ws_id]).await?;
         
         let mut last_hash = "genesis".to_string();
@@ -178,6 +249,7 @@ pub async fn verify_audit_log_chain() -> Result<bool, YntraError> {
             let prev_hash: String = row.get(5)?;
             let curr_hash: String = row.get(6)?;
             let seq: i64 = row.get(7)?;
+            let signature: Option<String> = row.get(8)?;
             
             if seq != expected_seq {
                 tracing::error!("Audit log chain broken at log ID {} for workspace {}: seq {} does not match expected_seq {}", id, ws_id, seq, expected_seq);
@@ -193,6 +265,21 @@ pub async fn verify_audit_log_chain() -> Result<bool, YntraError> {
             if computed != curr_hash {
                 tracing::error!("Audit log hash mismatch at log ID {} for workspace {}: computed {}, got {}", id, ws_id, computed, curr_hash);
                 return Ok(false);
+            }
+
+            // Verify signature
+            if let Some(ref pub_key) = creator_pub {
+                if !pub_key.trim().is_empty() {
+                    if let Some(ref sig) = signature {
+                        if !verify_signature(pub_key, &curr_hash, sig) {
+                            tracing::error!("Audit log signature mismatch at log ID {} for workspace {}", id, ws_id);
+                            return Ok(false);
+                        }
+                    } else {
+                        tracing::error!("Missing audit log signature at log ID {} for workspace {}", id, ws_id);
+                        return Ok(false);
+                    }
+                }
             }
             
             last_hash = curr_hash;
@@ -242,6 +329,16 @@ mod tests {
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('workspace-test-1', 'WS 1', '[]', '{}')", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('workspace-test-2', 'WS 2', '[]', '{}')", ()).await.unwrap();
 
+        // Generate and set up keypair for workspace-test-2 to test signing
+        let keys = crate::infra::crypto::generate_workspace_keypair().unwrap();
+        let pub_hex = &keys[0];
+        let priv_hex = &keys[1];
+        conn.execute(
+            "UPDATE workspaces SET creator_public_key = ?1 WHERE id = 'workspace-test-2'",
+            crate::params![pub_hex],
+        ).await.unwrap();
+        crate::infra::crypto::set_local_secret("creator_private_key_workspace-test-2", priv_hex).await.unwrap();
+
         // Actor in workspace-test-1
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('test-actor-1', 'workspace-test-1', 'actor@ws1.io', 'platform_admin')", ()).await.unwrap();
 
@@ -260,10 +357,18 @@ mod tests {
 
         assert_eq!(logged_ws, "workspace-test-2");
 
+        // The entry signature should be present
+        assert!(entry.signature.is_some());
+
+        // Verify the entire chain is valid
+        let chain_ok = verify_audit_log_chain().await.unwrap();
+        assert!(chain_ok);
+
         // Clean up
         conn.execute("DELETE FROM audit_logs WHERE actor_id = 'test-actor-1'", ()).await.unwrap();
         conn.execute("DELETE FROM clients WHERE id = 'test-client-1'", ()).await.unwrap();
         conn.execute("DELETE FROM users WHERE id = 'test-actor-1'", ()).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id IN ('workspace-test-1', 'workspace-test-2')", ()).await.unwrap();
+        let _ = crate::infra::crypto::set_local_secret("creator_private_key_workspace-test-2", "").await;
     }
 }

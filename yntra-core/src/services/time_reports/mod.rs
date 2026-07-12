@@ -549,6 +549,14 @@ pub async fn delete_time_report(requester_user_id: String, id: String) -> Result
     Ok(())
 }
 
+#[uniffi::export]
+pub async fn get_time_reports_rkyv(requester_user_id: String, user_id: Option<String>) -> Result<Vec<u8>, YntraError> {
+    let reports = get_time_reports(requester_user_id, user_id).await?;
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&reports)
+        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    Ok(bytes.into_vec())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -825,5 +833,30 @@ mod tests {
 
         conn.execute("DELETE FROM users WHERE workspace_id IN ('ws-time-a', 'ws-time-b')", ()).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id IN ('ws-time-a', 'ws-time-b')", ()).await.unwrap();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_get_time_reports_rkyv_serialization() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-time-rkyv', 'Rkyv WS', '[]', '{\"target_region\":\"SE\"}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, preferences) VALUES ('u-time-rkyv', 'ws-time-rkyv', 'rkyv@time.se', 'user', '{}')", ()).await.unwrap();
+
+        conn.execute(
+            "INSERT INTO time_reports (id, workspace_id, user_id, date, hours, note, status, created_at, updated_at, sync_status)
+             VALUES ('tr-rkyv-1', 'ws-time-rkyv', 'u-time-rkyv', '2026-07-06', 8.0, 'Work', 'approved', '2026-07-06', 0, 'synced')",
+            ()
+        ).await.unwrap();
+
+        let bytes = get_time_reports_rkyv("u-time-rkyv".to_string(), Some("u-time-rkyv".to_string())).await.unwrap();
+        let rkyv_reports: Vec<TimeReport> = rkyv::from_bytes::<Vec<TimeReport>, rkyv::rancor::Error>(&bytes).unwrap();
+        assert_eq!(rkyv_reports.len(), 1);
+        assert_eq!(rkyv_reports[0].id, "tr-rkyv-1");
+
+        conn.execute("DELETE FROM time_reports WHERE id = 'tr-rkyv-1'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE id = 'u-time-rkyv'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-time-rkyv'", ()).await.unwrap();
     }
 }
