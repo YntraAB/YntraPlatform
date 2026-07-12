@@ -24,10 +24,24 @@ pub fn verify_zkp_if_encrypted(content: &str) -> Result<(), YntraError> {
 use std::sync::OnceLock;
 use crate::ZeroCopyNoteStore;
 
+#[cfg(target_arch = "wasm32")]
+fn get_note_store_path() -> String {
+    String::new()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn get_note_store_path() -> String {
+    if cfg!(test) {
+        std::env::temp_dir().join("yntra_zero_copy_notes.db").to_string_lossy().to_string()
+    } else {
+        crate::database::native::get_database_path("yntra_zero_copy_notes.db")
+    }
+}
+
 pub fn get_note_store() -> ZeroCopyNoteStore {
     static NOTE_STORE: OnceLock<ZeroCopyNoteStore> = OnceLock::new();
     NOTE_STORE.get_or_init(|| {
-        let path = std::env::temp_dir().join("yntra_zero_copy_notes.db").to_string_lossy().to_string();
+        let path = get_note_store_path();
         ZeroCopyNoteStore::new(path).expect("Failed to initialize ZeroCopyNoteStore")
     }).clone()
 }
@@ -715,6 +729,14 @@ pub async fn merge_unmerged_notes() -> Result<(), YntraError> {
     }
     
     Ok(())
+}
+
+#[uniffi::export]
+pub async fn get_notes_rkyv(requester_user_id: String, team_id: Option<String>) -> Result<Vec<u8>, YntraError> {
+    let notes = get_notes(requester_user_id, team_id).await?;
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&notes)
+        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    Ok(bytes.into_vec())
 }
 
 #[cfg(test)]

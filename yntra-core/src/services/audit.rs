@@ -5,29 +5,27 @@ use std::sync::OnceLock;
 
 static AUDIT_STORE: OnceLock<crate::ZeroCopyAuditStore> = OnceLock::new();
 
+#[cfg(target_arch = "wasm32")]
+fn get_audit_store_path() -> String {
+    String::new()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn get_audit_store_path() -> String {
+    let path = if cfg!(test) {
+        std::env::temp_dir().join("yntra_zero_copy_audit_test.db").to_string_lossy().to_string()
+    } else {
+        crate::database::native::get_database_path("yntra_zero_copy_audit.db")
+    };
+    if cfg!(test) {
+        let _ = std::fs::remove_file(&path);
+    }
+    path
+}
+
 fn get_audit_store() -> &'static crate::ZeroCopyAuditStore {
     AUDIT_STORE.get_or_init(|| {
-        let path = if cfg!(target_arch = "wasm32") {
-            String::new()
-        } else if cfg!(test) {
-            std::env::temp_dir().join("yntra_zero_copy_audit_test.db").to_string_lossy().to_string()
-        } else {
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                crate::database::native::get_database_path("yntra_zero_copy_audit.db")
-            }
-            #[cfg(target_arch = "wasm32")]
-            {
-                String::new()
-            }
-        };
-        // Clean old test file if running tests
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            if cfg!(test) {
-                let _ = std::fs::remove_file(&path);
-            }
-        }
+        let path = get_audit_store_path();
         crate::ZeroCopyAuditStore::new(path).expect("Failed to initialize ZeroCopyAuditStore for Audit Logs")
     })
 }

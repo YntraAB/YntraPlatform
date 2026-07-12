@@ -4,29 +4,27 @@ use std::sync::OnceLock;
 
 static MESSAGE_STORE: OnceLock<crate::ZeroCopyMessageStore> = OnceLock::new();
 
+#[cfg(target_arch = "wasm32")]
+fn get_message_store_path() -> String {
+    String::new()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn get_message_store_path() -> String {
+    let path = if cfg!(test) {
+        std::env::temp_dir().join("yntra_zero_copy_messages_test.db").to_string_lossy().to_string()
+    } else {
+        crate::database::native::get_database_path("yntra_zero_copy_messages.db")
+    };
+    if cfg!(test) {
+        let _ = std::fs::remove_file(&path);
+    }
+    path
+}
+
 fn get_message_store() -> &'static crate::ZeroCopyMessageStore {
     MESSAGE_STORE.get_or_init(|| {
-        let path = if cfg!(target_arch = "wasm32") {
-            String::new()
-        } else if cfg!(test) {
-            std::env::temp_dir().join("yntra_zero_copy_messages_test.db").to_string_lossy().to_string()
-        } else {
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                crate::database::native::get_database_path("yntra_zero_copy_messages.db")
-            }
-            #[cfg(target_arch = "wasm32")]
-            {
-                String::new()
-            }
-        };
-        // Clean old test file if running tests
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            if cfg!(test) {
-                let _ = std::fs::remove_file(&path);
-            }
-        }
+        let path = get_message_store_path();
         crate::ZeroCopyMessageStore::new(path).expect("Failed to initialize ZeroCopyMessageStore for Messages")
     })
 }

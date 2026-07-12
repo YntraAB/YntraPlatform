@@ -4,29 +4,27 @@ use std::sync::OnceLock;
 
 static TODO_STORE: OnceLock<crate::ZeroCopyStore> = OnceLock::new();
 
+#[cfg(target_arch = "wasm32")]
+fn get_todo_store_path() -> String {
+    String::new()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn get_todo_store_path() -> String {
+    let path = if cfg!(test) {
+        std::env::temp_dir().join("yntra_zero_copy_todos_test.db").to_string_lossy().to_string()
+    } else {
+        crate::database::native::get_database_path("yntra_zero_copy_todos.db")
+    };
+    if cfg!(test) {
+        let _ = std::fs::remove_file(&path);
+    }
+    path
+}
+
 fn get_todo_store() -> &'static crate::ZeroCopyStore {
     TODO_STORE.get_or_init(|| {
-        let path = if cfg!(target_arch = "wasm32") {
-            String::new()
-        } else if cfg!(test) {
-            std::env::temp_dir().join("yntra_zero_copy_todos_test.db").to_string_lossy().to_string()
-        } else {
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                crate::database::native::get_database_path("yntra_zero_copy_todos.db")
-            }
-            #[cfg(target_arch = "wasm32")]
-            {
-                String::new()
-            }
-        };
-        // Clean old test file if running tests
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            if cfg!(test) {
-                let _ = std::fs::remove_file(&path);
-            }
-        }
+        let path = get_todo_store_path();
         crate::ZeroCopyStore::new(path).expect("Failed to initialize ZeroCopyStore for Todos")
     })
 }
@@ -111,6 +109,14 @@ pub async fn toggle_todo(requester_user_id: String, id: String) -> Result<(), Yn
     crate::infra::observer::notify_observers();
 
     Ok(())
+}
+
+#[uniffi::export]
+pub async fn get_todos_rkyv(requester_user_id: String, workspace_id: String) -> Result<Vec<u8>, YntraError> {
+    let todos = get_todos(requester_user_id, workspace_id).await?;
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&todos)
+        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    Ok(bytes.into_vec())
 }
 
 #[cfg(test)]
