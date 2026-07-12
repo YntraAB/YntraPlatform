@@ -28,6 +28,16 @@ pub fn NoteEdit(props: NoteEditProps) -> Element {
     let mut edit_mode = props.edit_mode;
     let locale = props.locale;
 
+    let initial_content = edit_content.read().clone();
+    let parts: Vec<String> = initial_content.split(':').map(|s| s.to_string()).collect();
+    let was_encrypted = parts.len() == 3 && parts[0] == "zero_copy_enc";
+    let ciphertext = if was_encrypted { parts[2].clone() } else { String::new() };
+
+    let mut is_decrypted = use_signal(|| !was_encrypted);
+    let mut passkey_seed_input = use_signal(|| "my_passkey_seed".to_string());
+    let mut used_seed = use_signal(|| String::new());
+    let mut decryption_error = use_signal(|| Option::<String>::None);
+
     rsx! {
         div {
             class: "flex flex-col h-full w-full bg-background box-border",
@@ -55,7 +65,7 @@ pub fn NoteEdit(props: NoteEditProps) -> Element {
                     button {
                         class: "yntra-btn rounded-full font-bold cursor-pointer px-5 py-2",
                         style: "background: var(--accent); color: var(--bg-main);",
-                        disabled: edit_content.read().trim().is_empty(),
+                        disabled: !*is_decrypted.read() || edit_content.read().trim().is_empty(),
                         onclick: {
                             let n_id = note_id.clone();
                             let author_name = active_user.full_name.clone().unwrap_or_else(|| "You".to_string());
@@ -67,8 +77,25 @@ pub fn NoteEdit(props: NoteEditProps) -> Element {
                                     let note_id = n_id.clone();
                                     let author = author_name.clone();
                                     let user_id = active_user.id.clone();
+                                    let user_role = active_user.role.clone();
+                                    let is_enc = was_encrypted;
+                                    let seed = used_seed.read().clone();
                                     spawn(async move {
-                                        let _ = update_note(user_id, note_id, author, final_sub, content).await;
+                                        let final_content = if is_enc {
+                                            let trust = yntra_core::ZkCryptoTrust::new();
+                                            if let Ok(ciphertext) = trust.encrypt_workspace_field(seed.clone(), content.clone()) {
+                                                if let Ok(proof) = trust.generate_compliance_proof(ciphertext.clone(), user_id.clone(), user_role) {
+                                                    format!("zero_copy_enc:{}:{}", proof, ciphertext)
+                                                } else {
+                                                    content
+                                                }
+                                            } else {
+                                                content
+                                            }
+                                        } else {
+                                            content
+                                        };
+                                        let _ = update_note(user_id, note_id, author, final_sub, final_content).await;
                                     });
                                     edit_mode.set(false);
                                 }
@@ -83,28 +110,81 @@ pub fn NoteEdit(props: NoteEditProps) -> Element {
             div {
                 class: "scrollbar-dark flex-1 overflow-y-auto px-8 py-10 flex flex-col gap-8 mx-auto w-full max-w-[800px] box-border md:px-24 lg:px-48",
                 
-                // Subject input
-                div {
-                    class: "flex flex-col border-b border-border pb-2 transition-colors",
-                    label { class: "text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1",
-                        "{t(\"notes-compose-subject-label\", &locale)}"
+                if !*is_decrypted.read() {
+                    div {
+                        class: "flex flex-col gap-4 p-6 border border-amber-500/30 bg-amber-500/5 rounded-xl text-sm box-border my-auto",
+                        div { class: "flex items-center gap-3",
+                            span { class: "text-2xl", "🔒" }
+                            div { class: "flex flex-col gap-0.5",
+                                span { class: "font-bold text-foreground text-xs", "Decryption Required to Edit" }
+                                span { class: "text-[10px] text-muted-foreground", "This note is end-to-end encrypted. Please verify your Passkey to begin editing." }
+                            }
+                        }
+                        div { class: "flex flex-col gap-2",
+                            label { class: "text-[9px] font-bold uppercase tracking-wider text-muted-foreground", "Enter Passkey Seed" }
+                            div { class: "flex gap-2.5 items-center",
+                                input {
+                                    class: "yntra-input text-xs h-9 bg-background border border-border rounded px-3 flex-1 text-foreground",
+                                    placeholder: "Passkey seed...",
+                                    value: "{passkey_seed_input}",
+                                    oninput: move |e| passkey_seed_input.set(e.value()),
+                                }
+                                button {
+                                    class: "yntra-btn rounded-lg font-semibold px-4 py-2 cursor-pointer bg-amber-500 text-neutral-900 border-0 text-xs h-9 transition-colors hover:bg-amber-400",
+                                    onclick: move |_| {
+                                        let trust = yntra_core::ZkCryptoTrust::new();
+                                        match trust.decrypt_workspace_field(passkey_seed_input.read().clone(), ciphertext.to_string()) {
+                                            Ok(decrypted) => {
+                                                edit_content.set(decrypted);
+                                                used_seed.set(passkey_seed_input.read().clone());
+                                                is_decrypted.set(true);
+                                                decryption_error.set(None);
+                                            }
+                                            Err(_) => {
+                                                decryption_error.set(Some("Decryption failed. Please verify your Passkey Seed.".to_string()));
+                                            }
+                                        }
+                                    },
+                                    "Decrypt & Edit"
+                                }
+                            }
+                            if let Some(err) = decryption_error.read().clone() {
+                                span { class: "text-xs font-semibold text-rose-500 animate-in fade-in duration-150", "{err}" }
+                            }
+                        }
                     }
-                    input {
-                        class: "border-none bg-transparent text-foreground text-lg font-medium w-full focus:outline-none focus:ring-0 py-1 px-0 placeholder:text-muted-foreground/50",
-                        placeholder: "{t(\"notes-compose-subject-placeholder\", &locale)}",
-                        value: "{edit_subject}",
-                        oninput: move |e| edit_subject.set(e.value()),
+                } else {
+                    // Subject input
+                    div {
+                        class: "flex flex-col border-b border-border pb-2 transition-colors",
+                        label { class: "text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1",
+                            "{t(\"notes-compose-subject-label\", &locale)}"
+                        }
+                        input {
+                            class: "border-none bg-transparent text-foreground text-lg font-medium w-full focus:outline-none focus:ring-0 py-1 px-0 placeholder:text-muted-foreground/50",
+                            placeholder: "{t(\"notes-compose-subject-placeholder\", &locale)}",
+                            value: "{edit_subject}",
+                            oninput: move |e| edit_subject.set(e.value()),
+                        }
                     }
-                }
 
-                // Content textarea
-                div {
-                    class: "flex flex-col flex-1 pb-10",
-                    textarea {
-                        class: "border-none bg-transparent text-foreground text-[15px] leading-relaxed w-full flex-1 resize-none focus:outline-none min-h-[300px] p-0 placeholder:text-muted-foreground/50",
-                        placeholder: "{t(\"notes-compose-content-placeholder\", &locale)}",
-                        value: "{edit_content}",
-                        oninput: move |e| edit_content.set(e.value()),
+                    if was_encrypted {
+                        div {
+                            class: "flex items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded-lg text-xs font-semibold mb-2",
+                            span { "🔒" }
+                            "Editing End-to-End Encrypted Note. Changes will be re-encrypted automatically upon saving."
+                        }
+                    }
+
+                    // Content textarea
+                    div {
+                        class: "flex flex-col flex-1 pb-10",
+                        textarea {
+                            class: "border-none bg-transparent text-foreground text-[15px] leading-relaxed w-full flex-1 resize-none focus:outline-none min-h-[300px] p-0 placeholder:text-muted-foreground/50",
+                            placeholder: "{t(\"notes-compose-content-placeholder\", &locale)}",
+                            value: "{edit_content}",
+                            oninput: move |e| edit_content.set(e.value()),
+                        }
                     }
                 }
             }

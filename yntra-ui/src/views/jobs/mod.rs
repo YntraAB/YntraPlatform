@@ -35,7 +35,12 @@ pub fn JobsView(props: JobsViewProps) -> Element {
         let _ = db_trig; // trigger reload on db updates
         let uid = props.active_user_id.read().clone();
         async move {
-            yntra_core::get_job_tickets(uid).await.unwrap_or_default()
+            match yntra_core::get_job_tickets_rkyv(uid).await {
+                Ok(bytes) => {
+                    rkyv::from_bytes::<Vec<yntra_core::JobTicket>, rkyv::rancor::Error>(&bytes).unwrap_or_default()
+                }
+                Err(_) => Vec::new(),
+            }
         }
     });
 

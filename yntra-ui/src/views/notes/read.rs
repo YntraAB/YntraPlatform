@@ -35,6 +35,27 @@ pub fn NoteRead(props: NoteReadProps) -> Element {
     let mut expanded_note_history_id = props.expanded_note_history_id;
     let locale = props.locale;
 
+    let mut decrypted_content = use_signal(|| Option::<String>::None);
+    let mut passkey_seed_input = use_signal(|| "my_passkey_seed".to_string());
+    let mut decryption_error = use_signal(|| Option::<String>::None);
+
+    let content_str = note.content.clone();
+    let parts: Vec<String> = content_str.split(':').map(|s| s.to_string()).collect();
+    let (has_enc, proof, ciphertext) = if parts.len() == 3 && parts[0] == "zero_copy_enc" {
+        (true, parts[1].clone(), parts[2].clone())
+    } else {
+        (false, String::new(), String::new())
+    };
+
+    let proof_verified = use_signal(|| {
+        if has_enc {
+            let trust = yntra_core::ZkCryptoTrust::new();
+            trust.verify_compliance_proof(proof.to_string()).unwrap_or(false)
+        } else {
+            false
+        }
+    });
+
     let author = users
         .iter()
         .find(|u| Some(u.id.clone()) == note.author_id)
@@ -221,12 +242,75 @@ pub fn NoteRead(props: NoteReadProps) -> Element {
                 }
 
                 // Subject and full content
-                h3 { class: "font-extrabold text-foreground mt-0 mb-5 text-2xl tracking-tight",
+                h3 { class: "font-extrabold text-foreground mt-0 mb-5 text-2xl tracking-tight flex items-center gap-3 flex-wrap",
                     "{note.subject}"
+                    if has_enc {
+                        if *proof_verified.read() {
+                            span { 
+                                class: "text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded flex items-center gap-1",
+                                "✓ Zero-Copy ZKP Compliance Verified"
+                            }
+                        } else {
+                            span { 
+                                class: "text-[10px] font-bold text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded flex items-center gap-1",
+                                "⚠ Invalid Compliance Proof"
+                            }
+                        }
+                    }
                 }
-                div {
-                    class: "text-sm text-muted-foreground m-0 leading-relaxed whitespace-pre-wrap",
-                    "{note.content}"
+                if has_enc {
+                    if let Some(plain_text) = decrypted_content.read().clone() {
+                        div {
+                            class: "text-sm text-foreground m-0 leading-relaxed whitespace-pre-wrap border-l-2 border-amber-500 pl-4 py-1",
+                            "{plain_text}"
+                        }
+                    } else {
+                        div {
+                            class: "flex flex-col gap-4 p-6 border border-amber-500/30 bg-amber-500/5 rounded-xl text-sm box-border mb-6",
+                            div { class: "flex items-center gap-3",
+                                span { class: "text-2xl", "🔒" }
+                                div { class: "flex flex-col gap-0.5",
+                                    span { class: "font-bold text-foreground text-xs", "End-to-End Encrypted Content" }
+                                    span { class: "text-[10px] text-muted-foreground", "This note is secured with hardware-backed Passkey envelope encryption." }
+                                }
+                            }
+                            div { class: "flex flex-col gap-2",
+                                label { class: "text-[9px] font-bold uppercase tracking-wider text-muted-foreground", "Enter Passkey Seed to Decrypt" }
+                                div { class: "flex gap-2.5 items-center",
+                                    input {
+                                        class: "yntra-input text-xs h-9 bg-background border border-border rounded px-3 flex-1 text-foreground",
+                                        placeholder: "Passkey seed...",
+                                        value: "{passkey_seed_input}",
+                                        oninput: move |e| passkey_seed_input.set(e.value()),
+                                    }
+                                    button {
+                                        class: "yntra-btn rounded-lg font-semibold px-4 py-2 cursor-pointer bg-amber-500 text-neutral-900 border-0 text-xs h-9 transition-colors hover:bg-amber-400",
+                                        onclick: move |_| {
+                                            let trust = yntra_core::ZkCryptoTrust::new();
+                                            match trust.decrypt_workspace_field(passkey_seed_input.read().clone(), ciphertext.to_string()) {
+                                                Ok(decrypted) => {
+                                                    decrypted_content.set(Some(decrypted));
+                                                    decryption_error.set(None);
+                                                }
+                                                Err(_) => {
+                                                    decryption_error.set(Some("Decryption failed. Please verify your Passkey Seed.".to_string()));
+                                                }
+                                            }
+                                        },
+                                        "Decrypt"
+                                    }
+                                }
+                                if let Some(err) = decryption_error.read().clone() {
+                                    span { class: "text-xs font-semibold text-rose-500 animate-in fade-in duration-150", "{err}" }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    div {
+                        class: "text-sm text-muted-foreground m-0 leading-relaxed whitespace-pre-wrap",
+                        "{note.content}"
+                    }
                 }
             }
         }

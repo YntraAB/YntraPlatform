@@ -222,7 +222,12 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
         let _trig = db_trigger.read();
         let user_id = user_id_jobs.clone();
         async move {
-            yntra_core::get_job_tickets(user_id).await.unwrap_or_default()
+            match yntra_core::get_job_tickets_rkyv(user_id).await {
+                Ok(bytes) => {
+                    rkyv::from_bytes::<Vec<yntra_core::JobTicket>, rkyv::rancor::Error>(&bytes).unwrap_or_default()
+                }
+                Err(_) => Vec::new(),
+            }
         }
     });
 

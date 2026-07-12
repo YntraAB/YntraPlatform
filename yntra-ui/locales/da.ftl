@@ -963,3 +963,4 @@ school-billing-invoices = [TODO] Invoices & Fees Ledger
 scheduler-classroom = [TODO] Classroom
 school-student-portal-desc = [TODO] Complete tasks, earn stars, and view teacher feedback!
 scheduler-vehicle = [TODO] Vehicle
+sidebar-p2p-playground = P2P Synkroniseringslegeplads

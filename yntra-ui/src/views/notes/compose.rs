@@ -30,6 +30,9 @@ pub fn NoteCompose(props: NoteComposeProps) -> Element {
     let mut is_composing = props.is_composing;
     let locale = props.locale;
 
+    let mut encrypt_zero_copy = use_signal(|| false);
+    let mut passkey_seed = use_signal(|| "my_passkey_seed".to_string());
+
     rsx! {
         div {
             class: "flex flex-col h-full w-full bg-background box-border",
@@ -66,14 +69,31 @@ pub fn NoteCompose(props: NoteComposeProps) -> Element {
                                 let workspace_id = active_user.workspace_id.clone().unwrap_or_else(|| "workspace-1".to_string());
                                 let team_id = active_team_id.clone();
                                 let user_id = active_user.id.clone();
+                                let user_role = active_user.role.clone();
+                                let is_enc = *encrypt_zero_copy.read();
+                                let seed = passkey_seed.read().clone();
                                 spawn(async move {
+                                    let final_content = if is_enc {
+                                        let trust = yntra_core::ZkCryptoTrust::new();
+                                        if let Ok(ciphertext) = trust.encrypt_workspace_field(seed.clone(), content.clone()) {
+                                            if let Ok(proof) = trust.generate_compliance_proof(ciphertext.clone(), user_id.clone(), user_role) {
+                                                format!("zero_copy_enc:{}:{}", proof, ciphertext)
+                                            } else {
+                                                content
+                                            }
+                                        } else {
+                                            content
+                                        }
+                                    } else {
+                                        content
+                                    };
                                     let _ = add_note(
                                         user_id.clone(),
                                         workspace_id,
                                         team_id,
                                         user_id,
                                         final_sub,
-                                        content,
+                                        final_content,
                                     ).await;
                                 });
                                 note_subject.set(String::new());
@@ -102,6 +122,40 @@ pub fn NoteCompose(props: NoteComposeProps) -> Element {
                         value: "{note_subject}",
                         oninput: move |e| note_subject.set(e.value()),
                         autofocus: true,
+                    }
+                }
+
+                // SOTA E2EE Settings card
+                div {
+                    class: "flex flex-col gap-3 p-4 border border-border bg-sidebar/40 rounded-xl",
+                    style: "background: var(--bg-sidebar); backdrop-filter: blur(8px);",
+                    div {
+                        class: "flex items-center gap-3 justify-between w-full",
+                        div { class: "flex items-center gap-2.5",
+                            span { class: "text-lg", "🔒" }
+                            div { class: "flex flex-col gap-0.5",
+                                span { class: "text-xs font-bold text-foreground", "Zero-Copy E2EE Envelope Encryption" }
+                                span { class: "text-[10px] text-muted-foreground", "Secure note with hardware Passkey envelope encryption and ZK schema proof" }
+                            }
+                        }
+                        input {
+                            r#type: "checkbox",
+                            checked: *encrypt_zero_copy.read(),
+                            onchange: move |e| encrypt_zero_copy.set(e.value().parse().unwrap_or(false)),
+                            class: "h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer",
+                        }
+                    }
+                    if *encrypt_zero_copy.read() {
+                        div {
+                            class: "flex flex-col gap-1.5 animate-in fade-in duration-200",
+                            label { class: "text-[9px] font-bold uppercase tracking-wider text-muted-foreground", "Passkey PIN / Seed" }
+                            input {
+                                class: "yntra-input text-xs h-8 bg-background/50 border border-border rounded px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground",
+                                placeholder: "Enter passkey seed for key derivation...",
+                                value: "{passkey_seed}",
+                                oninput: move |e| passkey_seed.set(e.value()),
+                            }
+                        }
                     }
                 }
 

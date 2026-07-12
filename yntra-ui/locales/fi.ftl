@@ -970,6 +970,7 @@ scheduler-vehicle = Vehicle
 scheduler-volume = Volume (cbm)
 scheduler-destination = Destination
 scheduler-select-course = Select Course...
+sidebar-p2p-playground = P2P Synkronointileikkikenttä
 
 
 

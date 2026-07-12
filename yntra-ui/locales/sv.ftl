@@ -971,6 +971,7 @@ scheduler-vehicle = Fordon
 scheduler-volume = Volym (m³)
 scheduler-destination = Destination
 scheduler-select-course = Välj kurs...
+sidebar-p2p-playground = P2P Synkroniseringslekplats
 
 
 

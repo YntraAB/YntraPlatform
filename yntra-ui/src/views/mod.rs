@@ -11,6 +11,7 @@ pub mod setup;
 pub mod time;
 pub mod jobs;
 pub mod todos;
+pub mod p2p_playground;
 
 pub use client_portal::ClientPortalView;
 pub use dashboard::DashboardView;
@@ -25,6 +26,7 @@ pub use setup::SetupView;
 pub use time::TimeView;
 pub use jobs::JobsView;
 pub use todos::TodosView;
+pub use p2p_playground::P2PPlaygroundView;
 pub mod dynamic_block;
 pub use dynamic_block::DynamicBlockView;
 

@@ -342,6 +342,14 @@ pub fn EmployeeLayout() -> Element {
                                         }
                                     }
                                 }
+                                "p2p_playground" => {
+                                    rsx! {
+                                        views::P2PPlaygroundView {
+                                            active_user_id: active_user_id.clone(),
+                                            db_trigger: db_trigger,
+                                        }
+                                    }
+                                }
 
                                 "notes" => {
                                     let use_custom = get_block_use_custom_ui(&workspace, "notes");

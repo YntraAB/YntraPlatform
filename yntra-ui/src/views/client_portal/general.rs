@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use yntra_core::get_job_tickets;
+use yntra_core::get_job_tickets_rkyv;
 use crate::components;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
@@ -24,7 +24,14 @@ pub fn GeneralPortal(props: GeneralPortalProps) -> Element {
     let jobs_res = use_resource(move || {
         let _trig = db_trigger.read();
         let uid = props.active_user_id.clone();
-        async move { get_job_tickets(uid).await.unwrap_or_default() }
+        async move {
+            match get_job_tickets_rkyv(uid).await {
+                Ok(bytes) => {
+                    rkyv::from_bytes::<Vec<yntra_core::JobTicket>, rkyv::rancor::Error>(&bytes).unwrap_or_default()
+                }
+                Err(_) => Vec::new(),
+            }
+        }
     });
     let jobs = jobs_res.read().clone().unwrap_or_default();
 

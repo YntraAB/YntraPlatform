@@ -105,7 +105,14 @@ pub fn NoteList(props: NoteListProps) -> Element {
                                         .unwrap_or_else(|| "Unknown".to_string());
                                     let note_id = note.id.clone();
                                     let note_subj = note.subject.clone();
-                                    let note_content_snippet = if note.content.len() > 60 { format!("{}...", &note.content[..60]) } else { note.content.clone() };
+                                    let note_is_enc = note.content.starts_with("zero_copy_enc:");
+                                    let note_content_snippet = if note_is_enc {
+                                        "🔒 [End-to-End Encrypted via Passkey]".to_string()
+                                    } else if note.content.len() > 60 {
+                                        format!("{}...", &note.content[..60])
+                                    } else {
+                                        note.content.clone()
+                                    };
                                     let date_str = if note.created_at.len() >= 10 { note.created_at[..10].to_string() } else { note.created_at.clone() };
 
                                     rsx! {
@@ -128,6 +135,12 @@ pub fn NoteList(props: NoteListProps) -> Element {
                                             div {
                                                 class: "flex-1 flex items-center gap-2 min-w-0 truncate pr-4 box-border",
                                                 span { class: "font-semibold text-foreground", "{note_subj}" }
+                                                if note_is_enc {
+                                                    span { 
+                                                        class: "text-[10px] font-bold text-amber-500 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded flex items-center gap-1",
+                                                        "🔒 Zero-Copy E2EE"
+                                                    }
+                                                }
                                                 span { class: "text-muted-foreground/60", "- {note_content_snippet}" }
                                             }
 

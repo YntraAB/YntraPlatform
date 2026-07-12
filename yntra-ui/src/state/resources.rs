@@ -1,7 +1,8 @@
 use dioxus::prelude::*;
 use yntra_core::{
-    get_clients, get_events, get_messages, get_notes, get_reports, get_teams,
-    get_time_reports, get_users, get_workspace, get_workspaces,
+    get_notes, get_reports, get_teams,
+    get_users, get_workspace, get_workspaces,
+    get_clients_rkyv, get_messages_rkyv, get_time_reports_rkyv, get_events_rkyv,
     Workspace, WorkspaceUser, Team, TeamEvent, MessageItem, DailyNote, TimeReport,
     ClientProfile, ReportItem,
 };
@@ -98,8 +99,10 @@ pub fn init_resources(
             if !enabled {
                 return Vec::new();
             }
-            match get_events(uid, None).await {
-                Ok(list) => list,
+            match get_events_rkyv(uid, None).await {
+                Ok(bytes) => {
+                    rkyv::from_bytes::<Vec<TeamEvent>, rkyv::rancor::Error>(&bytes).unwrap_or_default()
+                }
                 Err(e) => {
                     bg_err.set(Some(e));
                     Vec::new()
@@ -122,8 +125,10 @@ pub fn init_resources(
             if !enabled {
                 return Vec::new();
             }
-            match get_messages(uid.clone(), uid).await {
-                Ok(list) => list,
+            match get_messages_rkyv(uid.clone(), uid).await {
+                Ok(bytes) => {
+                    rkyv::from_bytes::<Vec<MessageItem>, rkyv::rancor::Error>(&bytes).unwrap_or_default()
+                }
                 Err(e) => {
                     bg_err.set(Some(e));
                     Vec::new()
@@ -170,8 +175,10 @@ pub fn init_resources(
             if !enabled {
                 return Vec::new();
             }
-            match get_time_reports(uid, None).await {
-                Ok(list) => list,
+            match get_time_reports_rkyv(uid, None).await {
+                Ok(bytes) => {
+                    rkyv::from_bytes::<Vec<TimeReport>, rkyv::rancor::Error>(&bytes).unwrap_or_default()
+                }
                 Err(e) => {
                     bg_err.set(Some(e));
                     Vec::new()
@@ -196,8 +203,10 @@ pub fn init_resources(
             if !enabled {
                 return Vec::new();
             }
-            match get_clients(uid).await {
-                Ok(list) => list,
+            match get_clients_rkyv(uid).await {
+                Ok(bytes) => {
+                    rkyv::from_bytes::<Vec<ClientProfile>, rkyv::rancor::Error>(&bytes).unwrap_or_default()
+                }
                 Err(e) => {
                     bg_err.set(Some(e));
                     Vec::new()
