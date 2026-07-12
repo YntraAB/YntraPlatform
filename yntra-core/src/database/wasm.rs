@@ -35,20 +35,14 @@ impl<F: Future> Future for SendFuture<F> {
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_name = yntra_execute_sql, catch)]
-    async fn js_execute_sql_internal(query_type: &str, sql: &str, params_json: &str) -> Result<JsValue, JsValue>;
+    async fn js_execute_sql_internal(query_type: &str, sql: &str, params: JsValue) -> Result<JsValue, JsValue>;
 }
 
-async fn js_execute_sql(query_type: &str, sql: &str, params_json: &str) -> Result<String, YntraError> {
-    let fut = js_execute_sql_internal(query_type, sql, params_json);
+async fn js_execute_sql(query_type: &str, sql: &str, params: JsValue) -> Result<JsValue, YntraError> {
+    let fut = js_execute_sql_internal(query_type, sql, params);
     let send_fut = SendFuture::new(fut);
     match send_fut.await {
-        Ok(js_val) => {
-            if let Some(s) = js_val.as_string() {
-                Ok(s)
-            } else {
-                Err(YntraError::DbError("JS database call did not return a string".to_string()))
-            }
-        }
+        Ok(js_val) => Ok(js_val),
         Err(js_err) => {
             let err_msg = js_err.as_string()
                 .unwrap_or_else(|| "Unknown JavaScript error during SQL execution".to_string());
@@ -110,7 +104,7 @@ impl Drop for DbConnection {
         let was_in_tx = self.in_transaction.load(std::sync::atomic::Ordering::SeqCst);
         if was_in_tx {
             wasm_bindgen_futures::spawn_local(async move {
-                let _ = js_execute_sql("execute", "ROLLBACK", "[]").await;
+                let _ = js_execute_sql("execute", "ROLLBACK", wasm_bindgen::JsValue::null()).await;
                 drop(guard);
             });
         } else {
@@ -139,15 +133,14 @@ impl DbConnection {
     }
 
     /// Executes a SQL write statement.
-    /// Note: Parameters and results are serialized as JSON strings over the WASM/JS boundary
-    /// because the host window bridge (`window.yntra_execute_sql`) and the Web Worker postMessage
-    /// interface require stringified/cloneable payloads to route instructions to the background database worker.
+    /// Note: Parameters and results are passed directly as JsValue objects over the WASM/JS boundary
+    /// avoiding intermediate JSON string serialization.
     pub async fn execute<P: IntoWasmParams>(&self, sql: &str, params: P) -> Result<u64, YntraError> {
         let params_wasm = params.into_wasm_params();
-        let params_str = serde_json::to_string(&params_wasm)
+        let params_val = serde_wasm_bindgen::to_value(&params_wasm)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        let result_str = js_execute_sql("execute", sql, &params_str).await?;
-        let res: ExecuteResult = serde_json::from_str(&result_str)
+        let result_val = js_execute_sql("execute", sql, params_val).await?;
+        let res: ExecuteResult = serde_wasm_bindgen::from_value(result_val)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         super::track_write(sql);
         Ok(res.rows_affected)
@@ -155,7 +148,7 @@ impl DbConnection {
 
     /// Executes a batch of SQL statements.
     pub async fn execute_batch(&self, sql: &str) -> Result<(), YntraError> {
-        js_execute_sql("execute_batch", sql, "[]").await?;
+        js_execute_sql("execute_batch", sql, JsValue::UNDEFINED).await?;
         super::track_write_batch(sql);
         Ok(())
     }
@@ -171,10 +164,10 @@ impl DbConnection {
         T: Send,
     {
         let params_wasm = params.into_wasm_params();
-        let params_str = serde_json::to_string(&params_wasm)
+        let params_val = serde_wasm_bindgen::to_value(&params_wasm)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        let result_str = js_execute_sql("query", sql, &params_str).await?;
-        let rows: Vec<serde_json::Value> = serde_json::from_str(&result_str)
+        let result_val = js_execute_sql("query", sql, params_val).await?;
+        let rows: Vec<serde_json::Value> = serde_wasm_bindgen::from_value(result_val)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         if rows.is_empty() {
             return Err(YntraError::NoRowsReturned);
@@ -191,10 +184,10 @@ pub struct Statement {
 impl Statement {
     pub async fn query<P: IntoWasmParams>(&mut self, params: P) -> Result<Rows, YntraError> {
         let params_wasm = params.into_wasm_params();
-        let params_str = serde_json::to_string(&params_wasm)
+        let params_val = serde_wasm_bindgen::to_value(&params_wasm)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        let result_str = js_execute_sql("query", &self.sql, &params_str).await?;
-        let rows_val: Vec<serde_json::Value> = serde_json::from_str(&result_str)
+        let result_val = js_execute_sql("query", &self.sql, params_val).await?;
+        let rows_val: Vec<serde_json::Value> = serde_wasm_bindgen::from_value(result_val)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         Ok(Rows {
             rows: rows_val,

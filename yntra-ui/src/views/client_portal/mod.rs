@@ -1,6 +1,4 @@
 use dioxus::prelude::*;
-use yntra_core::ClientProfile;
-use yntra_core::TeamEvent;
 use yntra_core::WorkspaceUser;
 use yntra_core::Workspace;
 use crate::components;
@@ -14,9 +12,6 @@ pub use general::GeneralPortal;
 #[derive(Props, Clone)]
 pub struct ClientPortalViewProps {
     pub active_user: WorkspaceUser,
-    pub users: Vec<WorkspaceUser>,
-    pub clients: Vec<ClientProfile>,
-    pub events: Vec<TeamEvent>,
     pub db_trigger: Signal<u32>,
     pub trigger_jobs: Signal<u32>,
     pub workspace: Workspace,
@@ -30,8 +25,9 @@ impl PartialEq for ClientPortalViewProps {
 
 #[component]
 pub fn ClientPortalView(props: ClientPortalViewProps) -> Element {
+    let state = use_context::<crate::state::AppState>();
     let active_user = props.active_user;
-    let clients = props.clients.clone();
+    let clients = state.clients.read().clone().unwrap_or_default();
     let trigger_jobs = props.trigger_jobs;
     let workspace = props.workspace.clone();
 

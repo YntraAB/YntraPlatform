@@ -13,7 +13,6 @@ pub mod two_factor_modal;
 
 use styles::get_keyframes_css;
 use bankid_modal::BankIdModal;
-use hardware_modal::HardwareModal;
 use invite_modal::InviteModal;
 
 use two_factor_modal::TwoFactorModal;
@@ -97,9 +96,15 @@ pub fn LoginView(props: LoginViewProps) -> Element {
 
 
     let show_hardware_modal = use_signal(|| false);
+    #[allow(unused_variables, unused_mut)]
     let mut hardware_auth_type = use_signal(|| "siths".to_string()); // "siths" | "nfc"
+    #[allow(unused_variables, unused_mut)]
     let mut hardware_reader_status = use_signal(|| "connecting".to_string()); // "connecting" | "polling" | "reading" | "error" | "success"
+    #[allow(unused_variables, unused_mut)]
     let mut hardware_error_msg = use_signal(|| Option::<String>::None);
+    let toast = dioxus_primitives::toast::use_toast();
+    let pin_prompted_sessions = use_signal(std::collections::HashSet::<String>::new);
+    let last_error_shown = use_signal(|| Option::<String>::None);
 
     // 1. Web NFC (NDEFReader) Passive Background Listener (Runs only on Web/WASM target if browser supports Web NFC)
     use_effect(move || {
@@ -184,31 +189,6 @@ pub fn LoginView(props: LoginViewProps) -> Element {
         }
     });
 
-    let restart_passive_session = move || {
-        #[allow(unused_variables, unused_mut)]
-        let mut active_session_id = active_session_id;
-        #[allow(unused_variables, unused_mut)]
-        let mut hardware_auth_type = hardware_auth_type;
-        #[allow(unused_variables, unused_mut)]
-        let mut hardware_reader_status = hardware_reader_status;
-        #[allow(unused_variables, unused_mut)]
-        let mut hardware_error_msg = hardware_error_msg;
-
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            active_session_id.set(None);
-            hardware_auth_type.set("card_or_badge".to_string());
-            hardware_reader_status.set("connecting".to_string());
-            hardware_error_msg.set(None);
-            let mut active_sess = active_session_id;
-            spawn(async move {
-                if let Ok(sess) = yntra_core::initiate_bankid_auth("assistant".to_string(), "card_or_badge".to_string()).await {
-                    active_sess.set(Some(sess.id.clone()));
-                }
-            });
-        }
-    };
-
     let trigger_bankid_employee = move |_| {
         let provider_name = match auth_region.read().as_str() {
             "sv" => "se_bankid",
@@ -256,34 +236,64 @@ pub fn LoginView(props: LoginViewProps) -> Element {
             let mut bankid_progress = bankid_progress;
             let mut bankid_qr_data = bankid_qr_data;
             let mut hardware_reader_status = hardware_reader_status;
-            let mut hardware_error_msg = hardware_error_msg;
             let mut active_session_id = active_session_id;
             let mut two_factor_user = two_factor_user;
             let users = users_for_effect.clone();
+            let toast = toast;
+            let mut pin_prompted_sessions = pin_prompted_sessions;
+            let mut last_error_shown = last_error_shown;
+            let region = props.auth_region.read().clone();
             
             spawn(async move {
                 if let Ok(Some(s)) = yntra_core::get_bankid_auth_session(sid).await {
                     if s.provider == "siths" || s.provider == "nfc" || s.provider == "card_or_badge" {
                         hardware_reader_status.set(s.status.clone());
-                        if s.status == "reading" || s.status == "card_detected" {
-                            show_hardware_modal.set(true);
+                        if s.status == "card_detected" {
+                            let sid_str = s.id.clone();
+                            let already_prompted = pin_prompted_sessions.read().contains(&sid_str);
+                            if !already_prompted {
+                                pin_prompted_sessions.write().insert(sid_str.clone());
+                                let mut eval_prompt = dioxus::document::eval(r#"
+                                    try {
+                                        let pin = prompt("Vänligen ange din kort-PIN / Please enter your card PIN:");
+                                        dioxus.send(pin || "");
+                                    } catch(e) {
+                                        dioxus.send("");
+                                    }
+                                "#);
+                                let session_id = sid_str;
+                                spawn(async move {
+                                    if let Ok(serde_json::Value::String(pin)) = eval_prompt.recv().await {
+                                        if !pin.is_empty() {
+                                            let _ = yntra_core::complete_hardware_auth(session_id, pin).await;
+                                        }
+                                    }
+                                });
+                            }
                         } else if s.status == "error" {
                             let err_msg = s.pin.clone();
                             let final_msg = if err_msg.is_empty() {
-                                t("login-hw-error-card-unregistered", &props.auth_region.read())
+                                t("login-hw-error-card-unregistered", &region)
                             } else if err_msg.starts_with("login-hw-error-") {
                                 if let Some(colon_pos) = err_msg.find(':') {
                                     let key = &err_msg[..colon_pos];
                                     let arg = &err_msg[colon_pos + 1..];
-                                    crate::locales::t_with_args(key, &props.auth_region.read(), &[("id", arg)])
+                                    crate::locales::t_with_args(key, &region, &[("id", arg)])
                                 } else {
-                                    t(&err_msg, &props.auth_region.read())
+                                    t(&err_msg, &region)
                                 }
                             } else {
                                 err_msg
                             };
-                            hardware_error_msg.set(Some(final_msg));
-                            show_hardware_modal.set(true);
+                            let already_shown = last_error_shown.read().as_ref() == Some(&final_msg);
+                            if !already_shown {
+                                last_error_shown.set(Some(final_msg.clone()));
+                                toast.error(
+                                    t("login-hw-title-siths", &region),
+                                    dioxus_primitives::toast::ToastOptions::new().description(final_msg),
+                                );
+                            }
+                            active_session_id.set(None);
                         } else if s.status == "success" {
                             tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
                             if let Some(uid) = s.authenticated_user_id
@@ -410,18 +420,25 @@ pub fn LoginView(props: LoginViewProps) -> Element {
             hardware_reader_status.set("connecting".to_string());
             hardware_error_msg.set(None);
             let mut active_sess = active_session_id;
+            let toast_clone = toast.clone();
+            let region_clone = props.auth_region.read().clone();
             spawn(async move {
                 if let Ok(sess) = yntra_core::initiate_bankid_auth("assistant".to_string(), "card_or_badge".to_string()).await {
                     active_sess.set(Some(sess.id.clone()));
+                    toast_clone.info(
+                        t("login-hw-title-siths", &region_clone),
+                        dioxus_primitives::toast::ToastOptions::new().description(t("login-hw-polling-siths", &region_clone)),
+                    );
                 }
             });
         }
         #[cfg(target_arch = "wasm32")]
         {
-            hardware_auth_type.set("nfc".to_string());
-            hardware_reader_status.set("polling".to_string());
-            hardware_error_msg.set(None);
-            show_hardware_modal.set(true);
+            let region_clone = props.auth_region.read().clone();
+            toast.info(
+                t("login-hw-title-nfc", &region_clone),
+                dioxus_primitives::toast::ToastOptions::new().description(t("login-hw-polling-nfc", &region_clone)),
+            );
         }
     };
 
@@ -467,18 +484,6 @@ pub fn LoginView(props: LoginViewProps) -> Element {
     };
 
     let is_dropdown_open = *dropdown_open.read();
-
-    let hw_type = hardware_auth_type.read();
-    let hardware_title = match hw_type.as_str() {
-        "siths" => t("login-hw-title-siths", &region),
-        "nfc" => t("login-hw-title-nfc", &region),
-        _ => if region.as_str() == "sv" { "SITHS-kort / NFC-bricka".to_string() } else { "Smart Card / NFC Badge".to_string() },
-    };
-    let hardware_polling_label = match hw_type.as_str() {
-        "siths" => t("login-hw-polling-siths", &region),
-        "nfc" => t("login-hw-polling-nfc", &region),
-        _ => if region.as_str() == "sv" { "Vänligen anslut ditt SITHS-kort eller håll din NFC-bricka mot läsaren...".to_string() } else { "Please insert your Smart Card or tap your NFC badge against the reader...".to_string() },
-    };
 
     let keyframes_css = get_keyframes_css(&props.workspace.brand_color);
 
@@ -551,30 +556,7 @@ pub fn LoginView(props: LoginViewProps) -> Element {
                 region: region.clone(),
             }
 
-            // Hardware modal dialog
-            HardwareModal {
-                show_hardware_modal,
-                hardware_title,
-                hardware_reader_status,
-                hardware_polling_label,
-                hardware_error_msg,
-                region: region.clone(),
-                on_close: move |_| restart_passive_session(),
-                on_verify_pin: move |pin| {
-                    if let Some(session_id) = active_session_id.read().clone() {
-                        spawn(async move {
-                            hardware_reader_status.set("reading".to_string());
-                            match yntra_core::complete_hardware_auth(session_id, pin).await {
-                                Ok(_) => {}
-                                Err(e) => {
-                                    hardware_error_msg.set(Some(format!("login-hw-error-verification-failed: {}", e)));
-                                    hardware_reader_status.set("error".to_string());
-                                }
-                            }
-                        });
-                    }
-                },
-            }
+            // Hardware modal rendering removed (runs passively in the background)
 
             // Invite code modal dialog
             InviteModal {

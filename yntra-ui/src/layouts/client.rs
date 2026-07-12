@@ -46,10 +46,6 @@ pub fn ClientLayout() -> Element {
     let mut header_profile_open = state.header_profile_open;
     let auth_region = state.auth_region;
     
-    let users = state.users.read().clone().unwrap_or_default();
-    let clients = state.clients.read().clone().unwrap_or_default();
-    let events = state.events.read().clone().unwrap_or_default();
-    let messages = state.messages.read().clone().unwrap_or_default();
     let workspace = state.workspace.read().clone().unwrap_or_else(|| yntra_core::Workspace {
         id: "workspace-1".to_string(),
         name: "Yntra Operations Ltd".to_string(),
@@ -61,7 +57,6 @@ pub fn ClientLayout() -> Element {
         updated_at: 0,
         sync_status: "synced".to_string(),
     });
-    let teams = state.teams.read().clone().unwrap_or_default();
     let db_trigger = state.db_trigger;
     let trigger_jobs = state.trigger_jobs;
     
@@ -211,9 +206,6 @@ pub fn ClientLayout() -> Element {
                                     rsx! {
                                         views::ClientPortalView {
                                             active_user: active_user.clone(),
-                                            users: users.clone(),
-                                            clients: clients.clone(),
-                                            events: events.clone(),
                                             db_trigger: db_trigger,
                                             trigger_jobs: trigger_jobs,
                                             workspace: workspace.clone(),
@@ -224,8 +216,6 @@ pub fn ClientLayout() -> Element {
                                     rsx! {
                                         views::MessagingView {
                                             active_user: active_user.clone(),
-                                            users: users.clone(),
-                                            messages: messages.clone(),
                                             unread_messages_count,
                                             messaging_view_tab: messaging_view_tab,
                                             active_message_id: active_message_id,
@@ -243,9 +233,6 @@ pub fn ClientLayout() -> Element {
                                         views::DirectoryView {
                                             active_user: active_user.clone(),
                                             workspace: workspace.clone(),
-                                            users: users.clone(),
-                                            teams: teams.clone(),
-                                            clients: clients.clone(),
                                             directory_level: directory_level,
                                             selected_directory_workspace: selected_directory_workspace,
                                             selected_directory_team: selected_directory_team,

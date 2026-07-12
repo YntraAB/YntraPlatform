@@ -91,22 +91,6 @@ pub static BLOCK_REGISTRY: &[BlockDefinition] = &[
         ]
     },
     BlockDefinition {
-        id: "notes",
-        name: "Notes",
-        navigation: &[
-            BlockNavItem {
-                id: "notes",
-                label_key: "section-notes",
-                path: "notes",
-                icon: "notes",
-                allowed_roles: Some(&["platform_admin", "admin", "user", "assistant"]),
-                section: "main",
-                children: None,
-                badge_key: Some("unread_notes"),
-            }
-        ]
-    },
-    BlockDefinition {
         id: "client_portal",
         name: "Client Portal",
         navigation: &[
@@ -139,22 +123,6 @@ pub static BLOCK_REGISTRY: &[BlockDefinition] = &[
         ]
     },
     BlockDefinition {
-        id: "reporting",
-        name: "Reporting",
-        navigation: &[
-            BlockNavItem {
-                id: "reporting",
-                label_key: "section-reporting",
-                path: "reporting",
-                icon: "reporting",
-                allowed_roles: Some(&["platform_admin", "admin", "user", "assistant"]),
-                section: "main",
-                children: None,
-                badge_key: None,
-            }
-        ]
-    },
-    BlockDefinition {
         id: "jobs",
         name: "Jobs",
         navigation: &[
@@ -163,22 +131,6 @@ pub static BLOCK_REGISTRY: &[BlockDefinition] = &[
                 label_key: "jobs-nav",
                 path: "jobs",
                 icon: "jobs",
-                allowed_roles: None,
-                section: "main",
-                children: None,
-                badge_key: None,
-            }
-        ]
-    },
-    BlockDefinition {
-        id: "todos",
-        name: "Todos",
-        navigation: &[
-            BlockNavItem {
-                id: "todos",
-                label_key: "todos-nav",
-                path: "todos",
-                icon: "check-square",
                 allowed_roles: None,
                 section: "main",
                 children: None,

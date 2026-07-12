@@ -20,6 +20,7 @@ self.sqlite3InitModule({
       db = new oo1.DB("/yntra_local.db", "c");
       console.warn("OPFS VFS is not available. Using in-memory fallback.");
     }
+    db.exec("PRAGMA busy_timeout = 5000;");
     isReady = true;
     postMessage({ type: "status", status: "ready" });
   } catch (err) {

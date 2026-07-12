@@ -1,6 +1,5 @@
 use dioxus::prelude::*;
 use yntra_core::TimeReport;
-use yntra_core::Workspace;
 use yntra_core::WorkspaceUser;
 
 pub mod kpi;
@@ -21,8 +20,6 @@ use report_modal::TimeReportModal;
 #[derive(Props, Clone)]
 pub struct TimeViewProps {
     pub active_user: WorkspaceUser,
-    pub users: Vec<WorkspaceUser>,
-    pub time_reports: Vec<TimeReport>,
     pub time_view_tab: Signal<String>,
     pub time_filter_status: Signal<String>,
     pub time_search_query: Signal<String>,
@@ -33,8 +30,6 @@ pub struct TimeViewProps {
     pub time_hours: Signal<String>,
     pub time_note: Signal<String>,
     pub db_trigger: Signal<u32>,
-    pub workspaces: Vec<Workspace>,
-    pub teams: Vec<yntra_core::Team>,
 }
 
 impl PartialEq for TimeViewProps {
@@ -45,13 +40,14 @@ impl PartialEq for TimeViewProps {
 
 #[component]
 pub fn TimeView(props: TimeViewProps) -> Element {
+    let state = use_context::<crate::state::AppState>();
     let active_user = props.active_user.clone();
     let user_prefs: serde_json::Value = serde_json::from_str(&active_user.preferences).unwrap_or_default();
     let region = user_prefs.get("language").and_then(|l| l.as_str()).unwrap_or("US").to_string();
-    let users = props.users.clone();
-    let time_reports = props.time_reports.clone();
-    let workspaces = props.workspaces.clone();
-    let teams = props.teams.clone();
+    let users = state.users.read().clone().unwrap_or_default();
+    let time_reports = state.time_reports.read().clone().unwrap_or_default();
+    let workspaces = state.workspaces.read().clone().unwrap_or_default();
+    let teams = state.teams.read().clone().unwrap_or_default();
 
     let _time_view_tab = props.time_view_tab;
     let time_filter_status = props.time_filter_status;

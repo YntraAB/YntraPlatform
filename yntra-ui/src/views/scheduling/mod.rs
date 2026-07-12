@@ -21,7 +21,6 @@ use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::TeamEvent;
 use yntra_core::WorkspaceUser;
-use yntra_core::Team;
 
 use sidebar::SchedulingSidebar;
 use add_event_modal::AddEventModal;
@@ -31,9 +30,6 @@ use detail_modal::EventDetailModal;
 #[derive(Props, Clone)]
 pub struct SchedulingViewProps {
     pub active_user: WorkspaceUser,
-    pub users: Vec<WorkspaceUser>,
-    pub teams: Vec<Team>,
-    pub events: Vec<TeamEvent>,
     pub scheduling_sidebar_tab: Signal<String>,
     pub event_title: Signal<String>,
     pub event_team: Signal<String>,
@@ -62,13 +58,15 @@ impl PartialEq for SchedulingViewProps {
 
 #[component]
 pub fn SchedulingView(props: SchedulingViewProps) -> Element {
+    let state = use_context::<crate::state::AppState>();
     let active_user = props.active_user.clone();
-    let users = props.users.clone();
-    let teams = props.teams.clone();
-    let events = props.events.clone();
-    let mut events_sig = use_signal(|| props.events.clone());
+    let users = state.users.read().clone().unwrap_or_default();
+    let teams = state.teams.read().clone().unwrap_or_default();
+    let events = state.events.read().clone().unwrap_or_default();
+    let mut events_sig = use_signal(|| events.clone());
     use_effect(move || {
-        events_sig.set(props.events.clone());
+        let evs = state.events.read().clone().unwrap_or_default();
+        events_sig.set(evs);
     });
 
     let mut edit_mode = use_signal(|| false);

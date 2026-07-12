@@ -1,12 +1,8 @@
 use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
-use yntra_core::DailyNote;
 use yntra_core::TeamEvent;
-use yntra_core::TimeReport;
 use yntra_core::WorkspaceUser;
-use yntra_core::Team;
-use yntra_core::ClientProfile;
 use yntra_core::Workspace;
 
 mod time_report_modal;
@@ -14,13 +10,8 @@ mod time_report_modal;
 #[derive(Props, Clone)]
 pub struct DashboardViewProps {
     pub active_user: WorkspaceUser,
-    pub events: Vec<TeamEvent>,
     pub unread_messages_count: usize,
-    pub time_reports: Vec<TimeReport>,
-    pub notes: Vec<DailyNote>,
     pub db_trigger: Signal<u32>,
-    pub teams: Vec<Team>,
-    pub clients: Vec<ClientProfile>,
     pub active_section: Signal<String>,
     pub auth_region: Signal<String>,
     pub workspace: Workspace,
@@ -183,14 +174,15 @@ fn get_formatted_today_date(today_str: &str, locale: &str) -> String {
 
 #[component]
 pub fn DashboardView(props: DashboardViewProps) -> Element {
+    let state = use_context::<crate::state::AppState>();
     let active_user = props.active_user;
-    let events = props.events;
+    let events = state.events.read().clone().unwrap_or_default();
     let unread_messages_count = props.unread_messages_count;
-    let time_reports = props.time_reports;
-    let notes = props.notes;
+    let time_reports = state.time_reports.read().clone().unwrap_or_default();
+    let notes = state.notes.read().clone().unwrap_or_default();
     let db_trigger = props.db_trigger;
-    let teams = props.teams.clone();
-    let clients = props.clients.clone();
+    let teams = state.teams.read().clone().unwrap_or_default();
+    let clients = state.clients.read().clone().unwrap_or_default();
     let mut active_section = props.active_section;
     let auth_region = props.auth_region;
     let workspace = props.workspace.clone();

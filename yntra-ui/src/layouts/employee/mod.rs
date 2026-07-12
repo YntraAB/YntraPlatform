@@ -9,7 +9,6 @@ pub mod header;
 
 use sidebar::LayoutSidebar;
 use header::LayoutHeader;
-use breadcrumbs::get_breadcrumbs;
 
 #[component]
 pub fn EmployeeLayout() -> Element {
@@ -51,14 +50,6 @@ pub fn EmployeeLayout() -> Element {
         updated_at: 0,
         sync_status: "synced".to_string(),
     });
-    let users = state.users.read().clone().unwrap_or_default();
-    let teams = state.teams.read().clone().unwrap_or_default();
-    let events = state.events.read().clone().unwrap_or_default();
-    let messages = state.messages.read().clone().unwrap_or_default();
-    let notes = state.notes.read().clone().unwrap_or_default();
-    let time_reports = state.time_reports.read().clone().unwrap_or_default();
-    let clients = state.clients.read().clone().unwrap_or_default();
-    let workspaces = state.workspaces.read().clone().unwrap_or_default();
     let db_trigger = state.db_trigger;
     let trigger_jobs = state.trigger_jobs;
 
@@ -103,10 +94,9 @@ pub fn EmployeeLayout() -> Element {
     let current_role = active_user.role.clone();
     let is_client = current_role == "client";
 
-    let unread_messages_count = messages
-        .iter()
-        .filter(|m| !m.is_read && m.receiver_id == Some(active_user.id.clone()))
-        .count();
+    let unread_messages_count = state.messages.read().as_ref()
+        .map(|m_list| m_list.iter().filter(|m| !m.is_read && m.receiver_id == Some(active_user.id.clone())).count())
+        .unwrap_or(0);
 
     let active_section = state.active_section;
     let globalsearch_open = state.globalsearch_open;
@@ -176,26 +166,7 @@ pub fn EmployeeLayout() -> Element {
     let compose_status = state.compose_status;
     let active_user_id = state.active_user_id;
 
-    let locale = auth_region.read().clone();
 
-    let breadcrumbs = get_breadcrumbs(
-        active_section,
-        selected_note_team_id,
-        selected_note_id,
-        is_note_composing,
-        active_message_id,
-        messaging_view_tab,
-        selected_directory_team,
-        directory_level,
-        selected_directory_workspace,
-        selected_calendar_date,
-        &current_role,
-        &locale,
-        &teams,
-        &notes,
-        &messages,
-        &workspaces,
-    );
 
     rsx! {
         div { class: "flex h-screen overflow-hidden bg-background {theme_mode}",
@@ -203,7 +174,6 @@ pub fn EmployeeLayout() -> Element {
             // 1. Sidebar Navigation
             LayoutSidebar {
                 workspace: workspace.clone(),
-                teams: teams.clone(),
                 active_user_role: current_role.clone(),
                 unread_messages_count,
                 active_section,
@@ -228,7 +198,6 @@ pub fn EmployeeLayout() -> Element {
                 // Top Header
                 LayoutHeader {
                     active_user: active_user.clone(),
-                    breadcrumbs,
                     auth_region,
                     active_user_id,
                     active_section,
@@ -247,13 +216,8 @@ pub fn EmployeeLayout() -> Element {
                                     rsx! {
                                         views::DashboardView {
                                             active_user: active_user.clone(),
-                                            events: events.clone(),
                                             unread_messages_count,
-                                            time_reports: time_reports.clone(),
-                                            notes: notes.clone(),
                                             db_trigger: db_trigger,
-                                            teams: teams.clone(),
-                                            clients: clients.clone(),
                                             active_section: active_section,
                                             auth_region: auth_region,
                                             workspace: workspace.clone(),
@@ -264,8 +228,6 @@ pub fn EmployeeLayout() -> Element {
                                     rsx! {
                                         views::MessagingView {
                                             active_user: active_user.clone(),
-                                            users: users.clone(),
-                                            messages: messages.clone(),
                                             unread_messages_count,
                                             messaging_view_tab: messaging_view_tab,
                                             active_message_id: active_message_id,
@@ -282,9 +244,6 @@ pub fn EmployeeLayout() -> Element {
                                     rsx! {
                                         views::SchedulingView {
                                             active_user: active_user.clone(),
-                                            users: users.clone(),
-                                            teams: teams.clone(),
-                                            events: events.clone(),
                                             calendar_year: calendar_year,
                                             calendar_month: calendar_month,
                                             selected_calendar_date: selected_calendar_date,
@@ -311,8 +270,6 @@ pub fn EmployeeLayout() -> Element {
                                     rsx! {
                                         views::TimeView {
                                             active_user: active_user.clone(),
-                                            users: users.clone(),
-                                            time_reports: time_reports.clone(),
                                             time_view_tab: time_view_tab,
                                             time_filter_status: time_filter_status,
                                             time_search_query: time_search_query,
@@ -323,8 +280,6 @@ pub fn EmployeeLayout() -> Element {
                                             time_hours: time_hours,
                                             time_note: time_note,
                                             db_trigger: db_trigger,
-                                            workspaces: workspaces.clone(),
-                                            teams: teams.clone(),
                                         }
                                     }
                                 }
@@ -394,9 +349,6 @@ pub fn EmployeeLayout() -> Element {
                                         rsx! {
                                             views::NotesView {
                                                 active_user: active_user.clone(),
-                                                users: users.clone(),
-                                                teams: teams.clone(),
-                                                notes: notes.clone(),
                                                 selected_note_team_id: selected_note_team_id,
                                                 note_subject: state.note_subject,
                                                 note_content: state.note_content,
@@ -421,12 +373,9 @@ pub fn EmployeeLayout() -> Element {
                                 "reporting" => {
                                     let use_custom = get_block_use_custom_ui(&workspace, "reporting");
                                     if use_custom {
-                                        let reports = state.reports.read().clone().unwrap_or_default();
                                         rsx! {
                                             views::ReportingView {
                                                 active_user: active_user.clone(),
-                                                users: users.clone(),
-                                                reports: reports,
                                                 report_tab: state.report_tab,
                                                 report_status_filter: state.report_status_filter,
                                                 report_type_filter: state.report_type_filter,
@@ -456,9 +405,6 @@ pub fn EmployeeLayout() -> Element {
                                     rsx! {
                                         views::ClientPortalView {
                                             active_user: active_user.clone(),
-                                            users: users.clone(),
-                                            clients: clients.clone(),
-                                            events: events.clone(),
                                             db_trigger: db_trigger,
                                             trigger_jobs: trigger_jobs,
                                             workspace: workspace.clone(),
@@ -470,9 +416,6 @@ pub fn EmployeeLayout() -> Element {
                                         views::DirectoryView {
                                             active_user: active_user.clone(),
                                             workspace: workspace.clone(),
-                                            users: users.clone(),
-                                            teams: teams.clone(),
-                                            clients: clients.clone(),
                                             directory_level: directory_level,
                                             selected_directory_workspace: selected_directory_workspace,
                                             selected_directory_team: selected_directory_team,

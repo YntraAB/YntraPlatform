@@ -72,15 +72,10 @@ pub async fn sync_database() -> Result<(), YntraError> {
             let send_fut = crate::database::wasm::SendFuture::new(fut);
             match send_fut.await {
                 Ok(val) => {
-                    let has_changes = if let Some(s) = val.as_string() {
-                        if let Ok(serde_json::Value::Object(obj)) = serde_json::from_str(&s) {
-                            obj.get("hasChanges").and_then(|v| v.as_bool()).unwrap_or(true)
-                        } else {
-                            true
-                        }
-                    } else {
-                        true
-                    };
+                    let has_changes = serde_wasm_bindgen::from_value::<serde_json::Value>(val)
+                        .ok()
+                        .and_then(|obj| obj.get("hasChanges").and_then(|v| v.as_bool()))
+                        .unwrap_or(true);
                     if has_changes {
                         let _ = crate::services::notes::merge_unmerged_notes().await;
                         crate::infra::observer::notify_observers();
@@ -114,14 +109,26 @@ pub fn start_background_sync(interval_secs: u32) {
         let rt = super::native::get_runtime();
         let _guard = rt.enter();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs as u64));
+            let base_interval = interval_secs as u64;
+            let mut consecutive_failures = 0;
             loop {
-                interval.tick().await;
+                let current_interval = if consecutive_failures > 0 {
+                    (base_interval * 2_u64.pow(consecutive_failures)).min(600)
+                } else {
+                    base_interval
+                };
+                
+                tokio::time::sleep(std::time::Duration::from_secs(current_interval)).await;
+                
                 if SYNC_CANCELLED.load(Ordering::SeqCst) {
                     SYNC_RUNNING.store(false, Ordering::SeqCst);
                     break;
                 }
-                let _ = sync_database().await;
+                
+                match sync_database().await {
+                    Ok(_) => consecutive_failures = 0,
+                    Err(_) => consecutive_failures = (consecutive_failures + 1).min(5),
+                }
             }
         });
     }
@@ -129,13 +136,26 @@ pub fn start_background_sync(interval_secs: u32) {
     #[cfg(target_arch = "wasm32")]
     {
         wasm_bindgen_futures::spawn_local(async move {
+            let base_interval = interval_secs as u64;
+            let mut consecutive_failures = 0;
             loop {
-                sleep_ms((interval_secs * 1000) as u64).await;
+                let current_interval = if consecutive_failures > 0 {
+                    (base_interval * 2_u64.pow(consecutive_failures)).min(600)
+                } else {
+                    base_interval
+                };
+                
+                sleep_ms(current_interval * 1000).await;
+                
                 if SYNC_CANCELLED.load(Ordering::SeqCst) {
                     SYNC_RUNNING.store(false, Ordering::SeqCst);
                     break;
                 }
-                let _ = sync_database().await;
+                
+                match sync_database().await {
+                    Ok(_) => consecutive_failures = 0,
+                    Err(_) => consecutive_failures = (consecutive_failures + 1).min(5),
+                }
             }
         });
     }

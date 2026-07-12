@@ -20,7 +20,6 @@ impl PartialEq for TodosViewProps {
 #[component]
 pub fn TodosView(props: TodosViewProps) -> Element {
     let region = props.auth_region.read().clone();
-    let db_trigger = props.db_trigger;
     let state = use_context::<AppState>();
     
     let ws_res = state.workspace;
@@ -28,7 +27,7 @@ pub fn TodosView(props: TodosViewProps) -> Element {
     // Fetch todos from FFI
     let uid_res = props.active_user_id.clone();
     let todos_resource = use_resource(move || {
-        let _trig = *db_trigger.read();
+        let _trig = *state.trigger_todos.read();
         let ws_id = ws_res.read().as_ref().map(|w| w.id.clone()).unwrap_or_else(|| "workspace-1".to_string());
         let u = uid_res.clone();
         async move {

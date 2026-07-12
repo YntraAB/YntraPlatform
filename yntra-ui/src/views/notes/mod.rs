@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use yntra_core::{DailyNote, Team, WorkspaceUser};
+use yntra_core::{DailyNote, WorkspaceUser};
 
 mod diff;
 mod teams;
@@ -17,9 +17,6 @@ pub use read::NoteRead;
 #[derive(Props, Clone)]
 pub struct NotesViewProps {
     pub active_user: WorkspaceUser,
-    pub users: Vec<WorkspaceUser>,
-    pub teams: Vec<Team>,
-    pub notes: Vec<DailyNote>,
     pub selected_note_team_id: Signal<String>,
     pub note_subject: Signal<String>,
     pub note_content: Signal<String>,
@@ -36,10 +33,11 @@ impl PartialEq for NotesViewProps {
 
 #[component]
 pub fn NotesView(props: NotesViewProps) -> Element {
+    let state = use_context::<crate::state::AppState>();
     let active_user = props.active_user;
-    let users = props.users.clone();
-    let teams = props.teams.clone();
-    let notes = props.notes.clone();
+    let users = state.users.read().clone().unwrap_or_default();
+    let teams = state.teams.read().clone().unwrap_or_default();
+    let notes = state.notes.read().clone().unwrap_or_default();
 
     let selected_note_team_id = props.selected_note_team_id;
     let note_subject = props.note_subject;

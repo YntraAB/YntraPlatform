@@ -11,8 +11,6 @@ mod detail;
 #[derive(Props, Clone)]
 pub struct MessagingViewProps {
     pub active_user: WorkspaceUser,
-    pub users: Vec<WorkspaceUser>,
-    pub messages: Vec<MessageItem>,
     pub unread_messages_count: usize,
     pub messaging_view_tab: Signal<String>,
     pub active_message_id: Signal<Option<String>>,
@@ -32,9 +30,10 @@ impl PartialEq for MessagingViewProps {
 
 #[component]
 pub fn MessagingView(props: MessagingViewProps) -> Element {
+    let state = use_context::<crate::state::AppState>();
     let active_user = props.active_user;
-    let users = props.users.clone();
-    let messages = props.messages.clone();
+    let users = state.users.read().clone().unwrap_or_default();
+    let messages = state.messages.read().clone().unwrap_or_default();
 
     let mut messaging_view_tab = props.messaging_view_tab;
     let mut active_message_id = props.active_message_id;

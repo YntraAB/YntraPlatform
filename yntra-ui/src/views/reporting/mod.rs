@@ -1,6 +1,5 @@
 use crate::locales::t;
 use dioxus::prelude::*;
-use yntra_core::ReportItem;
 use yntra_core::WorkspaceUser;
 
 pub mod details_dialog;
@@ -12,8 +11,6 @@ use details_dialog::ReportDetailsDialog;
 #[derive(Props, Clone)]
 pub struct ReportingViewProps {
     pub active_user: WorkspaceUser,
-    pub users: Vec<WorkspaceUser>,
-    pub reports: Vec<ReportItem>,
     pub report_tab: Signal<String>,
     pub report_status_filter: Signal<String>,
     pub report_type_filter: Signal<String>,
@@ -34,9 +31,10 @@ impl PartialEq for ReportingViewProps {
 
 #[component]
 pub fn ReportingView(props: ReportingViewProps) -> Element {
+    let state = use_context::<crate::state::AppState>();
     let active_user = props.active_user;
-    let users = props.users.clone();
-    let reports = props.reports.clone();
+    let users = state.users.read().clone().unwrap_or_default();
+    let reports = state.reports.read().clone().unwrap_or_default();
 
     let mut report_tab = props.report_tab;
     let report_status_filter = props.report_status_filter;

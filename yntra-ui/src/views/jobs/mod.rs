@@ -51,39 +51,9 @@ pub fn JobsView(props: JobsViewProps) -> Element {
     let mut completion_report_state = use_signal(String::new);
     let mut active_status_state = use_signal(|| "all".to_string());
 
-    // Reactive resources for moving company modules (Inventory & Quote)
-    let selected_job_id_for_inv = selected_job_id.read().clone().unwrap_or_default();
-    let uid_for_inv = props.active_user_id.read().clone();
-    let inventory_res = use_resource(move || {
-        let _ = db_trig;
-        let jid = selected_job_id_for_inv.clone();
-        let uid = uid_for_inv.clone();
-        async move {
-            if jid.is_empty() {
-                Vec::new()
-            } else {
-                yntra_core::get_move_inventory(uid, jid).await.unwrap_or_default()
-            }
-        }
-    });
-
-    let selected_job_id_for_quote = selected_job_id.read().clone().unwrap_or_default();
-    let uid_for_quote = props.active_user_id.read().clone();
-    let quote_res = use_resource(move || {
-        let _ = db_trig;
-        let jid = selected_job_id_for_quote.clone();
-        let uid = uid_for_quote.clone();
-        async move {
-            if jid.is_empty() {
-                None
-            } else {
-                yntra_core::get_move_quote(uid, jid).await.unwrap_or(None)
-            }
-        }
-    });
-
-    let inventories = inventory_res.read().clone().unwrap_or_default();
-    let quote = quote_res.read().clone().flatten();
+    // Reactive resources for moving company modules (Inventory & Quote) - Stubbed out
+    let inventories = Vec::<details::MoveInventoryItem>::new();
+    let quote = Option::<details::MoveQuote>::None;
 
     // Sync checklist/report when a new job is selected, reading directly from resource to avoid moves
     use_effect(use_reactive(&selected_job_id, move |selected_id| {

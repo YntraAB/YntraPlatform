@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use yntra_core::{ClientProfile, Team, Workspace, WorkspaceUser};
+use yntra_core::{Workspace, WorkspaceUser};
 
 mod workspaces;
 mod teams;
@@ -80,9 +80,6 @@ pub struct WorkspaceRole {
 pub struct DirectoryViewProps {
     pub active_user: WorkspaceUser,
     pub workspace: Workspace,
-    pub users: Vec<WorkspaceUser>,
-    pub teams: Vec<Team>,
-    pub clients: Vec<ClientProfile>,
     pub directory_level: Signal<String>,
     pub selected_directory_workspace: Signal<String>,
     pub selected_directory_team: Signal<Option<String>>,
@@ -110,9 +107,6 @@ impl PartialEq for DirectoryViewProps {
 pub fn DirectoryView(props: DirectoryViewProps) -> Element {
     let active_user = props.active_user;
     let workspace = props.workspace;
-    let _users = props.users.clone();
-    let _teams = props.teams.clone();
-    let _clients = props.clients.clone();
 
     // Local dialog visibility signals
     let show_template_manager_modal = use_signal(|| false);

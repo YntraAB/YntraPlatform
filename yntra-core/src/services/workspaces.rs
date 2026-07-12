@@ -216,9 +216,7 @@ pub async fn delete_workspace_via_hub(requester_user_id: String, workspace_id: S
         // Delete invitations
         conn.execute("DELETE FROM invitations WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
 
-        // Delete move inventory & move quotes (joined via job_tickets)
-        conn.execute("DELETE FROM move_inventory WHERE job_ticket_id IN (SELECT id FROM job_tickets WHERE workspace_id = ?1)", crate::params![&workspace_id]).await?;
-        conn.execute("DELETE FROM move_quotes WHERE job_ticket_id IN (SELECT id FROM job_tickets WHERE workspace_id = ?1)", crate::params![&workspace_id]).await?;
+
         conn.execute("DELETE FROM job_tickets WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
 
         // Delete client medications & client journals (joined via clients)
@@ -239,22 +237,7 @@ pub async fn delete_workspace_via_hub(requester_user_id: String, workspace_id: S
         conn.execute("DELETE FROM todos WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
         conn.execute("DELETE FROM entities WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
 
-        // Delete school child tables first
-        conn.execute("DELETE FROM student_parents WHERE student_id IN (SELECT id FROM student_profiles WHERE workspace_id = ?1)", crate::params![&workspace_id]).await?;
-        conn.execute("DELETE FROM submissions WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
-        conn.execute("DELETE FROM attendance_records WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
-        conn.execute("DELETE FROM term_grades WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
-        conn.execute("DELETE FROM report_cards WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
-        conn.execute("DELETE FROM health_records WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
-        conn.execute("DELETE FROM health_incidents WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
-        conn.execute("DELETE FROM school_payments WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
-        conn.execute("DELETE FROM school_invoices WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
-        conn.execute("DELETE FROM library_lending_logs WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
-        conn.execute("DELETE FROM library_books WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
-        conn.execute("DELETE FROM timetable_slots WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
-        conn.execute("DELETE FROM assignments WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
-        conn.execute("DELETE FROM courses WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
-        conn.execute("DELETE FROM student_profiles WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;
+
 
         // Delete all users in that workspace
         conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![&workspace_id]).await?;

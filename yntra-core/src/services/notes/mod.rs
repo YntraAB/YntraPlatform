@@ -99,8 +99,8 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
         
         let has_unmerged = max_seq > last_merged_seq;
 
-        let content = if !has_unmerged && content_plain.is_some() {
-            content_plain.unwrap()
+        let content = if let Some(plain) = content_plain {
+            plain
         } else {
             let doc = loro::LoroDoc::new();
             if base_content.starts_with("loro:") {

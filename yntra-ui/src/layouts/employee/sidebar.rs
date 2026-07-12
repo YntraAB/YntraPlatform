@@ -3,12 +3,10 @@ use crate::locales::t;
 use crate::blocks;
 use dioxus::prelude::*;
 use yntra_core::Workspace;
-use yntra_core::Team;
 
 #[derive(Props, Clone)]
 pub struct LayoutSidebarProps {
     pub workspace: Workspace,
-    pub teams: Vec<Team>,
     pub active_user_role: String,
     pub unread_messages_count: usize,
     pub active_section: Signal<String>,
@@ -35,8 +33,9 @@ impl PartialEq for LayoutSidebarProps {
 
 #[component]
 pub fn LayoutSidebar(props: LayoutSidebarProps) -> Element {
+    let state = use_context::<crate::state::AppState>();
     let workspace = props.workspace.clone();
-    let teams = props.teams.clone();
+    let teams = state.teams.read().clone().unwrap_or_default();
     let current_role = props.active_user_role.clone();
     let unread_messages_count = props.unread_messages_count;
 
@@ -58,7 +57,6 @@ pub fn LayoutSidebar(props: LayoutSidebarProps) -> Element {
         format!("sidebar-item relative flex cursor-pointer items-center justify-between px-3 py-2 rounded-md transition-all duration-150 text-sm font-medium mb-1 {}", theme_class)
     };
 
-    let state = use_context::<crate::state::AppState>();
     let db_trigger = state.db_trigger;
     let db_trig_val = *db_trigger.read();
     let blocks_res = use_resource(move || {

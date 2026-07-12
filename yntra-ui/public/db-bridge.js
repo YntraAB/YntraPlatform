@@ -28,13 +28,13 @@ worker.onmessage = function(e) {
     pendingRequests.delete(id);
     if (success) {
       if (rows !== undefined) {
-        callbacks.resolve(JSON.stringify(rows));
+        callbacks.resolve(rows);
       } else if (rowsAffected !== undefined) {
-        callbacks.resolve(JSON.stringify({ rowsAffected }));
+        callbacks.resolve({ rowsAffected });
       } else if (hasChanges !== undefined) {
-        callbacks.resolve(JSON.stringify({ hasChanges }));
+        callbacks.resolve({ hasChanges });
       } else {
-        callbacks.resolve(JSON.stringify(null));
+        callbacks.resolve(null);
       }
     } else {
       callbacks.reject(new Error(error));
@@ -42,22 +42,13 @@ worker.onmessage = function(e) {
   }
 };
 
-window.yntra_execute_sql = function(type, sql, params_json) {
+window.yntra_execute_sql = function(type, sql, params) {
   return new Promise((resolve, reject) => {
     const id = `sql-${messageId++}`;
-    let params = [];
-    if (params_json) {
-      try {
-        params = JSON.parse(params_json);
-      } catch (e) {
-        reject(new Error("Invalid parameters JSON: " + e.message));
-        return;
-      }
-    }
     
     const send = () => {
       pendingRequests.set(id, { resolve, reject });
-      worker.postMessage({ id, type, sql, params });
+      worker.postMessage({ id, type, sql, params: params || [] });
     };
     
     if (isDbReady) {

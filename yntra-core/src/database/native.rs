@@ -174,6 +174,7 @@ pub fn get_database() -> &'static libsql::Database {
             let _ = raw_conn.execute("PRAGMA foreign_keys = ON", ()).await;
             let _ = raw_conn.execute("PRAGMA journal_mode = WAL", ()).await;
             let _ = raw_conn.execute("PRAGMA synchronous = NORMAL", ()).await;
+            let _ = raw_conn.execute("PRAGMA busy_timeout = 5000", ()).await;
             let conn = DbConnection {
                 inner: Some(raw_conn),
                 in_transaction: std::sync::atomic::AtomicBool::new(false),
@@ -259,6 +260,7 @@ pub async fn acquire_connection() -> Result<DbConnection, YntraError> {
     let conn = db.connect().map_err(|e| YntraError::DbError(e.to_string()))?;
     let _ = conn.execute("PRAGMA foreign_keys = ON", ()).await;
     let _ = conn.execute("PRAGMA synchronous = NORMAL", ()).await;
+    let _ = conn.execute("PRAGMA busy_timeout = 5000", ()).await;
     Ok(DbConnection {
         inner: Some(conn),
         in_transaction: std::sync::atomic::AtomicBool::new(false),

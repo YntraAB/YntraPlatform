@@ -87,7 +87,7 @@ fn App() -> Element {
     rsx! {
         Stylesheet {}
         // Load SQLite Web Worker Bridge
-        script { src: "/db-bridge.js" }
+        script { src: asset!("/public/db-bridge.js") }
 
         components::ToastProvider {
             BackgroundErrorListener {}
@@ -178,8 +178,8 @@ fn BackgroundErrorListener() -> Element {
 #[component]
 fn Stylesheet() -> Element {
     rsx! {
-        document::Link { rel: "stylesheet", href: "/dx-components-theme.css" }
-        document::Link { rel: "stylesheet", href: "/tailwind.css" }
-        document::Link { rel: "stylesheet", href: "/global.css" }
+        document::Link { rel: "stylesheet", href: asset!("/public/dx-components-theme.css") }
+        document::Link { rel: "stylesheet", href: asset!("/public/tailwind.css") }
+        document::Link { rel: "stylesheet", href: asset!("/public/global.css") }
     }
 }

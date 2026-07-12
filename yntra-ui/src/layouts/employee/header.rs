@@ -3,12 +3,10 @@ use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::WorkspaceUser;
 use yntra_core::Workspace;
-use super::breadcrumbs::BreadcrumbItem;
 
 #[derive(Props, Clone)]
 pub struct LayoutHeaderProps {
     pub active_user: WorkspaceUser,
-    pub breadcrumbs: Vec<BreadcrumbItem>,
     pub auth_region: Signal<String>,
     pub active_user_id: Signal<String>,
     pub active_section: Signal<String>,
@@ -26,9 +24,46 @@ impl PartialEq for LayoutHeaderProps {
 
 #[component]
 pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
+    let state = use_context::<crate::state::AppState>();
+    let active_user_role = state.active_user_role.read().clone();
+    let locale = state.auth_region.read().clone();
+    let teams = state.teams.read().clone().unwrap_or_default();
+    
+    let section = state.active_section.read().clone();
+    let mut notes = Vec::new();
+    if section == "notes" {
+        notes = state.notes.read().clone().unwrap_or_default();
+    }
+    let mut messages = Vec::new();
+    if section == "messaging" {
+        messages = state.messages.read().clone().unwrap_or_default();
+    }
+    let mut workspaces = Vec::new();
+    if section == "directory" {
+        workspaces = state.workspaces.read().clone().unwrap_or_default();
+    }
+    
+    let breadcrumbs = super::breadcrumbs::get_breadcrumbs(
+        state.active_section,
+        state.selected_note_team_id,
+        state.selected_note_id,
+        state.is_note_composing,
+        state.active_message_id,
+        state.messaging_view_tab,
+        state.selected_directory_team,
+        state.directory_level,
+        state.selected_directory_workspace,
+        state.selected_calendar_date,
+        &active_user_role,
+        &locale,
+        &teams,
+        &notes,
+        &messages,
+        &workspaces,
+    );
+
     let runner = crate::utils::use_action_runner();
     let active_user = props.active_user.clone();
-    let breadcrumbs = props.breadcrumbs.clone();
     let current_role = active_user.role.clone();
 
     let active_user_id = props.active_user_id;

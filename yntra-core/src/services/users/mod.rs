@@ -248,13 +248,10 @@ pub async fn delete_user(requester_user_id: String, user_id: String) -> Result<(
 
     let res = async {
         conn.execute("DELETE FROM team_members WHERE user_id = ?1", crate::params![&user_id]).await?;
-        conn.execute("DELETE FROM student_parents WHERE parent_user_id = ?1", crate::params![&user_id]).await?;
         
         conn.execute("UPDATE messages SET sender_id = NULL WHERE sender_id = ?1", crate::params![&user_id]).await?;
         conn.execute("UPDATE messages SET receiver_id = NULL WHERE receiver_id = ?1", crate::params![&user_id]).await?;
         conn.execute("UPDATE reports SET user_id = NULL WHERE user_id = ?1", crate::params![&user_id]).await?;
-        conn.execute("UPDATE student_profiles SET user_id = NULL WHERE user_id = ?1", crate::params![&user_id]).await?;
-        conn.execute("UPDATE courses SET teacher_id = NULL WHERE teacher_id = ?1", crate::params![&user_id]).await?;
         conn.execute("UPDATE job_tickets SET assigned_user_id = NULL WHERE assigned_user_id = ?1", crate::params![&user_id]).await?;
         
         let now_ms = crate::infra::time::get_current_time_ms();

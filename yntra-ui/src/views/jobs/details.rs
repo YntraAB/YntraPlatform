@@ -1,8 +1,38 @@
 use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
-use yntra_core::{JobTicket, MoveInventoryItem, MoveQuote};
+use yntra_core::JobTicket;
 use super::ChecklistItem;
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct MoveInventoryItem {
+    pub id: String,
+    pub workspace_id: String,
+    pub job_ticket_id: String,
+    pub item_category: String,
+    pub item_name: String,
+    pub quantity: i32,
+    pub estimated_volume_m3: f64,
+    pub handling_notes: Option<String>,
+    pub updated_at: i64,
+    pub sync_status: String,
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct MoveQuote {
+    pub id: String,
+    pub workspace_id: String,
+    pub job_ticket_id: String,
+    pub base_price: i64,
+    pub distance_fee: i64,
+    pub stairs_surcharge: i64,
+    pub packing_supplies_fee: i64,
+    pub total_price: i64,
+    pub status: String,
+    pub accepted_at: Option<i64>,
+    pub updated_at: i64,
+    pub sync_status: String,
+}
 
 #[derive(Props, Clone, PartialEq)]
 pub struct JobDetailsProps {
@@ -25,6 +55,16 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
     let mut completion_report_state = props.completion_report_state;
     let inventories = props.inventories;
     let quote = props.quote;
+
+    let state = use_context::<crate::state::AppState>();
+    let workspace_opt = state.workspace.read().clone();
+    let modules_active_val: serde_json::Value = if let Some(ws) = workspace_opt {
+        serde_json::from_str(&ws.modules_active).unwrap_or_default()
+    } else {
+        serde_json::from_str("{\"todos\":true,\"notes\":true,\"reporting\":true}").unwrap()
+    };
+    let todos_enabled = modules_active_val.get("todos").and_then(|v| v.as_bool()).unwrap_or(true);
+    let reporting_enabled = modules_active_val.get("reporting").and_then(|v| v.as_bool()).unwrap_or(true);
 
     let job_id_status = job.id.clone();
     let job_id_submit = job.id.clone();
@@ -115,46 +155,48 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
             }
 
             // Interactive Checklist
-            div {
-                h3 { class: "text-sm font-extrabold flex items-center",
-                style: "margin: 0 0 0.75rem 0; gap: 0.35rem;",
-                    components::LucideIcon { name: "check-square", size: "16" }
-                    "{checklist_header}"
-                }
-                
-                div { class: "flex flex-col",
-                style: "gap: 0.65rem;",
-                    {checklist.iter().enumerate().map(|(idx, item)| {
-                        let is_done = item.done;
-                        let item_text = item.text.clone();
-                        rsx! {
-                            div {
-                                key: "{idx}",
-                                class: "flex items-center gap-2 text-sm",
-                                components::Checkbox {
-                                    checked: is_done,
-                                    onchange: move |val| {
-                                        let mut current = checklist_state.read().clone();
-                                        current[idx].done = val;
-                                        checklist_state.set(current);
+            if todos_enabled {
+                div {
+                    h3 { class: "text-sm font-extrabold flex items-center",
+                    style: "margin: 0 0 0.75rem 0; gap: 0.35rem;",
+                        components::LucideIcon { name: "check-square", size: "16" }
+                        "{checklist_header}"
+                    }
+                    
+                    div { class: "flex flex-col",
+                    style: "gap: 0.65rem;",
+                        {checklist.iter().enumerate().map(|(idx, item)| {
+                            let is_done = item.done;
+                            let item_text = item.text.clone();
+                            rsx! {
+                                div {
+                                    key: "{idx}",
+                                    class: "flex items-center gap-2 text-sm",
+                                    components::Checkbox {
+                                        checked: is_done,
+                                        onchange: move |val| {
+                                            let mut current = checklist_state.read().clone();
+                                            current[idx].done = val;
+                                            checklist_state.set(current);
+                                        }
+                                    }
+                                    span {
+                                        class: "cursor-pointer",
+                                        style: format!(
+                                            "transition: all 0.2s; {}",
+                                            if is_done { "text-decoration: line-through; color: var(--text-secondary);" } else { "" }
+                                        ),
+                                        onclick: move |_| {
+                                            let mut current = checklist_state.read().clone();
+                                            current[idx].done = !is_done;
+                                            checklist_state.set(current);
+                                        },
+                                        "{item_text}"
                                     }
                                 }
-                                span {
-                                    class: "cursor-pointer",
-                                    style: format!(
-                                        "transition: all 0.2s; {}",
-                                        if is_done { "text-decoration: line-through; color: var(--text-secondary);" } else { "" }
-                                    ),
-                                    onclick: move |_| {
-                                        let mut current = checklist_state.read().clone();
-                                        current[idx].done = !is_done;
-                                        checklist_state.set(current);
-                                    },
-                                    "{item_text}"
-                                }
                             }
-                        }
-                    })}
+                        })}
+                    }
                 }
             }
 
@@ -223,16 +265,18 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
             }
 
             // Completion Report Textbox
-            div {
-                h3 { class: "text-sm font-extrabold flex items-center",
-                style: "margin: 0 0 0.5rem 0; gap: 0.35rem;",
-                    components::LucideIcon { name: "file-edit", size: "16" }
-                    "{t(\"jobs-report-header\", &region)}"
-                }
-                components::TextArea {
-                    placeholder: report_placeholder.to_string(),
-                    value: completion_report_state.read().clone(),
-                    oninput: move |evt: FormEvent| completion_report_state.set(evt.value()),
+            if reporting_enabled {
+                div {
+                    h3 { class: "text-sm font-extrabold flex items-center",
+                    style: "margin: 0 0 0.5rem 0; gap: 0.35rem;",
+                        components::LucideIcon { name: "file-edit", size: "16" }
+                        "{t(\"jobs-report-header\", &region)}"
+                    }
+                    components::TextArea {
+                        placeholder: report_placeholder.to_string(),
+                        value: completion_report_state.read().clone(),
+                        oninput: move |evt: FormEvent| completion_report_state.set(evt.value()),
+                    }
                 }
             }
 

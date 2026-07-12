@@ -136,6 +136,9 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
     // Dynamic category computation
     let mut categories = vec!["all".to_string()];
     for b in available_blocks.read().iter() {
+        if b.id == "notes" || b.id == "reporting" || b.id == "todos" {
+            continue;
+        }
         let cat = b.category.to_lowercase();
         if !categories.contains(&cat) {
             categories.push(cat);
@@ -146,6 +149,9 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
         .read()
         .iter()
         .filter(|b| {
+            if b.id == "notes" || b.id == "reporting" || b.id == "todos" {
+                return false;
+            }
             let search = search_term.read().to_lowercase();
             let matches_search = b.name.to_lowercase().contains(&search)
                 || b.description
@@ -264,6 +270,7 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
                             let is_configurable = block.id == "scheduling"
                                 || block.id == "messaging"
                                 || block.id == "finance"
+                                || block.id == "jobs"
                                 || block.id == "todos"
                                 || block.id == "notes"
                                 || block.id == "reporting";
@@ -415,6 +422,13 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
                                             db_trigger: props.db_trigger,
                                             locale: props.locale.clone(),
                                         }
+                                    } else if cfg_block_id == "jobs" {
+                                        JobsSettings {
+                                            settings_save_status: props.settings_save_status,
+                                            db_trigger: props.db_trigger,
+                                            workspace: props.workspace.clone(),
+                                            locale: props.locale.clone(),
+                                        }
                                     } else if cfg_block_id == "todos" || cfg_block_id == "notes" || cfg_block_id == "reporting" {
                                         BlockCustomUiSettings {
                                             block_id: cfg_block_id.clone(),
@@ -526,6 +540,120 @@ fn BlockCustomUiSettings(props: BlockCustomUiSettingsProps) -> Element {
                                     }
                                 }
                             });
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[derive(Props, Clone)]
+struct JobsSettingsProps {
+    settings_save_status: Signal<String>,
+    db_trigger: Signal<u32>,
+    workspace: Workspace,
+    locale: String,
+}
+
+impl PartialEq for JobsSettingsProps {
+    fn eq(&self, _other: &Self) -> bool {
+        false
+    }
+}
+
+#[component]
+fn JobsSettings(props: JobsSettingsProps) -> Element {
+    let mut db_trigger = props.db_trigger;
+    let mut settings_save_status = props.settings_save_status;
+    let workspace = props.workspace.clone();
+
+    let modules_active_val: serde_json::Value =
+        serde_json::from_str(&workspace.modules_active).unwrap_or_default();
+
+    let todos_enabled = modules_active_val.get("todos").and_then(|v| v.as_bool()).unwrap_or(true);
+    let notes_enabled = modules_active_val.get("notes").and_then(|v| v.as_bool()).unwrap_or(true);
+    let reporting_enabled = modules_active_val.get("reporting").and_then(|v| v.as_bool()).unwrap_or(true);
+
+    let handle_toggle = move |module_key: &'static str, next_state: bool| {
+        settings_save_status.set("saving".to_string());
+        let mut map = modules_active_val.as_object().cloned().unwrap_or_default();
+        map.insert(module_key.to_string(), serde_json::Value::Bool(next_state));
+
+        let new_json = serde_json::to_string(&serde_json::Value::Object(map)).unwrap_or_default();
+        let ws_id = workspace.id.clone();
+        let requester_uid = use_context::<crate::state::AppState>().active_user_id.read().clone();
+        spawn(async move {
+            match update_workspace_modules(requester_uid, ws_id, new_json).await {
+                Ok(_) => {
+                    let current = *db_trigger.read();
+                    db_trigger.set(current + 1);
+                    settings_save_status.set("saved".to_string());
+                }
+                Err(e) => {
+                    settings_save_status.set(format!("error:{}", e));
+                }
+            }
+        });
+    };
+
+    rsx! {
+        div { class: "space-y-5 py-2",
+            // 1. Todos toggle
+            div { class: "flex items-center justify-between gap-4 p-4 rounded-xl border border-border/60 bg-muted/20",
+                div { class: "flex-1",
+                    h5 { class: "text-sm font-bold text-foreground m-0", "Enable Job Checklist (Todos)" }
+                    p { class: "text-xs text-muted-foreground m-0 mt-1 leading-relaxed", 
+                        "Include an interactive checklist of tasks for every assigned job ticket."
+                    }
+                }
+                components::Switch {
+                    checked: todos_enabled,
+                    onchange: {
+                        let handle_toggle = handle_toggle.clone();
+                        move |val| {
+                            let mut ht = handle_toggle.clone();
+                            ht("todos", val);
+                        }
+                    }
+                }
+            }
+
+            // 2. Notes toggle
+            div { class: "flex items-center justify-between gap-4 p-4 rounded-xl border border-border/60 bg-muted/20",
+                div { class: "flex-1",
+                    h5 { class: "text-sm font-bold text-foreground m-0", "Enable Job Notes" }
+                    p { class: "text-xs text-muted-foreground m-0 mt-1 leading-relaxed", 
+                        "Allow adding notes and descriptions to document details for each job."
+                    }
+                }
+                components::Switch {
+                    checked: notes_enabled,
+                    onchange: {
+                        let handle_toggle = handle_toggle.clone();
+                        move |val| {
+                            let mut ht = handle_toggle.clone();
+                            ht("notes", val);
+                        }
+                    }
+                }
+            }
+
+            // 3. Reporting toggle
+            div { class: "flex items-center justify-between gap-4 p-4 rounded-xl border border-border/60 bg-muted/20",
+                div { class: "flex-1",
+                    h5 { class: "text-sm font-bold text-foreground m-0", "Enable Job Completion Reporting" }
+                    p { class: "text-xs text-muted-foreground m-0 mt-1 leading-relaxed", 
+                        "Require completion reports to be submitted by the assignee when finishing a job."
+                    }
+                }
+                components::Switch {
+                    checked: reporting_enabled,
+                    onchange: {
+                        let handle_toggle = handle_toggle.clone();
+                        move |val| {
+                            let mut ht = handle_toggle.clone();
+                            ht("reporting", val);
                         }
                     }
                 }
