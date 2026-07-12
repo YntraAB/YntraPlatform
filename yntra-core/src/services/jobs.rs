@@ -149,8 +149,6 @@ pub async fn create_job_ticket(
             job.sync_status
         ],
     ).await?;
-
-    notify_observers();
     Ok(job)
 }
 
@@ -182,8 +180,6 @@ pub async fn update_job_status(requester_user_id: String, job_id: String, status
         "UPDATE job_tickets SET status = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
         crate::params![status, now_ms, job_id],
     ).await?;
-
-    notify_observers();
     Ok(())
 }
 
@@ -218,8 +214,6 @@ pub async fn submit_job_completion(
         "UPDATE job_tickets SET checklist_json = ?1, completion_report = ?2, status = 'completed', updated_at = ?3, sync_status = 'pending' WHERE id = ?4",
         crate::params![checklist_json, completion_report, now_ms, job_id],
     ).await?;
-
-    notify_observers();
     Ok(())
 }
 

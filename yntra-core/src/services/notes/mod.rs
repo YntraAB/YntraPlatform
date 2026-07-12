@@ -6,6 +6,32 @@ pub mod crdt;
 
 use crdt::{parse_loro_state, apply_diff_to_loro, get_merged_loro_doc};
 
+pub fn verify_zkp_if_encrypted(content: &str) -> Result<(), YntraError> {
+    if content.starts_with("zero_copy_enc:") {
+        let parts: Vec<&str> = content.split(':').collect();
+        if parts.len() != 3 {
+            return Err(YntraError::CryptoError("Invalid encrypted payload format".to_string()));
+        }
+        let proof = parts[1];
+        let trust = crate::ZkCryptoTrust::new();
+        if !trust.verify_compliance_proof(proof.to_string()).unwrap_or(false) {
+            return Err(YntraError::CryptoError("Validation failed: Zero-Knowledge compliance proof is invalid".to_string()));
+        }
+    }
+    Ok(())
+}
+
+use std::sync::OnceLock;
+use crate::ZeroCopyNoteStore;
+
+pub fn get_note_store() -> ZeroCopyNoteStore {
+    static NOTE_STORE: OnceLock<ZeroCopyNoteStore> = OnceLock::new();
+    NOTE_STORE.get_or_init(|| {
+        let path = std::env::temp_dir().join("yntra_zero_copy_notes.db").to_string_lossy().to_string();
+        ZeroCopyNoteStore::new(path).expect("Failed to initialize ZeroCopyNoteStore")
+    }).clone()
+}
+
 #[uniffi::export]
 pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Result<Vec<DailyNote>, YntraError> {
     let conn = database::acquire_connection().await?;
@@ -99,7 +125,7 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
         
         let has_unmerged = max_seq > last_merged_seq;
 
-        let content = if let Some(plain) = content_plain {
+        let content = if let Some(plain) = content_plain.filter(|_| !has_unmerged) {
             plain
         } else {
             let doc = loro::LoroDoc::new();
@@ -177,6 +203,7 @@ pub async fn add_note(
     subject: String,
     content: String,
 ) -> Result<DailyNote, YntraError> {
+    verify_zkp_if_encrypted(&content)?;
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
@@ -220,6 +247,12 @@ pub async fn add_note(
         updated_at: now_ms,
         sync_status: "pending".to_string(),
     };
+
+    // Persist to ZeroCopyNoteStore (source of truth)
+    let note_store = get_note_store();
+    let mut all_notes = note_store.read_all_notes().unwrap_or_default();
+    all_notes.push(item.clone());
+    note_store.write_notes(all_notes)?;
 
     conn.begin_transaction().await?;
     let res = async {
@@ -275,6 +308,7 @@ pub async fn update_note(
     subject: String,
     content: String,
 ) -> Result<DailyNote, YntraError> {
+    verify_zkp_if_encrypted(&content)?;
     let now_ms = crate::infra::time::get_current_time_ms();
     let conn = database::acquire_connection().await?;
 
@@ -401,6 +435,26 @@ pub async fn update_note(
 
     match res {
         Ok(note) => {
+            // Update in ZeroCopyNoteStore (source of truth)
+            let note_store = get_note_store();
+            let mut all_notes = note_store.read_all_notes().unwrap_or_default();
+            let mut found = false;
+            for n in all_notes.iter_mut() {
+                if n.id == note.id {
+                    n.subject = note.subject.clone();
+                    n.content = note.content.clone();
+                    n.edit_history = note.edit_history.clone();
+                    n.updated_at = note.updated_at;
+                    n.sync_status = note.sync_status.clone();
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                all_notes.push(note.clone());
+            }
+            let _ = note_store.write_notes(all_notes);
+
             conn.commit().await?;
             notify_observers();
             Ok(note)
@@ -530,6 +584,7 @@ pub async fn apply_note_loro_update(note_id: String, update_bytes: Vec<u8>) -> R
 
         // 3. Update the database projection cache
         let plain_text = doc.get_text("content").to_string();
+        verify_zkp_if_encrypted(&plain_text)?;
         let loro_content = format!("loro:{}:{}", next_seq, crate::infra::crypto::hex_encode(&loro_bytes));
         conn.execute(
             "UPDATE notes SET content = ?1, content_plain = ?2, updated_at = ?3, sync_status = 'pending' WHERE id = ?4",
@@ -542,6 +597,44 @@ pub async fn apply_note_loro_update(note_id: String, update_bytes: Vec<u8>) -> R
     match res {
         Ok(_) => {
             conn.commit().await?;
+            
+            // Reconstruct the updated DailyNote and write to ZeroCopyNoteStore (source of truth)
+            if let Ok(mut stmt) = conn.prepare("SELECT id, workspace_id, team_id, author_id, subject, content_plain, edit_history, created_at, updated_at FROM notes WHERE id = ?1").await {
+                if let Ok(mut rows) = stmt.query(crate::params![&note_id]).await {
+                    if let Ok(Some(row)) = rows.next().await {
+                        if let Ok(note) = (|| -> Result<DailyNote, YntraError> {
+                            Ok(DailyNote {
+                                id: row.get(0)?,
+                                workspace_id: row.get(1)?,
+                                team_id: row.get(2)?,
+                                author_id: row.get(3)?,
+                                subject: row.get(4)?,
+                                content: row.get(5)?,
+                                edit_history: row.get(6)?,
+                                created_at: row.get(7)?,
+                                updated_at: row.get(8)?,
+                                sync_status: "pending".to_string(),
+                            })
+                        })() {
+                            let note_store = get_note_store();
+                            let mut all_notes = note_store.read_all_notes().unwrap_or_default();
+                            let mut found = false;
+                            for n in all_notes.iter_mut() {
+                                if n.id == note.id {
+                                    *n = note.clone();
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if !found {
+                                all_notes.push(note);
+                            }
+                            let _ = note_store.write_notes(all_notes);
+                        }
+                    }
+                }
+            }
+
             notify_observers();
             Ok(())
         }
@@ -625,4 +718,102 @@ pub async fn merge_unmerged_notes() -> Result<(), YntraError> {
     }
     
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database;
+    use crate::ZkCryptoTrust;
+
+    #[tokio::test]
+    async fn test_note_zkp_compliance_verification() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        // Setup test workspace, team, user, and member relations
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-notes-test', 'Notes WS', '[]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-notes-user', 'ws-notes-test', 'notes@user.com', 'user')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO teams (id, workspace_id, name) VALUES ('team-notes-test', 'ws-notes-test', 'Notes Team')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO team_members (team_id, user_id, workspace_id) VALUES ('team-notes-test', 'u-notes-user', 'ws-notes-test')", ()).await.unwrap();
+
+        // Clear notes tables
+        let _ = conn.execute("DELETE FROM notes WHERE id LIKE 'test-note-%'", ()).await;
+        let _ = conn.execute("DELETE FROM note_updates WHERE note_id LIKE 'test-note-%'", ()).await;
+
+        let requester = "u-notes-user".to_string();
+        let workspace = "ws-notes-test".to_string();
+        let team = "team-notes-test".to_string();
+        let author = "u-notes-user".to_string();
+        let subject = "Security Audit Notes".to_string();
+
+        // 1. Plaintext content -> Succeeds
+        let note_plain = add_note(
+            requester.clone(),
+            workspace.clone(),
+            team.clone(),
+            author.clone(),
+            subject.clone(),
+            "Plaintext unencrypted note".to_string(),
+        ).await;
+        assert!(note_plain.is_ok());
+
+        // 2. Encrypted content with VALID compliance proof -> Succeeds
+        let trust = ZkCryptoTrust::new();
+        let seed = "super_secure_seed".to_string();
+        let sensitive_info = "Sensitive database credential".to_string();
+        let ciphertext = trust.encrypt_workspace_field(seed.clone(), sensitive_info).unwrap();
+        let valid_proof = trust.generate_compliance_proof(ciphertext.clone(), author.clone(), "user".to_string()).unwrap();
+        let valid_content = format!("zero_copy_enc:{}:{}", valid_proof, ciphertext);
+
+        let note_valid_enc = add_note(
+            requester.clone(),
+            workspace.clone(),
+            team.clone(),
+            author.clone(),
+            subject.clone(),
+            valid_content.clone(),
+        ).await;
+        assert!(note_valid_enc.is_ok());
+
+        // 3. Encrypted content with INVALID compliance proof -> Fails with CryptoError
+        let invalid_proof_bytes = b"ZKP_PROOF_V1:mock_invalid_commitment_bytes\x00";
+        let invalid_proof_hex = const_hex::encode(invalid_proof_bytes);
+        let invalid_content = format!("zero_copy_enc:{}:{}", invalid_proof_hex, ciphertext);
+
+        let note_invalid_enc = add_note(
+            requester.clone(),
+            workspace.clone(),
+            team.clone(),
+            author.clone(),
+            subject.clone(),
+            invalid_content.clone(),
+        ).await;
+        assert!(note_invalid_enc.is_err());
+        match note_invalid_enc {
+            Err(YntraError::CryptoError(msg)) => assert!(msg.contains("Zero-Knowledge compliance proof is invalid")),
+            _ => panic!("Expected CryptoError when saving note with invalid ZK compliance proof"),
+        }
+
+        // 4. Update note with INVALID proof -> Fails
+        let note_valid = note_valid_enc.unwrap();
+        let update_res = update_note(
+            requester.clone(),
+            note_valid.id.clone(),
+            "User Name".to_string(),
+            "Updated Subject".to_string(),
+            invalid_content.clone(),
+        ).await;
+        assert!(update_res.is_err());
+
+        // 5. Update note with VALID proof -> Succeeds
+        let update_ok = update_note(
+            requester.clone(),
+            note_valid.id.clone(),
+            "User Name".to_string(),
+            "Updated Subject".to_string(),
+            valid_content.clone(),
+        ).await;
+        assert!(update_ok.is_ok());
+    }
 }

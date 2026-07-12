@@ -1,8 +1,36 @@
 use crate::{AuditLogEntry, YntraError};
 use uuid::Uuid;
-
 use crate::database;
-use crate::infra::observer::notify_observers;
+use std::sync::OnceLock;
+
+static AUDIT_STORE: OnceLock<crate::ZeroCopyAuditStore> = OnceLock::new();
+
+fn get_audit_store() -> &'static crate::ZeroCopyAuditStore {
+    AUDIT_STORE.get_or_init(|| {
+        let path = if cfg!(target_arch = "wasm32") {
+            String::new()
+        } else if cfg!(test) {
+            std::env::temp_dir().join("yntra_zero_copy_audit_test.db").to_string_lossy().to_string()
+        } else {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                crate::database::native::get_database_path("yntra_zero_copy_audit.db")
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                String::new()
+            }
+        };
+        // Clean old test file if running tests
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if cfg!(test) {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+        crate::ZeroCopyAuditStore::new(path).expect("Failed to initialize ZeroCopyAuditStore for Audit Logs")
+    })
+}
 
 fn compute_hash(id: &str, actor_id: &str, target_client_id: Option<&str>, action_type: &str, timestamp: i64, prev_hash: &str, seq: i64) -> String {
     let mut hasher = blake3::Hasher::new();
@@ -84,33 +112,57 @@ pub async fn log_action_with_conn(
     let id = Uuid::new_v4().to_string();
     let timestamp = crate::infra::time::get_current_time_ms();
 
-    // Find workspace_id of client or fallback to actor
-    let mut ws_id: Option<String> = None;
-    if let Some(ref client_id) = target_client_id {
-        ws_id = conn.query_row(
-            "SELECT workspace_id FROM clients WHERE id = ?1",
-            crate::params![client_id],
-            |r| r.get(0)
-        ).await.ok();
+    let store = get_audit_store();
+    let mut all_entries = store.read_all_audit_logs()?;
+
+    // Load users & clients to resolve workspace IDs
+    let mut user_stmt = conn.prepare("SELECT id, workspace_id FROM users").await?;
+    let mut user_rows = user_stmt.query(()).await?;
+    let mut user_ws_map = std::collections::HashMap::new();
+    while let Some(row) = user_rows.next().await? {
+        user_ws_map.insert(row.get::<String>(0)?, row.get::<String>(1)?);
     }
 
-    let ws_id = match ws_id {
-        Some(w) => w,
-        None => conn.query_row(
-            "SELECT workspace_id FROM users WHERE id = ?1",
-            crate::params![&actor_id],
-            |r| r.get(0)
-        ).await.unwrap_or_else(|_| "workspace-1".to_string()),
+    let mut client_stmt = conn.prepare("SELECT id, workspace_id FROM clients").await?;
+    let mut client_rows = client_stmt.query(()).await?;
+    let mut client_ws_map = std::collections::HashMap::new();
+    while let Some(row) = client_rows.next().await? {
+        client_ws_map.insert(row.get::<String>(0)?, row.get::<String>(1)?);
+    }
+
+    let get_entry_ws = |entry: &AuditLogEntry| -> String {
+        if let Some(ref cid) = entry.target_client_id {
+            if let Some(ws) = client_ws_map.get(cid) {
+                return ws.clone();
+            }
+        }
+        user_ws_map.get(&entry.actor_id).cloned().unwrap_or_else(|| "workspace-1".to_string())
+    };
+
+    let ws_id = if let Some(ref client_id) = target_client_id {
+        client_ws_map.get(client_id).cloned().unwrap_or_else(|| {
+            user_ws_map.get(&actor_id).cloned().unwrap_or_else(|| "workspace-1".to_string())
+        })
+    } else {
+        user_ws_map.get(&actor_id).cloned().unwrap_or_else(|| "workspace-1".to_string())
     };
 
     // Find previous hash and seq for this workspace
     let mut prev_hash = "genesis".to_string();
     let mut seq = 0;
-    let mut stmt = conn.prepare("SELECT curr_hash, seq FROM audit_logs WHERE workspace_id = ?1 ORDER BY seq DESC LIMIT 1").await?;
-    let mut rows = stmt.query(crate::params![&ws_id]).await?;
-    if let Some(row) = rows.next().await? {
-        prev_hash = row.get(0)?;
-        seq = row.get::<i64>(1)? + 1;
+
+    let mut last_entry: Option<&AuditLogEntry> = None;
+    for entry in all_entries.iter() {
+        if get_entry_ws(entry) == ws_id {
+            if last_entry.is_none() || entry.seq > last_entry.unwrap().seq {
+                last_entry = Some(entry);
+            }
+        }
+    }
+
+    if let Some(last) = last_entry {
+        prev_hash = last.curr_hash.clone();
+        seq = last.seq + 1;
     }
     
     let curr_hash = compute_hash(&id, &actor_id, target_client_id.as_deref(), &action_type, timestamp, &prev_hash, seq);
@@ -133,22 +185,9 @@ pub async fn log_action_with_conn(
         seq,
         signature: signature.clone(),
     };
-    
-    conn.execute(
-        "INSERT INTO audit_logs (id, workspace_id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash, seq, signature) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        crate::params![
-            entry.id,
-            ws_id,
-            entry.actor_id,
-            entry.target_client_id,
-            entry.action_type,
-            entry.timestamp,
-            entry.prev_hash,
-            entry.curr_hash,
-            entry.seq,
-            entry.signature
-        ],
-    ).await?;
+
+    all_entries.push(entry.clone());
+    store.write_audit_logs(all_entries)?;
     
     Ok(entry)
 }
@@ -156,21 +195,13 @@ pub async fn log_action_with_conn(
 #[uniffi::export]
 pub async fn log_action(actor_id: String, target_client_id: Option<String>, action_type: String) -> Result<AuditLogEntry, YntraError> {
     let conn = database::acquire_connection().await?;
-    conn.begin_transaction().await?;
     
     let result = log_action_with_conn(&conn, actor_id, target_client_id, action_type).await;
 
-    match result {
-        Ok(entry) => {
-            conn.commit().await?;
-            notify_observers();
-            Ok(entry)
-        }
-        Err(err) => {
-            let _ = conn.rollback().await;
-            Err(err)
-        }
+    if result.is_ok() {
+        crate::infra::observer::notify_observers();
     }
+    result
 }
 
 #[uniffi::export]
@@ -179,110 +210,139 @@ pub async fn get_audit_logs(requester_user_id: String) -> Result<Vec<AuditLogEnt
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     let ws_id = auth.workspace_id.clone();
 
-    let (query, params) = if auth.role == "platform_admin" {
-        (
-            "SELECT id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash, seq, signature FROM audit_logs ORDER BY timestamp DESC".to_string(),
-            vec![],
-        )
-    } else if auth.role == "admin" {
-        (
-            "SELECT id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash, seq, signature
-             FROM audit_logs
-             WHERE workspace_id = ?1
-             ORDER BY timestamp DESC".to_string(),
-            vec![ws_id],
-        )
-    } else {
+    if auth.role != "platform_admin" && auth.role != "admin" {
         return Err(YntraError::AuthError("Access denied: only administrators can view audit logs".to_string()));
+    }
+
+    // Load users & clients to resolve workspace IDs
+    let mut user_stmt = conn.prepare("SELECT id, workspace_id FROM users").await?;
+    let mut user_rows = user_stmt.query(()).await?;
+    let mut user_ws_map = std::collections::HashMap::new();
+    while let Some(row) = user_rows.next().await? {
+        user_ws_map.insert(row.get::<String>(0)?, row.get::<String>(1)?);
+    }
+
+    let mut client_stmt = conn.prepare("SELECT id, workspace_id FROM clients").await?;
+    let mut client_rows = client_stmt.query(()).await?;
+    let mut client_ws_map = std::collections::HashMap::new();
+    while let Some(row) = client_rows.next().await? {
+        client_ws_map.insert(row.get::<String>(0)?, row.get::<String>(1)?);
+    }
+
+    let get_entry_ws = |entry: &AuditLogEntry| -> String {
+        if let Some(ref cid) = entry.target_client_id {
+            if let Some(ws) = client_ws_map.get(cid) {
+                return ws.clone();
+            }
+        }
+        user_ws_map.get(&entry.actor_id).cloned().unwrap_or_else(|| "workspace-1".to_string())
     };
 
-    let mut stmt = conn.prepare(&query).await?;
-    let mut rows = stmt.query(crate::rusqlite::params_from_iter(params)).await?;
-    let mut logs = Vec::new();
-    while let Some(row) = rows.next().await? {
-        logs.push(AuditLogEntry {
-            id: row.get(0)?,
-            actor_id: row.get(1)?,
-            target_client_id: row.get(2)?,
-            action_type: row.get(3)?,
-            timestamp: row.get(4)?,
-            prev_hash: row.get(5)?,
-            curr_hash: row.get(6)?,
-            seq: row.get(7)?,
-            signature: row.get(8)?,
-        });
-    }
-    Ok(logs)
+    let store = get_audit_store();
+    let all = store.read_all_audit_logs()?;
+
+    let filtered: Vec<AuditLogEntry> = all
+        .into_iter()
+        .filter(|entry| {
+            if auth.role == "platform_admin" {
+                true
+            } else {
+                get_entry_ws(entry) == ws_id
+            }
+        })
+        .collect();
+
+    // Sort by timestamp descending
+    let mut list = filtered;
+    list.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+
+    Ok(list)
 }
 
 #[uniffi::export]
 pub async fn verify_audit_log_chain() -> Result<bool, YntraError> {
     let conn = database::acquire_connection().await?;
     
-    // Get list of distinct workspaces
-    let mut ws_stmt = conn.prepare("SELECT DISTINCT workspace_id FROM audit_logs").await?;
-    let mut ws_rows = ws_stmt.query(()).await?;
-    let mut workspaces = Vec::new();
-    while let Some(row) = ws_rows.next().await? {
-        workspaces.push(row.get::<String>(0)?);
+    // Load users & clients to resolve workspace IDs
+    let mut user_stmt = conn.prepare("SELECT id, workspace_id FROM users").await?;
+    let mut user_rows = user_stmt.query(()).await?;
+    let mut user_ws_map = std::collections::HashMap::new();
+    while let Some(row) = user_rows.next().await? {
+        user_ws_map.insert(row.get::<String>(0)?, row.get::<String>(1)?);
     }
-    
-    let mut stmt = conn.prepare("SELECT id, actor_id, target_client_id, action_type, timestamp, prev_hash, curr_hash, seq, signature FROM audit_logs WHERE workspace_id = ?1 ORDER BY seq ASC").await?;
-    for ws_id in workspaces {
+
+    let mut client_stmt = conn.prepare("SELECT id, workspace_id FROM clients").await?;
+    let mut client_rows = client_stmt.query(()).await?;
+    let mut client_ws_map = std::collections::HashMap::new();
+    while let Some(row) = client_rows.next().await? {
+        client_ws_map.insert(row.get::<String>(0)?, row.get::<String>(1)?);
+    }
+
+    let get_entry_ws = |entry: &AuditLogEntry| -> String {
+        if let Some(ref cid) = entry.target_client_id {
+            if let Some(ws) = client_ws_map.get(cid) {
+                return ws.clone();
+            }
+        }
+        user_ws_map.get(&entry.actor_id).cloned().unwrap_or_else(|| "workspace-1".to_string())
+    };
+
+    let store = get_audit_store();
+    let all = store.read_all_audit_logs()?;
+
+    // Group by workspace
+    let mut groups: std::collections::HashMap<String, Vec<AuditLogEntry>> = std::collections::HashMap::new();
+    for entry in all {
+        let ws = get_entry_ws(&entry);
+        groups.entry(ws).or_default().push(entry);
+    }
+
+    for (ws_id, mut ws_entries) in groups {
         let creator_pub: Option<String> = conn.query_row(
             "SELECT creator_public_key FROM workspaces WHERE id = ?1",
             crate::params![&ws_id],
             |r| r.get(0)
         ).await.ok();
 
-        let mut rows = stmt.query(crate::params![&ws_id]).await?;
-        
+        // Sort by seq ascending
+        ws_entries.sort_by_key(|e| e.seq);
+
         let mut last_hash = "genesis".to_string();
         let mut expected_seq = 0;
-        
-        while let Some(row) = rows.next().await? {
-            let id: String = row.get(0)?;
-            let actor_id: String = row.get(1)?;
-            let target_client_id: Option<String> = row.get(2)?;
-            let action_type: String = row.get(3)?;
-            let timestamp: i64 = row.get(4)?;
-            let prev_hash: String = row.get(5)?;
-            let curr_hash: String = row.get(6)?;
-            let seq: i64 = row.get(7)?;
-            let signature: Option<String> = row.get(8)?;
-            
-            if seq != expected_seq {
-                tracing::error!("Audit log chain broken at log ID {} for workspace {}: seq {} does not match expected_seq {}", id, ws_id, seq, expected_seq);
+
+        for entry in ws_entries {
+            if entry.seq != expected_seq {
+                tracing::error!("Audit log chain broken at log ID {} for workspace {}: seq {} does not match expected_seq {}", entry.id, ws_id, entry.seq, expected_seq);
                 return Ok(false);
             }
             
-            if prev_hash != last_hash {
-                tracing::error!("Audit log chain broken at log ID {} for workspace {}: prev_hash {} does not match expected last_hash {}", id, ws_id, prev_hash, last_hash);
+            if entry.prev_hash != last_hash {
+                tracing::error!("Audit log chain broken at log ID {} for workspace {}: prev_hash {} does not match expected last_hash {}", entry.id, ws_id, entry.prev_hash, last_hash);
                 return Ok(false);
             }
             
-            let computed = compute_hash(&id, &actor_id, target_client_id.as_deref(), &action_type, timestamp, &prev_hash, seq);
-            if computed != curr_hash {
-                tracing::error!("Audit log hash mismatch at log ID {} for workspace {}: computed {}, got {}", id, ws_id, computed, curr_hash);
+            let computed = compute_hash(&entry.id, &entry.actor_id, entry.target_client_id.as_deref(), &entry.action_type, entry.timestamp, &entry.prev_hash, entry.seq);
+            if computed != entry.curr_hash {
+                tracing::error!("Audit log hash mismatch at log ID {} for workspace {}: computed {}, got {}", entry.id, ws_id, computed, entry.curr_hash);
                 return Ok(false);
             }
 
             // Verify signature
             if let Some(ref pub_key) = creator_pub {
                 if !pub_key.trim().is_empty() {
-                    if let Some(ref sig) = signature {
-                        if !verify_signature(pub_key, &curr_hash, sig) {
-                            tracing::error!("Audit log signature mismatch at log ID {} for workspace {}", id, ws_id);
+                    if let Some(ref sig) = entry.signature {
+                        if !verify_signature(pub_key, &entry.curr_hash, sig) {
+                            tracing::error!("Audit log signature mismatch at log ID {} for workspace {}", entry.id, ws_id);
                             return Ok(false);
                         }
                     } else {
-                        tracing::error!("Missing audit log signature at log ID {} for workspace {}", id, ws_id);
+                        tracing::error!("Missing audit log signature at log ID {} for workspace {}", entry.id, ws_id);
                         return Ok(false);
                     }
                 }
             }
             
-            last_hash = curr_hash;
+            last_hash = entry.curr_hash.clone();
             expected_seq += 1;
         }
     }
@@ -307,23 +367,21 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_audit_log_verification() {
+        // Clear audit store
+        let _ = get_audit_store().write_audit_logs(Vec::new());
         let res = verify_audit_log_chain().await;
-        // In clean test DB setup, this should return Ok(true)
         assert!(res.is_ok());
         assert!(res.unwrap());
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
-    async fn test_audit_log_target_client_workspace_scoping() {
+    async fn test_audit_log_target_client_workspace_scoping() -> Result<(), Box<dyn std::error::Error>> {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         let conn = database::acquire_connection().await.unwrap();
 
-        // Cleanup
-        let _ = conn.execute("DELETE FROM audit_logs WHERE actor_id = 'test-actor-1'", ()).await;
-        let _ = conn.execute("DELETE FROM clients WHERE id = 'test-client-1'", ()).await;
-        let _ = conn.execute("DELETE FROM users WHERE id = 'test-actor-1'", ()).await;
-        let _ = conn.execute("DELETE FROM workspaces WHERE id IN ('workspace-test-1', 'workspace-test-2')", ()).await;
+        // Clear audit store
+        let _ = get_audit_store().write_audit_logs(Vec::new());
 
         // Setup workspace-test-1 and workspace-test-2
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('workspace-test-1', 'WS 1', '[]', '{}')", ()).await.unwrap();
@@ -348,13 +406,31 @@ mod tests {
         // Log action targetting the client
         let entry = log_action("test-actor-1".to_string(), Some("test-client-1".to_string()), "read_medications".to_string()).await.unwrap();
 
-        // The audit log should be associated with workspace-test-2 (client's workspace)
-        let logged_ws: String = conn.query_row(
-            "SELECT workspace_id FROM audit_logs WHERE id = ?1",
-            crate::params![entry.id],
-            |r| r.get(0)
-        ).await.unwrap();
+        // Load users & clients to resolve workspace IDs
+        let mut user_stmt = conn.prepare("SELECT id, workspace_id FROM users").await?;
+        let mut user_rows = user_stmt.query(()).await?;
+        let mut user_ws_map = std::collections::HashMap::new();
+        while let Some(row) = user_rows.next().await? {
+            user_ws_map.insert(row.get::<String>(0)?, row.get::<String>(1)?);
+        }
 
+        let mut client_stmt = conn.prepare("SELECT id, workspace_id FROM clients").await?;
+        let mut client_rows = client_stmt.query(()).await?;
+        let mut client_ws_map = std::collections::HashMap::new();
+        while let Some(row) = client_rows.next().await? {
+            client_ws_map.insert(row.get::<String>(0)?, row.get::<String>(1)?);
+        }
+
+        let get_entry_ws = |entry: &AuditLogEntry| -> String {
+            if let Some(ref cid) = entry.target_client_id {
+                if let Some(ws) = client_ws_map.get(cid) {
+                    return ws.clone();
+                }
+            }
+            user_ws_map.get(&entry.actor_id).cloned().unwrap_or_else(|| "workspace-1".to_string())
+        };
+
+        let logged_ws = get_entry_ws(&entry);
         assert_eq!(logged_ws, "workspace-test-2");
 
         // The entry signature should be present
@@ -365,10 +441,11 @@ mod tests {
         assert!(chain_ok);
 
         // Clean up
-        conn.execute("DELETE FROM audit_logs WHERE actor_id = 'test-actor-1'", ()).await.unwrap();
+        let _ = get_audit_store().write_audit_logs(Vec::new());
         conn.execute("DELETE FROM clients WHERE id = 'test-client-1'", ()).await.unwrap();
         conn.execute("DELETE FROM users WHERE id = 'test-actor-1'", ()).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id IN ('workspace-test-1', 'workspace-test-2')", ()).await.unwrap();
         let _ = crate::infra::crypto::set_local_secret("creator_private_key_workspace-test-2", "").await;
+        Ok(())
     }
 }

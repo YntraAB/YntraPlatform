@@ -136,20 +136,46 @@ impl DbConnection {
     /// Note: Parameters and results are passed directly as JsValue objects over the WASM/JS boundary
     /// avoiding intermediate JSON string serialization.
     pub async fn execute<P: IntoWasmParams>(&self, sql: &str, params: P) -> Result<u64, YntraError> {
+        if let Some(in_tx) = super::check_transaction_sql(sql) {
+            self.in_transaction.store(in_tx, std::sync::atomic::Ordering::SeqCst);
+        }
         let params_wasm = params.into_wasm_params();
         let params_val = serde_wasm_bindgen::to_value(&params_wasm)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         let result_val = js_execute_sql("execute", sql, params_val).await?;
         let res: ExecuteResult = serde_wasm_bindgen::from_value(result_val)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        super::track_write(sql);
+        
+        let is_rollback = sql.trim_start().len() >= 8 && sql.trim_start()[..8].eq_ignore_ascii_case("ROLLBACK");
+        if is_rollback {
+            crate::infra::observer::discard_observers_dirty_state();
+        } else {
+            super::track_write(sql);
+            if !self.in_transaction.load(std::sync::atomic::Ordering::SeqCst) {
+                crate::infra::observer::notify_observers();
+            }
+        }
         Ok(res.rows_affected)
     }
 
     /// Executes a batch of SQL statements.
     pub async fn execute_batch(&self, sql: &str) -> Result<(), YntraError> {
+        for stmt in super::parser::split_sql_statements(sql) {
+            if let Some(in_tx) = super::check_transaction_sql(&stmt) {
+                self.in_transaction.store(in_tx, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
         js_execute_sql("execute_batch", sql, JsValue::UNDEFINED).await?;
-        super::track_write_batch(sql);
+        
+        let is_rollback = sql.trim_start().len() >= 8 && sql.trim_start()[..8].eq_ignore_ascii_case("ROLLBACK");
+        if is_rollback {
+            crate::infra::observer::discard_observers_dirty_state();
+        } else {
+            super::track_write_batch(sql);
+            if !self.in_transaction.load(std::sync::atomic::Ordering::SeqCst) {
+                crate::infra::observer::notify_observers();
+            }
+        }
         Ok(())
     }
 

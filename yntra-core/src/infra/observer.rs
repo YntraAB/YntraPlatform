@@ -65,3 +65,9 @@ pub fn notify_observers() {
         }
     }
 }
+
+pub fn discard_observers_dirty_state() {
+    if let Ok(mut lock) = MODIFIED_TABLES.get_or_init(|| Mutex::new(std::collections::HashSet::new())).lock() {
+        lock.clear();
+    }
+}

@@ -324,7 +324,11 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
         CREATE INDEX IF NOT EXISTS idx_time_reports_user_date ON time_reports(user_id, date);
         CREATE INDEX IF NOT EXISTS idx_job_tickets_workspace ON job_tickets(workspace_id);
         CREATE INDEX IF NOT EXISTS idx_job_tickets_assigned_user ON job_tickets(assigned_user_id);
-        CREATE INDEX IF NOT EXISTS idx_entities_block ON entities(workspace_id, block_id);"
+        CREATE INDEX IF NOT EXISTS idx_entities_block ON entities(workspace_id, block_id);
+        CREATE INDEX IF NOT EXISTS idx_time_reports_workspace_date ON time_reports(workspace_id, date DESC);
+        CREATE INDEX IF NOT EXISTS idx_notes_team_created ON notes(team_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_notes_workspace_created ON notes(workspace_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_messages_workspace_created ON messages(workspace_id, created_at ASC);"
     )
     .await
     .map_err(|e| YntraError::DbError(e.to_string()))?;

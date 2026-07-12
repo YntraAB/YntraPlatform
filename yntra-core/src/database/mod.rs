@@ -13,6 +13,9 @@ pub use schema::setup_schema;
 
 pub mod parser;
 pub mod sync;
+pub mod zero_copy;
+pub use zero_copy::{ZeroCopyStore, ZeroCopyMessageStore, ZeroCopyNoteStore, ZeroCopyAuditStore, P2PMeshSyncRouter, EdgeSyncLoop, ZkCryptoTrust};
+
 
 #[cfg(not(target_arch = "wasm32"))]
 pub static DB_TEST_LOCK: DbTestLock = DbTestLock {
@@ -55,6 +58,29 @@ pub fn track_write_batch(sql: &str) {
             crate::infra::observer::set_last_modified_table(&table);
         }
     }
+}
+
+pub fn check_transaction_sql(sql: &str) -> Option<bool> {
+    let sql_trimmed = sql.trim_start();
+    if sql_trimmed.len() >= 5 {
+        let prefix = &sql_trimmed[..5];
+        if prefix.eq_ignore_ascii_case("BEGIN") {
+            return Some(true);
+        }
+    }
+    if sql_trimmed.len() >= 6 {
+        let prefix = &sql_trimmed[..6];
+        if prefix.eq_ignore_ascii_case("COMMIT") {
+            return Some(false);
+        }
+    }
+    if sql_trimmed.len() >= 8 {
+        let prefix = &sql_trimmed[..8];
+        if prefix.eq_ignore_ascii_case("ROLLBACK") {
+            return Some(false);
+        }
+    }
+    None
 }
 
 

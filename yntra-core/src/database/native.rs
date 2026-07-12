@@ -193,28 +193,7 @@ fn get_semaphore() -> &'static tokio::sync::Semaphore {
     SEMAPHORE.get_or_init(|| tokio::sync::Semaphore::new(16))
 }
 
-fn check_transaction_sql(sql: &str) -> Option<bool> {
-    let sql_trimmed = sql.trim_start();
-    if sql_trimmed.len() >= 5 {
-        let prefix = &sql_trimmed[..5];
-        if prefix.eq_ignore_ascii_case("BEGIN") {
-            return Some(true);
-        }
-    }
-    if sql_trimmed.len() >= 6 {
-        let prefix = &sql_trimmed[..6];
-        if prefix.eq_ignore_ascii_case("COMMIT") {
-            return Some(false);
-        }
-    }
-    if sql_trimmed.len() >= 8 {
-        let prefix = &sql_trimmed[..8];
-        if prefix.eq_ignore_ascii_case("ROLLBACK") {
-            return Some(false);
-        }
-    }
-    None
-}
+
 
 static SYNC_LOOP_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -330,13 +309,21 @@ impl DbConnection {
 
     pub async fn execute<P: libsql::params::IntoParams + Send>(&self, sql: &str, params: P) -> Result<u64, YntraError> {
         let conn = self.get_conn()?;
-        if let Some(in_tx) = check_transaction_sql(sql) {
+        if let Some(in_tx) = super::check_transaction_sql(sql) {
             self.in_transaction.store(in_tx, std::sync::atomic::Ordering::SeqCst);
         }
         let res = conn.execute(sql, params).await
             .map_err(|e| YntraError::DbError(e.to_string()));
         if res.is_ok() {
-            super::track_write(sql);
+            let is_rollback = sql.trim_start().len() >= 8 && sql.trim_start()[..8].eq_ignore_ascii_case("ROLLBACK");
+            if is_rollback {
+                crate::infra::observer::discard_observers_dirty_state();
+            } else {
+                super::track_write(sql);
+                if !self.in_transaction.load(std::sync::atomic::Ordering::SeqCst) {
+                    crate::infra::observer::notify_observers();
+                }
+            }
         }
         res
     }
@@ -344,13 +331,22 @@ impl DbConnection {
     pub async fn execute_batch(&self, sql: &str) -> Result<(), YntraError> {
         let conn = self.get_conn()?;
         for stmt in super::parser::split_sql_statements(sql) {
-            if let Some(in_tx) = check_transaction_sql(&stmt) {
+            if let Some(in_tx) = super::check_transaction_sql(&stmt) {
                 self.in_transaction.store(in_tx, std::sync::atomic::Ordering::SeqCst);
             }
         }
         conn.execute_batch(sql).await
             .map_err(|e| YntraError::DbError(e.to_string()))?;
-        super::track_write_batch(sql);
+        
+        let is_rollback = sql.trim_start().len() >= 8 && sql.trim_start()[..8].eq_ignore_ascii_case("ROLLBACK");
+        if is_rollback {
+            crate::infra::observer::discard_observers_dirty_state();
+        } else {
+            super::track_write_batch(sql);
+            if !self.in_transaction.load(std::sync::atomic::Ordering::SeqCst) {
+                crate::infra::observer::notify_observers();
+            }
+        }
         Ok(())
     }
 

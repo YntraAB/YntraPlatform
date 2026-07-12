@@ -7,6 +7,7 @@ pub mod services;
 pub use infra::errors::*;
 pub use infra::observer::*;
 pub use database::sync::*;
+pub use database::zero_copy::{ZeroCopyStore, ZeroCopyMessageStore, ZeroCopyNoteStore, ZeroCopyAuditStore, P2PMeshSyncRouter, EdgeSyncLoop, ZkCryptoTrust};
 pub use infra::auth::AuthContext;
 pub use models::*;
 

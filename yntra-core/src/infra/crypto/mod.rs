@@ -331,6 +331,26 @@ pub fn decrypt_field(encrypted_data: &str, workspace_id: &str) -> Result<String,
     cipher.decrypt(encrypted_data)
 }
 
+#[uniffi::export]
+pub fn encrypt_fields(data: Vec<String>, workspace_id: &str) -> Result<Vec<String>, YntraError> {
+    let cipher = WorkspaceCipher::new(workspace_id)?;
+    let mut encrypted = Vec::with_capacity(data.len());
+    for item in data {
+        encrypted.push(cipher.encrypt(&item)?);
+    }
+    Ok(encrypted)
+}
+
+#[uniffi::export]
+pub fn decrypt_fields(encrypted_data: Vec<String>, workspace_id: &str) -> Result<Vec<String>, YntraError> {
+    let cipher = WorkspaceCipher::new(workspace_id)?;
+    let mut decrypted = Vec::with_capacity(encrypted_data.len());
+    for item in encrypted_data {
+        decrypted.push(cipher.decrypt(&item)?);
+    }
+    Ok(decrypted)
+}
+
 pub fn encrypt_opt_field(data: Option<String>, workspace_id: &str) -> Result<Option<String>, YntraError> {
     let cipher = WorkspaceCipher::new(workspace_id)?;
     cipher.encrypt_opt(data)
@@ -601,6 +621,30 @@ mod tests {
         set_session_key("shared-workspace-session-key".to_string().into_bytes());
         let decrypted_by_b = decrypt_field(&encrypted_by_a, workspace_id).unwrap();
         assert_eq!(plaintext, decrypted_by_b);
+
+        clear_session_key();
+    }
+
+    #[test]
+    fn test_bulk_encryption_decryption() {
+        let _test_lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let workspace_id = "bulk-workspace-123";
+        set_session_key("bulk-session-key".to_string().into_bytes());
+
+        let plaintexts = vec![
+            "Plaintext message 1".to_string(),
+            "Plaintext message 2".to_string(),
+            "Plaintext message 3".to_string(),
+        ];
+
+        let encrypted = encrypt_fields(plaintexts.clone(), workspace_id).unwrap();
+        assert_eq!(encrypted.len(), 3);
+        for enc in &encrypted {
+            assert!(enc.starts_with("enc:"));
+        }
+
+        let decrypted = decrypt_fields(encrypted, workspace_id).unwrap();
+        assert_eq!(plaintexts, decrypted);
 
         clear_session_key();
     }

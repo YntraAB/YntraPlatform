@@ -39,8 +39,8 @@ pub async fn setup_schema(conn: &DbConnection) -> Result<(), YntraError> {
             current_version = 1;
         } else {
             tables::create_initial_tables(conn).await?;
-            conn.execute("PRAGMA user_version = 9", ()).await?;
-            current_version = 9;
+            conn.execute("PRAGMA user_version = 10", ()).await?;
+            current_version = 10;
             is_fresh = true;
         }
     }

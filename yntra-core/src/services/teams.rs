@@ -61,6 +61,14 @@ pub async fn get_events(requester_user_id: String, team_id: Option<String>) -> R
 }
 
 #[uniffi::export]
+pub async fn get_events_rkyv(requester_user_id: String, team_id: Option<String>) -> Result<Vec<u8>, YntraError> {
+    let list = get_events(requester_user_id, team_id).await?;
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&list)
+        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    Ok(bytes.into_vec())
+}
+
+#[uniffi::export]
 pub async fn add_event(
     requester_user_id: String,
     workspace_id: String,

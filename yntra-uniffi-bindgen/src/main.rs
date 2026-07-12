@@ -248,11 +248,18 @@ fn install_hooks(workspace_root: &Path) -> Result<(), String> {
     let pre_commit_path = hooks_dir.join("pre-commit");
 
     let hook_content = r#"#!/bin/sh
-# Automated WASM target compatibility check pre-commit hook
+# Automated WASM target compatibility check and localization validation pre-commit hook
 echo "Checking yntra-core WASM target compatibility..."
 cargo check --target wasm32-unknown-unknown -p yntra-core
 if [ $? -ne 0 ]; then
     echo "Error: WASM target compilation check failed. Commit aborted."
+    exit 1
+fi
+
+echo "Verifying translation catalogs..."
+cargo run -p yntra-uniffi-bindgen -- check-locales
+if [ $? -ne 0 ]; then
+    echo "Error: Translation catalogs are inconsistent. Commit aborted."
     exit 1
 fi
 "#;

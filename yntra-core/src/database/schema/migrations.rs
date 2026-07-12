@@ -427,6 +427,16 @@ pub async fn run_schema_migrations(conn: &DbConnection, current_version: i32) ->
         execute_migration_sql(conn, "ALTER TABLE audit_logs ADD COLUMN signature TEXT").await?;
         version = 10;
     }
+    if version < 11 {
+        execute_migration_batch(
+            conn,
+            "CREATE INDEX IF NOT EXISTS idx_time_reports_workspace_date ON time_reports(workspace_id, date DESC);
+             CREATE INDEX IF NOT EXISTS idx_notes_team_created ON notes(team_id, created_at DESC);
+             CREATE INDEX IF NOT EXISTS idx_notes_workspace_created ON notes(workspace_id, created_at DESC);
+             CREATE INDEX IF NOT EXISTS idx_messages_workspace_created ON messages(workspace_id, created_at ASC);"
+        ).await?;
+        version = 11;
+    }
     Ok(version)
 }
 
@@ -451,7 +461,7 @@ mod tests {
         conn.execute("PRAGMA user_version = 0", ()).await.unwrap();
 
         let migrated_version = run_schema_migrations(&conn, 0).await.unwrap();
-        assert_eq!(migrated_version, 10);
+        assert_eq!(migrated_version, 11);
         
         let has_oauth_sessions = conn.query_row(
             "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='oauth_auth_sessions'",

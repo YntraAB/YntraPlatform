@@ -1,6 +1,35 @@
 use crate::database;
-use crate::observer::notify_observers;
 use crate::{MessageItem, YntraError};
+use std::sync::OnceLock;
+
+static MESSAGE_STORE: OnceLock<crate::ZeroCopyMessageStore> = OnceLock::new();
+
+fn get_message_store() -> &'static crate::ZeroCopyMessageStore {
+    MESSAGE_STORE.get_or_init(|| {
+        let path = if cfg!(target_arch = "wasm32") {
+            String::new()
+        } else if cfg!(test) {
+            std::env::temp_dir().join("yntra_zero_copy_messages_test.db").to_string_lossy().to_string()
+        } else {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                crate::database::native::get_database_path("yntra_zero_copy_messages.db")
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                String::new()
+            }
+        };
+        // Clean old test file if running tests
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if cfg!(test) {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+        crate::ZeroCopyMessageStore::new(path).expect("Failed to initialize ZeroCopyMessageStore for Messages")
+    })
+}
 
 #[uniffi::export]
 pub async fn get_messages(requester_user_id: String, user_id: String) -> Result<Vec<MessageItem>, YntraError> {
@@ -27,31 +56,30 @@ pub async fn get_messages(requester_user_id: String, user_id: String) -> Result<
         }
     }
 
-    let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, sender_id, receiver_id, target_team_id, subject, body, is_read, created_at, updated_at, sync_status
-         FROM messages
-         WHERE (sender_id = ?1 OR receiver_id = ?1 OR target_team_id IN (
-             SELECT team_id FROM team_members WHERE user_id = ?1
-         )) AND workspace_id = ?2
-         ORDER BY created_at ASC"
-     ).await?;
+    // Determine the teams user_id is in
+    let mut team_stmt = conn.prepare("SELECT team_id FROM team_members WHERE user_id = ?1").await?;
+    let user_teams: Vec<String> = team_stmt.query_map(crate::params![&user_id], |r| r.get(0)).await?.into_iter().collect();
 
-    let list = stmt.query_map(crate::params![user_id, target_ws], |row| {
-        let is_read_int: i32 = row.get(7)?;
-        Ok(MessageItem {
-            id: row.get(0)?,
-            workspace_id: row.get(1)?,
-            sender_id: row.get(2)?,
-            receiver_id: row.get(3)?,
-            target_team_id: row.get(4)?,
-            subject: row.get(5)?,
-            body: row.get(6)?,
-            is_read: is_read_int != 0,
-            created_at: row.get(8)?,
-            updated_at: row.get(9)?,
-            sync_status: row.get(10)?,
+    let store = get_message_store();
+    let all = store.read_all_messages()?;
+
+    let filtered: Vec<MessageItem> = all
+        .into_iter()
+        .filter(|msg| {
+            if msg.workspace_id != target_ws {
+                return false;
+            }
+            let is_sender = msg.sender_id.as_deref() == Some(&user_id);
+            let is_receiver = msg.receiver_id.as_deref() == Some(&user_id);
+            let is_team_recipient = msg.target_team_id.as_ref().map(|tid| user_teams.contains(tid)).unwrap_or(false);
+
+            is_sender || is_receiver || is_team_recipient
         })
-    }).await?;
+        .collect();
+
+    // Sort by created_at ascending
+    let mut list = filtered;
+    list.sort_by(|a, b| a.created_at.cmp(&b.created_at));
 
     Ok(list)
 }
@@ -76,6 +104,9 @@ pub async fn send_message(
         return Err(YntraError::AuthError("Access denied: cannot send message as another user".to_string()));
     }
 
+    let store = get_message_store();
+    let mut messages = store.read_all_messages()?;
+
     let id = uuid::Uuid::new_v4().to_string();
     let created_at = crate::infra::time::get_current_datetime_str();
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -93,23 +124,12 @@ pub async fn send_message(
         sync_status: "pending".to_string(),
     };
 
-    conn.execute(
-        "INSERT INTO messages (id, workspace_id, sender_id, receiver_id, target_team_id, subject, body, is_read, created_at, updated_at, sync_status)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9, 'pending')",
-        crate::params![
-            &item.id,
-            &item.workspace_id,
-            &item.sender_id,
-            &item.receiver_id,
-            &item.target_team_id,
-            &item.subject,
-            &item.body,
-            &item.created_at,
-            &item.updated_at
-        ],
-    ).await?;
+    messages.push(item.clone());
+    store.write_messages(messages)?;
 
-    notify_observers();
+    // Notify observers so the UI updates reactively
+    crate::infra::observer::set_last_modified_table("messages");
+    crate::infra::observer::notify_observers();
 
     Ok(item)
 }
@@ -120,39 +140,50 @@ pub async fn mark_message_read(requester_user_id: String, id: String) -> Result<
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    // Retrieve the message receiver / team members
-    let msg_row: Option<(String, Option<String>, Option<String>)> = conn.query_row(
-        "SELECT workspace_id, receiver_id, target_team_id FROM messages WHERE id = ?1",
-        crate::params![&id],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-    ).await.ok();
+    let store = get_message_store();
+    let mut messages = store.read_all_messages()?;
 
-    if let Some((msg_ws, receiver_id, target_team_id)) = msg_row {
-        if auth.role != "platform_admin" && auth.workspace_id != msg_ws {
-            return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    let mut found_idx = None;
+    for (idx, msg) in messages.iter().enumerate() {
+        if msg.id == id {
+            found_idx = Some(idx);
+            break;
         }
-
-        let is_recipient = receiver_id.as_deref() == Some(&requester_user_id);
-        let mut is_team_member = false;
-        if let Some(tid) = target_team_id {
-            let count: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM team_members WHERE team_id = ?1 AND user_id = ?2",
-                crate::params![&tid, &requester_user_id],
-                |r| r.get(0)
-            ).await.unwrap_or(0);
-            is_team_member = count > 0;
-        }
-
-        if auth.role != "platform_admin" && auth.role != "admin" && !is_recipient && !is_team_member {
-            return Err(YntraError::AuthError("Access denied: you are not the recipient of this message".to_string()));
-        }
-    } else {
-        return Err(YntraError::NotFoundError("Message not found".to_string()));
     }
 
-    conn.execute("UPDATE messages SET is_read = 1, updated_at = ?1, sync_status = 'pending' WHERE id = ?2", crate::params![now_ms, id]).await?;
+    let idx = found_idx.ok_or_else(|| YntraError::NotFoundError("Message not found".to_string()))?;
+    let msg = &messages[idx];
 
-    notify_observers();
+    if auth.role != "platform_admin" && auth.workspace_id != msg.workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let is_recipient = msg.receiver_id.as_deref() == Some(&requester_user_id);
+    let mut is_team_member = false;
+    if let Some(ref tid) = msg.target_team_id {
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM team_members WHERE team_id = ?1 AND user_id = ?2",
+            crate::params![tid, &requester_user_id],
+            |r| r.get(0)
+        ).await.unwrap_or(0);
+        is_team_member = count > 0;
+    }
+
+    if auth.role != "platform_admin" && auth.role != "admin" && !is_recipient && !is_team_member {
+        return Err(YntraError::AuthError("Access denied: you are not the recipient of this message".to_string()));
+    }
+
+    // Mutate the message
+    messages[idx].is_read = true;
+    messages[idx].updated_at = now_ms;
+    messages[idx].sync_status = "pending".to_string();
+
+    store.write_messages(messages)?;
+
+    // Notify observers so the UI updates reactively
+    crate::infra::observer::set_last_modified_table("messages");
+    crate::infra::observer::notify_observers();
+
     Ok(())
 }
 
@@ -174,6 +205,9 @@ mod tests {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         let conn = database::acquire_connection().await.unwrap();
         
+        // Clear message store first to be safe
+        let _ = get_message_store().write_messages(Vec::new());
+
         // Insert two test users
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('test-msg-user-1', 'workspace-1', 'msg1@yntra.io', 'assistant')", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('test-msg-user-2', 'workspace-1', 'msg2@yntra.io', 'assistant')", ()).await.unwrap();
@@ -194,6 +228,7 @@ mod tests {
         assert!(matches!(res2.unwrap_err(), YntraError::AuthError(_)));
 
         // Clean up
+        let _ = get_message_store().write_messages(Vec::new());
         conn.execute("DELETE FROM users WHERE id IN ('test-msg-user-1', 'test-msg-user-2')", ()).await.unwrap();
     }
 }

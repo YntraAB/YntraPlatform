@@ -1,6 +1,35 @@
 use crate::database;
-use crate::observer::notify_observers;
 use crate::{TodoItem, YntraError};
+use std::sync::OnceLock;
+
+static TODO_STORE: OnceLock<crate::ZeroCopyStore> = OnceLock::new();
+
+fn get_todo_store() -> &'static crate::ZeroCopyStore {
+    TODO_STORE.get_or_init(|| {
+        let path = if cfg!(target_arch = "wasm32") {
+            String::new()
+        } else if cfg!(test) {
+            std::env::temp_dir().join("yntra_zero_copy_todos_test.db").to_string_lossy().to_string()
+        } else {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                crate::database::native::get_database_path("yntra_zero_copy_todos.db")
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                String::new()
+            }
+        };
+        // Clean old test file if running tests
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if cfg!(test) {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+        crate::ZeroCopyStore::new(path).expect("Failed to initialize ZeroCopyStore for Todos")
+    })
+}
 
 #[uniffi::export]
 pub async fn get_todos(requester_user_id: String, workspace_id: String) -> Result<Vec<TodoItem>, YntraError> {
@@ -10,21 +39,10 @@ pub async fn get_todos(requester_user_id: String, workspace_id: String) -> Resul
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
 
-    let mut stmt = conn.prepare("SELECT id, text, completed, workspace_id, updated_at, sync_status FROM todos WHERE workspace_id = ?1").await?;
-
-    let todos = stmt.query_map(crate::params![workspace_id], |row| {
-        let completed_int: i32 = row.get(2)?;
-        Ok(TodoItem {
-            id: row.get(0)?,
-            text: row.get(1)?,
-            completed: completed_int != 0,
-            workspace_id: row.get(3)?,
-            updated_at: row.get(4)?,
-            sync_status: row.get(5)?,
-        })
-    }).await?;
-
-    Ok(todos)
+    let store = get_todo_store();
+    let all = store.read_all_todos()?;
+    let filtered: Vec<TodoItem> = all.into_iter().filter(|t| t.workspace_id == workspace_id).collect();
+    Ok(filtered)
 }
 
 #[uniffi::export]
@@ -34,6 +52,9 @@ pub async fn add_todo(requester_user_id: String, workspace_id: String, text: Str
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
+
+    let store = get_todo_store();
+    let mut todos = store.read_all_todos()?;
 
     let id = uuid::Uuid::new_v4().to_string();
     let item = TodoItem {
@@ -45,12 +66,13 @@ pub async fn add_todo(requester_user_id: String, workspace_id: String, text: Str
         sync_status: "pending".to_string(),
     };
 
-    conn.execute(
-        "INSERT INTO todos (id, workspace_id, text, completed, updated_at, sync_status) VALUES (?1, ?2, ?3, 0, ?4, 'pending')",
-        crate::params![&id, &item.workspace_id, &item.text, &item.updated_at],
-    ).await?;
+    todos.push(item.clone());
+    store.write_todos(todos)?;
 
-    notify_observers();
+    // Notify observers so the UI updates reactively
+    crate::infra::observer::set_last_modified_table("todos");
+    crate::infra::observer::notify_observers();
+
     Ok(item)
 }
 
@@ -59,24 +81,36 @@ pub async fn toggle_todo(requester_user_id: String, id: String) -> Result<(), Yn
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     
-    let todo_ws: String = conn.query_row(
-        "SELECT workspace_id FROM todos WHERE id = ?1",
-        crate::params![&id],
-        |r| r.get(0)
-    ).await.map_err(|_| YntraError::NotFoundError("Todo not found".to_string()))?;
+    let store = get_todo_store();
+    let mut todos = store.read_all_todos()?;
+
+    let mut found = false;
+    let mut todo_ws = String::new();
+    for todo in todos.iter_mut() {
+        if todo.id == id {
+            todo.completed = !todo.completed;
+            todo.updated_at = crate::infra::time::get_current_time_ms();
+            todo.sync_status = "pending".to_string();
+            todo_ws = todo.workspace_id.clone();
+            found = true;
+            break;
+        }
+    }
+
+    if !found {
+        return Err(YntraError::NotFoundError("Todo not found".to_string()));
+    }
 
     if auth.role != "platform_admin" && auth.workspace_id != todo_ws {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
 
-    let now_ms = crate::infra::time::get_current_time_ms();
+    store.write_todos(todos)?;
 
-    conn.execute(
-        "UPDATE todos SET completed = NOT completed, updated_at = ?1, sync_status = 'pending' WHERE id = ?2",
-        crate::params![&now_ms, &id],
-    ).await?;
+    // Notify observers so the UI updates reactively
+    crate::infra::observer::set_last_modified_table("todos");
+    crate::infra::observer::notify_observers();
 
-    notify_observers();
     Ok(())
 }
 
@@ -93,6 +127,9 @@ mod tests {
         // Setup a test user
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-todo-test', 'Todo WS', '[]', '{}')", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-todo-user', 'ws-todo-test', 'todo@user.com', 'user')", ()).await.unwrap();
+
+        // Clear store first to be safe
+        let _ = get_todo_store().write_todos(Vec::new());
 
         // 1. Add todo
         let ws_id = "ws-todo-test";
@@ -117,7 +154,7 @@ mod tests {
         assert_eq!(list_updated[0].completed, true);
 
         // Cleanup
-        conn.execute("DELETE FROM todos WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        let _ = get_todo_store().write_todos(Vec::new());
         conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
     }
