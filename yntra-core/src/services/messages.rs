@@ -61,21 +61,7 @@ pub async fn get_messages(requester_user_id: String, user_id: String) -> Result<
     let user_teams: Vec<String> = team_stmt.query_map(crate::params![&user_id], |r| r.get(0)).await?.into_iter().collect();
 
     let store = get_message_store();
-    let all = store.read_all_messages()?;
-
-    let filtered: Vec<MessageItem> = all
-        .into_iter()
-        .filter(|msg| {
-            if msg.workspace_id != target_ws {
-                return false;
-            }
-            let is_sender = msg.sender_id.as_deref() == Some(&user_id);
-            let is_receiver = msg.receiver_id.as_deref() == Some(&user_id);
-            let is_team_recipient = msg.target_team_id.as_ref().map(|tid| user_teams.contains(tid)).unwrap_or(false);
-
-            is_sender || is_receiver || is_team_recipient
-        })
-        .collect();
+    let filtered = store.read_messages_filtered(target_ws, user_id, user_teams)?;
 
     // Sort by created_at ascending
     let mut list = filtered;

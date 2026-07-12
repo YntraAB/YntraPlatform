@@ -103,6 +103,43 @@ fn verify_signature(public_key_hex: &str, hash_hex: &str, signature_hex: &str) -
     verifying_key.verify(hash_hex.as_bytes(), &signature).is_ok()
 }
 
+async fn get_workspace_mappings(
+    conn: &database::DbConnection,
+    actor_ids: std::collections::HashSet<String>,
+    client_ids: std::collections::HashSet<String>,
+) -> Result<(std::collections::HashMap<String, String>, std::collections::HashMap<String, String>), YntraError> {
+    let mut user_ws_map = std::collections::HashMap::new();
+    let mut client_ws_map = std::collections::HashMap::new();
+
+    if !actor_ids.is_empty() {
+        let actor_vec: Vec<String> = actor_ids.into_iter().collect();
+        for chunk in actor_vec.chunks(999) {
+            let placeholders: Vec<String> = (1..=chunk.len()).map(|i| format!("?{}", i)).collect();
+            let sql = format!("SELECT id, workspace_id FROM users WHERE id IN ({})", placeholders.join(","));
+            let mut stmt = conn.prepare(&sql).await?;
+            let mut rows = stmt.query(crate::rusqlite::params_from_iter(chunk.to_vec())).await?;
+            while let Some(row) = rows.next().await? {
+                user_ws_map.insert(row.get::<String>(0)?, row.get::<String>(1)?);
+            }
+        }
+    }
+
+    if !client_ids.is_empty() {
+        let client_vec: Vec<String> = client_ids.into_iter().collect();
+        for chunk in client_vec.chunks(999) {
+            let placeholders: Vec<String> = (1..=chunk.len()).map(|i| format!("?{}", i)).collect();
+            let sql = format!("SELECT id, workspace_id FROM clients WHERE id IN ({})", placeholders.join(","));
+            let mut stmt = conn.prepare(&sql).await?;
+            let mut rows = stmt.query(crate::rusqlite::params_from_iter(chunk.to_vec())).await?;
+            while let Some(row) = rows.next().await? {
+                client_ws_map.insert(row.get::<String>(0)?, row.get::<String>(1)?);
+            }
+        }
+    }
+
+    Ok((user_ws_map, client_ws_map))
+}
+
 pub async fn log_action_with_conn(
     conn: &database::DbConnection,
     actor_id: String,
@@ -115,29 +152,15 @@ pub async fn log_action_with_conn(
     let store = get_audit_store();
     let mut all_entries = store.read_all_audit_logs()?;
 
-    // Load users & clients to resolve workspace IDs
-    let mut user_stmt = conn.prepare("SELECT id, workspace_id FROM users").await?;
-    let mut user_rows = user_stmt.query(()).await?;
-    let mut user_ws_map = std::collections::HashMap::new();
-    while let Some(row) = user_rows.next().await? {
-        user_ws_map.insert(row.get::<String>(0)?, row.get::<String>(1)?);
+    // Load users & clients to resolve workspace IDs only for the current action
+    let mut actor_ids = std::collections::HashSet::new();
+    let mut client_ids = std::collections::HashSet::new();
+    actor_ids.insert(actor_id.clone());
+    if let Some(ref cid) = target_client_id {
+        client_ids.insert(cid.clone());
     }
 
-    let mut client_stmt = conn.prepare("SELECT id, workspace_id FROM clients").await?;
-    let mut client_rows = client_stmt.query(()).await?;
-    let mut client_ws_map = std::collections::HashMap::new();
-    while let Some(row) = client_rows.next().await? {
-        client_ws_map.insert(row.get::<String>(0)?, row.get::<String>(1)?);
-    }
-
-    let get_entry_ws = |entry: &AuditLogEntry| -> String {
-        if let Some(ref cid) = entry.target_client_id {
-            if let Some(ws) = client_ws_map.get(cid) {
-                return ws.clone();
-            }
-        }
-        user_ws_map.get(&entry.actor_id).cloned().unwrap_or_else(|| "workspace-1".to_string())
-    };
+    let (user_ws_map, client_ws_map) = get_workspace_mappings(conn, actor_ids, client_ids).await?;
 
     let ws_id = if let Some(ref client_id) = target_client_id {
         client_ws_map.get(client_id).cloned().unwrap_or_else(|| {
@@ -153,7 +176,7 @@ pub async fn log_action_with_conn(
 
     let mut last_entry: Option<&AuditLogEntry> = None;
     for entry in all_entries.iter() {
-        if get_entry_ws(entry) == ws_id {
+        if entry.workspace_id == ws_id {
             if last_entry.is_none() || entry.seq > last_entry.unwrap().seq {
                 last_entry = Some(entry);
             }
@@ -176,6 +199,7 @@ pub async fn log_action_with_conn(
     
     let entry = AuditLogEntry {
         id: id.clone(),
+        workspace_id: ws_id.clone(),
         actor_id: actor_id.clone(),
         target_client_id: target_client_id.clone(),
         action_type: action_type.clone(),
@@ -214,42 +238,18 @@ pub async fn get_audit_logs(requester_user_id: String) -> Result<Vec<AuditLogEnt
         return Err(YntraError::AuthError("Access denied: only administrators can view audit logs".to_string()));
     }
 
-    // Load users & clients to resolve workspace IDs
-    let mut user_stmt = conn.prepare("SELECT id, workspace_id FROM users").await?;
-    let mut user_rows = user_stmt.query(()).await?;
-    let mut user_ws_map = std::collections::HashMap::new();
-    while let Some(row) = user_rows.next().await? {
-        user_ws_map.insert(row.get::<String>(0)?, row.get::<String>(1)?);
-    }
-
-    let mut client_stmt = conn.prepare("SELECT id, workspace_id FROM clients").await?;
-    let mut client_rows = client_stmt.query(()).await?;
-    let mut client_ws_map = std::collections::HashMap::new();
-    while let Some(row) = client_rows.next().await? {
-        client_ws_map.insert(row.get::<String>(0)?, row.get::<String>(1)?);
-    }
-
-    let get_entry_ws = |entry: &AuditLogEntry| -> String {
-        if let Some(ref cid) = entry.target_client_id {
-            if let Some(ws) = client_ws_map.get(cid) {
-                return ws.clone();
-            }
-        }
-        user_ws_map.get(&entry.actor_id).cloned().unwrap_or_else(|| "workspace-1".to_string())
-    };
-
     let store = get_audit_store();
     let all = store.read_all_audit_logs()?;
 
+    if auth.role == "platform_admin" {
+        let mut list = all;
+        list.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        return Ok(list);
+    }
+
     let filtered: Vec<AuditLogEntry> = all
         .into_iter()
-        .filter(|entry| {
-            if auth.role == "platform_admin" {
-                true
-            } else {
-                get_entry_ws(entry) == ws_id
-            }
-        })
+        .filter(|entry| entry.workspace_id == ws_id)
         .collect();
 
     // Sort by timestamp descending
@@ -263,38 +263,13 @@ pub async fn get_audit_logs(requester_user_id: String) -> Result<Vec<AuditLogEnt
 pub async fn verify_audit_log_chain() -> Result<bool, YntraError> {
     let conn = database::acquire_connection().await?;
     
-    // Load users & clients to resolve workspace IDs
-    let mut user_stmt = conn.prepare("SELECT id, workspace_id FROM users").await?;
-    let mut user_rows = user_stmt.query(()).await?;
-    let mut user_ws_map = std::collections::HashMap::new();
-    while let Some(row) = user_rows.next().await? {
-        user_ws_map.insert(row.get::<String>(0)?, row.get::<String>(1)?);
-    }
-
-    let mut client_stmt = conn.prepare("SELECT id, workspace_id FROM clients").await?;
-    let mut client_rows = client_stmt.query(()).await?;
-    let mut client_ws_map = std::collections::HashMap::new();
-    while let Some(row) = client_rows.next().await? {
-        client_ws_map.insert(row.get::<String>(0)?, row.get::<String>(1)?);
-    }
-
-    let get_entry_ws = |entry: &AuditLogEntry| -> String {
-        if let Some(ref cid) = entry.target_client_id {
-            if let Some(ws) = client_ws_map.get(cid) {
-                return ws.clone();
-            }
-        }
-        user_ws_map.get(&entry.actor_id).cloned().unwrap_or_else(|| "workspace-1".to_string())
-    };
-
     let store = get_audit_store();
     let all = store.read_all_audit_logs()?;
 
     // Group by workspace
     let mut groups: std::collections::HashMap<String, Vec<AuditLogEntry>> = std::collections::HashMap::new();
     for entry in all {
-        let ws = get_entry_ws(&entry);
-        groups.entry(ws).or_default().push(entry);
+        groups.entry(entry.workspace_id.clone()).or_default().push(entry);
     }
 
     for (ws_id, mut ws_entries) in groups {
@@ -406,32 +381,7 @@ mod tests {
         // Log action targetting the client
         let entry = log_action("test-actor-1".to_string(), Some("test-client-1".to_string()), "read_medications".to_string()).await.unwrap();
 
-        // Load users & clients to resolve workspace IDs
-        let mut user_stmt = conn.prepare("SELECT id, workspace_id FROM users").await?;
-        let mut user_rows = user_stmt.query(()).await?;
-        let mut user_ws_map = std::collections::HashMap::new();
-        while let Some(row) = user_rows.next().await? {
-            user_ws_map.insert(row.get::<String>(0)?, row.get::<String>(1)?);
-        }
-
-        let mut client_stmt = conn.prepare("SELECT id, workspace_id FROM clients").await?;
-        let mut client_rows = client_stmt.query(()).await?;
-        let mut client_ws_map = std::collections::HashMap::new();
-        while let Some(row) = client_rows.next().await? {
-            client_ws_map.insert(row.get::<String>(0)?, row.get::<String>(1)?);
-        }
-
-        let get_entry_ws = |entry: &AuditLogEntry| -> String {
-            if let Some(ref cid) = entry.target_client_id {
-                if let Some(ws) = client_ws_map.get(cid) {
-                    return ws.clone();
-                }
-            }
-            user_ws_map.get(&entry.actor_id).cloned().unwrap_or_else(|| "workspace-1".to_string())
-        };
-
-        let logged_ws = get_entry_ws(&entry);
-        assert_eq!(logged_ws, "workspace-test-2");
+        assert_eq!(entry.workspace_id, "workspace-test-2");
 
         // The entry signature should be present
         assert!(entry.signature.is_some());

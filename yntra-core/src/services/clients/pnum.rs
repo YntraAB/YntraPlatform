@@ -25,7 +25,8 @@ pub fn normalize_swedish_pnum(pnum: &str, current_year: i32) -> Option<String> {
 }
 
 pub fn personal_numbers_match(p1: &str, p2: &str) -> bool {
-    let current_year = chrono::Utc::now().format("%Y").to_string().parse::<i32>().unwrap_or(2026);
+    use chrono::Datelike;
+    let current_year = chrono::Utc::now().year();
     if let (Some(n1), Some(n2)) = (normalize_swedish_pnum(p1, current_year), normalize_swedish_pnum(p2, current_year)) {
         return n1 == n2;
     }

@@ -40,8 +40,7 @@ pub async fn get_todos(requester_user_id: String, workspace_id: String) -> Resul
     }
 
     let store = get_todo_store();
-    let all = store.read_all_todos()?;
-    let filtered: Vec<TodoItem> = all.into_iter().filter(|t| t.workspace_id == workspace_id).collect();
+    let filtered = store.read_todos_by_workspace(workspace_id)?;
     Ok(filtered)
 }
 

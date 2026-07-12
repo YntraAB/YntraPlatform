@@ -86,29 +86,42 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
     };
 
     if is_simple && !sql.contains("/*") && !sql.contains("--") {
-        let words: Vec<&str> = trimmed.split_whitespace().collect();
-        if !words.is_empty() {
-            if words[0].eq_ignore_ascii_case("INSERT") {
-                let idx = words.iter().position(|&w| w.eq_ignore_ascii_case("INTO"))?;
-                if idx + 1 < words.len() {
-                    let raw_name = words[idx + 1].split('(').next().unwrap_or("");
-                    let name = raw_name.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
+        let mut words = trimmed.split_whitespace();
+        if let Some(first) = words.next() {
+            if first.eq_ignore_ascii_case("INSERT") {
+                while let Some(w) = words.next() {
+                    if w.eq_ignore_ascii_case("INTO") {
+                        if let Some(target) = words.next() {
+                            let raw_name = target.split('(').next().unwrap_or("");
+                            let name = raw_name.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
+                            return Some(name.to_lowercase());
+                        }
+                        break;
+                    }
+                }
+            } else if first.eq_ignore_ascii_case("UPDATE") {
+                let target_opt = words.next();
+                if let Some(target) = target_opt {
+                    let mut final_target = target;
+                    if target.eq_ignore_ascii_case("ONLY") {
+                        if let Some(next_target) = words.next() {
+                            final_target = next_target;
+                        } else {
+                            return None;
+                        }
+                    }
+                    let name = final_target.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
                     return Some(name.to_lowercase());
                 }
-            } else if words[0].eq_ignore_ascii_case("UPDATE") {
-                let mut name_idx = 1;
-                if name_idx < words.len() && words[name_idx].eq_ignore_ascii_case("ONLY") {
-                    name_idx += 1;
-                }
-                if name_idx < words.len() {
-                    let name = words[name_idx].trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
-                    return Some(name.to_lowercase());
-                }
-            } else if words[0].eq_ignore_ascii_case("DELETE") {
-                let idx = words.iter().position(|&w| w.eq_ignore_ascii_case("FROM"))?;
-                if idx + 1 < words.len() {
-                    let name = words[idx + 1].trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
-                    return Some(name.to_lowercase());
+            } else if first.eq_ignore_ascii_case("DELETE") {
+                while let Some(w) = words.next() {
+                    if w.eq_ignore_ascii_case("FROM") {
+                        if let Some(target) = words.next() {
+                            let name = target.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
+                            return Some(name.to_lowercase());
+                        }
+                        break;
+                    }
                 }
             }
         }
@@ -259,96 +272,134 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
         }
     }
  
-    let words: Vec<&str> = trimmed.split_whitespace().collect();
-    if words.is_empty() {
-        return None;
-    }
-     
-    if words[0].eq_ignore_ascii_case("INSERT") {
-        let idx = words.iter().position(|&w| w.eq_ignore_ascii_case("INTO"))?;
-        if idx + 1 < words.len() {
-            let raw_name = words[idx + 1].split('(').next().unwrap_or("");
-            let name = raw_name.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
-            return Some(name.to_lowercase());
-        }
-    } else if words[0].eq_ignore_ascii_case("UPDATE") {
-        let mut name_idx = 1;
-        if name_idx < words.len() && words[name_idx].eq_ignore_ascii_case("ONLY") {
-            name_idx += 1;
-        }
-        if name_idx < words.len() {
-            let name = words[name_idx].trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']');
-            return Some(name.to_lowercase());
-        }
-    } else if words[0].eq_ignore_ascii_case("DELETE") {
-        let idx = words.iter().position(|&w| w.eq_ignore_ascii_case("FROM"))?;
-        if idx + 1 < words.len() {
-            let name = words[idx + 1].trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']');
-            return Some(name.to_lowercase());
+    let mut words = trimmed.split_whitespace();
+    if let Some(first) = words.next() {
+        if first.eq_ignore_ascii_case("INSERT") {
+            while let Some(w) = words.next() {
+                if w.eq_ignore_ascii_case("INTO") {
+                    if let Some(target) = words.next() {
+                        let raw_name = target.split('(').next().unwrap_or("");
+                        let name = raw_name.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
+                        return Some(name.to_lowercase());
+                    }
+                    break;
+                }
+            }
+        } else if first.eq_ignore_ascii_case("UPDATE") {
+            let target_opt = words.next();
+            if let Some(target) = target_opt {
+                let mut final_target = target;
+                if target.eq_ignore_ascii_case("ONLY") {
+                    if let Some(next_target) = words.next() {
+                        final_target = next_target;
+                    } else {
+                        return None;
+                    }
+                }
+                let name = final_target.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']');
+                return Some(name.to_lowercase());
+            }
+        } else if first.eq_ignore_ascii_case("DELETE") {
+            while let Some(w) = words.next() {
+                if w.eq_ignore_ascii_case("FROM") {
+                    if let Some(target) = words.next() {
+                        let name = target.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']');
+                        return Some(name.to_lowercase());
+                    }
+                    break;
+                }
+            }
         }
     }
     None
 }
 
-pub fn split_sql_statements(sql: &str) -> Vec<String> {
-    let mut statements = Vec::new();
-    let mut start_idx = 0;
-    let mut in_single_quote = false;
-    let mut in_double_quote = false;
-    
-    let mut char_indices = sql.char_indices().peekable();
-    while let Some((idx, c)) = char_indices.next() {
-        if in_single_quote {
-            if c == '\'' {
-                in_single_quote = false;
-            }
-        } else if in_double_quote {
-            if c == '"' {
-                in_double_quote = false;
-            }
-        } else {
-            match c {
-                '\'' => {
-                    in_single_quote = true;
-                }
-                '"' => {
-                    in_double_quote = true;
-                }
-                '-' if char_indices.peek().map(|&(_, nc)| nc) == Some('-') => {
-                    char_indices.next(); // consume second '-'
-                    while let Some((_, nc)) = char_indices.next() {
-                        if nc == '\n' || nc == '\r' {
-                            break;
-                        }
-                    }
-                }
-                '/' if char_indices.peek().map(|&(_, nc)| nc) == Some('*') => {
-                    char_indices.next(); // consume '*'
-                    while let Some((_, nc)) = char_indices.next() {
-                        if nc == '*' && char_indices.peek().map(|&(_, nnc)| nnc) == Some('/') {
-                            char_indices.next(); // consume '/'
-                            break;
-                        }
-                    }
-                }
-                ';' => {
-                    let stmt = &sql[start_idx..idx];
-                    let trimmed = stmt.trim();
-                    if !trimmed.is_empty() {
-                        statements.push(trimmed.to_string());
-                    }
-                    start_idx = char_indices.peek().map(|&(next_idx, _)| next_idx).unwrap_or(sql.len());
-                }
-                _ => {}
-            }
+pub struct SqlStatementSplitter<'a> {
+    sql: &'a str,
+    char_indices: std::iter::Peekable<std::str::CharIndices<'a>>,
+    start_idx: usize,
+    in_single_quote: bool,
+    in_double_quote: bool,
+}
+
+impl<'a> SqlStatementSplitter<'a> {
+    pub fn new(sql: &'a str) -> Self {
+        Self {
+            sql,
+            char_indices: sql.char_indices().peekable(),
+            start_idx: 0,
+            in_single_quote: false,
+            in_double_quote: false,
         }
     }
-    let stmt = &sql[start_idx..];
-    let trimmed = stmt.trim();
-    if !trimmed.is_empty() {
-        statements.push(trimmed.to_string());
+}
+
+impl<'a> Iterator for SqlStatementSplitter<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some((idx, c)) = self.char_indices.next() {
+            if self.in_single_quote {
+                if c == '\'' {
+                    self.in_single_quote = false;
+                }
+            } else if self.in_double_quote {
+                if c == '"' {
+                    self.in_double_quote = false;
+                }
+            } else {
+                match c {
+                    '\'' => {
+                        self.in_single_quote = true;
+                    }
+                    '"' => {
+                        self.in_double_quote = true;
+                    }
+                    '-' if self.char_indices.peek().map(|&(_, nc)| nc) == Some('-') => {
+                        self.char_indices.next(); // consume second '-'
+                        while let Some((_, nc)) = self.char_indices.next() {
+                            if nc == '\n' || nc == '\r' {
+                                break;
+                            }
+                        }
+                    }
+                    '/' if self.char_indices.peek().map(|&(_, nc)| nc) == Some('*') => {
+                        self.char_indices.next(); // consume '*'
+                        while let Some((_, nc)) = self.char_indices.next() {
+                            if nc == '*' && self.char_indices.peek().map(|&(_, nnc)| nnc) == Some('/') {
+                                self.char_indices.next(); // consume '/'
+                                break;
+                            }
+                        }
+                    }
+                    ';' => {
+                        let stmt = &self.sql[self.start_idx..idx];
+                        let trimmed = stmt.trim();
+                        self.start_idx = self.char_indices.peek().map(|&(next_idx, _)| next_idx).unwrap_or(self.sql.len());
+                        if !trimmed.is_empty() {
+                            return Some(trimmed);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        
+        if self.start_idx < self.sql.len() {
+            let stmt = &self.sql[self.start_idx..];
+            self.start_idx = self.sql.len();
+            let trimmed = stmt.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed);
+            }
+        }
+        
+        None
     }
-    statements
+}
+
+pub fn split_sql_statements(sql: &str) -> SqlStatementSplitter<'_> {
+    SqlStatementSplitter::new(sql)
 }
 
 #[cfg(test)]
@@ -358,7 +409,7 @@ mod tests {
     #[test]
     fn test_split_sql_statements() {
         let sql = "INSERT INTO messages (body) VALUES ('hello; world'); UPDATE todos SET text = 'a;b'; DELETE FROM notes";
-        let res = split_sql_statements(sql);
+        let res: Vec<&str> = split_sql_statements(sql).collect();
         assert_eq!(res.len(), 3);
         assert_eq!(res[0], "INSERT INTO messages (body) VALUES ('hello; world')");
         assert_eq!(res[1], "UPDATE todos SET text = 'a;b'");
@@ -368,7 +419,7 @@ mod tests {
     #[test]
     fn test_split_sql_with_comments() {
         let sql = "INSERT INTO msg VALUES (1); -- inline comment with semicolon;\nUPDATE notes SET x = 1; /* block comment; */ DELETE FROM todos";
-        let res = split_sql_statements(sql);
+        let res: Vec<&str> = split_sql_statements(sql).collect();
         assert_eq!(res.len(), 3);
         assert!(res[1].contains("inline comment"));
         assert!(res[2].contains("block comment"));

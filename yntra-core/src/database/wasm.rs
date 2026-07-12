@@ -161,7 +161,7 @@ impl DbConnection {
     /// Executes a batch of SQL statements.
     pub async fn execute_batch(&self, sql: &str) -> Result<(), YntraError> {
         for stmt in super::parser::split_sql_statements(sql) {
-            if let Some(in_tx) = super::check_transaction_sql(&stmt) {
+            if let Some(in_tx) = super::check_transaction_sql(stmt) {
                 self.in_transaction.store(in_tx, std::sync::atomic::Ordering::SeqCst);
             }
         }

@@ -12,7 +12,9 @@ pub struct ZeroCopyStore {
 
 struct ZeroCopyStoreInner {
     #[cfg(not(target_arch = "wasm32"))]
-    file_path: String,
+    _file_path: String,
+    #[cfg(not(target_arch = "wasm32"))]
+    file: Option<std::fs::File>,
     #[cfg(not(target_arch = "wasm32"))]
     mmap: Option<memmap2::MmapMut>,
     #[cfg(target_arch = "wasm32")]
@@ -47,7 +49,8 @@ impl ZeroCopyStore {
             };
             
             let mut store = ZeroCopyStoreInner {
-                file_path,
+                _file_path: file_path,
+                file: Some(file),
                 mmap,
                 loro,
             };
@@ -169,6 +172,49 @@ impl ZeroCopyStore {
         
         Ok(list)
     }
+
+    pub fn read_todos_by_workspace(&self, workspace_id: String) -> Result<Vec<TodoItem>, YntraError> {
+        let inner = self.inner.lock().unwrap();
+        let bytes = inner.get_bytes();
+        
+        if bytes.len() < 8 {
+            return Ok(Vec::new());
+        }
+        
+        let rkyv_len = u64::from_be_bytes(bytes[0..8].try_into().unwrap()) as usize;
+        if bytes.len() < 8 + rkyv_len {
+            return Ok(Vec::new());
+        }
+        
+        let rkyv_slice = &bytes[8..8+rkyv_len];
+        let mut list = Vec::new();
+        
+        if (rkyv_slice.as_ptr() as usize) % 8 == 0 {
+            let archived_todos = rkyv::access::<rkyv::Archived<Vec<TodoItem>>, rkyv::rancor::Error>(rkyv_slice)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            for archived_todo in archived_todos.iter() {
+                if archived_todo.workspace_id == workspace_id {
+                    let todo: TodoItem = rkyv::deserialize::<TodoItem, rkyv::rancor::Error>(archived_todo)
+                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                    list.push(todo);
+                }
+            }
+        } else {
+            let mut aligned = rkyv::util::AlignedVec::<16>::new();
+            aligned.extend_from_slice(rkyv_slice);
+            let archived_todos = rkyv::access::<rkyv::Archived<Vec<TodoItem>>, rkyv::rancor::Error>(&aligned)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            for archived_todo in archived_todos.iter() {
+                if archived_todo.workspace_id == workspace_id {
+                    let todo: TodoItem = rkyv::deserialize::<TodoItem, rkyv::rancor::Error>(archived_todo)
+                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                    list.push(todo);
+                }
+            }
+        }
+        
+        Ok(list)
+    }
     
     pub fn get_loro_changes(&self) -> Result<Vec<u8>, YntraError> {
         let inner = self.inner.lock().unwrap();
@@ -212,16 +258,12 @@ impl ZeroCopyStoreInner {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let total_len = 8 + rkyv_bytes.len() + loro_bytes.len();
-            let file = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(&self.file_path)
-                .map_err(|e| YntraError::DbError(e.to_string()))?;
+            let file = self.file.as_ref().ok_or_else(|| YntraError::DbError("Database file not opened".to_string()))?;
                 
             file.set_len(total_len as u64)
                 .map_err(|e| YntraError::DbError(e.to_string()))?;
                 
-            let mut m = unsafe { memmap2::MmapMut::map_mut(&file).map_err(|e| YntraError::DbError(e.to_string()))? };
+            let mut m = unsafe { memmap2::MmapMut::map_mut(file).map_err(|e| YntraError::DbError(e.to_string()))? };
             
             m[0..8].copy_from_slice(&rkyv_len.to_be_bytes());
             m[8..8+rkyv_bytes.len()].copy_from_slice(rkyv_bytes);
@@ -285,6 +327,7 @@ pub struct P2PMeshSyncRouter {
     peers: Arc<Mutex<Vec<String>>>,
     pending_broadcasts: Arc<Mutex<Vec<Vec<u8>>>>,
     relay_url: Arc<Mutex<Option<String>>>,
+    client: reqwest::Client,
 }
 
 #[uniffi::export]
@@ -295,6 +338,7 @@ impl P2PMeshSyncRouter {
             peers: Arc::new(Mutex::new(Vec::new())),
             pending_broadcasts: Arc::new(Mutex::new(Vec::new())),
             relay_url: Arc::new(Mutex::new(None)),
+            client: reqwest::Client::new(),
         }
     }
 
@@ -304,6 +348,7 @@ impl P2PMeshSyncRouter {
             peers: Arc::new(Mutex::new(Vec::new())),
             pending_broadcasts: Arc::new(Mutex::new(Vec::new())),
             relay_url: Arc::new(Mutex::new(Some(relay_url))),
+            client: reqwest::Client::new(),
         }
     }
 
@@ -318,10 +363,10 @@ impl P2PMeshSyncRouter {
         self.register_peer(peer_id.clone());
         let relay_opt = self.relay_url.lock().unwrap().clone();
         if let Some(relay_url) = relay_opt {
+            let client = self.client.clone();
             #[cfg(not(target_arch = "wasm32"))]
             {
                 tokio::spawn(async move {
-                    let client = reqwest::Client::new();
                     let body = serde_json::json!({ "peer_id": peer_id });
                     let _ = client.post(&format!("{}/relay/register", relay_url))
                         .json(&body)
@@ -332,7 +377,6 @@ impl P2PMeshSyncRouter {
             #[cfg(target_arch = "wasm32")]
             {
                 wasm_bindgen_futures::spawn_local(async move {
-                    let client = reqwest::Client::new();
                     let body = serde_json::json!({ "peer_id": peer_id });
                     let _ = client.post(&format!("{}/relay/register", relay_url))
                         .json(&body)
@@ -357,10 +401,10 @@ impl P2PMeshSyncRouter {
         in_memory_broadcast(&from_peer, data.clone(), &peers);
         
         if let Some(relay_url) = relay_opt {
+            let client = self.client.clone();
             #[cfg(not(target_arch = "wasm32"))]
             {
                 tokio::spawn(async move {
-                    let client = reqwest::Client::new();
                     let data_hex = const_hex::encode(&data);
                     let body = serde_json::json!({ "from_peer": from_peer, "data_hex": data_hex });
                     let _ = client.post(&format!("{}/relay/broadcast", relay_url))
@@ -372,7 +416,6 @@ impl P2PMeshSyncRouter {
             #[cfg(target_arch = "wasm32")]
             {
                 wasm_bindgen_futures::spawn_local(async move {
-                    let client = reqwest::Client::new();
                     let data_hex = const_hex::encode(&data);
                     let body = serde_json::json!({ "from_peer": from_peer, "data_hex": data_hex });
                     let _ = client.post(&format!("{}/relay/broadcast", relay_url))
@@ -408,10 +451,10 @@ impl P2PMeshSyncRouter {
         let relay_opt = self.relay_url.lock().unwrap().clone();
         if let Some(relay_url) = relay_opt {
             let self_clone = self.clone();
+            let client = self.client.clone();
             #[cfg(not(target_arch = "wasm32"))]
             {
                 tokio::spawn(async move {
-                    let client = reqwest::Client::new();
                     let mut success = false;
                     if let Ok(res) = client.get(&format!("{}/relay/updates?peer_id={}", relay_url, peer_id)).send().await {
                         if res.status().is_success() {
@@ -442,7 +485,6 @@ impl P2PMeshSyncRouter {
             #[cfg(target_arch = "wasm32")]
             {
                 wasm_bindgen_futures::spawn_local(async move {
-                    let client = reqwest::Client::new();
                     let mut success = false;
                     if let Ok(res) = client.get(&format!("{}/relay/updates?peer_id={}", relay_url, peer_id)).send().await {
                         if res.status().is_success() {
@@ -477,10 +519,10 @@ impl P2PMeshSyncRouter {
         let relay_opt = self.relay_url.lock().unwrap().clone();
         if let Some(relay_url) = relay_opt {
             let self_clone = self.clone();
+            let client = self.client.clone();
             #[cfg(not(target_arch = "wasm32"))]
             {
                 tokio::spawn(async move {
-                    let client = reqwest::Client::new();
                     let mut success = false;
                     if let Ok(res) = client.get(&format!("{}/relay/updates?peer_id={}", relay_url, peer_id)).send().await {
                         if res.status().is_success() {
@@ -511,7 +553,6 @@ impl P2PMeshSyncRouter {
             #[cfg(target_arch = "wasm32")]
             {
                 wasm_bindgen_futures::spawn_local(async move {
-                    let client = reqwest::Client::new();
                     let mut success = false;
                     if let Ok(res) = client.get(&format!("{}/relay/updates?peer_id={}", relay_url, peer_id)).send().await {
                         if res.status().is_success() {
@@ -546,10 +587,10 @@ impl P2PMeshSyncRouter {
         let relay_opt = self.relay_url.lock().unwrap().clone();
         if let Some(relay_url) = relay_opt {
             let self_clone = self.clone();
+            let client = self.client.clone();
             #[cfg(not(target_arch = "wasm32"))]
             {
                 tokio::spawn(async move {
-                    let client = reqwest::Client::new();
                     let mut success = false;
                     if let Ok(res) = client.get(&format!("{}/relay/updates?peer_id={}", relay_url, peer_id)).send().await {
                         if res.status().is_success() {
@@ -580,7 +621,6 @@ impl P2PMeshSyncRouter {
             #[cfg(target_arch = "wasm32")]
             {
                 wasm_bindgen_futures::spawn_local(async move {
-                    let client = reqwest::Client::new();
                     let mut success = false;
                     if let Ok(res) = client.get(&format!("{}/relay/updates?peer_id={}", relay_url, peer_id)).send().await {
                         if res.status().is_success() {
@@ -625,6 +665,7 @@ impl P2PMeshSyncRouter {
 pub struct EdgeSyncLoop {
     edge_url: String,
     is_running: Arc<std::sync::atomic::AtomicBool>,
+    client: reqwest::Client,
 }
 
 #[uniffi::export]
@@ -634,6 +675,7 @@ impl EdgeSyncLoop {
         Self {
             edge_url,
             is_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            client: reqwest::Client::new(),
         }
     }
 
@@ -648,10 +690,10 @@ impl EdgeSyncLoop {
 
     pub fn trigger_sync_once(&self, store: Arc<ZeroCopyStore>) {
         let edge_url = self.edge_url.clone();
+        let client = self.client.clone();
         #[cfg(not(target_arch = "wasm32"))]
         {
             tokio::spawn(async move {
-                let client = reqwest::Client::new();
                 if let Ok(local_changes) = store.get_loro_changes() {
                     if let Ok(res) = client.post(&format!("{}/sync", edge_url)).body(local_changes).send().await {
                         if res.status().is_success() {
@@ -669,7 +711,6 @@ impl EdgeSyncLoop {
         #[cfg(target_arch = "wasm32")]
         {
             wasm_bindgen_futures::spawn_local(async move {
-                let client = reqwest::Client::new();
                 if let Ok(local_changes) = store.get_loro_changes() {
                     if let Ok(res) = client.post(&format!("{}/sync", edge_url)).body(local_changes).send().await {
                         if res.status().is_success() {
@@ -688,10 +729,10 @@ impl EdgeSyncLoop {
 
     pub fn trigger_message_sync_once(&self, store: Arc<ZeroCopyMessageStore>) {
         let edge_url = self.edge_url.clone();
+        let client = self.client.clone();
         #[cfg(not(target_arch = "wasm32"))]
         {
             tokio::spawn(async move {
-                let client = reqwest::Client::new();
                 if let Ok(local_changes) = store.get_loro_changes() {
                     if let Ok(res) = client.post(&format!("{}/sync", edge_url)).body(local_changes).send().await {
                         if res.status().is_success() {
@@ -709,7 +750,6 @@ impl EdgeSyncLoop {
         #[cfg(target_arch = "wasm32")]
         {
             wasm_bindgen_futures::spawn_local(async move {
-                let client = reqwest::Client::new();
                 if let Ok(local_changes) = store.get_loro_changes() {
                     if let Ok(res) = client.post(&format!("{}/sync", edge_url)).body(local_changes).send().await {
                         if res.status().is_success() {
@@ -733,11 +773,11 @@ impl EdgeSyncLoop {
         
         let edge_url = self.edge_url.clone();
         let is_running = self.is_running.clone();
+        let client = self.client.clone();
         
         #[cfg(not(target_arch = "wasm32"))]
         {
             tokio::spawn(async move {
-                let client = reqwest::Client::new();
                 while is_running.load(std::sync::atomic::Ordering::SeqCst) {
                     if let Ok(local_changes) = store.get_loro_changes() {
                         if let Ok(res) = client.post(&format!("{}/sync", edge_url)).body(local_changes).send().await {
@@ -758,7 +798,6 @@ impl EdgeSyncLoop {
         #[cfg(target_arch = "wasm32")]
         {
             wasm_bindgen_futures::spawn_local(async move {
-                let client = reqwest::Client::new();
                 while is_running.load(std::sync::atomic::Ordering::SeqCst) {
                     if let Ok(local_changes) = store.get_loro_changes() {
                         if let Ok(res) = client.post(&format!("{}/sync", edge_url)).body(local_changes).send().await {
@@ -786,11 +825,11 @@ impl EdgeSyncLoop {
         
         let edge_url = self.edge_url.clone();
         let is_running = self.is_running.clone();
+        let client = self.client.clone();
         
         #[cfg(not(target_arch = "wasm32"))]
         {
             tokio::spawn(async move {
-                let client = reqwest::Client::new();
                 while is_running.load(std::sync::atomic::Ordering::SeqCst) {
                     if let Ok(local_changes) = store.get_loro_changes() {
                         if let Ok(res) = client.post(&format!("{}/sync", edge_url)).body(local_changes).send().await {
@@ -811,7 +850,6 @@ impl EdgeSyncLoop {
         #[cfg(target_arch = "wasm32")]
         {
             wasm_bindgen_futures::spawn_local(async move {
-                let client = reqwest::Client::new();
                 while is_running.load(std::sync::atomic::Ordering::SeqCst) {
                     if let Ok(local_changes) = store.get_loro_changes() {
                         if let Ok(res) = client.post(&format!("{}/sync", edge_url)).body(local_changes).send().await {
@@ -948,7 +986,9 @@ pub struct ZeroCopyMessageStore {
 
 struct ZeroCopyMessageStoreInner {
     #[cfg(not(target_arch = "wasm32"))]
-    file_path: String,
+    _file_path: String,
+    #[cfg(not(target_arch = "wasm32"))]
+    file: Option<std::fs::File>,
     #[cfg(not(target_arch = "wasm32"))]
     mmap: Option<memmap2::MmapMut>,
     #[cfg(target_arch = "wasm32")]
@@ -983,7 +1023,8 @@ impl ZeroCopyMessageStore {
             };
             
             let mut store = ZeroCopyMessageStoreInner {
-                file_path,
+                _file_path: file_path,
+                file: Some(file),
                 mmap,
                 loro,
             };
@@ -1011,43 +1052,15 @@ impl ZeroCopyMessageStore {
         let rkyv_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&messages)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             
-        // 2. Export Loro Snapshot
+        // 2. Put rkyv bytes into Loro Map
+        let map = inner.loro.get_map("db");
+        let _ = map.insert("bytes", rkyv_bytes.to_vec());
+
+        // 3. Export Loro Snapshot
         let loro_bytes = inner.loro.export(loro::ExportMode::Snapshot)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             
-        let rkyv_len = rkyv_bytes.len() as u64;
-        
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let total_len = 8 + rkyv_bytes.len() + loro_bytes.len();
-            let file = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(&inner.file_path)
-                .map_err(|e| YntraError::DbError(e.to_string()))?;
-                
-            file.set_len(total_len as u64)
-                .map_err(|e| YntraError::DbError(e.to_string()))?;
-                
-            let mut m = unsafe { memmap2::MmapMut::map_mut(&file).map_err(|e| YntraError::DbError(e.to_string()))? };
-            
-            m[0..8].copy_from_slice(&rkyv_len.to_be_bytes());
-            m[8..8+rkyv_bytes.len()].copy_from_slice(&rkyv_bytes);
-            m[8+rkyv_bytes.len()..total_len].copy_from_slice(&loro_bytes);
-            
-            m.flush().map_err(|e| YntraError::DbError(e.to_string()))?;
-            inner.mmap = Some(m);
-        }
-        
-        #[cfg(target_arch = "wasm32")]
-        {
-            let mut buf = Vec::new();
-            buf.extend_from_slice(&rkyv_len.to_be_bytes());
-            buf.extend_from_slice(&rkyv_bytes);
-            buf.extend_from_slice(&loro_bytes);
-            inner.buffer = buf;
-        }
-        
+        inner.save_to_disk(&rkyv_bytes, &loro_bytes)?;
         Ok(())
     }
 
@@ -1085,6 +1098,63 @@ impl ZeroCopyMessageStore {
                     .map_err(|e| YntraError::SerializationError(e.to_string()))?;
                 list.push(msg);
             }
+        }
+        
+        Ok(list)
+    }
+
+    pub fn read_messages_filtered(
+        &self,
+        workspace_id: String,
+        user_id: String,
+        user_teams: Vec<String>,
+    ) -> Result<Vec<crate::models::MessageItem>, YntraError> {
+        let inner = self.inner.lock().unwrap();
+        let bytes = inner.get_bytes();
+        
+        if bytes.len() < 8 {
+            return Ok(Vec::new());
+        }
+        
+        let rkyv_len = u64::from_be_bytes(bytes[0..8].try_into().unwrap()) as usize;
+        if bytes.len() < 8 + rkyv_len {
+            return Ok(Vec::new());
+        }
+        
+        let rkyv_slice = &bytes[8..8+rkyv_len];
+        let mut list = Vec::new();
+        
+        let process_archived = |archived_msgs: &rkyv::Archived<Vec<crate::models::MessageItem>>, list: &mut Vec<crate::models::MessageItem>| -> Result<(), YntraError> {
+            for archived_msg in archived_msgs.iter() {
+                if archived_msg.workspace_id != workspace_id {
+                    continue;
+                }
+                
+                let is_sender = archived_msg.sender_id.as_ref().map(|s| s.as_str()) == Some(user_id.as_str());
+                let is_receiver = archived_msg.receiver_id.as_ref().map(|r| r.as_str()) == Some(user_id.as_str());
+                let is_team_recipient = archived_msg.target_team_id.as_ref()
+                    .map(|tid| user_teams.contains(&tid.to_string()))
+                    .unwrap_or(false);
+                    
+                if is_sender || is_receiver || is_team_recipient {
+                    let msg: crate::models::MessageItem = rkyv::deserialize::<crate::models::MessageItem, rkyv::rancor::Error>(archived_msg)
+                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                    list.push(msg);
+                }
+            }
+            Ok(())
+        };
+        
+        if (rkyv_slice.as_ptr() as usize) % 8 == 0 {
+            let archived_msgs = rkyv::access::<rkyv::Archived<Vec<crate::models::MessageItem>>, rkyv::rancor::Error>(rkyv_slice)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            process_archived(archived_msgs, &mut list)?;
+        } else {
+            let mut aligned = rkyv::util::AlignedVec::<16>::new();
+            aligned.extend_from_slice(rkyv_slice);
+            let archived_msgs = rkyv::access::<rkyv::Archived<Vec<crate::models::MessageItem>>, rkyv::rancor::Error>(&aligned)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            process_archived(archived_msgs, &mut list)?;
         }
         
         Ok(list)
@@ -1139,9 +1209,20 @@ impl ZeroCopyMessageStore {
     }
     
     pub fn apply_loro_update(&self, update_bytes: Vec<u8>) -> Result<(), YntraError> {
-        let inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap();
         inner.loro.import(&update_bytes)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            
+        let map = inner.loro.get_map("db");
+        if let Some(val) = map.get("bytes") {
+            if let Some(val_ref) = val.as_value() {
+                if let Some(bytes) = val_ref.as_binary() {
+                    let loro_bytes = inner.loro.export(loro::ExportMode::Snapshot)
+                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                    inner.save_to_disk(bytes, &loro_bytes)?;
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -1156,6 +1237,36 @@ impl ZeroCopyMessageStoreInner {
         {
             &self.buffer
         }
+    }
+    
+    fn save_to_disk(&mut self, rkyv_bytes: &[u8], loro_bytes: &[u8]) -> Result<(), YntraError> {
+        let rkyv_len = rkyv_bytes.len() as u64;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let total_len = 8 + rkyv_bytes.len() + loro_bytes.len();
+            let file = self.file.as_ref().ok_or_else(|| YntraError::DbError("Database file not opened".to_string()))?;
+                
+            file.set_len(total_len as u64)
+                .map_err(|e| YntraError::DbError(e.to_string()))?;
+                
+            let mut m = unsafe { memmap2::MmapMut::map_mut(file).map_err(|e| YntraError::DbError(e.to_string()))? };
+            
+            m[0..8].copy_from_slice(&rkyv_len.to_be_bytes());
+            m[8..8+rkyv_bytes.len()].copy_from_slice(rkyv_bytes);
+            m[8+rkyv_bytes.len()..total_len].copy_from_slice(loro_bytes);
+            
+            m.flush().map_err(|e| YntraError::DbError(e.to_string()))?;
+            self.mmap = Some(m);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let mut buf = Vec::new();
+            buf.extend_from_slice(&rkyv_len.to_be_bytes());
+            buf.extend_from_slice(rkyv_bytes);
+            buf.extend_from_slice(loro_bytes);
+            self.buffer = buf;
+        }
+        Ok(())
     }
     
     #[cfg(not(target_arch = "wasm32"))]
@@ -1185,7 +1296,9 @@ pub struct ZeroCopyAuditStore {
 
 struct ZeroCopyAuditStoreInner {
     #[cfg(not(target_arch = "wasm32"))]
-    file_path: String,
+    _file_path: String,
+    #[cfg(not(target_arch = "wasm32"))]
+    file: Option<std::fs::File>,
     #[cfg(not(target_arch = "wasm32"))]
     mmap: Option<memmap2::MmapMut>,
     #[cfg(target_arch = "wasm32")]
@@ -1220,7 +1333,8 @@ impl ZeroCopyAuditStore {
             };
             
             let mut store = ZeroCopyAuditStoreInner {
-                file_path,
+                _file_path: file_path,
+                file: Some(file),
                 mmap,
                 loro,
             };
@@ -1248,43 +1362,15 @@ impl ZeroCopyAuditStore {
         let rkyv_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&entries)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             
-        // 2. Export Loro Snapshot
+        // 2. Put rkyv bytes into Loro Map
+        let map = inner.loro.get_map("db");
+        let _ = map.insert("bytes", rkyv_bytes.to_vec());
+
+        // 3. Export Loro Snapshot
         let loro_bytes = inner.loro.export(loro::ExportMode::Snapshot)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             
-        let rkyv_len = rkyv_bytes.len() as u64;
-        
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let total_len = 8 + rkyv_bytes.len() + loro_bytes.len();
-            let file = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(&inner.file_path)
-                .map_err(|e| YntraError::DbError(e.to_string()))?;
-                
-            file.set_len(total_len as u64)
-                .map_err(|e| YntraError::DbError(e.to_string()))?;
-                
-            let mut m = unsafe { memmap2::MmapMut::map_mut(&file).map_err(|e| YntraError::DbError(e.to_string()))? };
-            
-            m[0..8].copy_from_slice(&rkyv_len.to_be_bytes());
-            m[8..8+rkyv_bytes.len()].copy_from_slice(&rkyv_bytes);
-            m[8+rkyv_bytes.len()..total_len].copy_from_slice(&loro_bytes);
-            
-            m.flush().map_err(|e| YntraError::DbError(e.to_string()))?;
-            inner.mmap = Some(m);
-        }
-        
-        #[cfg(target_arch = "wasm32")]
-        {
-            let mut buf = Vec::new();
-            buf.extend_from_slice(&rkyv_len.to_be_bytes());
-            buf.extend_from_slice(&rkyv_bytes);
-            buf.extend_from_slice(&loro_bytes);
-            inner.buffer = buf;
-        }
-        
+        inner.save_to_disk(&rkyv_bytes, &loro_bytes)?;
         Ok(())
     }
 
@@ -1376,9 +1462,20 @@ impl ZeroCopyAuditStore {
     }
     
     pub fn apply_loro_update(&self, update_bytes: Vec<u8>) -> Result<(), YntraError> {
-        let inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap();
         inner.loro.import(&update_bytes)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            
+        let map = inner.loro.get_map("db");
+        if let Some(val) = map.get("bytes") {
+            if let Some(val_ref) = val.as_value() {
+                if let Some(bytes) = val_ref.as_binary() {
+                    let loro_bytes = inner.loro.export(loro::ExportMode::Snapshot)
+                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                    inner.save_to_disk(bytes, &loro_bytes)?;
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -1393,6 +1490,36 @@ impl ZeroCopyAuditStoreInner {
         {
             &self.buffer
         }
+    }
+    
+    fn save_to_disk(&mut self, rkyv_bytes: &[u8], loro_bytes: &[u8]) -> Result<(), YntraError> {
+        let rkyv_len = rkyv_bytes.len() as u64;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let total_len = 8 + rkyv_bytes.len() + loro_bytes.len();
+            let file = self.file.as_ref().ok_or_else(|| YntraError::DbError("Database file not opened".to_string()))?;
+                
+            file.set_len(total_len as u64)
+                .map_err(|e| YntraError::DbError(e.to_string()))?;
+                
+            let mut m = unsafe { memmap2::MmapMut::map_mut(file).map_err(|e| YntraError::DbError(e.to_string()))? };
+            
+            m[0..8].copy_from_slice(&rkyv_len.to_be_bytes());
+            m[8..8+rkyv_bytes.len()].copy_from_slice(rkyv_bytes);
+            m[8+rkyv_bytes.len()..total_len].copy_from_slice(loro_bytes);
+            
+            m.flush().map_err(|e| YntraError::DbError(e.to_string()))?;
+            self.mmap = Some(m);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let mut buf = Vec::new();
+            buf.extend_from_slice(&rkyv_len.to_be_bytes());
+            buf.extend_from_slice(rkyv_bytes);
+            buf.extend_from_slice(loro_bytes);
+            self.buffer = buf;
+        }
+        Ok(())
     }
     
     #[cfg(not(target_arch = "wasm32"))]
@@ -1422,7 +1549,9 @@ pub struct ZeroCopyNoteStore {
 
 struct ZeroCopyNoteStoreInner {
     #[cfg(not(target_arch = "wasm32"))]
-    file_path: String,
+    _file_path: String,
+    #[cfg(not(target_arch = "wasm32"))]
+    file: Option<std::fs::File>,
     #[cfg(not(target_arch = "wasm32"))]
     mmap: Option<memmap2::MmapMut>,
     #[cfg(target_arch = "wasm32")]
@@ -1457,7 +1586,8 @@ impl ZeroCopyNoteStore {
             };
             
             let mut store = ZeroCopyNoteStoreInner {
-                file_path,
+                _file_path: file_path,
+                file: Some(file),
                 mmap,
                 loro,
             };
@@ -1617,16 +1747,12 @@ impl ZeroCopyNoteStoreInner {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let total_len = 8 + rkyv_bytes.len() + loro_bytes.len();
-            let file = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(&self.file_path)
-                .map_err(|e| YntraError::DbError(e.to_string()))?;
+            let file = self.file.as_ref().ok_or_else(|| YntraError::DbError("Database file not opened".to_string()))?;
                 
             file.set_len(total_len as u64)
                 .map_err(|e| YntraError::DbError(e.to_string()))?;
                 
-            let mut m = unsafe { memmap2::MmapMut::map_mut(&file).map_err(|e| YntraError::DbError(e.to_string()))? };
+            let mut m = unsafe { memmap2::MmapMut::map_mut(file).map_err(|e| YntraError::DbError(e.to_string()))? };
             
             m[0..8].copy_from_slice(&rkyv_len.to_be_bytes());
             m[8..8+rkyv_bytes.len()].copy_from_slice(rkyv_bytes);
@@ -1801,6 +1927,7 @@ mod tests {
         
         let entry1 = AuditLogEntry {
             id: "entry_1".to_string(),
+            workspace_id: "workspace-1".to_string(),
             actor_id: "actor_1".to_string(),
             target_client_id: Some("client_1".to_string()),
             action_type: "create".to_string(),
@@ -1813,6 +1940,7 @@ mod tests {
         
         let entry2 = AuditLogEntry {
             id: "entry_2".to_string(),
+            workspace_id: "workspace-1".to_string(),
             actor_id: "actor_2".to_string(),
             target_client_id: None,
             action_type: "update".to_string(),

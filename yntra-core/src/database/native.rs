@@ -238,6 +238,7 @@ pub async fn acquire_connection() -> Result<DbConnection, YntraError> {
     let db = get_database();
     let conn = db.connect().map_err(|e| YntraError::DbError(e.to_string()))?;
     let _ = conn.execute("PRAGMA foreign_keys = ON", ()).await;
+    let _ = conn.execute("PRAGMA journal_mode = WAL", ()).await;
     let _ = conn.execute("PRAGMA synchronous = NORMAL", ()).await;
     let _ = conn.execute("PRAGMA busy_timeout = 5000", ()).await;
     Ok(DbConnection {
@@ -331,7 +332,7 @@ impl DbConnection {
     pub async fn execute_batch(&self, sql: &str) -> Result<(), YntraError> {
         let conn = self.get_conn()?;
         for stmt in super::parser::split_sql_statements(sql) {
-            if let Some(in_tx) = super::check_transaction_sql(&stmt) {
+            if let Some(in_tx) = super::check_transaction_sql(stmt) {
                 self.in_transaction.store(in_tx, std::sync::atomic::Ordering::SeqCst);
             }
         }

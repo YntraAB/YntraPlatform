@@ -120,6 +120,10 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
 
     let mut list = Vec::new();
     let mut repairs = Vec::new();
+    let mut stmt_updates = conn.prepare(
+        "SELECT seq, update_data FROM note_updates WHERE note_id = ?1 AND seq > ?2 ORDER BY seq ASC, created_at ASC"
+    ).await?;
+
     for (id, workspace_id, team_id, author_id, subject, base_content, edit_history, created_at, updated_at, sync_status, content_plain, max_seq) in raw_notes {
         let (last_merged_seq, hex_or_plain) = parse_loro_state(&base_content);
         
@@ -139,9 +143,6 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
 
             let mut final_max_seq = last_merged_seq;
             if has_unmerged {
-                let mut stmt_updates = conn.prepare(
-                    "SELECT seq, update_data FROM note_updates WHERE note_id = ?1 AND seq > ?2 ORDER BY seq ASC, created_at ASC"
-                ).await?;
                 let mut rows_updates = stmt_updates.query(crate::params![&id, last_merged_seq]).await?;
                 while let Some(row_up) = rows_updates.next().await? {
                     let seq: i64 = row_up.get(0)?;
@@ -649,9 +650,9 @@ pub async fn apply_note_loro_update(note_id: String, update_bytes: Vec<u8>) -> R
 pub async fn merge_unmerged_notes() -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     
-    // Find candidate notes that have at least one update in note_updates
+    // Find candidate notes that have at least one update in note_updates, fetching max_seq as a subquery
     let mut stmt = conn.prepare(
-        "SELECT id, content FROM notes WHERE EXISTS (SELECT 1 FROM note_updates WHERE note_updates.note_id = notes.id)"
+        "SELECT id, content, (SELECT IFNULL(MAX(seq), -1) FROM note_updates WHERE note_updates.note_id = notes.id) FROM notes WHERE EXISTS (SELECT 1 FROM note_updates WHERE note_updates.note_id = notes.id)"
     ).await?;
     
     let mut rows = stmt.query(()).await?;
@@ -659,18 +660,17 @@ pub async fn merge_unmerged_notes() -> Result<(), YntraError> {
     while let Some(row) = rows.next().await? {
         let id: String = row.get(0)?;
         let content: String = row.get(1)?;
-        candidates.push((id, content));
+        let max_seq: i64 = row.get(2)?;
+        candidates.push((id, content, max_seq));
     }
     
     let mut repairs = Vec::new();
-    for (id, base_content) in candidates {
+    let mut stmt_updates = conn.prepare(
+        "SELECT seq, update_data FROM note_updates WHERE note_id = ?1 AND seq > ?2 ORDER BY seq ASC, created_at ASC"
+    ).await?;
+
+    for (id, base_content, max_seq) in candidates {
         let (last_merged_seq, hex_or_plain) = parse_loro_state(&base_content);
-        
-        let max_seq: i64 = conn.query_row(
-            "SELECT IFNULL(MAX(seq), -1) FROM note_updates WHERE note_id = ?1",
-            crate::params![&id],
-            |r| r.get(0)
-        ).await.unwrap_or(-1);
         
         if max_seq > last_merged_seq {
             let doc = loro::LoroDoc::new();
@@ -682,9 +682,6 @@ pub async fn merge_unmerged_notes() -> Result<(), YntraError> {
                 doc.get_text("content").insert(0, hex_or_plain).map_err(|e| YntraError::SerializationError(e.to_string()))?;
             }
             
-            let mut stmt_updates = conn.prepare(
-                "SELECT seq, update_data FROM note_updates WHERE note_id = ?1 AND seq > ?2 ORDER BY seq ASC, created_at ASC"
-            ).await?;
             let mut rows_updates = stmt_updates.query(crate::params![&id, last_merged_seq]).await?;
             let mut final_max_seq = last_merged_seq;
             while let Some(row_up) = rows_updates.next().await? {

@@ -291,6 +291,7 @@ pub struct JobTicket {
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct AuditLogEntry {
     pub id: String,
+    pub workspace_id: String,
     pub actor_id: String,
     pub target_client_id: Option<String>,
     pub action_type: String,

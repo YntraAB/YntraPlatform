@@ -51,7 +51,7 @@ pub fn track_write(sql: &str) {
 
 pub fn track_write_batch(sql: &str) {
     for stmt in self::parser::split_sql_statements(sql) {
-        if let Some(table) = self::parser::extract_table_name(&stmt) {
+        if let Some(table) = self::parser::extract_table_name(stmt) {
             if table == "users" || table == "workspaces" {
                 crate::infra::auth::invalidate_auth_context_cache();
             }
