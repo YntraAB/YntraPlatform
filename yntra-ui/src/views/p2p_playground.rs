@@ -56,6 +56,12 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
     let mut passkey_a = use_signal(|| "yntra-secure-passkey".to_string());
     let mut passkey_b = use_signal(|| "yntra-secure-passkey".to_string());
 
+    // User ID & Role Signals for ZK Proofs
+    let mut user_id_a = use_signal(|| "peer_a".to_string());
+    let mut role_a = use_signal(|| "Moderator".to_string());
+    let mut user_id_b = use_signal(|| "peer_b".to_string());
+    let mut role_b = use_signal(|| "Operator".to_string());
+
     // Navigation Tab
     let mut active_tab = use_signal(|| "todos".to_string());
 
@@ -226,6 +232,30 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                             oninput: move |e| passkey_a.set(e.value().clone()),
                         }
                     }
+
+                    // User ID & Role inputs for ZK Proofs (A)
+                    {if *active_tab.read() == "notes" {
+                        rsx! {
+                            div { class: "p-3 border-b border-border bg-blue-500/5 flex items-center gap-3 shrink-0",
+                                components::LucideIcon { name: "user", size: "16", class: "text-blue-400" }
+                                span { class: "text-xs font-semibold text-muted-foreground shrink-0", "User ID:" }
+                                input {
+                                    class: "w-24 bg-background border border-border rounded px-2.5 py-1 text-xs text-foreground focus:outline-none focus:border-blue-500",
+                                    value: "{user_id_a}",
+                                    oninput: move |e| user_id_a.set(e.value().clone()),
+                                }
+                                components::LucideIcon { name: "shield", size: "16", class: "text-blue-400" }
+                                span { class: "text-xs font-semibold text-muted-foreground shrink-0", "Role:" }
+                                input {
+                                    class: "flex-1 bg-background border border-border rounded px-2.5 py-1 text-xs text-foreground focus:outline-none focus:border-blue-500",
+                                    value: "{role_a}",
+                                    oninput: move |e| role_a.set(e.value().clone()),
+                                }
+                            }
+                        }
+                    } else {
+                        rsx! {}
+                    }}
                     
                     {if *active_tab.read() == "todos" {
                         rsx! {
@@ -394,6 +424,27 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                                     }
                                                 };
                                                 
+                                                // Generate ZK Compliance Proof
+                                                let user_id = user_id_a.read().clone();
+                                                let role = role_a.read().clone();
+                                                let proof = match trust.generate_compliance_proof(encrypted_content.clone(), user_id.clone(), role.clone()) {
+                                                    Ok(p) => p,
+                                                    Err(e) => {
+                                                        let mut curr_logs = logs.read().clone();
+                                                        curr_logs.push(format!("[Peer A] ZK Proof generation failed: {:?}", e));
+                                                        logs.set(curr_logs);
+                                                        return;
+                                                    }
+                                                };
+                                                
+                                                // Serialise metadata to edit_history
+                                                let metadata = serde_json::json!({
+                                                    "compliance_proof": proof,
+                                                    "user_id": user_id,
+                                                    "role": role,
+                                                });
+                                                let edit_history_str = serde_json::to_string(&metadata).unwrap_or_else(|_| "[]".to_string());
+                                                
                                                 let mut list = store.read_all_notes().unwrap_or_default();
                                                 list.push(DailyNote {
                                                     id: uuid::Uuid::new_v4().to_string(),
@@ -402,7 +453,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                                     author_id: Some("peer_a".to_string()),
                                                     subject: subject.clone(),
                                                     content: encrypted_content,
-                                                    edit_history: "[]".to_string(),
+                                                    edit_history: edit_history_str,
                                                     created_at: yntra_core::infra::time::get_current_time_str_hm(),
                                                     updated_at: yntra_core::infra::time::get_current_time_ms(),
                                                     sync_status: "pending".to_string(),
@@ -435,6 +486,22 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                         {
                                             let key = passkey_a.read().clone();
                                             let decrypted_res = trust.decrypt_workspace_field(key, n.content.clone());
+                                            
+                                            // Parse ZK Proof metadata from edit_history
+                                            let history_str = n.edit_history.clone();
+                                            let proof_info = serde_json::from_str::<serde_json::Value>(&history_str).ok().and_then(|v| {
+                                                let proof = v.get("compliance_proof")?.as_str()?.to_string();
+                                                let user_id = v.get("user_id")?.as_str()?.to_string();
+                                                let role = v.get("role")?.as_str()?.to_string();
+                                                Some((proof, user_id, role))
+                                            });
+                                            
+                                            let verification_result = if let Some((ref proof, _, _)) = proof_info {
+                                                trust.verify_compliance_proof(proof.clone()).unwrap_or(false)
+                                            } else {
+                                                false
+                                            };
+                                            
                                             rsx! {
                                                 div { class: "flex flex-col bg-white/[0.01] border border-border/40 p-3 rounded-lg gap-2 hover:border-border transition relative overflow-hidden",
                                                     div { class: "flex items-center justify-between",
@@ -473,6 +540,51 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                                             "{n.content}"
                                                         }
                                                     }
+
+                                                    // ZK Compliance Section
+                                                    {if let Some((proof, user_id, role)) = proof_info {
+                                                        let verified_text = if verification_result { "Verified (Pass)" } else { "Failed (Invalid ZK Proof)" };
+                                                        let verified_class = if verification_result { "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" } else { "text-rose-400 bg-rose-500/10 border-rose-500/20" };
+                                                        let icon_name = if verification_result { "shield-check" } else { "alert-triangle" };
+                                                        
+                                                        rsx! {
+                                                            div { class: "mt-2 pt-2 border-t border-border/30 flex flex-col gap-1.5",
+                                                                div { class: "flex items-center justify-between",
+                                                                    span { class: "text-[8px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1",
+                                                                        components::LucideIcon { name: "shield", size: "8" }
+                                                                        "ZK Compliance Proof"
+                                                                    }
+                                                                    div { class: "flex items-center gap-1 text-[8px] font-bold border px-1.5 py-0.5 rounded {verified_class}",
+                                                                        components::LucideIcon { name: icon_name, size: "8" }
+                                                                        "{verified_text}"
+                                                                    }
+                                                                }
+                                                                div { class: "grid grid-cols-2 gap-2 bg-black/10 p-2 rounded border border-border/20 text-[10px]",
+                                                                    div { class: "flex flex-col",
+                                                                        span { class: "text-[8px] text-muted-foreground uppercase font-semibold", "Signer ID" }
+                                                                        span { class: "text-foreground font-mono truncate", "{user_id}" }
+                                                                    }
+                                                                    div { class: "flex flex-col",
+                                                                        span { class: "text-[8px] text-muted-foreground uppercase font-semibold", "Signer Role" }
+                                                                        span { class: "text-foreground font-mono truncate", "{role}" }
+                                                                    }
+                                                                }
+                                                                div { class: "flex flex-col gap-0.5",
+                                                                    span { class: "text-[7px] font-mono text-muted-foreground uppercase tracking-wider", "Proof Hex Prefix" }
+                                                                    span { class: "text-[8px] font-mono text-muted-foreground/70 truncate",
+                                                                        "{proof}"
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    } else {
+                                                        rsx! {
+                                                            div { class: "mt-2 pt-2 border-t border-border/30 flex items-center gap-1.5 text-muted-foreground text-[9px] bg-muted/10 p-1.5 rounded",
+                                                                components::LucideIcon { name: "alert-circle", size: "10" }
+                                                                "No ZK compliance proof found"
+                                                            }
+                                                        }
+                                                    }}
                                                 }
                                             }
                                         }
@@ -551,6 +663,30 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                             oninput: move |e| passkey_b.set(e.value().clone()),
                         }
                     }
+
+                    // User ID & Role inputs for ZK Proofs (B)
+                    {if *active_tab.read() == "notes" {
+                        rsx! {
+                            div { class: "p-3 border-b border-border bg-purple-500/5 flex items-center gap-3 shrink-0",
+                                components::LucideIcon { name: "user", size: "16", class: "text-purple-400" }
+                                span { class: "text-xs font-semibold text-muted-foreground shrink-0", "User ID:" }
+                                input {
+                                    class: "w-24 bg-background border border-border rounded px-2.5 py-1 text-xs text-foreground focus:outline-none focus:border-purple-500",
+                                    value: "{user_id_b}",
+                                    oninput: move |e| user_id_b.set(e.value().clone()),
+                                }
+                                components::LucideIcon { name: "shield", size: "16", class: "text-purple-400" }
+                                span { class: "text-xs font-semibold text-muted-foreground shrink-0", "Role:" }
+                                input {
+                                    class: "flex-1 bg-background border border-border rounded px-2.5 py-1 text-xs text-foreground focus:outline-none focus:border-purple-500",
+                                    value: "{role_b}",
+                                    oninput: move |e| role_b.set(e.value().clone()),
+                                }
+                            }
+                        }
+                    } else {
+                        rsx! {}
+                    }}
                     
                     {if *active_tab.read() == "todos" {
                         rsx! {
@@ -719,6 +855,27 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                                     }
                                                 };
                                                 
+                                                // Generate ZK Compliance Proof
+                                                let user_id = user_id_b.read().clone();
+                                                let role = role_b.read().clone();
+                                                let proof = match trust.generate_compliance_proof(encrypted_content.clone(), user_id.clone(), role.clone()) {
+                                                    Ok(p) => p,
+                                                    Err(e) => {
+                                                        let mut curr_logs = logs.read().clone();
+                                                        curr_logs.push(format!("[Peer B] ZK Proof generation failed: {:?}", e));
+                                                        logs.set(curr_logs);
+                                                        return;
+                                                    }
+                                                };
+                                                
+                                                // Serialise metadata to edit_history
+                                                let metadata = serde_json::json!({
+                                                    "compliance_proof": proof,
+                                                    "user_id": user_id,
+                                                    "role": role,
+                                                });
+                                                let edit_history_str = serde_json::to_string(&metadata).unwrap_or_else(|_| "[]".to_string());
+                                                
                                                 let mut list = store.read_all_notes().unwrap_or_default();
                                                 list.push(DailyNote {
                                                     id: uuid::Uuid::new_v4().to_string(),
@@ -727,7 +884,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                                     author_id: Some("peer_b".to_string()),
                                                     subject: subject.clone(),
                                                     content: encrypted_content,
-                                                    edit_history: "[]".to_string(),
+                                                    edit_history: edit_history_str,
                                                     created_at: yntra_core::infra::time::get_current_time_str_hm(),
                                                     updated_at: yntra_core::infra::time::get_current_time_ms(),
                                                     sync_status: "pending".to_string(),
@@ -760,6 +917,22 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                         {
                                             let key = passkey_b.read().clone();
                                             let decrypted_res = trust.decrypt_workspace_field(key, n.content.clone());
+                                            
+                                            // Parse ZK Proof metadata from edit_history
+                                            let history_str = n.edit_history.clone();
+                                            let proof_info = serde_json::from_str::<serde_json::Value>(&history_str).ok().and_then(|v| {
+                                                let proof = v.get("compliance_proof")?.as_str()?.to_string();
+                                                let user_id = v.get("user_id")?.as_str()?.to_string();
+                                                let role = v.get("role")?.as_str()?.to_string();
+                                                Some((proof, user_id, role))
+                                            });
+                                            
+                                            let verification_result = if let Some((ref proof, _, _)) = proof_info {
+                                                trust.verify_compliance_proof(proof.clone()).unwrap_or(false)
+                                            } else {
+                                                false
+                                            };
+                                            
                                             rsx! {
                                                 div { class: "flex flex-col bg-white/[0.01] border border-border/40 p-3 rounded-lg gap-2 hover:border-border transition relative overflow-hidden",
                                                     div { class: "flex items-center justify-between",
@@ -798,6 +971,51 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                                             "{n.content}"
                                                         }
                                                     }
+
+                                                    // ZK Compliance Section
+                                                    {if let Some((proof, user_id, role)) = proof_info {
+                                                        let verified_text = if verification_result { "Verified (Pass)" } else { "Failed (Invalid ZK Proof)" };
+                                                        let verified_class = if verification_result { "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" } else { "text-rose-400 bg-rose-500/10 border-rose-500/20" };
+                                                        let icon_name = if verification_result { "shield-check" } else { "alert-triangle" };
+                                                        
+                                                        rsx! {
+                                                            div { class: "mt-2 pt-2 border-t border-border/30 flex flex-col gap-1.5",
+                                                                div { class: "flex items-center justify-between",
+                                                                    span { class: "text-[8px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1",
+                                                                        components::LucideIcon { name: "shield", size: "8" }
+                                                                        "ZK Compliance Proof"
+                                                                    }
+                                                                    div { class: "flex items-center gap-1 text-[8px] font-bold border px-1.5 py-0.5 rounded {verified_class}",
+                                                                        components::LucideIcon { name: icon_name, size: "8" }
+                                                                        "{verified_text}"
+                                                                    }
+                                                                }
+                                                                div { class: "grid grid-cols-2 gap-2 bg-black/10 p-2 rounded border border-border/20 text-[10px]",
+                                                                    div { class: "flex flex-col",
+                                                                        span { class: "text-[8px] text-muted-foreground uppercase font-semibold", "Signer ID" }
+                                                                        span { class: "text-foreground font-mono truncate", "{user_id}" }
+                                                                    }
+                                                                    div { class: "flex flex-col",
+                                                                        span { class: "text-[8px] text-muted-foreground uppercase font-semibold", "Signer Role" }
+                                                                        span { class: "text-foreground font-mono truncate", "{role}" }
+                                                                    }
+                                                                }
+                                                                div { class: "flex flex-col gap-0.5",
+                                                                    span { class: "text-[7px] font-mono text-muted-foreground uppercase tracking-wider", "Proof Hex Prefix" }
+                                                                    span { class: "text-[8px] font-mono text-muted-foreground/70 truncate",
+                                                                        "{proof}"
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    } else {
+                                                        rsx! {
+                                                            div { class: "mt-2 pt-2 border-t border-border/30 flex items-center gap-1.5 text-muted-foreground text-[9px] bg-muted/10 p-1.5 rounded",
+                                                                components::LucideIcon { name: "alert-circle", size: "10" }
+                                                                "No ZK compliance proof found"
+                                                            }
+                                                        }
+                                                    }}
                                                 }
                                             }
                                         }
