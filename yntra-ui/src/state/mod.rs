@@ -9,6 +9,7 @@ use yntra_core::{
     init_wasm_db, init_tracing, start_background_sync,
     Workspace, WorkspaceUser, Team, TeamEvent, MessageItem, DailyNote, TimeReport,
     ClientProfile, ReportItem, clear_session_key, is_session_key_set, load_local_workspace_key,
+    TodoItem,
 };
 use crate::locales::get_system_locale;
 use crate::utils::DioxusDbObserver;
@@ -145,6 +146,7 @@ pub struct AppState {
     pub clients: Resource<Vec<ClientProfile>>,
     pub reports: Resource<Vec<ReportItem>>,
     pub workspaces: Resource<Vec<Workspace>>,
+    pub todos: Resource<Vec<TodoItem>>,
     pub workspace_id: Memo<String>,
 
     // Desktop OAuth flow triggers
@@ -390,6 +392,7 @@ pub fn use_init_app_state() -> AppState {
         clients,
         reports,
         workspaces,
+        todos,
     ) = resources::init_resources(
         active_user_id,
         background_error,
@@ -402,6 +405,7 @@ pub fn use_init_app_state() -> AppState {
         trigger_time,
         trigger_clients,
         trigger_reports,
+        trigger_todos,
     );
 
     let workspace_id = use_memo(move || {
@@ -727,6 +731,7 @@ pub fn use_init_app_state() -> AppState {
         clients,
         reports,
         workspaces,
+        todos,
         workspace_id,
         on_desktop_oauth,
         background_error,

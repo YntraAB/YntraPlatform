@@ -1,34 +1,26 @@
 use crate::components;
 use dioxus::prelude::*;
-use yntra_core::{TodoItem, DailyNote, ZeroCopyStore, ZeroCopyNoteStore, ZkCryptoTrust, P2PMeshSyncRouter};
+use yntra_core::{TodoItem, DailyNote, ZkCryptoTrust, P2PMeshSyncRouter};
 use std::sync::Arc;
 
 #[component]
 pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>) -> Element {
     // 1. Initialize Peer stores and mesh router
     let store_a = use_hook(|| {
-        let path = std::env::temp_dir().join("yntra_zero_copy_peer_a.db").to_string_lossy().to_string();
-        let _ = std::fs::remove_file(&path); // Clean start
-        ZeroCopyStore::new(path).expect("Failed to initialize Peer A Store")
+        yntra_core::create_peer_store("peer_a".to_string()).expect("Failed to initialize Peer A Store")
     }).clone();
 
     let store_b = use_hook(|| {
-        let path = std::env::temp_dir().join("yntra_zero_copy_peer_b.db").to_string_lossy().to_string();
-        let _ = std::fs::remove_file(&path); // Clean start
-        ZeroCopyStore::new(path).expect("Failed to initialize Peer B Store")
+        yntra_core::create_peer_store("peer_b".to_string()).expect("Failed to initialize Peer B Store")
     }).clone();
 
     // Notes Stores
     let store_notes_a = use_hook(|| {
-        let path = std::env::temp_dir().join("yntra_zero_copy_notes_a.db").to_string_lossy().to_string();
-        let _ = std::fs::remove_file(&path); // Clean start
-        ZeroCopyNoteStore::new(path).expect("Failed to initialize Peer A Notes Store")
+        yntra_core::create_peer_note_store("peer_a".to_string()).expect("Failed to initialize Peer A Notes Store")
     }).clone();
 
     let store_notes_b = use_hook(|| {
-        let path = std::env::temp_dir().join("yntra_zero_copy_notes_b.db").to_string_lossy().to_string();
-        let _ = std::fs::remove_file(&path); // Clean start
-        ZeroCopyNoteStore::new(path).expect("Failed to initialize Peer B Notes Store")
+        yntra_core::create_peer_note_store("peer_b".to_string()).expect("Failed to initialize Peer B Notes Store")
     }).clone();
 
     let router = use_hook(|| {
@@ -496,8 +488,8 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                                 Some((proof, user_id, role))
                                             });
                                             
-                                            let verification_result = if let Some((ref proof, _, _)) = proof_info {
-                                                trust.verify_compliance_proof(proof.clone()).unwrap_or(false)
+                                            let verification_result = if let Some((ref proof, ref uid, ref r)) = proof_info {
+                                                trust.verify_compliance_proof(proof.clone(), uid.clone(), r.clone(), n.content.clone()).unwrap_or(false)
                                             } else {
                                                 false
                                             };
@@ -927,8 +919,8 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                                 Some((proof, user_id, role))
                                             });
                                             
-                                            let verification_result = if let Some((ref proof, _, _)) = proof_info {
-                                                trust.verify_compliance_proof(proof.clone()).unwrap_or(false)
+                                            let verification_result = if let Some((ref proof, ref uid, ref r)) = proof_info {
+                                                trust.verify_compliance_proof(proof.clone(), uid.clone(), r.clone(), n.content.clone()).unwrap_or(false)
                                             } else {
                                                 false
                                             };

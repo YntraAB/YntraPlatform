@@ -3,6 +3,7 @@ use yntra_core::{
     get_notes, get_reports, get_teams,
     get_users, get_workspace, get_workspaces,
     get_clients, get_messages, get_time_reports, get_events,
+    get_todos, TodoItem,
     Workspace, WorkspaceUser, Team, TeamEvent, MessageItem, DailyNote, TimeReport,
     ClientProfile, ReportItem,
 };
@@ -19,6 +20,7 @@ pub fn init_resources(
     trigger_time: Signal<u32>,
     trigger_clients: Signal<u32>,
     trigger_reports: Signal<u32>,
+    trigger_todos: Signal<u32>,
 ) -> (
     Resource<Workspace>,
     Resource<Vec<WorkspaceUser>>,
@@ -30,6 +32,7 @@ pub fn init_resources(
     Resource<Vec<ClientProfile>>,
     Resource<Vec<ReportItem>>,
     Resource<Vec<Workspace>>,
+    Resource<Vec<TodoItem>>,
 ) {
     let workspace = use_resource(move || {
         let _trig = trigger_workspaces.read();
@@ -55,60 +58,40 @@ pub fn init_resources(
         }
     });
 
-    let scheduling_enabled = use_memo(move || {
+    let modules_active = use_memo(move || {
         if let Some(ws) = workspace.read().as_ref() {
-            let modules_active_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
-            modules_active_val.get("scheduling").and_then(|v| v.as_bool()).unwrap_or(true)
+            let val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
+            val
         } else {
-            false
+            serde_json::Value::Null
         }
+    });
+
+    let scheduling_enabled = use_memo(move || {
+        modules_active.read().get("scheduling").and_then(|v| v.as_bool()).unwrap_or(true)
     });
 
     let messaging_enabled = use_memo(move || {
-        if let Some(ws) = workspace.read().as_ref() {
-            let modules_active_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
-            modules_active_val.get("messaging").and_then(|v| v.as_bool()).unwrap_or(true)
-        } else {
-            false
-        }
+        modules_active.read().get("messaging").and_then(|v| v.as_bool()).unwrap_or(true)
     });
 
     let notes_enabled = use_memo(move || {
-        if let Some(ws) = workspace.read().as_ref() {
-            let modules_active_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
-            modules_active_val.get("notes").and_then(|v| v.as_bool()).unwrap_or(true)
-        } else {
-            false
-        }
+        modules_active.read().get("notes").and_then(|v| v.as_bool()).unwrap_or(true)
     });
 
     let time_enabled = use_memo(move || {
-        if let Some(ws) = workspace.read().as_ref() {
-            let modules_active_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
-            modules_active_val.get("time").and_then(|v| v.as_bool()).unwrap_or(true)
-        } else {
-            false
-        }
+        modules_active.read().get("time").and_then(|v| v.as_bool()).unwrap_or(true)
     });
 
     let assistance_enabled = use_memo(move || {
-        if let Some(ws) = workspace.read().as_ref() {
-            let modules_active_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
-            modules_active_val.get("assistance").and_then(|v| v.as_bool()).unwrap_or(true)
-                || modules_active_val.get("journals").and_then(|v| v.as_bool()).unwrap_or(false)
-                || modules_active_val.get("medications").and_then(|v| v.as_bool()).unwrap_or(false)
-        } else {
-            false
-        }
+        let val = modules_active.read();
+        val.get("assistance").and_then(|v| v.as_bool()).unwrap_or(true)
+            || val.get("journals").and_then(|v| v.as_bool()).unwrap_or(false)
+            || val.get("medications").and_then(|v| v.as_bool()).unwrap_or(false)
     });
 
     let reporting_enabled = use_memo(move || {
-        if let Some(ws) = workspace.read().as_ref() {
-            let modules_active_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
-            modules_active_val.get("reporting").and_then(|v| v.as_bool()).unwrap_or(true)
-        } else {
-            false
-        }
+        modules_active.read().get("reporting").and_then(|v| v.as_bool()).unwrap_or(true)
     });
 
     let users = use_resource(move || {
@@ -284,6 +267,22 @@ pub fn init_resources(
         }
     });
 
+    let todos = use_resource(move || {
+        let _trig = trigger_todos.read();
+        let uid = active_user_id.read().clone();
+        let mut bg_err = background_error;
+        let ws_id = workspace.read().as_ref().map(|w| w.id.clone()).unwrap_or_else(|| "workspace-1".to_string());
+        async move {
+            match get_todos(uid, ws_id).await {
+                Ok(list) => list,
+                Err(e) => {
+                    bg_err.set(Some(e));
+                    Vec::new()
+                }
+            }
+        }
+    });
+
     (
         workspace,
         users,
@@ -295,5 +294,6 @@ pub fn init_resources(
         clients,
         reports,
         workspaces,
+        todos,
     )
 }

@@ -47,10 +47,19 @@ pub fn NoteRead(props: NoteReadProps) -> Element {
         (false, String::new(), String::new())
     };
 
-    let proof_verified = use_signal(|| {
+    let users_clone = users.clone();
+    let author_id_clone = note.author_id.clone();
+    let ciphertext_clone = ciphertext.clone();
+    let proof_verified = use_signal(move || {
         if has_enc {
             let trust = yntra_core::ZkCryptoTrust::new();
-            trust.verify_compliance_proof(proof.to_string()).unwrap_or(false)
+            let author_id = author_id_clone.clone().unwrap_or_default();
+            let author_role = users_clone
+                .iter()
+                .find(|u| u.id == author_id)
+                .map(|u| u.role.clone())
+                .unwrap_or_else(|| "user".to_string());
+            trust.verify_compliance_proof(proof.to_string(), author_id, author_role, ciphertext_clone.to_string()).unwrap_or(false)
         } else {
             false
         }

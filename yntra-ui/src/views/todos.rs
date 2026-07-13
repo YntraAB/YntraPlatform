@@ -22,28 +22,12 @@ pub fn TodosView(props: TodosViewProps) -> Element {
     let region = props.auth_region.read().clone();
     let state = use_context::<AppState>();
     
-    // Fetch todos from core
-    let uid_res = props.active_user_id.clone();
-    let todos_resource = use_resource(move || {
-        let _trig = *state.trigger_todos.read();
-        let ws_id = state.workspace_id.read().clone();
-        let u = uid_res.clone();
-        async move {
-            match yntra_core::get_todos(u.read().clone(), ws_id).await {
-                Ok(list) => list,
-                Err(_) => Vec::new(),
-            }
-        }
-    });
-
-    let _todos = todos_resource.read().clone().unwrap_or_default();
-    
     let mut new_todo_text = use_signal(String::new);
     let mut active_filter = use_signal(|| "all".to_string());
 
     // Filter todos (memoized signal)
     let filtered_todos = use_memo(move || {
-        let current_todos = todos_resource.read();
+        let current_todos = state.todos.read();
         let current_todos = current_todos.as_ref().map(|v| v.as_slice()).unwrap_or(&[]);
         let filter = active_filter.read().clone();
         let list: Vec<TodoItem> = current_todos
@@ -57,7 +41,6 @@ pub fn TodosView(props: TodosViewProps) -> Element {
             .collect();
         list
     });
-    let filtered_todos = filtered_todos.read().clone();
 
     let tab_items = vec![
         components::tabs::TabItem {
@@ -76,6 +59,8 @@ pub fn TodosView(props: TodosViewProps) -> Element {
             icon: None,
         },
     ];
+
+    let filtered = filtered_todos.read();
 
     rsx! {
         div {
@@ -122,21 +107,22 @@ pub fn TodosView(props: TodosViewProps) -> Element {
 
             // Todos List
             div { class: "flex flex-col gap-3.5",
-                if filtered_todos.is_empty() {
+                if filtered.is_empty() {
                     components::Card {
                         class: "text-center p-12 text-muted-foreground flex flex-col items-center justify-center gap-3 border border-border/40 rounded-xl",
                         components::LucideIcon { name: "check-square", size: "40", class: "icon-muted opacity-40 animate-pulse", }
                         p { class: "text-sm font-semibold m-0", "{t(\"todos-empty-state\", &region)}" }
                     }
                 } else {
-                    {filtered_todos.into_iter().map(|item| {
-                        let todo_id = item.id.clone();
+                    {filtered.iter().map(|item| {
+                        let todo_id_onchange = item.id.clone();
+                        let todo_id_onclick = item.id.clone();
                         let is_completed = item.completed;
                         let text = item.text.clone();
                         
                         rsx! {
                             div {
-                                key: "{todo_id}",
+                                key: "{item.id}",
                                 class: "group transition-all duration-200 hover:translate-x-1",
                                 components::Card {
                                     style: format!(
@@ -149,7 +135,7 @@ pub fn TodosView(props: TodosViewProps) -> Element {
                                             components::Checkbox {
                                                 checked: is_completed,
                                                 onchange: move |_| {
-                                                    let id = todo_id.clone();
+                                                    let id = todo_id_onchange.clone();
                                                     let uid = props.active_user_id.read().clone();
                                                     spawn(async move {
                                                         let _ = yntra_core::toggle_todo(uid, id).await;
@@ -163,7 +149,7 @@ pub fn TodosView(props: TodosViewProps) -> Element {
                                                     if is_completed { "text-decoration: line-through; color: var(--text-secondary); opacity: 0.65;" } else { "font-medium; text-foreground;" }
                                                 ),
                                                 onclick: move |_| {
-                                                    let id = item.id.clone();
+                                                    let id = todo_id_onclick.clone();
                                                     let uid = props.active_user_id.read().clone();
                                                     spawn(async move {
                                                         let _ = yntra_core::toggle_todo(uid, id).await;

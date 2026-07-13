@@ -189,7 +189,7 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
 
     let mut show_report_time_modal = use_signal(|| false);
     let mut show_customize_modal = use_signal(|| false);
-    let mut todo_input = use_signal(|| String::new());
+    let mut todo_input = use_signal(String::new);
 
     let is_client = active_user.role == "client";
     let locale = auth_region.read().clone();
@@ -206,19 +206,7 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
     let today_formatted = get_formatted_today_date(&today_prefix, &locale);
 
     // Resources for dynamic widget queries
-    let user_id_todos = active_user.id.clone();
-    let ws_id_todos = workspace.id.clone();
-    let todos = use_resource(move || {
-        let _trig = db_trigger.read();
-        let user_id = user_id_todos.clone();
-        let ws_id = ws_id_todos.clone();
-        async move {
-            match yntra_core::get_todos(user_id, ws_id).await {
-                Ok(list) => list,
-                Err(_) => Vec::new(),
-            }
-        }
-    });
+    let todos = state.todos;
 
     let user_id_jobs = active_user.id.clone();
     let job_tickets = use_resource(move || {
