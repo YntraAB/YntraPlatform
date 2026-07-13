@@ -193,12 +193,11 @@ impl DbConnection {
         let params_val = serde_wasm_bindgen::to_value(&params_wasm)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         let result_val = js_execute_sql("query", sql, params_val).await?;
-        let rows: Vec<serde_json::Value> = serde_wasm_bindgen::from_value(result_val)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        if rows.is_empty() {
+        let array = js_sys::Array::from(&result_val);
+        if array.length() == 0 {
             return Err(YntraError::NoRowsReturned);
         }
-        let row = Row { value: rows[0].clone() };
+        let row = Row { value: array.get(0) };
         f(&row)
     }
 }
@@ -213,10 +212,9 @@ impl Statement {
         let params_val = serde_wasm_bindgen::to_value(&params_wasm)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         let result_val = js_execute_sql("query", &self.sql, params_val).await?;
-        let rows_val: Vec<serde_json::Value> = serde_wasm_bindgen::from_value(result_val)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+        let array = js_sys::Array::from(&result_val);
         Ok(Rows {
-            rows: rows_val,
+            rows: array,
             index: 0,
         })
     }
@@ -237,14 +235,14 @@ impl Statement {
 }
 
 pub struct Rows {
-    rows: Vec<serde_json::Value>,
+    rows: js_sys::Array,
     index: usize,
 }
 
 impl Rows {
     pub async fn next(&mut self) -> Result<Option<Row>, YntraError> {
-        if self.index < self.rows.len() {
-            let val = self.rows[self.index].clone();
+        if self.index < self.rows.length() as usize {
+            let val = self.rows.get(self.index as u32);
             self.index += 1;
             Ok(Some(Row { value: val }))
         } else {
@@ -254,19 +252,18 @@ impl Rows {
 }
 
 pub struct Row {
-    value: serde_json::Value,
+    value: JsValue,
 }
 
 impl Row {
     pub fn get<T: serde::de::DeserializeOwned>(&self, idx: i32) -> Result<T, YntraError> {
-        if let Some(arr) = self.value.as_array() {
-            let val = arr.get(idx as usize)
-                .ok_or_else(|| YntraError::DbError(format!("Column index out of bounds: {}", idx)))?;
-            serde_json::from_value(val.clone())
-                .map_err(|e| YntraError::DbError(format!("Failed to deserialize column at index {}: {}", idx, e)))
-        } else {
-            Err(YntraError::DbError("Row value is not a JSON array".to_string()))
+        let array = js_sys::Array::from(&self.value);
+        if idx < 0 || idx >= array.length() as i32 {
+            return Err(YntraError::DbError(format!("Column index out of bounds: {}", idx)));
         }
+        let val = array.get(idx as u32);
+        serde_wasm_bindgen::from_value(val)
+            .map_err(|e| YntraError::DbError(format!("Failed to deserialize column at index {}: {}", idx, e)))
     }
 }
 

@@ -9,7 +9,6 @@ async fn execute_migration_sql(conn: &DbConnection, sql: &str) -> Result<(), Ynt
             if err_str.contains("duplicate column name") 
                 || err_str.contains("already exists") 
                 || err_str.contains("duplicate column") 
-                || err_str.contains("no such table")
             {
                 Ok(())
             } else {
@@ -28,7 +27,6 @@ async fn execute_migration_batch(conn: &DbConnection, sql: &str) -> Result<(), Y
                 || err_str.contains("already exists") 
                 || err_str.contains("duplicate column") 
                 || err_str.contains("duplicate table")
-                || err_str.contains("no such table")
             {
                 Ok(())
             } else {

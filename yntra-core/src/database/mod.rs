@@ -61,8 +61,14 @@ pub fn track_write_batch(sql: &str) {
 }
 
 pub fn check_transaction_sql(sql: &str) -> Option<bool> {
-    let cleaned = self::parser::clean_sql(sql);
-    let sql_trimmed = cleaned.trim_start();
+    let cleaned_owned;
+    let has_comments = sql.contains("/*") || sql.contains("--");
+    let sql_trimmed = if has_comments {
+        cleaned_owned = self::parser::clean_sql(sql);
+        cleaned_owned.trim_start()
+    } else {
+        sql.trim_start()
+    };
     if sql_trimmed.len() >= 5 {
         let prefix = &sql_trimmed[..5];
         if prefix.eq_ignore_ascii_case("BEGIN") {
@@ -83,6 +89,7 @@ pub fn check_transaction_sql(sql: &str) -> Option<bool> {
     }
     None
 }
+
 
 #[cfg(test)]
 mod tests {

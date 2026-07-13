@@ -143,15 +143,11 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
     
     // Scan past Common Table Expressions (CTEs)
     if trimmed.len() >= 4 && trimmed[..4].eq_ignore_ascii_case("WITH") {
-        let chars_vec: Vec<char> = trimmed.chars().collect();
-        let mut idx = 4; // skip 'WITH'
-        
-        // Skip RECURSIVE modifier
         let mut rest = trimmed[4..].trim_start();
         if rest.len() >= 9 && rest[..9].eq_ignore_ascii_case("RECURSIVE") {
             rest = rest[9..].trim_start();
-            idx = trimmed.len() - rest.len();
         }
+        let mut byte_idx = trimmed.len() - rest.len();
         
         // Loop to skip each CTE definition
         loop {
@@ -161,8 +157,9 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
             let mut in_double_quote = false;
             let mut found_as_idx = None;
             
-            while idx < chars_vec.len() {
-                let c = chars_vec[idx];
+            let mut chars = trimmed[byte_idx..].char_indices().peekable();
+            while let Some((c_idx, c)) = chars.next() {
+                let current_byte_idx = byte_idx + c_idx;
                 if in_single_quote {
                     if c == '\'' {
                         in_single_quote = false;
@@ -183,15 +180,19 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
                         }
                         _ if paren_count == 0 => {
                             // Check if this starts "AS"
-                            if idx + 2 <= chars_vec.len() {
-                                let word: String = chars_vec[idx..idx+2].iter().collect();
+                            if trimmed[current_byte_idx..].len() >= 2 {
+                                let word = &trimmed[current_byte_idx..current_byte_idx+2];
                                 if word.eq_ignore_ascii_case("AS") {
                                     // Check word boundaries
-                                    let prev_ok = idx == 0 || chars_vec[idx-1].is_whitespace() || chars_vec[idx-1] == ')' || chars_vec[idx-1] == ']';
-                                    let next_ok = idx + 2 == chars_vec.len() || chars_vec[idx+2].is_whitespace() || chars_vec[idx+2] == '(';
+                                    let prev_char = trimmed[..current_byte_idx].chars().next_back();
+                                    let next_char = trimmed[current_byte_idx+2..].chars().next();
+                                    
+                                    let prev_ok = prev_char.map(|pc| pc.is_whitespace() || pc == ')' || pc == ']').unwrap_or(true);
+                                    let next_ok = next_char.map(|nc| nc.is_whitespace() || nc == '(').unwrap_or(true);
+                                    
                                     if prev_ok && next_ok {
-                                        found_as_idx = Some(idx);
-                                        idx += 2;
+                                        found_as_idx = Some(current_byte_idx);
+                                        byte_idx = current_byte_idx + 2;
                                         break;
                                     }
                                 }
@@ -200,30 +201,29 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
                         _ => {}
                     }
                 }
-                idx += 1;
             }
             
-            let _ = match found_as_idx {
-                Some(i) => i,
-                None => break, // invalid CTE syntax, break out
-            };
+            if found_as_idx.is_none() {
+                break; // invalid CTE syntax, break out
+            }
             
             // Skip whitespace to the opening parenthesis '(' of the CTE query
-            while idx < chars_vec.len() && chars_vec[idx].is_whitespace() {
-                idx += 1;
-            }
-            if idx >= chars_vec.len() || chars_vec[idx] != '(' {
+            let rest = trimmed[byte_idx..].trim_start();
+            byte_idx = trimmed.len() - rest.len();
+            if !rest.starts_with('(') {
                 break; // invalid CTE syntax
             }
+            byte_idx += 1; // skip '('
             
             // balance parentheses of the CTE query (starts at paren_count = 1)
             let mut cte_paren_count = 1;
-            idx += 1; // skip '('
             in_single_quote = false;
             in_double_quote = false;
+            let mut closed_idx = None;
             
-            while idx < chars_vec.len() {
-                let c = chars_vec[idx];
+            let mut chars = trimmed[byte_idx..].char_indices();
+            while let Some((c_idx, c)) = chars.next() {
+                let current_byte_idx = byte_idx + c_idx;
                 if in_single_quote {
                     if c == '\'' {
                         in_single_quote = false;
@@ -241,6 +241,7 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
                             if cte_paren_count > 0 {
                                 cte_paren_count -= 1;
                                 if cte_paren_count == 0 {
+                                    closed_idx = Some(current_byte_idx);
                                     break;
                                 }
                             }
@@ -248,25 +249,24 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
                         _ => {}
                     }
                 }
-                idx += 1;
             }
             
-            if cte_paren_count != 0 {
-                break; // unbalanced parentheses, break out
-            }
+            let c_idx = match closed_idx {
+                Some(i) => i,
+                None => break, // unbalanced parentheses, break out
+            };
             
-            idx += 1; // skip ')'
+            byte_idx = c_idx + 1; // skip ')'
             
             // Peek at next non-whitespace char
-            while idx < chars_vec.len() && chars_vec[idx].is_whitespace() {
-                idx += 1;
-            }
+            let rest = trimmed[byte_idx..].trim_start();
+            byte_idx = trimmed.len() - rest.len();
             
-            if idx < chars_vec.len() && chars_vec[idx] == ',' {
-                idx += 1; // skip comma and loop to parse next CTE
+            if rest.starts_with(',') {
+                byte_idx += 1; // skip comma and loop to parse next CTE
             } else {
                 // Done with CTEs!
-                trimmed = &trimmed[idx..];
+                trimmed = &trimmed[byte_idx..];
                 break;
             }
         }
