@@ -5,12 +5,7 @@ use crate::infra::errors::YntraError;
 
 // --- Pillar 1: Zero-Copy Memory-Mapped Persistence ---
 
-#[derive(Clone, uniffi::Object)]
-pub struct ZeroCopyStore {
-    inner: Arc<Mutex<ZeroCopyStoreInner>>,
-}
-
-struct ZeroCopyStoreInner {
+struct ZeroCopyEngine {
     #[cfg(not(target_arch = "wasm32"))]
     _file_path: String,
     #[cfg(not(target_arch = "wasm32"))]
@@ -18,15 +13,13 @@ struct ZeroCopyStoreInner {
     #[cfg(not(target_arch = "wasm32"))]
     mmap: Option<memmap2::MmapMut>,
     #[cfg(target_arch = "wasm32")]
-    buffer: Vec<u8>,
+    buffer: rkyv::util::AlignedVec::<16>,
     loro: loro::LoroDoc,
 }
 
-#[uniffi::export]
-impl ZeroCopyStore {
-    #[allow(unused_variables)]
-    #[uniffi::constructor]
+impl ZeroCopyEngine {
     pub fn new(file_path: String) -> Result<Self, YntraError> {
+        let _ = &file_path;
         let loro = loro::LoroDoc::new();
         
         #[cfg(not(target_arch = "wasm32"))]
@@ -48,66 +41,159 @@ impl ZeroCopyStore {
                 None
             };
             
-            let mut store = ZeroCopyStoreInner {
+            let mut engine = Self {
                 _file_path: file_path,
                 file: Some(file),
                 mmap,
                 loro,
             };
             
-            store.load_loro_from_mmap()?;
+            engine.load_loro_from_mmap()?;
             
-            Ok(Self { inner: Arc::new(Mutex::new(store)) })
+            Ok(engine)
         }
         
         #[cfg(target_arch = "wasm32")]
         {
             Ok(Self {
-                inner: Arc::new(Mutex::new(ZeroCopyStoreInner {
-                    buffer: Vec::new(),
-                    loro,
-                })),
+                buffer: rkyv::util::AlignedVec::<16>::new(),
+                loro,
             })
         }
     }
 
-    pub fn write_todos(&self, todos: Vec<TodoItem>) -> Result<(), YntraError> {
-        let mut inner = self.inner.lock().unwrap();
-        
-        // 1. Serialize via rkyv
-        let rkyv_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&todos)
+    pub fn get_bytes(&self) -> &[u8] {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.mmap.as_ref().map(|m| &m[..]).unwrap_or(&[])
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            &self.buffer
+        }
+    }
+
+    pub fn save_to_disk(&mut self, rkyv_bytes: &[u8], loro_bytes: &[u8]) -> Result<(), YntraError> {
+        let rkyv_len = rkyv_bytes.len() as u64;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let total_len = 8 + rkyv_bytes.len() + loro_bytes.len();
+            let file = self.file.as_ref().ok_or_else(|| YntraError::DbError("Database file not opened".to_string()))?;
+                
+            file.set_len(total_len as u64)
+                .map_err(|e| YntraError::DbError(e.to_string()))?;
+                
+            let mut m = unsafe { memmap2::MmapMut::map_mut(file).map_err(|e| YntraError::DbError(e.to_string()))? };
+            
+            m[0..8].copy_from_slice(&rkyv_len.to_be_bytes());
+            m[8..8+rkyv_bytes.len()].copy_from_slice(rkyv_bytes);
+            m[8+rkyv_bytes.len()..total_len].copy_from_slice(loro_bytes);
+            
+            m.flush().map_err(|e| YntraError::DbError(e.to_string()))?;
+            self.mmap = Some(m);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let mut buf = rkyv::util::AlignedVec::<16>::new();
+            buf.extend_from_slice(&rkyv_len.to_be_bytes());
+            buf.extend_from_slice(rkyv_bytes);
+            buf.extend_from_slice(loro_bytes);
+            self.buffer = buf;
+        }
+        Ok(())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn load_loro_from_mmap(&mut self) -> Result<(), YntraError> {
+        if let Some(ref m) = self.mmap {
+            if m.len() >= 8 {
+                let rkyv_len = u64::from_be_bytes(m[0..8].try_into().unwrap()) as usize;
+                if m.len() >= 8 + rkyv_len {
+                    let loro_offset = 8 + rkyv_len;
+                    if m.len() > loro_offset {
+                        let loro_bytes = &m[loro_offset..];
+                        let _ = self.loro.import(loro_bytes);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn get_loro_changes(&self) -> Result<Vec<u8>, YntraError> {
+        self.loro.export(loro::ExportMode::Snapshot)
+            .map_err(|e| YntraError::SerializationError(e.to_string()))
+    }
+
+    pub fn apply_loro_update(&mut self, update_bytes: &[u8]) -> Result<(), YntraError> {
+        self.loro.import(update_bytes)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             
-        // 2. Put rkyv bytes into Loro Map
-        let map = inner.loro.get_map("db");
+        let map = self.loro.get_map("db");
+        if let Some(val) = map.get("bytes") {
+            if let Some(val_ref) = val.as_value() {
+                if let Some(bytes) = val_ref.as_binary() {
+                    let loro_bytes = self.loro.export(loro::ExportMode::Snapshot)
+                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                    self.save_to_disk(bytes, &loro_bytes)?;
+                }
+            }
+        }
+        Ok(())
+    }
+    pub fn write_serialized(&mut self, rkyv_bytes: &[u8]) -> Result<(), YntraError> {
+        let map = self.loro.get_map("db");
         let _ = map.insert("bytes", rkyv_bytes.to_vec());
 
-        // 3. Export Loro Snapshot
-        let loro_bytes = inner.loro.export(loro::ExportMode::Snapshot)
+        let loro_bytes = self.loro.export(loro::ExportMode::Snapshot)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             
-        inner.save_to_disk(&rkyv_bytes, &loro_bytes)?;
-        Ok(())
+        self.save_to_disk(rkyv_bytes, &loro_bytes)
+    }
+
+    pub fn get_rkyv_slice(&self) -> &[u8] {
+        let bytes = self.get_bytes();
+        if bytes.len() < 8 {
+            return &[];
+        }
+        let rkyv_len = u64::from_be_bytes(bytes[0..8].try_into().unwrap()) as usize;
+        if bytes.len() < 8 + rkyv_len {
+            return &[];
+        }
+        &bytes[8..8+rkyv_len]
+    }
+}
+
+// --- ZeroCopyStore ---
+
+#[derive(Clone, uniffi::Object)]
+pub struct ZeroCopyStore {
+    inner: Arc<Mutex<ZeroCopyEngine>>,
+}
+
+#[uniffi::export]
+impl ZeroCopyStore {
+    #[allow(unused_variables)]
+    #[uniffi::constructor]
+    pub fn new(file_path: String) -> Result<Self, YntraError> {
+        Ok(Self { inner: Arc::new(Mutex::new(ZeroCopyEngine::new(file_path)?)) })
+    }
+
+    pub fn write_todos(&self, todos: Vec<TodoItem>) -> Result<(), YntraError> {
+        let mut inner = self.inner.lock().unwrap();
+        let rkyv_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&todos)
+            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+        inner.write_serialized(&rkyv_bytes)
     }
 
     pub fn read_todo_zero_copy(&self, todo_id: String) -> Result<Option<TodoItem>, YntraError> {
         let inner = self.inner.lock().unwrap();
-        let bytes = inner.get_bytes();
-        
-        if bytes.len() < 8 {
+        let rkyv_slice = inner.get_rkyv_slice();
+        if rkyv_slice.is_empty() {
             return Ok(None);
         }
         
-        let rkyv_len = u64::from_be_bytes(bytes[0..8].try_into().unwrap()) as usize;
-        if bytes.len() < 8 + rkyv_len {
-            return Ok(None);
-        }
-        
-        let rkyv_slice = &bytes[8..8+rkyv_len];
-        
-        // Zero-copy read cast using rkyv::access.
-        // If the pointer is not aligned, copy it to AlignedVec to ensure 8-byte alignment.
-        if (rkyv_slice.as_ptr() as usize) % 8 == 0 {
+        if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
             let archived_todos = rkyv::access::<rkyv::Archived<Vec<TodoItem>>, rkyv::rancor::Error>(rkyv_slice)
                 .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             for archived_todo in archived_todos.iter() {
@@ -136,21 +222,13 @@ impl ZeroCopyStore {
 
     pub fn read_all_todos(&self) -> Result<Vec<TodoItem>, YntraError> {
         let inner = self.inner.lock().unwrap();
-        let bytes = inner.get_bytes();
-        
-        if bytes.len() < 8 {
+        let rkyv_slice = inner.get_rkyv_slice();
+        if rkyv_slice.is_empty() {
             return Ok(Vec::new());
         }
         
-        let rkyv_len = u64::from_be_bytes(bytes[0..8].try_into().unwrap()) as usize;
-        if bytes.len() < 8 + rkyv_len {
-            return Ok(Vec::new());
-        }
-        
-        let rkyv_slice = &bytes[8..8+rkyv_len];
         let mut list = Vec::new();
-        
-        if (rkyv_slice.as_ptr() as usize) % 8 == 0 {
+        if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
             let archived_todos = rkyv::access::<rkyv::Archived<Vec<TodoItem>>, rkyv::rancor::Error>(rkyv_slice)
                 .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             for archived_todo in archived_todos.iter() {
@@ -175,21 +253,13 @@ impl ZeroCopyStore {
 
     pub fn read_todos_by_workspace(&self, workspace_id: String) -> Result<Vec<TodoItem>, YntraError> {
         let inner = self.inner.lock().unwrap();
-        let bytes = inner.get_bytes();
-        
-        if bytes.len() < 8 {
+        let rkyv_slice = inner.get_rkyv_slice();
+        if rkyv_slice.is_empty() {
             return Ok(Vec::new());
         }
         
-        let rkyv_len = u64::from_be_bytes(bytes[0..8].try_into().unwrap()) as usize;
-        if bytes.len() < 8 + rkyv_len {
-            return Ok(Vec::new());
-        }
-        
-        let rkyv_slice = &bytes[8..8+rkyv_len];
         let mut list = Vec::new();
-        
-        if (rkyv_slice.as_ptr() as usize) % 8 == 0 {
+        if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
             let archived_todos = rkyv::access::<rkyv::Archived<Vec<TodoItem>>, rkyv::rancor::Error>(rkyv_slice)
                 .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             for archived_todo in archived_todos.iter() {
@@ -218,86 +288,12 @@ impl ZeroCopyStore {
     
     pub fn get_loro_changes(&self) -> Result<Vec<u8>, YntraError> {
         let inner = self.inner.lock().unwrap();
-        inner.loro.export(loro::ExportMode::Snapshot)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))
+        inner.get_loro_changes()
     }
     
     pub fn apply_loro_update(&self, update_bytes: Vec<u8>) -> Result<(), YntraError> {
         let mut inner = self.inner.lock().unwrap();
-        inner.loro.import(&update_bytes)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            
-        let map = inner.loro.get_map("db");
-        if let Some(val) = map.get("bytes") {
-            if let Some(val_ref) = val.as_value() {
-                if let Some(bytes) = val_ref.as_binary() {
-                    let loro_bytes = inner.loro.export(loro::ExportMode::Snapshot)
-                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                    inner.save_to_disk(bytes, &loro_bytes)?;
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
-impl ZeroCopyStoreInner {
-    fn get_bytes(&self) -> &[u8] {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.mmap.as_ref().map(|m| &m[..]).unwrap_or(&[])
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            &self.buffer
-        }
-    }
-    
-    fn save_to_disk(&mut self, rkyv_bytes: &[u8], loro_bytes: &[u8]) -> Result<(), YntraError> {
-        let rkyv_len = rkyv_bytes.len() as u64;
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let total_len = 8 + rkyv_bytes.len() + loro_bytes.len();
-            let file = self.file.as_ref().ok_or_else(|| YntraError::DbError("Database file not opened".to_string()))?;
-                
-            file.set_len(total_len as u64)
-                .map_err(|e| YntraError::DbError(e.to_string()))?;
-                
-            let mut m = unsafe { memmap2::MmapMut::map_mut(file).map_err(|e| YntraError::DbError(e.to_string()))? };
-            
-            m[0..8].copy_from_slice(&rkyv_len.to_be_bytes());
-            m[8..8+rkyv_bytes.len()].copy_from_slice(rkyv_bytes);
-            m[8+rkyv_bytes.len()..total_len].copy_from_slice(loro_bytes);
-            
-            m.flush().map_err(|e| YntraError::DbError(e.to_string()))?;
-            self.mmap = Some(m);
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            let mut buf = Vec::new();
-            buf.extend_from_slice(&rkyv_len.to_be_bytes());
-            buf.extend_from_slice(rkyv_bytes);
-            buf.extend_from_slice(loro_bytes);
-            self.buffer = buf;
-        }
-        Ok(())
-    }
-    
-    #[cfg(not(target_arch = "wasm32"))]
-    fn load_loro_from_mmap(&mut self) -> Result<(), YntraError> {
-        if let Some(ref m) = self.mmap {
-            if m.len() >= 8 {
-                let rkyv_len = u64::from_be_bytes(m[0..8].try_into().unwrap()) as usize;
-                if m.len() >= 8 + rkyv_len {
-                    let loro_offset = 8 + rkyv_len;
-                    if m.len() > loro_offset {
-                        let loro_bytes = &m[loro_offset..];
-                        let _ = self.loro.import(loro_bytes);
-                    }
-                }
-            }
-        }
-        Ok(())
+        inner.apply_loro_update(&update_bytes)
     }
 }
 
@@ -456,7 +452,7 @@ impl P2PMeshSyncRouter {
             {
                 tokio::spawn(async move {
                     let mut success = false;
-                    if let Ok(res) = client.get(&format!("{}/relay/updates?peer_id={}", relay_url, peer_id)).send().await {
+                    if let Ok(res) = client.get(&format!("{}/relay/updates", relay_url)).query(&[("peer_id", &peer_id)]).send().await {
                         if res.status().is_success() {
                             if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
                                 success = true;
@@ -486,7 +482,7 @@ impl P2PMeshSyncRouter {
             {
                 wasm_bindgen_futures::spawn_local(async move {
                     let mut success = false;
-                    if let Ok(res) = client.get(&format!("{}/relay/updates?peer_id={}", relay_url, peer_id)).send().await {
+                    if let Ok(res) = client.get(&format!("{}/relay/updates", relay_url)).query(&[("peer_id", &peer_id)]).send().await {
                         if res.status().is_success() {
                             if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
                                 success = true;
@@ -524,7 +520,7 @@ impl P2PMeshSyncRouter {
             {
                 tokio::spawn(async move {
                     let mut success = false;
-                    if let Ok(res) = client.get(&format!("{}/relay/updates?peer_id={}", relay_url, peer_id)).send().await {
+                    if let Ok(res) = client.get(&format!("{}/relay/updates", relay_url)).query(&[("peer_id", &peer_id)]).send().await {
                         if res.status().is_success() {
                             if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
                                 success = true;
@@ -554,7 +550,7 @@ impl P2PMeshSyncRouter {
             {
                 wasm_bindgen_futures::spawn_local(async move {
                     let mut success = false;
-                    if let Ok(res) = client.get(&format!("{}/relay/updates?peer_id={}", relay_url, peer_id)).send().await {
+                    if let Ok(res) = client.get(&format!("{}/relay/updates", relay_url)).query(&[("peer_id", &peer_id)]).send().await {
                         if res.status().is_success() {
                             if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
                                 success = true;
@@ -592,7 +588,7 @@ impl P2PMeshSyncRouter {
             {
                 tokio::spawn(async move {
                     let mut success = false;
-                    if let Ok(res) = client.get(&format!("{}/relay/updates?peer_id={}", relay_url, peer_id)).send().await {
+                    if let Ok(res) = client.get(&format!("{}/relay/updates", relay_url)).query(&[("peer_id", &peer_id)]).send().await {
                         if res.status().is_success() {
                             if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
                                 success = true;
@@ -622,7 +618,7 @@ impl P2PMeshSyncRouter {
             {
                 wasm_bindgen_futures::spawn_local(async move {
                     let mut success = false;
-                    if let Ok(res) = client.get(&format!("{}/relay/updates?peer_id={}", relay_url, peer_id)).send().await {
+                    if let Ok(res) = client.get(&format!("{}/relay/updates", relay_url)).query(&[("peer_id", &peer_id)]).send().await {
                         if res.status().is_success() {
                             if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
                                 success = true;
@@ -961,19 +957,37 @@ impl ZkCryptoTrust {
         Ok(const_hex::encode(&proof_builder))
     }
 
-    pub fn verify_compliance_proof(&self, proof_hex: String) -> Result<bool, YntraError> {
+    pub fn verify_compliance_proof(
+        &self,
+        proof_hex: String,
+        user_id: String,
+        role: String,
+        data_hex: String,
+    ) -> Result<bool, YntraError> {
         let proof_bytes = const_hex::decode(&proof_hex)
             .map_err(|e| YntraError::CryptoError(e.to_string()))?;
             
-        if !proof_bytes.starts_with(b"ZKP_PROOF_V1:") {
+        if proof_bytes.len() < 46 || !proof_bytes.starts_with(b"ZKP_PROOF_V1:") {
             return Ok(false);
         }
         
-        if let Some(&last_byte) = proof_bytes.last() {
-            Ok(last_byte == 1)
-        } else {
-            Ok(false)
-        }
+        let data_bytes = const_hex::decode(&data_hex)
+            .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+            
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"YNTRA_ZKP_COMMITMENT_V1");
+        hasher.update(user_id.as_bytes());
+        hasher.update(role.as_bytes());
+        hasher.update(&data_bytes);
+        let expected_commitment = hasher.finalize();
+        
+        let actual_commitment = &proof_bytes[13..45];
+        let is_valid_len = *proof_bytes.last().unwrap_or(&0) == 1;
+        
+        let hash_matches = expected_commitment.as_bytes() == actual_commitment;
+        let len_matches = !data_bytes.is_empty() && data_bytes.len() < 10_000_000 && is_valid_len;
+        
+        Ok(hash_matches && len_matches)
     }
 }
 
@@ -981,19 +995,7 @@ impl ZkCryptoTrust {
 
 #[derive(Clone, uniffi::Object)]
 pub struct ZeroCopyMessageStore {
-    inner: Arc<Mutex<ZeroCopyMessageStoreInner>>,
-}
-
-struct ZeroCopyMessageStoreInner {
-    #[cfg(not(target_arch = "wasm32"))]
-    _file_path: String,
-    #[cfg(not(target_arch = "wasm32"))]
-    file: Option<std::fs::File>,
-    #[cfg(not(target_arch = "wasm32"))]
-    mmap: Option<memmap2::MmapMut>,
-    #[cfg(target_arch = "wasm32")]
-    buffer: Vec<u8>,
-    loro: loro::LoroDoc,
+    inner: Arc<Mutex<ZeroCopyEngine>>,
 }
 
 #[uniffi::export]
@@ -1001,86 +1003,25 @@ impl ZeroCopyMessageStore {
     #[allow(unused_variables)]
     #[uniffi::constructor]
     pub fn new(file_path: String) -> Result<Self, YntraError> {
-        let loro = loro::LoroDoc::new();
-        
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let file = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .open(&file_path)
-                .map_err(|e| YntraError::DbError(e.to_string()))?;
-            
-            let metadata = file.metadata().map_err(|e| YntraError::DbError(e.to_string()))?;
-            let len = metadata.len();
-            
-            let mmap = if len > 0 {
-                let m = unsafe { memmap2::MmapMut::map_mut(&file).map_err(|e| YntraError::DbError(e.to_string()))? };
-                Some(m)
-            } else {
-                None
-            };
-            
-            let mut store = ZeroCopyMessageStoreInner {
-                _file_path: file_path,
-                file: Some(file),
-                mmap,
-                loro,
-            };
-            
-            store.load_loro_from_mmap()?;
-            
-            Ok(Self { inner: Arc::new(Mutex::new(store)) })
-        }
-        
-        #[cfg(target_arch = "wasm32")]
-        {
-            Ok(Self {
-                inner: Arc::new(Mutex::new(ZeroCopyMessageStoreInner {
-                    buffer: Vec::new(),
-                    loro,
-                })),
-            })
-        }
+        Ok(Self { inner: Arc::new(Mutex::new(ZeroCopyEngine::new(file_path)?)) })
     }
 
     pub fn write_messages(&self, messages: Vec<crate::models::MessageItem>) -> Result<(), YntraError> {
         let mut inner = self.inner.lock().unwrap();
-        
-        // 1. Serialize via rkyv
         let rkyv_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&messages)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            
-        // 2. Put rkyv bytes into Loro Map
-        let map = inner.loro.get_map("db");
-        let _ = map.insert("bytes", rkyv_bytes.to_vec());
-
-        // 3. Export Loro Snapshot
-        let loro_bytes = inner.loro.export(loro::ExportMode::Snapshot)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            
-        inner.save_to_disk(&rkyv_bytes, &loro_bytes)?;
-        Ok(())
+        inner.write_serialized(&rkyv_bytes)
     }
 
     pub fn read_all_messages(&self) -> Result<Vec<crate::models::MessageItem>, YntraError> {
         let inner = self.inner.lock().unwrap();
-        let bytes = inner.get_bytes();
-        
-        if bytes.len() < 8 {
+        let rkyv_slice = inner.get_rkyv_slice();
+        if rkyv_slice.is_empty() {
             return Ok(Vec::new());
         }
         
-        let rkyv_len = u64::from_be_bytes(bytes[0..8].try_into().unwrap()) as usize;
-        if bytes.len() < 8 + rkyv_len {
-            return Ok(Vec::new());
-        }
-        
-        let rkyv_slice = &bytes[8..8+rkyv_len];
         let mut list = Vec::new();
-        
-        if (rkyv_slice.as_ptr() as usize) % 8 == 0 {
+        if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
             let archived_msgs = rkyv::access::<rkyv::Archived<Vec<crate::models::MessageItem>>, rkyv::rancor::Error>(rkyv_slice)
                 .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             for archived_msg in archived_msgs.iter() {
@@ -1110,20 +1051,14 @@ impl ZeroCopyMessageStore {
         user_teams: Vec<String>,
     ) -> Result<Vec<crate::models::MessageItem>, YntraError> {
         let inner = self.inner.lock().unwrap();
-        let bytes = inner.get_bytes();
-        
-        if bytes.len() < 8 {
+        let rkyv_slice = inner.get_rkyv_slice();
+        if rkyv_slice.is_empty() {
             return Ok(Vec::new());
         }
         
-        let rkyv_len = u64::from_be_bytes(bytes[0..8].try_into().unwrap()) as usize;
-        if bytes.len() < 8 + rkyv_len {
-            return Ok(Vec::new());
-        }
+        let team_set: std::collections::HashSet<&str> = user_teams.iter().map(|t| t.as_str()).collect();
         
-        let rkyv_slice = &bytes[8..8+rkyv_len];
         let mut list = Vec::new();
-        
         let process_archived = |archived_msgs: &rkyv::Archived<Vec<crate::models::MessageItem>>, list: &mut Vec<crate::models::MessageItem>| -> Result<(), YntraError> {
             for archived_msg in archived_msgs.iter() {
                 if archived_msg.workspace_id != workspace_id {
@@ -1133,7 +1068,7 @@ impl ZeroCopyMessageStore {
                 let is_sender = archived_msg.sender_id.as_ref().map(|s| s.as_str()) == Some(user_id.as_str());
                 let is_receiver = archived_msg.receiver_id.as_ref().map(|r| r.as_str()) == Some(user_id.as_str());
                 let is_team_recipient = archived_msg.target_team_id.as_ref()
-                    .map(|tid| user_teams.iter().any(|team| team.as_str() == tid.as_str()))
+                    .map(|tid| team_set.contains(tid.as_str()))
                     .unwrap_or(false);
                     
                 if is_sender || is_receiver || is_team_recipient {
@@ -1145,7 +1080,7 @@ impl ZeroCopyMessageStore {
             Ok(())
         };
         
-        if (rkyv_slice.as_ptr() as usize) % 8 == 0 {
+        if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
             let archived_msgs = rkyv::access::<rkyv::Archived<Vec<crate::models::MessageItem>>, rkyv::rancor::Error>(rkyv_slice)
                 .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             process_archived(archived_msgs, &mut list)?;
@@ -1162,20 +1097,12 @@ impl ZeroCopyMessageStore {
 
     pub fn read_message_zero_copy(&self, message_id: String) -> Result<Option<crate::models::MessageItem>, YntraError> {
         let inner = self.inner.lock().unwrap();
-        let bytes = inner.get_bytes();
-        
-        if bytes.len() < 8 {
+        let rkyv_slice = inner.get_rkyv_slice();
+        if rkyv_slice.is_empty() {
             return Ok(None);
         }
         
-        let rkyv_len = u64::from_be_bytes(bytes[0..8].try_into().unwrap()) as usize;
-        if bytes.len() < 8 + rkyv_len {
-            return Ok(None);
-        }
-        
-        let rkyv_slice = &bytes[8..8+rkyv_len];
-        
-        if (rkyv_slice.as_ptr() as usize) % 8 == 0 {
+        if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
             let archived_msgs = rkyv::access::<rkyv::Archived<Vec<crate::models::MessageItem>>, rkyv::rancor::Error>(rkyv_slice)
                 .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             for archived_msg in archived_msgs.iter() {
@@ -1204,86 +1131,12 @@ impl ZeroCopyMessageStore {
 
     pub fn get_loro_changes(&self) -> Result<Vec<u8>, YntraError> {
         let inner = self.inner.lock().unwrap();
-        inner.loro.export(loro::ExportMode::Snapshot)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))
+        inner.get_loro_changes()
     }
     
     pub fn apply_loro_update(&self, update_bytes: Vec<u8>) -> Result<(), YntraError> {
         let mut inner = self.inner.lock().unwrap();
-        inner.loro.import(&update_bytes)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            
-        let map = inner.loro.get_map("db");
-        if let Some(val) = map.get("bytes") {
-            if let Some(val_ref) = val.as_value() {
-                if let Some(bytes) = val_ref.as_binary() {
-                    let loro_bytes = inner.loro.export(loro::ExportMode::Snapshot)
-                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                    inner.save_to_disk(bytes, &loro_bytes)?;
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
-impl ZeroCopyMessageStoreInner {
-    fn get_bytes(&self) -> &[u8] {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.mmap.as_ref().map(|m| &m[..]).unwrap_or(&[])
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            &self.buffer
-        }
-    }
-    
-    fn save_to_disk(&mut self, rkyv_bytes: &[u8], loro_bytes: &[u8]) -> Result<(), YntraError> {
-        let rkyv_len = rkyv_bytes.len() as u64;
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let total_len = 8 + rkyv_bytes.len() + loro_bytes.len();
-            let file = self.file.as_ref().ok_or_else(|| YntraError::DbError("Database file not opened".to_string()))?;
-                
-            file.set_len(total_len as u64)
-                .map_err(|e| YntraError::DbError(e.to_string()))?;
-                
-            let mut m = unsafe { memmap2::MmapMut::map_mut(file).map_err(|e| YntraError::DbError(e.to_string()))? };
-            
-            m[0..8].copy_from_slice(&rkyv_len.to_be_bytes());
-            m[8..8+rkyv_bytes.len()].copy_from_slice(rkyv_bytes);
-            m[8+rkyv_bytes.len()..total_len].copy_from_slice(loro_bytes);
-            
-            m.flush().map_err(|e| YntraError::DbError(e.to_string()))?;
-            self.mmap = Some(m);
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            let mut buf = Vec::new();
-            buf.extend_from_slice(&rkyv_len.to_be_bytes());
-            buf.extend_from_slice(rkyv_bytes);
-            buf.extend_from_slice(loro_bytes);
-            self.buffer = buf;
-        }
-        Ok(())
-    }
-    
-    #[cfg(not(target_arch = "wasm32"))]
-    fn load_loro_from_mmap(&mut self) -> Result<(), YntraError> {
-        if let Some(ref m) = self.mmap {
-            if m.len() >= 8 {
-                let rkyv_len = u64::from_be_bytes(m[0..8].try_into().unwrap()) as usize;
-                if m.len() >= 8 + rkyv_len {
-                    let loro_offset = 8 + rkyv_len;
-                    if m.len() > loro_offset {
-                        let loro_bytes = &m[loro_offset..];
-                        let _ = self.loro.import(loro_bytes);
-                    }
-                }
-            }
-        }
-        Ok(())
+        inner.apply_loro_update(&update_bytes)
     }
 }
 
@@ -1291,19 +1144,7 @@ impl ZeroCopyMessageStoreInner {
 
 #[derive(Clone, uniffi::Object)]
 pub struct ZeroCopyAuditStore {
-    inner: Arc<Mutex<ZeroCopyAuditStoreInner>>,
-}
-
-struct ZeroCopyAuditStoreInner {
-    #[cfg(not(target_arch = "wasm32"))]
-    _file_path: String,
-    #[cfg(not(target_arch = "wasm32"))]
-    file: Option<std::fs::File>,
-    #[cfg(not(target_arch = "wasm32"))]
-    mmap: Option<memmap2::MmapMut>,
-    #[cfg(target_arch = "wasm32")]
-    buffer: Vec<u8>,
-    loro: loro::LoroDoc,
+    inner: Arc<Mutex<ZeroCopyEngine>>,
 }
 
 #[uniffi::export]
@@ -1311,86 +1152,25 @@ impl ZeroCopyAuditStore {
     #[allow(unused_variables)]
     #[uniffi::constructor]
     pub fn new(file_path: String) -> Result<Self, YntraError> {
-        let loro = loro::LoroDoc::new();
-        
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let file = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .open(&file_path)
-                .map_err(|e| YntraError::DbError(e.to_string()))?;
-            
-            let metadata = file.metadata().map_err(|e| YntraError::DbError(e.to_string()))?;
-            let len = metadata.len();
-            
-            let mmap = if len > 0 {
-                let m = unsafe { memmap2::MmapMut::map_mut(&file).map_err(|e| YntraError::DbError(e.to_string()))? };
-                Some(m)
-            } else {
-                None
-            };
-            
-            let mut store = ZeroCopyAuditStoreInner {
-                _file_path: file_path,
-                file: Some(file),
-                mmap,
-                loro,
-            };
-            
-            store.load_loro_from_mmap()?;
-            
-            Ok(Self { inner: Arc::new(Mutex::new(store)) })
-        }
-        
-        #[cfg(target_arch = "wasm32")]
-        {
-            Ok(Self {
-                inner: Arc::new(Mutex::new(ZeroCopyAuditStoreInner {
-                    buffer: Vec::new(),
-                    loro,
-                })),
-            })
-        }
+        Ok(Self { inner: Arc::new(Mutex::new(ZeroCopyEngine::new(file_path)?)) })
     }
 
     pub fn write_audit_logs(&self, entries: Vec<crate::models::AuditLogEntry>) -> Result<(), YntraError> {
         let mut inner = self.inner.lock().unwrap();
-        
-        // 1. Serialize via rkyv
         let rkyv_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&entries)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            
-        // 2. Put rkyv bytes into Loro Map
-        let map = inner.loro.get_map("db");
-        let _ = map.insert("bytes", rkyv_bytes.to_vec());
-
-        // 3. Export Loro Snapshot
-        let loro_bytes = inner.loro.export(loro::ExportMode::Snapshot)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            
-        inner.save_to_disk(&rkyv_bytes, &loro_bytes)?;
-        Ok(())
+        inner.write_serialized(&rkyv_bytes)
     }
 
     pub fn read_all_audit_logs(&self) -> Result<Vec<crate::models::AuditLogEntry>, YntraError> {
         let inner = self.inner.lock().unwrap();
-        let bytes = inner.get_bytes();
-        
-        if bytes.len() < 8 {
+        let rkyv_slice = inner.get_rkyv_slice();
+        if rkyv_slice.is_empty() {
             return Ok(Vec::new());
         }
         
-        let rkyv_len = u64::from_be_bytes(bytes[0..8].try_into().unwrap()) as usize;
-        if bytes.len() < 8 + rkyv_len {
-            return Ok(Vec::new());
-        }
-        
-        let rkyv_slice = &bytes[8..8+rkyv_len];
         let mut list = Vec::new();
-        
-        if (rkyv_slice.as_ptr() as usize) % 8 == 0 {
+        if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
             let archived_entries = rkyv::access::<rkyv::Archived<Vec<crate::models::AuditLogEntry>>, rkyv::rancor::Error>(rkyv_slice)
                 .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             for archived_entry in archived_entries.iter() {
@@ -1415,20 +1195,12 @@ impl ZeroCopyAuditStore {
 
     pub fn read_audit_zero_copy(&self, entry_id: String) -> Result<Option<crate::models::AuditLogEntry>, YntraError> {
         let inner = self.inner.lock().unwrap();
-        let bytes = inner.get_bytes();
-        
-        if bytes.len() < 8 {
+        let rkyv_slice = inner.get_rkyv_slice();
+        if rkyv_slice.is_empty() {
             return Ok(None);
         }
         
-        let rkyv_len = u64::from_be_bytes(bytes[0..8].try_into().unwrap()) as usize;
-        if bytes.len() < 8 + rkyv_len {
-            return Ok(None);
-        }
-        
-        let rkyv_slice = &bytes[8..8+rkyv_len];
-        
-        if (rkyv_slice.as_ptr() as usize) % 8 == 0 {
+        if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
             let archived_entries = rkyv::access::<rkyv::Archived<Vec<crate::models::AuditLogEntry>>, rkyv::rancor::Error>(rkyv_slice)
                 .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             for archived_entry in archived_entries.iter() {
@@ -1457,86 +1229,12 @@ impl ZeroCopyAuditStore {
 
     pub fn get_loro_changes(&self) -> Result<Vec<u8>, YntraError> {
         let inner = self.inner.lock().unwrap();
-        inner.loro.export(loro::ExportMode::Snapshot)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))
+        inner.get_loro_changes()
     }
     
     pub fn apply_loro_update(&self, update_bytes: Vec<u8>) -> Result<(), YntraError> {
         let mut inner = self.inner.lock().unwrap();
-        inner.loro.import(&update_bytes)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            
-        let map = inner.loro.get_map("db");
-        if let Some(val) = map.get("bytes") {
-            if let Some(val_ref) = val.as_value() {
-                if let Some(bytes) = val_ref.as_binary() {
-                    let loro_bytes = inner.loro.export(loro::ExportMode::Snapshot)
-                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                    inner.save_to_disk(bytes, &loro_bytes)?;
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
-impl ZeroCopyAuditStoreInner {
-    fn get_bytes(&self) -> &[u8] {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.mmap.as_ref().map(|m| &m[..]).unwrap_or(&[])
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            &self.buffer
-        }
-    }
-    
-    fn save_to_disk(&mut self, rkyv_bytes: &[u8], loro_bytes: &[u8]) -> Result<(), YntraError> {
-        let rkyv_len = rkyv_bytes.len() as u64;
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let total_len = 8 + rkyv_bytes.len() + loro_bytes.len();
-            let file = self.file.as_ref().ok_or_else(|| YntraError::DbError("Database file not opened".to_string()))?;
-                
-            file.set_len(total_len as u64)
-                .map_err(|e| YntraError::DbError(e.to_string()))?;
-                
-            let mut m = unsafe { memmap2::MmapMut::map_mut(file).map_err(|e| YntraError::DbError(e.to_string()))? };
-            
-            m[0..8].copy_from_slice(&rkyv_len.to_be_bytes());
-            m[8..8+rkyv_bytes.len()].copy_from_slice(rkyv_bytes);
-            m[8+rkyv_bytes.len()..total_len].copy_from_slice(loro_bytes);
-            
-            m.flush().map_err(|e| YntraError::DbError(e.to_string()))?;
-            self.mmap = Some(m);
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            let mut buf = Vec::new();
-            buf.extend_from_slice(&rkyv_len.to_be_bytes());
-            buf.extend_from_slice(rkyv_bytes);
-            buf.extend_from_slice(loro_bytes);
-            self.buffer = buf;
-        }
-        Ok(())
-    }
-    
-    #[cfg(not(target_arch = "wasm32"))]
-    fn load_loro_from_mmap(&mut self) -> Result<(), YntraError> {
-        if let Some(ref m) = self.mmap {
-            if m.len() >= 8 {
-                let rkyv_len = u64::from_be_bytes(m[0..8].try_into().unwrap()) as usize;
-                if m.len() >= 8 + rkyv_len {
-                    let loro_offset = 8 + rkyv_len;
-                    if m.len() > loro_offset {
-                        let loro_bytes = &m[loro_offset..];
-                        let _ = self.loro.import(loro_bytes);
-                    }
-                }
-            }
-        }
-        Ok(())
+        inner.apply_loro_update(&update_bytes)
     }
 }
 
@@ -1544,19 +1242,7 @@ impl ZeroCopyAuditStoreInner {
 
 #[derive(Clone, uniffi::Object)]
 pub struct ZeroCopyNoteStore {
-    inner: Arc<Mutex<ZeroCopyNoteStoreInner>>,
-}
-
-struct ZeroCopyNoteStoreInner {
-    #[cfg(not(target_arch = "wasm32"))]
-    _file_path: String,
-    #[cfg(not(target_arch = "wasm32"))]
-    file: Option<std::fs::File>,
-    #[cfg(not(target_arch = "wasm32"))]
-    mmap: Option<memmap2::MmapMut>,
-    #[cfg(target_arch = "wasm32")]
-    buffer: Vec<u8>,
-    loro: loro::LoroDoc,
+    inner: Arc<Mutex<ZeroCopyEngine>>,
 }
 
 #[uniffi::export]
@@ -1564,83 +1250,25 @@ impl ZeroCopyNoteStore {
     #[allow(unused_variables)]
     #[uniffi::constructor]
     pub fn new(file_path: String) -> Result<Self, YntraError> {
-        let loro = loro::LoroDoc::new();
-        
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let file = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .open(&file_path)
-                .map_err(|e| YntraError::DbError(e.to_string()))?;
-            
-            let metadata = file.metadata().map_err(|e| YntraError::DbError(e.to_string()))?;
-            let len = metadata.len();
-            
-            let mmap = if len > 0 {
-                let m = unsafe { memmap2::MmapMut::map_mut(&file).map_err(|e| YntraError::DbError(e.to_string()))? };
-                Some(m)
-            } else {
-                None
-            };
-            
-            let mut store = ZeroCopyNoteStoreInner {
-                _file_path: file_path,
-                file: Some(file),
-                mmap,
-                loro,
-            };
-            
-            store.load_loro_from_mmap()?;
-            
-            Ok(Self { inner: Arc::new(Mutex::new(store)) })
-        }
-        
-        #[cfg(target_arch = "wasm32")]
-        {
-            Ok(Self {
-                inner: Arc::new(Mutex::new(ZeroCopyNoteStoreInner {
-                    buffer: Vec::new(),
-                    loro,
-                })),
-            })
-        }
+        Ok(Self { inner: Arc::new(Mutex::new(ZeroCopyEngine::new(file_path)?)) })
     }
 
     pub fn write_notes(&self, notes: Vec<crate::models::DailyNote>) -> Result<(), YntraError> {
         let mut inner = self.inner.lock().unwrap();
-        
         let rkyv_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&notes)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            
-        let map = inner.loro.get_map("db");
-        let _ = map.insert("bytes", rkyv_bytes.to_vec());
-
-        let loro_bytes = inner.loro.export(loro::ExportMode::Snapshot)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            
-        inner.save_to_disk(&rkyv_bytes, &loro_bytes)?;
-        Ok(())
+        inner.write_serialized(&rkyv_bytes)
     }
 
     pub fn read_all_notes(&self) -> Result<Vec<crate::models::DailyNote>, YntraError> {
         let inner = self.inner.lock().unwrap();
-        let bytes = inner.get_bytes();
-        
-        if bytes.len() < 8 {
+        let rkyv_slice = inner.get_rkyv_slice();
+        if rkyv_slice.is_empty() {
             return Ok(Vec::new());
         }
         
-        let rkyv_len = u64::from_be_bytes(bytes[0..8].try_into().unwrap()) as usize;
-        if bytes.len() < 8 + rkyv_len {
-            return Ok(Vec::new());
-        }
-        
-        let rkyv_slice = &bytes[8..8+rkyv_len];
         let mut list = Vec::new();
-        
-        if (rkyv_slice.as_ptr() as usize) % 8 == 0 {
+        if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
             let archived_notes = rkyv::access::<rkyv::Archived<Vec<crate::models::DailyNote>>, rkyv::rancor::Error>(rkyv_slice)
                 .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             for archived_note in archived_notes.iter() {
@@ -1665,20 +1293,12 @@ impl ZeroCopyNoteStore {
 
     pub fn read_note_zero_copy(&self, note_id: String) -> Result<Option<crate::models::DailyNote>, YntraError> {
         let inner = self.inner.lock().unwrap();
-        let bytes = inner.get_bytes();
-        
-        if bytes.len() < 8 {
+        let rkyv_slice = inner.get_rkyv_slice();
+        if rkyv_slice.is_empty() {
             return Ok(None);
         }
         
-        let rkyv_len = u64::from_be_bytes(bytes[0..8].try_into().unwrap()) as usize;
-        if bytes.len() < 8 + rkyv_len {
-            return Ok(None);
-        }
-        
-        let rkyv_slice = &bytes[8..8+rkyv_len];
-        
-        if (rkyv_slice.as_ptr() as usize) % 8 == 0 {
+        if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
             let archived_notes = rkyv::access::<rkyv::Archived<Vec<crate::models::DailyNote>>, rkyv::rancor::Error>(rkyv_slice)
                 .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             for archived_note in archived_notes.iter() {
@@ -1707,86 +1327,42 @@ impl ZeroCopyNoteStore {
 
     pub fn get_loro_changes(&self) -> Result<Vec<u8>, YntraError> {
         let inner = self.inner.lock().unwrap();
-        inner.loro.export(loro::ExportMode::Snapshot)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))
+        inner.get_loro_changes()
     }
     
     pub fn apply_loro_update(&self, update_bytes: Vec<u8>) -> Result<(), YntraError> {
         let mut inner = self.inner.lock().unwrap();
-        inner.loro.import(&update_bytes)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            
-        let map = inner.loro.get_map("db");
-        if let Some(val) = map.get("bytes") {
-            if let Some(val_ref) = val.as_value() {
-                if let Some(bytes) = val_ref.as_binary() {
-                    let loro_bytes = inner.loro.export(loro::ExportMode::Snapshot)
-                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                    inner.save_to_disk(bytes, &loro_bytes)?;
-                }
-            }
-        }
-        Ok(())
+        inner.apply_loro_update(&update_bytes)
     }
 }
 
-impl ZeroCopyNoteStoreInner {
-    fn get_bytes(&self) -> &[u8] {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.mmap.as_ref().map(|m| &m[..]).unwrap_or(&[])
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            &self.buffer
-        }
-    }
-    
-    fn save_to_disk(&mut self, rkyv_bytes: &[u8], loro_bytes: &[u8]) -> Result<(), YntraError> {
-        let rkyv_len = rkyv_bytes.len() as u64;
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let total_len = 8 + rkyv_bytes.len() + loro_bytes.len();
-            let file = self.file.as_ref().ok_or_else(|| YntraError::DbError("Database file not opened".to_string()))?;
-                
-            file.set_len(total_len as u64)
-                .map_err(|e| YntraError::DbError(e.to_string()))?;
-                
-            let mut m = unsafe { memmap2::MmapMut::map_mut(file).map_err(|e| YntraError::DbError(e.to_string()))? };
-            
-            m[0..8].copy_from_slice(&rkyv_len.to_be_bytes());
-            m[8..8+rkyv_bytes.len()].copy_from_slice(rkyv_bytes);
-            m[8+rkyv_bytes.len()..total_len].copy_from_slice(loro_bytes);
-            
-            m.flush().map_err(|e| YntraError::DbError(e.to_string()))?;
-            self.mmap = Some(m);
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            let mut buf = Vec::new();
-            buf.extend_from_slice(&rkyv_len.to_be_bytes());
-            buf.extend_from_slice(rkyv_bytes);
-            buf.extend_from_slice(loro_bytes);
-            self.buffer = buf;
-        }
-        Ok(())
-    }
-    
+#[uniffi::export]
+pub fn create_peer_store(name: String) -> Result<ZeroCopyStore, YntraError> {
     #[cfg(not(target_arch = "wasm32"))]
-    fn load_loro_from_mmap(&mut self) -> Result<(), YntraError> {
-        if let Some(ref m) = self.mmap {
-            if m.len() >= 8 {
-                let rkyv_len = u64::from_be_bytes(m[0..8].try_into().unwrap()) as usize;
-                if m.len() >= 8 + rkyv_len {
-                    let loro_offset = 8 + rkyv_len;
-                    if m.len() > loro_offset {
-                        let loro_bytes = &m[loro_offset..];
-                        let _ = self.loro.import(loro_bytes);
-                    }
-                }
-            }
-        }
-        Ok(())
+    {
+        let path = std::env::temp_dir().join(format!("yntra_zero_copy_{}.db", name)).to_string_lossy().to_string();
+        let _ = std::fs::remove_file(&path);
+        ZeroCopyStore::new(path)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = name;
+        ZeroCopyStore::new(String::new())
+    }
+}
+
+#[uniffi::export]
+pub fn create_peer_note_store(name: String) -> Result<ZeroCopyNoteStore, YntraError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let path = std::env::temp_dir().join(format!("yntra_zero_copy_notes_{}.db", name)).to_string_lossy().to_string();
+        let _ = std::fs::remove_file(&path);
+        ZeroCopyNoteStore::new(path)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = name;
+        ZeroCopyNoteStore::new(String::new())
     }
 }
 
@@ -1857,8 +1433,8 @@ mod tests {
         assert_eq!(decrypted, sensitive_data);
         
         // Test compliance proof
-        let proof = trust.generate_compliance_proof(ciphertext, "user_123".to_string(), "Admin".to_string()).unwrap();
-        let is_valid = trust.verify_compliance_proof(proof).unwrap();
+        let proof = trust.generate_compliance_proof(ciphertext.clone(), "user_123".to_string(), "Admin".to_string()).unwrap();
+        let is_valid = trust.verify_compliance_proof(proof, "user_123".to_string(), "Admin".to_string(), ciphertext).unwrap();
         assert!(is_valid);
     }
 

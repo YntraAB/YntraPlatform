@@ -47,24 +47,31 @@ fn extract_auth_epoch(settings_str: &str) -> u64 {
                     // Check if this is the key "auth_epoch" at depth 1
                     if depth == 1 {
                         if i + 12 <= len && &bytes[i + 1..i + 11] == b"auth_epoch" && bytes[i + 11] == b'"' {
-                            i += 12; // move past "auth_epoch" and closing quote
-                            // Skip whitespace and colon
-                            while i < len && (bytes[i].is_ascii_whitespace() || bytes[i] == b':') {
-                                i += 1;
+                            // Verify that this is followed by a colon ':' (making it a JSON key)
+                            let mut next_idx = i + 12;
+                            while next_idx < len && bytes[next_idx].is_ascii_whitespace() {
+                                next_idx += 1;
                             }
-                            // Parse digits
-                            let start = i;
-                            while i < len && bytes[i].is_ascii_digit() {
-                                i += 1;
-                            }
-                            if i > start {
-                                if let Ok(val) = std::str::from_utf8(&bytes[start..i]) {
-                                    if let Ok(epoch) = val.parse::<u64>() {
-                                        return epoch;
+                            if next_idx < len && bytes[next_idx] == b':' {
+                                i = next_idx + 1;
+                                // Skip whitespace after colon
+                                while i < len && bytes[i].is_ascii_whitespace() {
+                                    i += 1;
+                                }
+                                // Parse digits
+                                let start = i;
+                                while i < len && bytes[i].is_ascii_digit() {
+                                    i += 1;
+                                }
+                                if i > start {
+                                    if let Ok(val) = std::str::from_utf8(&bytes[start..i]) {
+                                        if let Ok(epoch) = val.parse::<u64>() {
+                                            return epoch;
+                                        }
                                     }
                                 }
+                                return 0;
                             }
-                            return 0;
                         }
                     }
                 }
@@ -538,5 +545,9 @@ mod tests {
 
         let nested_bracket_json = "{\"some_arr\": [\"foo\", \"bar\", \"]\"], \"auth_epoch\": 42}";
         assert_eq!(extract_auth_epoch(nested_bracket_json), 42);
+
+        // Value hijacking regression test
+        let value_hijack_json = "{\"name\": \"auth_epoch\", \"auth_epoch\": 5}";
+        assert_eq!(extract_auth_epoch(value_hijack_json), 5);
     }
 }

@@ -125,14 +125,27 @@ pub fn format_abs_minutes_to_time(abs_min: i32) -> String {
 pub fn format_date_from_days(days: i32) -> String {
     let mut d_count = days - 719468;
     let mut year = 1970;
-    loop {
-        let leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
-        let days_in_year = if leap { 366 } else { 365 };
-        if d_count >= days_in_year {
-            d_count -= days_in_year;
-            year += 1;
-        } else {
-            break;
+    if d_count < 0 {
+        loop {
+            let prev_year = year - 1;
+            let leap = (prev_year % 4 == 0 && prev_year % 100 != 0) || (prev_year % 400 == 0);
+            let days_in_year = if leap { 366 } else { 365 };
+            d_count += days_in_year;
+            year = prev_year;
+            if d_count >= 0 {
+                break;
+            }
+        }
+    } else {
+        loop {
+            let leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+            let days_in_year = if leap { 366 } else { 365 };
+            if d_count >= days_in_year {
+                d_count -= days_in_year;
+                year += 1;
+            } else {
+                break;
+            }
         }
     }
     let leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
@@ -212,14 +225,27 @@ pub fn get_dst_offset_change(y: i32, m: i32, d: i32, region: &str) -> i32 {
 pub fn format_date_parts_from_days(days: i32) -> (i32, i32, i32) {
     let mut d_count = days - 719468;
     let mut year = 1970;
-    loop {
-        let leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
-        let days_in_year = if leap { 366 } else { 365 };
-        if d_count >= days_in_year {
-            d_count -= days_in_year;
-            year += 1;
-        } else {
-            break;
+    if d_count < 0 {
+        loop {
+            let prev_year = year - 1;
+            let leap = (prev_year % 4 == 0 && prev_year % 100 != 0) || (prev_year % 400 == 0);
+            let days_in_year = if leap { 366 } else { 365 };
+            d_count += days_in_year;
+            year = prev_year;
+            if d_count >= 0 {
+                break;
+            }
+        }
+    } else {
+        loop {
+            let leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+            let days_in_year = if leap { 366 } else { 365 };
+            if d_count >= days_in_year {
+                d_count -= days_in_year;
+                year += 1;
+            } else {
+                break;
+            }
         }
     }
     let leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);

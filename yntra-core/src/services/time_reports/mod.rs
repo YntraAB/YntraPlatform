@@ -607,6 +607,22 @@ mod tests {
     }
 
     #[test]
+    fn test_negative_days_date_roundtrip() {
+        let y = 1969;
+        let m = 12;
+        let d = 31;
+        let days = date_to_days(y, m, d);
+        let date_str = format_date_from_days(days);
+        assert_eq!(date_str, "1969-12-31");
+
+        let (ry, rm, rd) = format_date_parts_from_days(days);
+        assert_eq!((ry, rm, rd), (1969, 12, 31));
+
+        let leap_days = date_to_days(1968, 2, 29);
+        assert_eq!(format_date_from_days(leap_days), "1968-02-29");
+    }
+
+    #[test]
     fn test_daily_hours_on_day_partitioning() {
         let j5_idx = date_to_days(2026, 7, 5);
         let j5_start = j5_idx * 1440;

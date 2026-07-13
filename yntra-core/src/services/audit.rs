@@ -340,6 +340,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_audit_log_verification() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         // Clear audit store
         let _ = get_audit_store().write_audit_logs(Vec::new());
         let res = verify_audit_log_chain().await;

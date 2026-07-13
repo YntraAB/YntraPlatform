@@ -99,12 +99,13 @@ pub async fn add_report(
     let conn = database::acquire_connection().await?;
 
     let db_user_id = if is_anonymous {
+        let anon_user_id = format!("anonymous_{}", workspace_id);
         conn.execute(
             "INSERT OR IGNORE INTO users (id, workspace_id, email, role, preferences, updated_at, sync_status)
-             VALUES ('anonymous', 'workspace-1', 'anonymous@yntra.io', 'anonymous', '{}', ?1, 'synced')",
-            crate::params![&now_ms],
+             VALUES (?1, ?2, 'anonymous@yntra.io', 'anonymous', '{}', ?3, 'synced')",
+            crate::params![&anon_user_id, &workspace_id, &now_ms],
         ).await?;
-        "anonymous".to_string()
+        anon_user_id
     } else {
         user_id.clone()
     };
@@ -255,7 +256,7 @@ mod tests {
 
         // Verify dummy user has 'anonymous' role
         let dummy_role: String = conn.query_row(
-            "SELECT role FROM users WHERE id = 'anonymous'",
+            "SELECT role FROM users WHERE id = 'anonymous_ws-rep-1'",
             (),
             |row| row.get(0),
         ).await.unwrap();

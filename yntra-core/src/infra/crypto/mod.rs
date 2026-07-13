@@ -203,12 +203,12 @@ pub fn set_session_key(mut key_bytes: Vec<u8>) -> bool {
     true
 }
 
-pub fn get_session_key() -> Option<Vec<u8>> {
+pub fn get_session_key() -> Option<zeroize::Zeroizing<[u8; 32]>> {
     let lock = match SESSION_KEY.lock() {
         Ok(l) => l,
         Err(poisoned) => poisoned.into_inner(),
     };
-    lock.as_ref().map(|sk| sk.new_key.to_vec())
+    lock.as_ref().map(|sk| zeroize::Zeroizing::new(sk.new_key))
 }
 
 #[uniffi::export]

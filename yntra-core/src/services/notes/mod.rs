@@ -6,15 +6,16 @@ pub mod crdt;
 
 use crdt::{parse_loro_state, apply_diff_to_loro, get_merged_loro_doc};
 
-pub fn verify_zkp_if_encrypted(content: &str) -> Result<(), YntraError> {
+pub fn verify_zkp_if_encrypted(content: &str, user_id: &str, role: &str) -> Result<(), YntraError> {
     if content.starts_with("zero_copy_enc:") {
         let parts: Vec<&str> = content.split(':').collect();
         if parts.len() != 3 {
             return Err(YntraError::CryptoError("Invalid encrypted payload format".to_string()));
         }
         let proof = parts[1];
+        let ciphertext = parts[2];
         let trust = crate::ZkCryptoTrust::new();
-        if !trust.verify_compliance_proof(proof.to_string()).unwrap_or(false) {
+        if !trust.verify_compliance_proof(proof.to_string(), user_id.to_string(), role.to_string(), ciphertext.to_string()).unwrap_or(false) {
             return Err(YntraError::CryptoError("Validation failed: Zero-Knowledge compliance proof is invalid".to_string()));
         }
     }
@@ -218,9 +219,9 @@ pub async fn add_note(
     subject: String,
     content: String,
 ) -> Result<DailyNote, YntraError> {
-    verify_zkp_if_encrypted(&content)?;
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    verify_zkp_if_encrypted(&content, &auth.user_id, &auth.role)?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
@@ -323,7 +324,6 @@ pub async fn update_note(
     subject: String,
     content: String,
 ) -> Result<DailyNote, YntraError> {
-    verify_zkp_if_encrypted(&content)?;
     let now_ms = crate::infra::time::get_current_time_ms();
     let conn = database::acquire_connection().await?;
 
@@ -353,6 +353,7 @@ pub async fn update_note(
         };
 
         let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+        verify_zkp_if_encrypted(&content, &auth.user_id, &auth.role)?;
         if auth.role != "platform_admin" && auth.workspace_id != old_note.workspace_id {
             return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
         }
@@ -599,7 +600,19 @@ pub async fn apply_note_loro_update(note_id: String, update_bytes: Vec<u8>) -> R
 
         // 3. Update the database projection cache
         let plain_text = doc.get_text("content").to_string();
-        verify_zkp_if_encrypted(&plain_text)?;
+        let (author_id, _workspace_id): (String, String) = conn.query_row(
+            "SELECT author_id, workspace_id FROM notes WHERE id = ?1",
+            crate::params![&note_id],
+            |r| Ok((r.get(0)?, r.get(1)?))
+        ).await.unwrap_or_else(|_| ("".to_string(), "".to_string()));
+
+        let author_role: String = conn.query_row(
+            "SELECT role FROM users WHERE id = ?1",
+            crate::params![&author_id],
+            |r| r.get(0)
+        ).await.unwrap_or_else(|_| "user".to_string());
+
+        verify_zkp_if_encrypted(&plain_text, &author_id, &author_role)?;
         let loro_content = format!("loro:{}:{}", next_seq, crate::infra::crypto::hex_encode(&loro_bytes));
         conn.execute(
             "UPDATE notes SET content = ?1, content_plain = ?2, updated_at = ?3, sync_status = 'pending' WHERE id = ?4",

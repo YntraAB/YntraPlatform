@@ -432,10 +432,25 @@ pub async fn submit_bankid_pin(session_id: String, pin: String) -> Result<(), Yn
                     }
                     
                     let role_str = target_role.as_deref().unwrap_or("assistant");
-                    if let Ok(mut stmt) = conn.prepare("SELECT id FROM users WHERE role = ?1 LIMIT 1").await {
-                        if let Ok(mut rows) = stmt.query(crate::params![role_str]).await {
-                            if let Ok(Some(row)) = rows.next().await {
-                                resolved_id = row.get::<String>(0).ok();
+                    if role_str == "admin" || role_str == "platform_admin" {
+                        // Require an explicit mock PIN to bypass auth for administrative accounts
+                        let pin_val = zeroizing_pin_clone.as_str();
+                        if pin_val == "mock_admin" || pin_val == "mock_platform_admin" {
+                            if let Ok(mut stmt) = conn.prepare("SELECT id FROM users WHERE role = ?1 LIMIT 1").await {
+                                if let Ok(mut rows) = stmt.query(crate::params![role_str]).await {
+                                    if let Ok(Some(row)) = rows.next().await {
+                                        resolved_id = row.get::<String>(0).ok();
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // Non-administrative roles can continue using standard debug mock PINs
+                        if let Ok(mut stmt) = conn.prepare("SELECT id FROM users WHERE role = ?1 LIMIT 1").await {
+                            if let Ok(mut rows) = stmt.query(crate::params![role_str]).await {
+                                if let Ok(Some(row)) = rows.next().await {
+                                    resolved_id = row.get::<String>(0).ok();
+                                }
                             }
                         }
                     }

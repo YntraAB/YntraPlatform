@@ -203,14 +203,14 @@ pub async fn set_user_password(requester_user_id: String, user_id: String, passw
         #[cfg(not(target_arch = "wasm32"))]
         let pwd = zeroizing_password.to_string();
         #[cfg(not(target_arch = "wasm32"))]
-        let ws_key_clone = ws_key.clone();
+        let ws_key_clone = ws_key.to_vec();
         #[cfg(not(target_arch = "wasm32"))]
         let enc_res = tokio::task::spawn_blocking(move || {
             let zeroing = zeroize::Zeroizing::new(pwd);
             crate::infra::crypto::encrypt_workspace_key_with_password(&zeroing, ws_key_clone)
         }).await.unwrap_or_else(|e| Err(YntraError::CryptoError(e.to_string())));
         #[cfg(target_arch = "wasm32")]
-        let enc_res = crate::infra::crypto::encrypt_workspace_key_with_password(&zeroizing_password, ws_key);
+        let enc_res = crate::infra::crypto::encrypt_workspace_key_with_password(&zeroizing_password, ws_key.to_vec());
 
         if let Ok(enc_key) = enc_res {
             prefs_val["encrypted_workspace_key"] = serde_json::json!(enc_key);

@@ -140,9 +140,6 @@ pub async fn activate_invitation_code(code: String) -> Result<WorkspaceUser, Ynt
                 let key_setting = format!("workspace_key_{}", workspace_id);
                 crate::infra::crypto::set_local_secret(&key_setting, &const_hex::encode(&pk)).await?;
 
-                // Cache it in-memory
-                let mut cache = crate::infra::crypto::get_auth_key_cache().write().unwrap_or_else(|e| e.into_inner());
-                cache.insert(workspace_id.clone(), const_hex::encode(&pk));
                 crate::infra::crypto::set_session_key(pk);
             }
 

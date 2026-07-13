@@ -85,6 +85,12 @@ pub async fn authenticate_with_siths(
             {
                 return Err(YntraError::AuthError("Cryptographic signature and challenge are required for SITHS card authentication".to_string()));
             }
+            #[cfg(debug_assertions)]
+            {
+                if role == "admin" || role == "platform_admin" {
+                    return Err(YntraError::AuthError("Cryptographic signature and challenge are required for SITHS card authentication of administrative accounts".to_string()));
+                }
+            }
         }
 
         Ok(WorkspaceUser {
