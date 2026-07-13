@@ -128,13 +128,11 @@ fn find_workspace_root() -> Option<PathBuf> {
     let mut dir = std::env::current_dir().ok()?;
     loop {
         let cargo_toml = dir.join("Cargo.toml");
-        if cargo_toml.exists() {
-            if let Ok(content) = fs::read_to_string(&cargo_toml) {
-                if content.contains("[workspace]") {
+        if cargo_toml.exists()
+            && let Ok(content) = fs::read_to_string(&cargo_toml)
+                && content.contains("[workspace]") {
                     return Some(dir);
                 }
-            }
-        }
         if !dir.pop() {
             break;
         }
@@ -224,13 +222,11 @@ fn get_max_mtime(dir: &Path) -> Option<SystemTime> {
                 if let Some(t) = get_max_mtime(&path) {
                     max_time = Some(max_time.map_or(t, |mt| std::cmp::max(mt, t)));
                 }
-            } else if path.is_file() {
-                if let Ok(metadata) = entry.metadata() {
-                    if let Ok(modified) = metadata.modified() {
+            } else if path.is_file()
+                && let Ok(metadata) = entry.metadata()
+                    && let Ok(modified) = metadata.modified() {
                         max_time = Some(max_time.map_or(modified, |mt| std::cmp::max(mt, modified)));
                     }
-                }
-            }
         }
     }
     max_time
@@ -302,7 +298,7 @@ fn run_check_locales(workspace_root: &Path, fix: bool) -> Result<bool, String> {
 
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().map_or(true, |ext| ext != "ftl") {
+        if path.extension().is_none_or(|ext| ext != "ftl") {
             continue;
         }
 
@@ -421,14 +417,13 @@ fn parse_fluent_file(content: &str) -> HashMap<String, (String, HashSet<String>)
                 current_key = Some(key);
                 current_value = line[eq_idx + 1..].trim().to_string();
             }
-        } else if line.starts_with(' ') || line.starts_with('\t') {
-            if current_key.is_some() {
+        } else if (line.starts_with(' ') || line.starts_with('\t'))
+            && current_key.is_some() {
                 if !current_value.is_empty() {
                     current_value.push('\n');
                 }
                 current_value.push_str(line.trim());
             }
-        }
     }
 
     if let Some(ref key) = current_key {
@@ -459,8 +454,8 @@ fn extract_variables(s: &str) -> Vec<String> {
         let after_brace = &rest[start_idx + 1..];
         if let Some(end_idx) = after_brace.find('}') {
             let inside = after_brace[..end_idx].trim();
-            if inside.starts_with('$') {
-                let var_name = inside[1..].trim().to_string();
+            if let Some(clean) = inside.strip_prefix('$') {
+                let var_name = clean.trim().to_string();
                 vars.push(var_name);
             }
             rest = &after_brace[end_idx + 1..];
