@@ -462,12 +462,14 @@ macro_rules! impl_write_items {
             let mut inner = $self.inner.lock().unwrap();
             let mut cache = $self.cache.lock().unwrap();
             *cache = None;
-            $sync_fn(inner.doc(), &$items)?;
+            let mut sorted_items = $items;
+            sorted_items.sort_by(|a, b| a.id.cmp(&b.id));
+            $sync_fn(inner.doc(), &sorted_items)?;
             let loro_bytes = inner.get_loro_changes()?;
-            let rkyv_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&$items)
+            let rkyv_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&sorted_items)
                 .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             inner.save_to_disk(&rkyv_bytes, &loro_bytes)?;
-            *cache = Some($items);
+            *cache = Some(sorted_items);
         }
         Ok(())
     }};
@@ -535,33 +537,65 @@ macro_rules! impl_read_item_zero_copy {
             std::mem::align_of::<rkyv::Archived<Vec<$t>>>(),
             std::mem::align_of::<rkyv::Archived<$t>>(),
         );
-        if (rkyv_slice.as_ptr() as usize) % required_align == 0 {
+        let item_opt = if (rkyv_slice.as_ptr() as usize) % required_align == 0 {
             let archived =
                 rkyv::access::<rkyv::Archived<Vec<$t>>, rkyv::rancor::Error>(rkyv_slice)
                     .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            for item in archived.iter() {
-                if item.id == $item_id {
-                    let todo = rkyv::deserialize::<$t, rkyv::rancor::Error>(item)
-                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                    return Ok(Some(todo));
+            
+            let mut low = 0;
+            let mut high = archived.len();
+            let mut found = None;
+            while low < high {
+                let mid = low + (high - low) / 2;
+                let item = &archived[mid];
+                match item.id.as_str().cmp(&$item_id) {
+                    std::cmp::Ordering::Equal => {
+                        let deserialized = rkyv::deserialize::<$t, rkyv::rancor::Error>(item)
+                            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                        found = Some(deserialized);
+                        break;
+                    }
+                    std::cmp::Ordering::Less => {
+                        low = mid + 1;
+                    }
+                    std::cmp::Ordering::Greater => {
+                        high = mid;
+                    }
                 }
             }
+            found
         } else {
             let mut aligned = rkyv::util::AlignedVec::<16>::new();
             aligned.extend_from_slice(rkyv_slice);
             let archived =
                 rkyv::access::<rkyv::Archived<Vec<$t>>, rkyv::rancor::Error>(&aligned)
                     .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            for item in archived.iter() {
-                if item.id == $item_id {
-                    let todo = rkyv::deserialize::<$t, rkyv::rancor::Error>(item)
-                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                    return Ok(Some(todo));
+            
+            let mut low = 0;
+            let mut high = archived.len();
+            let mut found = None;
+            while low < high {
+                let mid = low + (high - low) / 2;
+                let item = &archived[mid];
+                match item.id.as_str().cmp(&$item_id) {
+                    std::cmp::Ordering::Equal => {
+                        let deserialized = rkyv::deserialize::<$t, rkyv::rancor::Error>(item)
+                            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                        found = Some(deserialized);
+                        break;
+                    }
+                    std::cmp::Ordering::Less => {
+                        low = mid + 1;
+                    }
+                    std::cmp::Ordering::Greater => {
+                        high = mid;
+                    }
                 }
             }
-        }
+            found
+        };
 
-        Ok(None)
+        Ok(item_opt)
     }};
 }
 
@@ -578,7 +612,8 @@ macro_rules! impl_apply_loro_update {
         *$self.cache.lock().unwrap() = None;
         inner.doc().import(&$update_bytes)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        let items = $read_fn(inner.doc())?;
+        let mut items = $read_fn(inner.doc())?;
+        items.sort_by(|a, b| a.id.cmp(&b.id));
         let loro_bytes = inner.get_loro_changes()?;
         let rkyv_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&items)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
@@ -598,7 +633,8 @@ macro_rules! impl_apply_loro_updates_batch {
             inner.doc().import(update)
                 .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         }
-        let items = $read_fn(inner.doc())?;
+        let mut items = $read_fn(inner.doc())?;
+        items.sort_by(|a, b| a.id.cmp(&b.id));
         let loro_bytes = inner.get_loro_changes()?;
         let rkyv_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&items)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
