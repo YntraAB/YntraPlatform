@@ -563,5 +563,32 @@ fn test_in_memory_relay_queue_bounding() {
     assert_eq!(updates[99], vec![149]);
 }
 
+#[test]
+fn test_failed_broadcast_retry_queue() {
+    let router = P2PMeshSyncRouter::with_relay("http://invalid-url-domain-xyz.xyz".to_string());
+    
+    // Manually push a failed broadcast to the queue
+    {
+        let mut failed = router.failed_broadcasts.lock().unwrap();
+        failed.push(("peer_a".to_string(), vec![1, 2, 3]));
+    }
+    
+    // Verify it is in the queue
+    {
+        let failed = router.failed_broadcasts.lock().unwrap();
+        assert_eq!(failed.len(), 1);
+        assert_eq!(failed[0].1, vec![1, 2, 3]);
+    }
+    
+    // Calling retry should drain it and attempt to send
+    router.retry_failed_broadcasts();
+    
+    // The queue should be drained
+    {
+        let failed = router.failed_broadcasts.lock().unwrap();
+        assert!(failed.is_empty());
+    }
+}
+
 
 
