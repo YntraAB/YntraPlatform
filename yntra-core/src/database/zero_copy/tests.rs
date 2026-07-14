@@ -132,6 +132,181 @@ fn test_zk_envelope_encryption_and_proof() {
 
     let invalid_role_proof = "not_a_valid_proof_hex_string_too_short".to_string();
     assert!(!trust.verify_proof(invalid_role_proof, "user_123".to_string(), "Admin".to_string(), public_key_hex.clone()));
+
+    // --- Test Ring Signatures (AOS ZKP) ---
+    let passkey_seed_1 = "seed_1_secret".to_string();
+    let passkey_seed_2 = "seed_2_secret".to_string();
+    let passkey_seed_3 = "seed_3_secret".to_string();
+
+    let pk_1 = trust.derive_public_key(passkey_seed_1.clone()).unwrap();
+    let pk_2 = trust.derive_public_key(passkey_seed_2.clone()).unwrap();
+    let pk_3 = trust.derive_public_key(passkey_seed_3.clone()).unwrap();
+
+    let ring = vec![pk_1.clone(), pk_2.clone(), pk_3.clone()];
+    let data = "Zero-Knowledge anonymous write payload".to_string();
+    let hex_data = const_hex::encode(data.as_bytes());
+    let data_hash = blake3::hash(data.as_bytes());
+    let data_hash_hex = const_hex::encode(data_hash.as_bytes());
+
+    // Sign using seed 2 (Peer 2)
+    let ring_proof = trust.generate_ring_compliance_proof(
+        passkey_seed_2.clone(),
+        hex_data.clone(),
+        ring.clone(),
+    ).unwrap();
+
+    // Verify it against the ring
+    let is_ring_valid = trust.verify_ring_compliance_proof(
+        ring_proof.clone(),
+        data_hash_hex.clone(),
+        ring.clone(),
+    ).unwrap();
+    assert!(is_ring_valid);
+
+    // Verify it using verify_compliance_proof (combining with commas)
+    let ring_comb = ring.join(",");
+    let is_comb_valid = trust.verify_compliance_proof(
+        ring_proof.clone(),
+        "".to_string(),
+        "".to_string(),
+        data_hash_hex.clone(),
+        ring_comb.clone(),
+    ).unwrap();
+    assert!(is_comb_valid);
+
+    // Signing using a seed not in the ring should fail
+    let passkey_seed_foreign = "foreign_seed".to_string();
+    let ring_proof_foreign = trust.generate_ring_compliance_proof(
+        passkey_seed_foreign.clone(),
+        hex_data.clone(),
+        ring.clone(),
+    );
+    assert!(ring_proof_foreign.is_err());
+
+    // --- Test Schema Validity ZKP ---
+    // If the data is empty (invalid schema constraint), generation still creates a mock proof, but verification must fail.
+    let empty_data_hex = const_hex::encode("".as_bytes());
+    let empty_data_hash = blake3::hash("".as_bytes());
+    let empty_data_hash_hex = const_hex::encode(empty_data_hash.as_bytes());
+    let invalid_schema_proof = trust.generate_ring_compliance_proof(
+        passkey_seed_2.clone(),
+        empty_data_hex,
+        ring.clone(),
+    ).unwrap();
+    let is_invalid_schema_verified = trust.verify_ring_compliance_proof(
+        invalid_schema_proof,
+        empty_data_hash_hex,
+        ring.clone(),
+    ).unwrap();
+    assert!(!is_invalid_schema_verified);
+
+    // --- Test Zero-Knowledge Ring Role Membership Proofs ---
+    let role_ring = ring.clone();
+    let user_id = "user_role_test_123".to_string();
+    let role = "workspace_member".to_string();
+
+    let ring_role_proof = trust.generate_ring_role_proof(
+        passkey_seed_2.clone(),
+        user_id.clone(),
+        role.clone(),
+        role_ring.clone(),
+    ).unwrap();
+
+    let is_role_ring_verified = trust.verify_proof(
+        ring_role_proof.clone(),
+        user_id.clone(),
+        role.clone(),
+        role_ring.join(","),
+    );
+    assert!(is_role_ring_verified);
+
+    // Mismatched role or user ID should fail verification
+    assert!(!trust.verify_proof(ring_role_proof.clone(), "different_user".to_string(), role.clone(), role_ring.join(",")));
+    assert!(!trust.verify_proof(ring_role_proof.clone(), user_id.clone(), "different_role".to_string(), role_ring.join(",")));
+
+    // Signing using a seed not in the role ring should fail
+    let ring_role_proof_foreign = trust.generate_ring_role_proof(
+        passkey_seed_foreign,
+        user_id.clone(),
+        role.clone(),
+        role_ring.clone(),
+    );
+    assert!(ring_role_proof_foreign.is_err());
+
+    // --- Test SOTA Groth16 zk-SNARK Verification over BN254 ---
+    use ark_bn254::{Bn254, Fr};
+    use ark_groth16::Groth16;
+    use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
+    use ark_serialize::CanonicalSerialize;
+    use ark_snark::{SNARK, CircuitSpecificSetupSNARK};
+
+    #[derive(Clone)]
+    struct SimpleCircuit {
+        x: Option<Fr>,
+        y: Option<Fr>,
+        z: Option<Fr>,
+    }
+
+    impl ConstraintSynthesizer<Fr> for SimpleCircuit {
+        fn generate_constraints(self, cs: ConstraintSystemRef<Fr>) -> Result<(), SynthesisError> {
+            let x_val = cs.new_witness_variable(|| self.x.ok_or(SynthesisError::AssignmentMissing))?;
+            let y_val = cs.new_witness_variable(|| self.y.ok_or(SynthesisError::AssignmentMissing))?;
+            let z_val = cs.new_input_variable(|| self.z.ok_or(SynthesisError::AssignmentMissing))?;
+            cs.enforce_constraint(
+                ark_relations::r1cs::LinearCombination::from(x_val),
+                ark_relations::r1cs::LinearCombination::from(y_val),
+                ark_relations::r1cs::LinearCombination::from(z_val),
+            )?;
+            Ok(())
+        }
+    }
+
+    use ark_std::rand::{SeedableRng, rngs::StdRng};
+    let mut rng = StdRng::seed_from_u64(42u64);
+    let empty_circuit = SimpleCircuit { x: None, y: None, z: None };
+    let (pk, vk) = Groth16::<Bn254>::setup(empty_circuit, &mut rng).unwrap();
+
+    let x_scalar = Fr::from(3u32);
+    let y_scalar = Fr::from(4u32);
+    let z_scalar = Fr::from(12u32);
+    let circuit = SimpleCircuit {
+        x: Some(x_scalar),
+        y: Some(y_scalar),
+        z: Some(z_scalar),
+    };
+    let proof = Groth16::<Bn254>::prove(&pk, circuit, &mut rng).unwrap();
+
+    let mut proof_bytes = Vec::new();
+    proof.serialize_compressed(&mut proof_bytes).unwrap();
+    let proof_hex = const_hex::encode(&proof_bytes);
+
+    let mut vk_bytes = Vec::new();
+    vk.serialize_compressed(&mut vk_bytes).unwrap();
+    let vk_hex = const_hex::encode(&vk_bytes);
+
+    let mut z_bytes = Vec::new();
+    z_scalar.serialize_compressed(&mut z_bytes).unwrap();
+    let z_hex = const_hex::encode(&z_bytes);
+
+    let public_inputs_hex = vec![z_hex.clone()];
+    let is_snark_valid = trust.verify_groth16_proof(
+        proof_hex.clone(),
+        public_inputs_hex.clone(),
+        vk_hex.clone(),
+    ).unwrap();
+    assert!(is_snark_valid);
+
+    let invalid_z_scalar = Fr::from(13u32);
+    let mut invalid_z_bytes = Vec::new();
+    invalid_z_scalar.serialize_compressed(&mut invalid_z_bytes).unwrap();
+    let invalid_z_hex = const_hex::encode(&invalid_z_bytes);
+    let invalid_public_inputs_hex = vec![invalid_z_hex];
+    let is_invalid_snark_valid = trust.verify_groth16_proof(
+        proof_hex,
+        invalid_public_inputs_hex,
+        vk_hex,
+    ).unwrap();
+    assert!(!is_invalid_snark_valid);
 }
 
 #[test]

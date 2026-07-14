@@ -77,6 +77,7 @@ pub struct WorkspaceUser {
     pub updated_at: i64,
     pub sync_status: String,
     pub personal_number: Option<String>,
+    pub public_key: Option<String>,
 }
 
 impl std::fmt::Debug for WorkspaceUser {

@@ -143,6 +143,7 @@ pub async fn authenticate_with_siths(
                 raw_pnum,
                 ws_id.as_deref().unwrap_or(""),
             ),
+            public_key: pubkey_hex.clone(),
         })
     } else {
         Err(YntraError::NotFoundError(
@@ -171,6 +172,7 @@ pub async fn authenticate_with_nfc(
         let mut siths_card_id = None;
         let mut nfc_badge_uid = None;
         let mut raw_pnum = None;
+        let mut public_key = None;
 
         if let Some(ref m_str) = metadata_str {
             if let Ok(meta_val) = serde_json::from_str::<serde_json::Value>(m_str) {
@@ -186,6 +188,16 @@ pub async fn authenticate_with_nfc(
                     .get("personal_number")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
+                public_key = meta_val
+                    .get("public_key")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .or_else(|| {
+                        meta_val
+                            .get("siths_public_key")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                    });
             }
         }
 
@@ -265,6 +277,7 @@ pub async fn authenticate_with_nfc(
                 raw_pnum,
                 ws_id.as_deref().unwrap_or(""),
             ),
+            public_key,
         })
     } else {
         Err(YntraError::NotFoundError(

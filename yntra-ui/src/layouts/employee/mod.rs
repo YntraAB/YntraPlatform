@@ -37,6 +37,7 @@ pub fn EmployeeLayout() -> Element {
             updated_at: 0,
             sync_status: "synced".to_string(),
             personal_number: None,
+            public_key: None,
         });
 
     let theme_mode = {

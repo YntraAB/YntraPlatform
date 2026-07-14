@@ -54,17 +54,48 @@ pub fn NoteRead(props: NoteReadProps) -> Element {
         if has_enc {
             let trust = yntra_core::ZkCryptoTrust::new();
             let author_id = author_id_clone.clone().unwrap_or_default();
-            let author_role = users_clone
-                .iter()
-                .find(|u| u.id == author_id)
+            let author_user = users_clone.iter().find(|u| u.id == author_id);
+            let author_role = author_user
                 .map(|u| u.role.clone())
                 .unwrap_or_else(|| "user".to_string());
+            
+            let is_ring = if let Ok(proof_bytes) = const_hex::decode(&proof) {
+                proof_bytes.starts_with(b"ZKP_RING_PROOF_V1:")
+            } else {
+                false
+            };
+
+            let public_key_hex = if is_ring {
+                let workspace_id = note.workspace_id.clone();
+                let mut ring_public_keys: Vec<String> = users_clone
+                    .iter()
+                    .filter(|u| {
+                        u.id == author_id
+                            || u.role == "platform_admin"
+                            || (u.role == "admin" && u.workspace_id.as_ref() == Some(&workspace_id))
+                            || u.workspace_id.as_ref() == Some(&workspace_id)
+                    })
+                    .filter_map(|u| u.public_key.clone())
+                    .collect();
+                ring_public_keys.sort();
+                ring_public_keys.dedup();
+                ring_public_keys.join(",")
+            } else {
+                author_user
+                    .and_then(|u| u.public_key.clone())
+                    .unwrap_or_default()
+            };
+
+            let ciphertext_bytes = const_hex::decode(&ciphertext_clone).unwrap_or_default();
+            let data_hash = blake3::hash(&ciphertext_bytes);
+            let data_hash_hex = const_hex::encode(data_hash.as_bytes());
             trust
                 .verify_compliance_proof(
                     proof.to_string(),
                     author_id,
                     author_role,
-                    ciphertext_clone.to_string(),
+                    data_hash_hex,
+                    public_key_hex,
                 )
                 .unwrap_or(false)
         } else {

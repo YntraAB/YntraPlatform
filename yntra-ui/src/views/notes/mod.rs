@@ -77,6 +77,7 @@ pub fn NotesView(props: NotesViewProps) -> Element {
             rsx! {
                 NoteCompose {
                     active_user: active_user,
+                    users: users,
                     active_team_id: active_team_id,
                     team_name: team_name,
                     note_subject: note_subject,
@@ -112,6 +113,7 @@ pub fn NotesView(props: NotesViewProps) -> Element {
                         rsx! {
                             NoteEdit {
                                 active_user: active_user,
+                                users: users,
                                 note_id: note.id.clone(),
                                 edit_subject: edit_subject,
                                 edit_content: edit_content,

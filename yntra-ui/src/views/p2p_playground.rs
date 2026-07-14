@@ -429,7 +429,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
 
                                                 // ZK Passkey Envelope Encryption
                                                 let key = passkey_a.read().clone();
-                                                let encrypted_content = match trust.encrypt_workspace_field(key, content.clone()) {
+                                                let encrypted_content = match trust.encrypt_workspace_field(key.clone(), content.clone()) {
                                                     Ok(enc) => enc,
                                                     Err(e) => {
                                                         let mut curr_logs = logs.read().clone();
@@ -442,7 +442,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                                 // Generate ZK Compliance Proof
                                                 let user_id = user_id_a.read().clone();
                                                 let role = role_a.read().clone();
-                                                let proof = match trust.generate_compliance_proof(encrypted_content.clone(), user_id.clone(), role.clone()) {
+                                                let proof = match trust.generate_compliance_proof(key.clone(), encrypted_content.clone(), user_id.clone(), role.clone()) {
                                                     Ok(p) => p,
                                                     Err(e) => {
                                                         let mut curr_logs = logs.read().clone();
@@ -512,7 +512,11 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                             });
 
                                             let verification_result = if let Some((ref proof, ref uid, ref r)) = proof_info {
-                                                trust.verify_compliance_proof(proof.clone(), uid.clone(), r.clone(), n.content.clone()).unwrap_or(false)
+                                                let c_bytes = const_hex::decode(&n.content).unwrap_or_default();
+                                                let d_hash = blake3::hash(&c_bytes);
+                                                let d_hash_hex = const_hex::encode(d_hash.as_bytes());
+                                                let pubkey = trust.derive_public_key(passkey_b.read().clone()).unwrap_or_default();
+                                                trust.verify_compliance_proof(proof.clone(), uid.clone(), r.clone(), d_hash_hex, pubkey).unwrap_or(false)
                                             } else {
                                                 false
                                             };
@@ -860,7 +864,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
 
                                                 // ZK Passkey Envelope Encryption
                                                 let key = passkey_b.read().clone();
-                                                let encrypted_content = match trust.encrypt_workspace_field(key, content.clone()) {
+                                                let encrypted_content = match trust.encrypt_workspace_field(key.clone(), content.clone()) {
                                                     Ok(enc) => enc,
                                                     Err(e) => {
                                                         let mut curr_logs = logs.read().clone();
@@ -873,7 +877,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                                 // Generate ZK Compliance Proof
                                                 let user_id = user_id_b.read().clone();
                                                 let role = role_b.read().clone();
-                                                let proof = match trust.generate_compliance_proof(encrypted_content.clone(), user_id.clone(), role.clone()) {
+                                                let proof = match trust.generate_compliance_proof(key.clone(), encrypted_content.clone(), user_id.clone(), role.clone()) {
                                                     Ok(p) => p,
                                                     Err(e) => {
                                                         let mut curr_logs = logs.read().clone();
@@ -943,7 +947,11 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                             });
 
                                             let verification_result = if let Some((ref proof, ref uid, ref r)) = proof_info {
-                                                trust.verify_compliance_proof(proof.clone(), uid.clone(), r.clone(), n.content.clone()).unwrap_or(false)
+                                                let c_bytes = const_hex::decode(&n.content).unwrap_or_default();
+                                                let d_hash = blake3::hash(&c_bytes);
+                                                let d_hash_hex = const_hex::encode(d_hash.as_bytes());
+                                                let pubkey = trust.derive_public_key(passkey_a.read().clone()).unwrap_or_default();
+                                                trust.verify_compliance_proof(proof.clone(), uid.clone(), r.clone(), d_hash_hex, pubkey).unwrap_or(false)
                                             } else {
                                                 false
                                             };

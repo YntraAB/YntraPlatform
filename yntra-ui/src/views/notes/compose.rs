@@ -6,6 +6,7 @@ use yntra_core::{WorkspaceUser, add_note};
 #[derive(Props, Clone)]
 pub struct NoteComposeProps {
     pub active_user: WorkspaceUser,
+    pub users: Vec<WorkspaceUser>,
     pub active_team_id: String,
     pub team_name: String,
     pub note_subject: Signal<String>,
@@ -23,6 +24,7 @@ impl PartialEq for NoteComposeProps {
 #[component]
 pub fn NoteCompose(props: NoteComposeProps) -> Element {
     let active_user = props.active_user;
+    let users = props.users;
     let active_team_id = props.active_team_id;
     let team_name = props.team_name;
     let mut note_subject = props.note_subject;
@@ -72,11 +74,25 @@ pub fn NoteCompose(props: NoteComposeProps) -> Element {
                                 let user_role = active_user.role.clone();
                                 let is_enc = *encrypt_zero_copy.read();
                                 let seed = passkey_seed.read().clone();
+                                let users_list = users.clone();
                                 spawn(async move {
                                     let final_content = if is_enc {
                                         let trust = yntra_core::ZkCryptoTrust::new();
                                         if let Ok(ciphertext) = trust.encrypt_workspace_field(seed.clone(), content.clone()) {
-                                            if let Ok(proof) = trust.generate_compliance_proof(ciphertext.clone(), user_id.clone(), user_role) {
+                                            let mut ring_public_keys: Vec<String> = users_list
+                                                .iter()
+                                                .filter(|u| {
+                                                    u.id == user_id
+                                                        || u.role == "platform_admin"
+                                                        || (u.role == "admin" && u.workspace_id.as_ref() == Some(&workspace_id))
+                                                        || u.workspace_id.as_ref() == Some(&workspace_id)
+                                                })
+                                                .filter_map(|u| u.public_key.clone())
+                                                .collect();
+                                            ring_public_keys.sort();
+                                            ring_public_keys.dedup();
+
+                                            if let Ok(proof) = trust.generate_ring_compliance_proof(seed.clone(), ciphertext.clone(), ring_public_keys) {
                                                 format!("zero_copy_enc:{}:{}", proof, ciphertext)
                                             } else {
                                                 content

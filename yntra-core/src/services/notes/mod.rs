@@ -11,6 +11,8 @@ pub async fn verify_zkp_if_encrypted(
     content: &str,
     user_id: &str,
     role: &str,
+    workspace_id: &str,
+    team_id: &str,
 ) -> Result<(), YntraError> {
     if content.starts_with("zero_copy_enc:") {
         let parts: Vec<&str> = content.split(':').collect();
@@ -27,34 +29,85 @@ pub async fn verify_zkp_if_encrypted(
         let data_hash = blake3::hash(&ciphertext_bytes);
         let data_hash_hex = const_hex::encode(data_hash.as_bytes());
 
-        // Query user's metadata to get public key
-        let metadata_str: Option<String> = conn
-            .query_row(
-                "SELECT metadata FROM users WHERE id = ?1",
-                crate::params![user_id],
-                |r| r.get(0),
-            )
-            .await
-            .ok()
-            .flatten();
+        let public_key_hex: String;
 
-        let public_key_hex = if let Some(ref meta) = metadata_str {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(meta) {
-                val.get("public_key")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-                    .or_else(|| {
-                        val.get("siths_public_key")
+        let is_ring = if let Ok(proof_bytes) = const_hex::decode(proof) {
+            proof_bytes.starts_with(b"ZKP_RING_PROOF_V1:")
+        } else {
+            false
+        };
+
+        if is_ring {
+            // Query all candidate authorized users' public keys to form the ring
+            let mut stmt_candidates = conn.prepare(
+                "SELECT id FROM users WHERE id = ?1 \
+                 UNION \
+                 SELECT u.id FROM team_members tm JOIN users u ON tm.user_id = u.id WHERE tm.team_id = ?2 \
+                 UNION \
+                 SELECT id FROM users WHERE role = 'platform_admin' OR (role = 'admin' AND workspace_id = ?3)"
+            ).await?;
+            let mut rows = stmt_candidates.query(crate::params![user_id, team_id, workspace_id]).await?;
+            let mut pks = Vec::new();
+            while let Some(row) = rows.next().await? {
+                let uid: String = row.get(0)?;
+                let metadata_str: Option<String> = conn
+                    .query_row(
+                        "SELECT metadata FROM users WHERE id = ?1",
+                        crate::params![&uid],
+                        |r| r.get(0),
+                    )
+                    .await
+                    .ok()
+                    .flatten();
+                if let Some(ref meta) = metadata_str {
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(meta) {
+                        let pk = val.get("public_key")
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string())
-                    })
+                            .or_else(|| {
+                                val.get("siths_public_key")
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string())
+                            });
+                        if let Some(p) = pk {
+                            pks.push(p);
+                        }
+                    }
+                }
+            }
+            pks.sort();
+            pks.dedup();
+            public_key_hex = pks.join(",");
+        } else {
+            // Standard single key verification
+            let metadata_str: Option<String> = conn
+                .query_row(
+                    "SELECT metadata FROM users WHERE id = ?1",
+                    crate::params![user_id],
+                    |r| r.get(0),
+                )
+                .await
+                .ok()
+                .flatten();
+
+            public_key_hex = if let Some(ref meta) = metadata_str {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(meta) {
+                    val.get("public_key")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .or_else(|| {
+                            val.get("siths_public_key")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string())
+                        })
+                } else {
+                    None
+                }
             } else {
                 None
             }
-        } else {
-            None
+            .unwrap_or_default();
         }
-        .unwrap_or_default();
 
         if !trust
             .verify_compliance_proof(
@@ -320,7 +373,7 @@ pub async fn add_note(
 ) -> Result<DailyNote, YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    verify_zkp_if_encrypted(&conn, &content, &auth.user_id, &auth.role).await?;
+    verify_zkp_if_encrypted(&conn, &content, &auth.user_id, &auth.role, &workspace_id, &team_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
         return Err(YntraError::AuthError(
             "Access denied: workspace mismatch".to_string(),
@@ -464,7 +517,15 @@ pub async fn update_note(
         };
 
         let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-        verify_zkp_if_encrypted(&conn, &content, &auth.user_id, &auth.role).await?;
+        let (ws_id, t_id): (String, String) = conn
+            .query_row(
+                "SELECT workspace_id, team_id FROM notes WHERE id = ?1",
+                crate::params![note_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .await
+            .unwrap_or_else(|_| (auth.workspace_id.clone(), String::new()));
+        verify_zkp_if_encrypted(&conn, &content, &auth.user_id, &auth.role, &ws_id, &t_id).await?;
         if auth.role != "platform_admin" && auth.workspace_id != old_note.workspace_id {
             return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
         }
@@ -887,44 +948,92 @@ pub async fn apply_note_loro_update(
             let data_hash = blake3::hash(&ciphertext_bytes);
             let data_hash_hex = const_hex::encode(data_hash.as_bytes());
 
-            for (uid, urole) in candidates {
-                let metadata_str: Option<String> = conn
-                    .query_row(
-                        "SELECT metadata FROM users WHERE id = ?1",
-                        crate::params![&uid],
-                        |r| r.get(0),
-                    )
-                    .await
-                    .ok()
-                    .flatten();
+            let is_ring = if let Ok(proof_bytes) = const_hex::decode(proof) {
+                proof_bytes.starts_with(b"ZKP_RING_PROOF_V1:")
+            } else {
+                false
+            };
 
-                let public_key_hex = if let Some(ref meta) = metadata_str {
-                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(meta) {
-                        val.get("public_key")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string())
-                            .or_else(|| {
-                                val.get("siths_public_key")
-                                    .and_then(|v| v.as_str())
-                                    .map(|s| s.to_string())
-                            })
+            if is_ring {
+                let mut pks = Vec::new();
+                for (uid, _) in &candidates {
+                    let metadata_str: Option<String> = conn
+                        .query_row(
+                            "SELECT metadata FROM users WHERE id = ?1",
+                            crate::params![uid],
+                            |r| r.get(0),
+                        )
+                        .await
+                        .ok()
+                        .flatten();
+                    if let Some(ref meta) = metadata_str {
+                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(meta) {
+                            let pk = val.get("public_key")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string())
+                                .or_else(|| {
+                                    val.get("siths_public_key")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string())
+                                });
+                            if let Some(p) = pk {
+                                pks.push(p);
+                            }
+                        }
+                    }
+                }
+                pks.sort();
+                pks.dedup();
+                let ring_pks = pks.join(",");
+                if trust.verify_compliance_proof(
+                    proof.to_string(),
+                    String::new(),
+                    String::new(),
+                    data_hash_hex.clone(),
+                    ring_pks,
+                ).unwrap_or(false) {
+                    validated = true;
+                }
+            } else {
+                for (uid, urole) in candidates {
+                    let metadata_str: Option<String> = conn
+                        .query_row(
+                            "SELECT metadata FROM users WHERE id = ?1",
+                            crate::params![&uid],
+                            |r| r.get(0),
+                        )
+                        .await
+                        .ok()
+                        .flatten();
+
+                    let public_key_hex = if let Some(ref meta) = metadata_str {
+                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(meta) {
+                            val.get("public_key")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string())
+                                .or_else(|| {
+                                    val.get("siths_public_key")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string())
+                                })
+                        } else {
+                            None
+                        }
                     } else {
                         None
                     }
-                } else {
-                    None
-                }
-                .unwrap_or_default();
+                    .unwrap_or_default();
 
-                if trust.verify_compliance_proof(
-                    proof.to_string(),
-                    uid,
-                    urole,
-                    data_hash_hex.clone(),
-                    public_key_hex,
-                ).unwrap_or(false) {
-                    validated = true;
-                    break;
+                    if trust.verify_compliance_proof(
+                        proof.to_string(),
+                        uid,
+                        urole,
+                        data_hash_hex.clone(),
+                        public_key_hex,
+                    ).unwrap_or(false) {
+                        validated = true;
+                        break;
+                    }
                 }
             }
 

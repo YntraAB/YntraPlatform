@@ -42,6 +42,7 @@ pub async fn get_user_by_email(
             updated_at: row.get(7)?,
             sync_status: row.get(8)?,
             personal_number: None,
+            public_key: None,
         }))
     } else {
         Ok(None)
@@ -70,10 +71,22 @@ pub async fn get_users(requester_user_id: String) -> Result<Vec<WorkspaceUser>, 
             let mut siths_card_id = None;
             let mut nfc_badge_uid = None;
             let mut personal_number = None;
+            let mut public_key = None;
 
-            if auth.is_admin || is_self {
-                if let Some(ref m_str) = metadata_str {
-                    if let Ok(meta_val) = serde_json::from_str::<serde_json::Value>(m_str) {
+            if let Some(ref m_str) = metadata_str {
+                if let Ok(meta_val) = serde_json::from_str::<serde_json::Value>(m_str) {
+                    public_key = meta_val
+                        .get("public_key")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .or_else(|| {
+                            meta_val
+                                .get("siths_public_key")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string())
+                        });
+
+                    if auth.is_admin || is_self {
                         siths_card_id = meta_val
                             .get("siths_card_id")
                             .and_then(|v| v.as_str())
@@ -106,6 +119,7 @@ pub async fn get_users(requester_user_id: String) -> Result<Vec<WorkspaceUser>, 
                 updated_at: row.get(8)?,
                 sync_status: row.get(9)?,
                 personal_number,
+                public_key,
             })
         })
         .await?;
