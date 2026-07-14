@@ -77,10 +77,6 @@ impl ZeroCopyEngine {
         let rkyv_len = rkyv_bytes.len() as u64;
         #[cfg(not(target_arch = "wasm32"))]
         {
-            // Drop memory mapping and close file to release Windows OS locks
-            self.mmap = None;
-            self.file = None;
-
             let temp_path = format!("{}.tmp", self._file_path);
 
             {
@@ -110,6 +106,10 @@ impl ZeroCopyEngine {
                     .sync_all()
                     .map_err(|e| YntraError::DbError(e.to_string()))?;
             }
+
+            // Drop memory mapping and close file to release Windows OS locks right before renaming
+            self.mmap = None;
+            self.file = None;
 
             std::fs::rename(&temp_path, &self._file_path)
                 .map_err(|e| YntraError::DbError(e.to_string()))?;
@@ -144,7 +144,8 @@ impl ZeroCopyEngine {
     fn load_loro_from_mmap(&mut self) -> Result<(), YntraError> {
         if let Some(ref m) = self.mmap {
             if m.len() >= 16 {
-                let rkyv_len = u64::from_be_bytes(m[0..8].try_into().unwrap()) as usize;
+                let rkyv_len = usize::try_from(u64::from_be_bytes(m[0..8].try_into().unwrap()))
+                    .map_err(|e| YntraError::DbError(format!("Database size overflow: {}", e)))?;
                 if let Some(loro_offset) = rkyv_len.checked_add(16) {
                     if m.len() >= loro_offset {
                         if m.len() > loro_offset {
@@ -171,18 +172,29 @@ impl ZeroCopyEngine {
             .import(update_bytes)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
 
-        let map = self.loro.get_map("db");
-        if let Some(val) = map.get("bytes") {
-            if let Some(val_ref) = val.as_value() {
-                if let Some(bytes) = val_ref.as_binary() {
-                    let loro_bytes = self
-                        .loro
-                        .export(loro::ExportMode::Snapshot)
-                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                    self.save_to_disk(bytes, &loro_bytes)?;
+        let rkyv_bytes = {
+            let map = self.loro.get_map("db");
+            if let Some(val) = map.get("bytes") {
+                if let Some(val_ref) = val.as_value() {
+                    if let Some(bytes) = val_ref.as_binary() {
+                        bytes.to_vec()
+                    } else {
+                        self.get_rkyv_slice().to_vec()
+                    }
+                } else {
+                    self.get_rkyv_slice().to_vec()
                 }
+            } else {
+                self.get_rkyv_slice().to_vec()
             }
-        }
+        };
+
+        let loro_bytes = self
+            .loro
+            .export(loro::ExportMode::Snapshot)
+            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+
+        self.save_to_disk(&rkyv_bytes, &loro_bytes)?;
         Ok(())
     }
     pub fn write_serialized(&mut self, rkyv_bytes: &[u8]) -> Result<(), YntraError> {
@@ -202,7 +214,10 @@ impl ZeroCopyEngine {
         if bytes.len() < 16 {
             return &[];
         }
-        let rkyv_len = u64::from_be_bytes(bytes[0..8].try_into().unwrap()) as usize;
+        let rkyv_len = match usize::try_from(u64::from_be_bytes(bytes[0..8].try_into().unwrap())) {
+            Ok(len) => len,
+            Err(_) => return &[],
+        };
         if let Some(total_len) = rkyv_len.checked_add(16) {
             if bytes.len() >= total_len {
                 return &bytes[16..total_len];
