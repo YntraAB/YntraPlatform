@@ -89,6 +89,7 @@ async fn do_broadcast_write(
     from_peer: String,
     data: Vec<u8>,
     signing_key: Option<ed25519_dalek::SigningKey>,
+    failed_queue: Option<Arc<Mutex<Vec<(String, Vec<u8>)>>>>,
 ) {
     let data_hex = const_hex::encode(&data);
     let mut body = serde_json::json!({ "from_peer": from_peer, "data_hex": data_hex });
@@ -146,6 +147,9 @@ async fn do_broadcast_write(
             "Failed to broadcast update from peer {} to relay after multiple attempts",
             from_peer
         );
+        if let Some(queue) = failed_queue {
+            queue.lock().unwrap().push((from_peer, data));
+        }
     }
 }
 
@@ -153,6 +157,7 @@ async fn do_broadcast_write(
 pub struct P2PMeshSyncRouter {
     peers: Arc<Mutex<Vec<String>>>,
     pending_broadcasts: Arc<Mutex<Vec<Vec<u8>>>>,
+    pub(crate) failed_broadcasts: Arc<Mutex<Vec<(String, Vec<u8>)>>>,
     relay_url: Arc<Mutex<Option<String>>>,
     client: reqwest::Client,
     signing_key: Arc<Mutex<Option<ed25519_dalek::SigningKey>>>,
@@ -165,6 +170,7 @@ impl P2PMeshSyncRouter {
         Self {
             peers: Arc::new(Mutex::new(Vec::new())),
             pending_broadcasts: Arc::new(Mutex::new(Vec::new())),
+            failed_broadcasts: Arc::new(Mutex::new(Vec::new())),
             relay_url: Arc::new(Mutex::new(None)),
             client: reqwest::Client::new(),
             signing_key: Arc::new(Mutex::new(None)),
@@ -176,6 +182,7 @@ impl P2PMeshSyncRouter {
         Self {
             peers: Arc::new(Mutex::new(Vec::new())),
             pending_broadcasts: Arc::new(Mutex::new(Vec::new())),
+            failed_broadcasts: Arc::new(Mutex::new(Vec::new())),
             relay_url: Arc::new(Mutex::new(Some(relay_url))),
             client: reqwest::Client::new(),
             signing_key: Arc::new(Mutex::new(None)),
@@ -235,6 +242,45 @@ impl P2PMeshSyncRouter {
         Ok(())
     }
 
+    pub fn retry_failed_broadcasts(&self) {
+        let relay_opt = self.relay_url.lock().unwrap().clone();
+        if let Some(relay_url) = relay_opt {
+            let mut failed = self.failed_broadcasts.lock().unwrap();
+            if failed.is_empty() {
+                return;
+            }
+            let to_retry = std::mem::take(&mut *failed);
+            tracing::info!("Retrying {} failed P2P broadcasts...", to_retry.len());
+            for (from_peer, data) in to_retry {
+                let client = self.client.clone();
+                let key = self.signing_key.lock().unwrap().clone();
+                let queue_clone = Some(self.failed_broadcasts.clone());
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    crate::database::native::get_runtime().spawn(do_broadcast_write(
+                        client,
+                        relay_url.clone(),
+                        from_peer,
+                        data,
+                        key,
+                        queue_clone,
+                    ));
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    wasm_bindgen_futures::spawn_local(do_broadcast_write(
+                        client,
+                        relay_url.clone(),
+                        from_peer,
+                        data,
+                        key,
+                        queue_clone,
+                    ));
+                }
+            }
+        }
+    }
+
     pub fn broadcast_write_network(&self, from_peer: String, data: Vec<u8>) {
         let relay_opt = self.relay_url.lock().unwrap().clone();
         let peers = self.peers.lock().unwrap().clone();
@@ -242,17 +288,33 @@ impl P2PMeshSyncRouter {
         // Always store in-memory fallback
         in_memory_broadcast(&from_peer, data.clone(), &peers);
 
+        // Retry any previously failed broadcasts before trying the new one
+        self.retry_failed_broadcasts();
+
         if let Some(relay_url) = relay_opt {
             let client = self.client.clone();
             let key = self.signing_key.lock().unwrap().clone();
+            let queue_clone = Some(self.failed_broadcasts.clone());
             #[cfg(not(target_arch = "wasm32"))]
             {
-                crate::database::native::get_runtime().spawn(do_broadcast_write(client, relay_url, from_peer, data, key));
+                crate::database::native::get_runtime().spawn(do_broadcast_write(
+                    client,
+                    relay_url,
+                    from_peer,
+                    data,
+                    key,
+                    queue_clone,
+                ));
             }
             #[cfg(target_arch = "wasm32")]
             {
                 wasm_bindgen_futures::spawn_local(do_broadcast_write(
-                    client, relay_url, from_peer, data, key,
+                    client,
+                    relay_url,
+                    from_peer,
+                    data,
+                    key,
+                    queue_clone,
                 ));
             }
         } else {
@@ -344,16 +406,18 @@ impl P2PMeshSyncRouter {
                                     }
                                 }
                                 if !batch.is_empty() {
-                                    let _ = store.apply_loro_updates_batch(batch);
-                                    crate::infra::observer::notify_observers();
+                                    if store.apply_loro_updates_batch(batch).is_ok() {
+                                        crate::infra::observer::notify_observers();
+                                    }
                                 }
                             }
                         }
                     }
                     let updates = in_memory_poll(&peer_id);
                     if !updates.is_empty() {
-                        let _ = store.apply_loro_updates_batch(updates);
-                        crate::infra::observer::notify_observers();
+                        if store.apply_loro_updates_batch(updates).is_ok() {
+                            crate::infra::observer::notify_observers();
+                        }
                     }
                 });
             }
@@ -392,16 +456,18 @@ impl P2PMeshSyncRouter {
                                     }
                                 }
                                 if !batch.is_empty() {
-                                    let _ = store.apply_loro_updates_batch(batch);
-                                    crate::infra::observer::notify_observers();
+                                    if store.apply_loro_updates_batch(batch).is_ok() {
+                                        crate::infra::observer::notify_observers();
+                                    }
                                 }
                             }
                         }
                     }
                     let updates = in_memory_poll(&peer_id);
                     if !updates.is_empty() {
-                        let _ = store.apply_loro_updates_batch(updates);
-                        crate::infra::observer::notify_observers();
+                        if store.apply_loro_updates_batch(updates).is_ok() {
+                            crate::infra::observer::notify_observers();
+                        }
                     }
                 });
             }
@@ -452,16 +518,18 @@ impl P2PMeshSyncRouter {
                                     }
                                 }
                                 if !batch.is_empty() {
-                                    let _ = store.apply_loro_updates_batch(batch);
-                                    crate::infra::observer::notify_observers();
+                                    if store.apply_loro_updates_batch(batch).is_ok() {
+                                        crate::infra::observer::notify_observers();
+                                    }
                                 }
                             }
                         }
                     }
                     let updates = in_memory_poll(&peer_id);
                     if !updates.is_empty() {
-                        let _ = store.apply_loro_updates_batch(updates);
-                        crate::infra::observer::notify_observers();
+                        if store.apply_loro_updates_batch(updates).is_ok() {
+                            crate::infra::observer::notify_observers();
+                        }
                     }
                 });
             }
@@ -500,16 +568,18 @@ impl P2PMeshSyncRouter {
                                     }
                                 }
                                 if !batch.is_empty() {
-                                    let _ = store.apply_loro_updates_batch(batch);
-                                    crate::infra::observer::notify_observers();
+                                    if store.apply_loro_updates_batch(batch).is_ok() {
+                                        crate::infra::observer::notify_observers();
+                                    }
                                 }
                             }
                         }
                     }
                     let updates = in_memory_poll(&peer_id);
                     if !updates.is_empty() {
-                        let _ = store.apply_loro_updates_batch(updates);
-                        crate::infra::observer::notify_observers();
+                        if store.apply_loro_updates_batch(updates).is_ok() {
+                            crate::infra::observer::notify_observers();
+                        }
                     }
                 });
             }
@@ -556,16 +626,18 @@ impl P2PMeshSyncRouter {
                                     }
                                 }
                                 if !batch.is_empty() {
-                                    let _ = store.apply_loro_updates_batch(batch);
-                                    crate::infra::observer::notify_observers();
+                                    if store.apply_loro_updates_batch(batch).is_ok() {
+                                        crate::infra::observer::notify_observers();
+                                    }
                                 }
                             }
                         }
                     }
                     let updates = in_memory_poll(&peer_id);
                     if !updates.is_empty() {
-                        let _ = store.apply_loro_updates_batch(updates);
-                        crate::infra::observer::notify_observers();
+                        if store.apply_loro_updates_batch(updates).is_ok() {
+                            crate::infra::observer::notify_observers();
+                        }
                     }
                 });
             }
@@ -604,16 +676,18 @@ impl P2PMeshSyncRouter {
                                     }
                                 }
                                 if !batch.is_empty() {
-                                    let _ = store.apply_loro_updates_batch(batch);
-                                    crate::infra::observer::notify_observers();
+                                    if store.apply_loro_updates_batch(batch).is_ok() {
+                                        crate::infra::observer::notify_observers();
+                                    }
                                 }
                             }
                         }
                     }
                     let updates = in_memory_poll(&peer_id);
                     if !updates.is_empty() {
-                        let _ = store.apply_loro_updates_batch(updates);
-                        crate::infra::observer::notify_observers();
+                        if store.apply_loro_updates_batch(updates).is_ok() {
+                            crate::infra::observer::notify_observers();
+                        }
                     }
                 });
             }
@@ -660,16 +734,18 @@ impl P2PMeshSyncRouter {
                                     }
                                 }
                                 if !batch.is_empty() {
-                                    let _ = store.apply_loro_updates_batch(batch);
-                                    crate::infra::observer::notify_observers();
+                                    if store.apply_loro_updates_batch(batch).is_ok() {
+                                        crate::infra::observer::notify_observers();
+                                    }
                                 }
                             }
                         }
                     }
                     let updates = in_memory_poll(&peer_id);
                     if !updates.is_empty() {
-                        let _ = store.apply_loro_updates_batch(updates);
-                        crate::infra::observer::notify_observers();
+                        if store.apply_loro_updates_batch(updates).is_ok() {
+                            crate::infra::observer::notify_observers();
+                        }
                     }
                 });
             }
@@ -708,16 +784,18 @@ impl P2PMeshSyncRouter {
                                     }
                                 }
                                 if !batch.is_empty() {
-                                    let _ = store.apply_loro_updates_batch(batch);
-                                    crate::infra::observer::notify_observers();
+                                    if store.apply_loro_updates_batch(batch).is_ok() {
+                                        crate::infra::observer::notify_observers();
+                                    }
                                 }
                             }
                         }
                     }
                     let updates = in_memory_poll(&peer_id);
                     if !updates.is_empty() {
-                        let _ = store.apply_loro_updates_batch(updates);
-                        crate::infra::observer::notify_observers();
+                        if store.apply_loro_updates_batch(updates).is_ok() {
+                            crate::infra::observer::notify_observers();
+                        }
                     }
                 });
             }
