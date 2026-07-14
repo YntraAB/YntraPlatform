@@ -279,57 +279,77 @@ async function performSync(url, token) {
       throw new Error(`Turso replica error: ${resData.error.message}`);
     }
 
-    // A. Confirm pushes were successful and update local sync_status
-    for (let i = 0; i < pullStartIndex; i++) {
-      const result = resData.results[i];
-      if (result.type === "error") {
-        console.error("Failed to push row:", result.error.message);
-        continue;
-      }
-      const localUpdate = localPendingUpdates[i];
-      db.exec({
-        sql: `UPDATE ${localUpdate.table} SET sync_status = 'synced' WHERE ${localUpdate.pkCol} = ?`,
-        bind: [localUpdate.pkVal]
-      });
-      hasChanges = true;
-    }
-
-    // B. Apply pulled updates
-    let pullIdx = pullStartIndex;
-    for (const tableName of tables) {
-      const result = resData.results[pullIdx++];
-      if (!result || result.type === "error") continue;
-
-      const remoteRows = responseRowsToObjects(result.response.result);
-      const cols = getTableColumns(tableName);
-      const pkCol = getPrimaryKeyColumn(tableName);
-
-      for (const remoteRow of remoteRows) {
-        let localUpdatedAt = 0;
+    db.exec("BEGIN TRANSACTION;");
+    try {
+      // A. Confirm pushes were successful and update local sync_status
+      for (let i = 0; i < pullStartIndex; i++) {
+        const result = resData.results[i];
+        if (result.type === "error") {
+          console.error("Failed to push row:", result.error.message);
+          continue;
+        }
+        const localUpdate = localPendingUpdates[i];
         db.exec({
-          sql: `SELECT updated_at FROM ${tableName} WHERE ${pkCol} = ?`,
-          bind: [remoteRow[pkCol]],
-          rowMode: 'object',
-          callback: (row) => { localUpdatedAt = parseInt(row.updated_at) || 0; }
+          sql: `UPDATE ${localUpdate.table} SET sync_status = 'synced' WHERE ${localUpdate.pkCol} = ?`,
+          bind: [localUpdate.pkVal]
         });
+        hasChanges = true;
+      }
 
-        const remoteUpdatedAt = parseInt(remoteRow.updated_at) || 0;
-        if (remoteUpdatedAt > localUpdatedAt) {
-          const colNames = Object.keys(remoteRow).filter(c => cols.includes(c));
-          const valPlaceholders = colNames.map(() => "?").join(", ");
-          const insertSql = `INSERT OR REPLACE INTO ${tableName} (${colNames.join(", ")}) VALUES (${valPlaceholders})`;
-          const bindArgs = colNames.map(c => {
-            const val = remoteRow[c];
-            if (typeof val === 'boolean') return val ? 1 : 0;
-            return val;
-          });
+      // B. Apply pulled updates
+      let pullIdx = pullStartIndex;
+      for (const tableName of tables) {
+        const result = resData.results[pullIdx++];
+        if (!result || result.type === "error") continue;
+
+        const remoteRows = responseRowsToObjects(result.response.result);
+        if (remoteRows.length === 0) continue;
+
+        const cols = getTableColumns(tableName);
+        const pkCol = getPrimaryKeyColumn(tableName);
+
+        // Fetch all matching local updated_at values in bulk
+        const localUpdatedTimes = new Map();
+        const pkVals = remoteRows.map(row => row[pkCol]);
+        const chunkSize = 999;
+        
+        for (let i = 0; i < pkVals.length; i += chunkSize) {
+          const chunk = pkVals.slice(i, i + chunkSize);
+          const placeholders = chunk.map(() => "?").join(", ");
           db.exec({
-            sql: insertSql,
-            bind: bindArgs
+            sql: `SELECT ${pkCol}, updated_at FROM ${tableName} WHERE ${pkCol} IN (${placeholders})`,
+            bind: chunk,
+            rowMode: 'array',
+            callback: (row) => {
+              localUpdatedTimes.set(row[0], parseInt(row[1]) || 0);
+            }
           });
-          hasChanges = true;
+        }
+
+        for (const remoteRow of remoteRows) {
+          const localUpdatedAt = localUpdatedTimes.get(remoteRow[pkCol]) || 0;
+          const remoteUpdatedAt = parseInt(remoteRow.updated_at) || 0;
+          if (remoteUpdatedAt > localUpdatedAt) {
+            const colNames = Object.keys(remoteRow).filter(c => cols.includes(c));
+            const valPlaceholders = colNames.map(() => "?").join(", ");
+            const insertSql = `INSERT OR REPLACE INTO ${tableName} (${colNames.join(", ")}) VALUES (${valPlaceholders})`;
+            const bindArgs = colNames.map(c => {
+              const val = remoteRow[c];
+              if (typeof val === 'boolean') return val ? 1 : 0;
+              return val;
+            });
+            db.exec({
+              sql: insertSql,
+              bind: bindArgs
+            });
+            hasChanges = true;
+          }
         }
       }
+      db.exec("COMMIT;");
+    } catch (txErr) {
+      db.exec("ROLLBACK;");
+      throw txErr;
     }
   }
 
@@ -341,3 +361,4 @@ async function performSync(url, token) {
 
   return hasChanges;
 }
+
