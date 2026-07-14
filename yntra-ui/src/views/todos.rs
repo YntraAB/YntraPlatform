@@ -4,17 +4,11 @@ use crate::state::AppState;
 use dioxus::prelude::*;
 use yntra_core::TodoItem;
 
-#[derive(Props, Clone)]
+#[derive(Props, Clone, PartialEq)]
 pub struct TodosViewProps {
     pub active_user_id: Signal<String>,
     pub auth_region: Signal<String>,
     pub db_trigger: Signal<u32>,
-}
-
-impl PartialEq for TodosViewProps {
-    fn eq(&self, _other: &Self) -> bool {
-        false
-    }
 }
 
 #[component]
