@@ -28,10 +28,11 @@ impl ZeroCopyStore {
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         {
             let mut inner = self.inner.lock().unwrap();
-            *self.cache.lock().unwrap() = None;
+            let mut cache = self.cache.lock().unwrap();
+            *cache = None;
             inner.write_serialized(&rkyv_bytes)?;
+            *cache = Some(todos);
         }
-        *self.cache.lock().unwrap() = Some(todos);
         Ok(())
     }
 
@@ -206,10 +207,11 @@ impl ZeroCopyMessageStore {
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         {
             let mut inner = self.inner.lock().unwrap();
-            *self.cache.lock().unwrap() = None;
+            let mut cache = self.cache.lock().unwrap();
+            *cache = None;
             inner.write_serialized(&rkyv_bytes)?;
+            *cache = Some(messages);
         }
-        *self.cache.lock().unwrap() = Some(messages);
         Ok(())
     }
 
@@ -440,10 +442,11 @@ impl ZeroCopyAuditStore {
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         {
             let mut inner = self.inner.lock().unwrap();
-            *self.cache.lock().unwrap() = None;
+            let mut cache = self.cache.lock().unwrap();
+            *cache = None;
             inner.write_serialized(&rkyv_bytes)?;
+            *cache = Some(entries);
         }
-        *self.cache.lock().unwrap() = Some(entries);
         Ok(())
     }
 
@@ -575,10 +578,11 @@ impl ZeroCopyNoteStore {
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         {
             let mut inner = self.inner.lock().unwrap();
-            *self.cache.lock().unwrap() = None;
+            let mut cache = self.cache.lock().unwrap();
+            *cache = None;
             inner.write_serialized(&rkyv_bytes)?;
+            *cache = Some(notes);
         }
-        *self.cache.lock().unwrap() = Some(notes);
         Ok(())
     }
 
