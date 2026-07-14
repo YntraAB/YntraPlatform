@@ -16,8 +16,10 @@ pub fn verify_user_totp(mut secret: String, mut code: String) -> bool {
     res
 }
 
+static LAST_VERIFIED_STEPS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, u64>>> = std::sync::OnceLock::new();
+
 fn verify_totp(secret: String, code: &str, timestamp: u64) -> bool {
-    let secret_bytes_res = Secret::Encoded(secret).to_bytes();
+    let secret_bytes_res = Secret::Encoded(secret.clone()).to_bytes();
 
     let mut secret_bytes = match secret_bytes_res {
         Ok(b) => b,
@@ -39,7 +41,35 @@ fn verify_totp(secret: String, code: &str, timestamp: u64) -> bool {
         Err(_) => return false,
     };
 
-    totp.check(code, timestamp)
+    let current_step = timestamp / 30;
+    let mut verified_step = None;
+    for step_offset in &[-1i64, 0, 1] {
+        let step = (current_step as i64 + step_offset) as u64;
+        let expected_code = totp.generate(step * 30);
+        if expected_code == code {
+            verified_step = Some(step);
+            break;
+        }
+    }
+
+    if let Some(step) = verified_step {
+        let secret_hash = {
+            use sha2::Digest;
+            let mut hasher = sha2::Sha256::new();
+            hasher.update(secret.as_bytes());
+            const_hex::encode(hasher.finalize())
+        };
+        let mut cache = LAST_VERIFIED_STEPS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new())).lock().unwrap();
+        if let Some(&last_step) = cache.get(&secret_hash) {
+            if step <= last_step {
+                return false;
+            }
+        }
+        cache.insert(secret_hash, step);
+        true
+    } else {
+        false
+    }
 }
 
 #[cfg(test)]
@@ -64,19 +94,20 @@ mod tests {
         let timestamp = 1700000000;
         let code = totp.generate(timestamp);
 
-        // Verify correct code
+        // Verify correct code succeeds the first time
         assert!(verify_totp(secret_str.clone(), &code, timestamp));
 
-        // Verify correct code with skew (one interval ahead/behind)
-        assert!(verify_totp(secret_str.clone(), &code, timestamp + 25));
-        assert!(verify_totp(secret_str.clone(), &code, timestamp - 25));
+        // Replay of the same code on the same/adjacent time steps fails
+        assert!(!verify_totp(secret_str.clone(), &code, timestamp));
+        assert!(!verify_totp(secret_str.clone(), &code, timestamp + 5));
 
-        // Verify incorrect code
+        // Verify a new code from a subsequent step works
+        let next_timestamp = timestamp + 30;
+        let next_code = totp.generate(next_timestamp);
+        assert!(verify_totp(secret_str.clone(), &next_code, next_timestamp));
+
+        // Verify incorrect code fails
         assert!(!verify_totp(secret_str.clone(), "000000", timestamp));
-
-        // Verify expired code (skew is 1 interval, i.e. 30 seconds, so checking drift [-30s, 0s, +30s])
-        assert!(!verify_totp(secret_str.clone(), &code, timestamp + 65));
-        assert!(!verify_totp(secret_str.clone(), &code, timestamp - 65));
     }
 }
 

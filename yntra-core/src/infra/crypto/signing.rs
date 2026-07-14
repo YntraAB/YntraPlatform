@@ -43,10 +43,7 @@ pub fn generate_role_signature(
     role: &str,
     workspace_id: &str,
 ) -> Result<String, YntraError> {
-    let current_time = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64;
+    let current_time = chrono::Utc::now().timestamp();
     let expires_at = current_time + 30 * 24 * 60 * 60;
     generate_role_signature_with_expiration(private_key_hex, user_id, role, workspace_id, expires_at)
 }
@@ -130,10 +127,7 @@ pub fn verify_role_signature(
         _ => return false,
     };
     
-    let current_time = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64;
+    let current_time = chrono::Utc::now().timestamp();
         
     if current_time > expires_at {
         tracing::warn!("Role signature for user {} has expired", user_id);

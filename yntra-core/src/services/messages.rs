@@ -192,6 +192,19 @@ mod tests {
         // Clear message store first to be safe
         let _ = get_message_store().write_messages(Vec::new());
 
+        struct Cleanup;
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                crate::database::native::block_on(async move {
+                    if let Ok(c) = database::acquire_connection().await {
+                        let _ = get_message_store().write_messages(Vec::new());
+                        let _ = c.execute("DELETE FROM users WHERE id IN ('test-msg-user-1', 'test-msg-user-2')", ()).await;
+                    }
+                });
+            }
+        }
+        let _cleanup = Cleanup;
+
         // Insert two test users
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('test-msg-user-1', 'workspace-1', 'msg1@yntra.io', 'assistant')", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('test-msg-user-2', 'workspace-1', 'msg2@yntra.io', 'assistant')", ()).await.unwrap();
@@ -210,9 +223,5 @@ mod tests {
         let res2 = get_messages("test-msg-user-1".to_string(), "test-msg-user-2".to_string()).await;
         assert!(res2.is_err());
         assert!(matches!(res2.unwrap_err(), YntraError::AuthError(_)));
-
-        // Clean up
-        let _ = get_message_store().write_messages(Vec::new());
-        conn.execute("DELETE FROM users WHERE id IN ('test-msg-user-1', 'test-msg-user-2')", ()).await.unwrap();
     }
 }

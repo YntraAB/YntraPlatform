@@ -17,34 +17,33 @@ pub fn parse_loro_state(state: &str) -> (i64, &str) {
 }
 
 pub fn apply_diff_to_loro(text: &loro::LoroText, old_str: &str, new_str: &str) -> Result<(), YntraError> {
-    let old_units: Vec<u16> = old_str.encode_utf16().collect();
-    let new_units: Vec<u16> = new_str.encode_utf16().collect();
+    let old_chars: Vec<char> = old_str.chars().collect();
+    let new_chars: Vec<char> = new_str.chars().collect();
 
     let mut common_prefix = 0;
-    while common_prefix < old_units.len() && common_prefix < new_units.len() && old_units[common_prefix] == new_units[common_prefix] {
+    while common_prefix < old_chars.len() && common_prefix < new_chars.len() && old_chars[common_prefix] == new_chars[common_prefix] {
         common_prefix += 1;
     }
 
     let mut common_suffix = 0;
-    while common_suffix < (old_units.len() - common_prefix) && common_suffix < (new_units.len() - common_prefix) {
-        let old_idx = old_units.len() - 1 - common_suffix;
-        let new_idx = new_units.len() - 1 - common_suffix;
-        if old_units[old_idx] == new_units[new_idx] {
+    while common_suffix < (old_chars.len() - common_prefix) && common_suffix < (new_chars.len() - common_prefix) {
+        let old_idx = old_chars.len() - 1 - common_suffix;
+        let new_idx = new_chars.len() - 1 - common_suffix;
+        if old_chars[old_idx] == new_chars[new_idx] {
             common_suffix += 1;
         } else {
             break;
         }
     }
 
-    let del_len = old_units.len() - common_prefix - common_suffix;
-    let ins_len = new_units.len() - common_prefix - common_suffix;
+    let del_len = old_chars.len() - common_prefix - common_suffix;
+    let ins_len = new_chars.len() - common_prefix - common_suffix;
 
     if del_len > 0 {
         text.delete(common_prefix, del_len).map_err(|e| YntraError::SerializationError(e.to_string()))?;
     }
     if ins_len > 0 {
-        let ins_str = String::from_utf16(&new_units[common_prefix..(common_prefix + ins_len)])
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+        let ins_str: String = new_chars[common_prefix..(common_prefix + ins_len)].iter().collect();
         text.insert(common_prefix, &ins_str).map_err(|e| YntraError::SerializationError(e.to_string()))?;
     }
     Ok(())
@@ -221,5 +220,16 @@ mod tests {
         // Test restore from empty
         apply_diff_to_loro(&text, "", "Back again").unwrap();
         assert_eq!(text.to_string(), "Back again");
+
+        // Test with multi-byte Unicode characters (emojis)
+        let doc_emoji = loro::LoroDoc::new();
+        let text_emoji = doc_emoji.get_text("content");
+        text_emoji.insert(0, "😅Hello World").unwrap();
+        
+        apply_diff_to_loro(&text_emoji, "😅Hello World", "😅Hello CRDT World").unwrap();
+        assert_eq!(text_emoji.to_string(), "😅Hello CRDT World");
+
+        apply_diff_to_loro(&text_emoji, "😅Hello CRDT World", "😅Goodbye World").unwrap();
+        assert_eq!(text_emoji.to_string(), "😅Goodbye World");
     }
 }
