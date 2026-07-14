@@ -138,10 +138,6 @@ pub async fn send_message(
     messages.push(item.clone());
     store.write_messages(messages)?;
 
-    // Notify observers so the UI updates reactively
-    crate::infra::observer::set_last_modified_table("messages");
-    crate::infra::observer::notify_observers();
-
     Ok(item)
 }
 
@@ -199,10 +195,6 @@ pub async fn mark_message_read(requester_user_id: String, id: String) -> Result<
     messages[idx].sync_status = "pending".to_string();
 
     store.write_messages(messages)?;
-
-    // Notify observers so the UI updates reactively
-    crate::infra::observer::set_last_modified_table("messages");
-    crate::infra::observer::notify_observers();
 
     Ok(())
 }

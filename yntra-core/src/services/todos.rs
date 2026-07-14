@@ -93,10 +93,6 @@ pub async fn add_todo(
     todos.push(item.clone());
     store.write_todos(todos)?;
 
-    // Notify observers so the UI updates reactively
-    crate::infra::observer::set_last_modified_table("todos");
-    crate::infra::observer::notify_observers();
-
     Ok(item)
 }
 
@@ -135,10 +131,6 @@ pub async fn toggle_todo(requester_user_id: String, id: String) -> Result<(), Yn
     }
 
     store.write_todos(todos)?;
-
-    // Notify observers so the UI updates reactively
-    crate::infra::observer::set_last_modified_table("todos");
-    crate::infra::observer::notify_observers();
 
     Ok(())
 }
