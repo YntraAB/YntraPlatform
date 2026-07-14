@@ -83,6 +83,10 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
         move || {
             router.register_peer_network("peer_a".to_string());
             router.register_peer_network("peer_b".to_string());
+            router.register_local_peer_store("peer_a".to_string(), Arc::new(store_a.clone()));
+            router.register_local_peer_store("peer_b".to_string(), Arc::new(store_b.clone()));
+            router.register_local_peer_note_store("peer_a".to_string(), Arc::new(store_notes_a.clone()));
+            router.register_local_peer_note_store("peer_b".to_string(), Arc::new(store_notes_b.clone()));
 
             if let Ok(list) = store_a.read_all_todos() {
                 todos_a.set(list);
@@ -99,7 +103,32 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
         }
     });
 
-    // Real-time network sync polling loop
+    // Reactive update when database changes (DatabaseObserver driven)
+    use_effect({
+        let store_a = store_a.clone();
+        let store_b = store_b.clone();
+        let store_notes_a = store_notes_a.clone();
+        let store_notes_b = store_notes_b.clone();
+        move || {
+            // Read database trigger to run this effect when observer notifications fire
+            let _ = db_trigger.read();
+            
+            if let Ok(list) = store_a.read_all_todos() {
+                todos_a.set(list);
+            }
+            if let Ok(list) = store_b.read_all_todos() {
+                todos_b.set(list);
+            }
+            if let Ok(list) = store_notes_a.read_all_notes() {
+                notes_a.set(list);
+            }
+            if let Ok(list) = store_notes_b.read_all_notes() {
+                notes_b.set(list);
+            }
+        }
+    });
+
+    // Real-time network sync polling loop (background worker only - does not affect/rewrite UI state)
     use_effect({
         let store_a = store_a.clone();
         let store_b = store_b.clone();
@@ -148,19 +177,6 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                             "peer_b".to_string(),
                             Arc::new(store_notes_b.clone()),
                         );
-                    }
-
-                    if let Ok(list) = store_a.read_all_todos() {
-                        todos_a.set(list);
-                    }
-                    if let Ok(list) = store_b.read_all_todos() {
-                        todos_b.set(list);
-                    }
-                    if let Ok(list) = store_notes_a.read_all_notes() {
-                        notes_a.set(list);
-                    }
-                    if let Ok(list) = store_notes_b.read_all_notes() {
-                        notes_b.set(list);
                     }
                 }
             });

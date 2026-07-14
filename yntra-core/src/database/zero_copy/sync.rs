@@ -4,6 +4,20 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
 use super::MutexExt;
 
+type StoreMap<T> = HashMap<String, Arc<T>>;
+
+static LOCAL_PEER_STORES: LazyLock<Mutex<StoreMap<ZeroCopyStore>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+static LOCAL_PEER_NOTE_STORES: LazyLock<Mutex<StoreMap<ZeroCopyNoteStore>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+static LOCAL_PEER_MESSAGE_STORES: LazyLock<Mutex<StoreMap<ZeroCopyMessageStore>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+static LOCAL_PEER_AUDIT_STORES: LazyLock<Mutex<StoreMap<ZeroCopyAuditStore>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 // --- Pillar 2: Geo-Distributed Edge Replicas + P2P Mesh Sync ---
 
 struct PeerRelayQueue {
@@ -225,6 +239,30 @@ impl P2PMeshSyncRouter {
         }
     }
 
+    pub fn register_local_peer_store(&self, peer_id: String, store: Arc<ZeroCopyStore>) {
+        if let Ok(mut map) = LOCAL_PEER_STORES.lock() {
+            map.insert(peer_id, store);
+        }
+    }
+
+    pub fn register_local_peer_note_store(&self, peer_id: String, store: Arc<ZeroCopyNoteStore>) {
+        if let Ok(mut map) = LOCAL_PEER_NOTE_STORES.lock() {
+            map.insert(peer_id, store);
+        }
+    }
+
+    pub fn register_local_peer_message_store(&self, peer_id: String, store: Arc<ZeroCopyMessageStore>) {
+        if let Ok(mut map) = LOCAL_PEER_MESSAGE_STORES.lock() {
+            map.insert(peer_id, store);
+        }
+    }
+
+    pub fn register_local_peer_audit_store(&self, peer_id: String, store: Arc<ZeroCopyAuditStore>) {
+        if let Ok(mut map) = LOCAL_PEER_AUDIT_STORES.lock() {
+            map.insert(peer_id, store);
+        }
+    }
+
     pub fn set_identity(&self, private_key_hex: String) -> Result<(), YntraError> {
         let key_bytes = const_hex::decode(&private_key_hex)
             .map_err(|e| YntraError::CryptoError(e.to_string()))?;
@@ -320,6 +358,36 @@ impl P2PMeshSyncRouter {
     pub fn broadcast_write_network(&self, from_peer: String, data: Vec<u8>) {
         let relay_opt = self.relay_url.lock_poison_safe().clone();
         let peers = self.peers.lock_poison_safe().clone();
+
+        // 1. Direct Peer-to-Peer local synchronization (WebRTC simulation)
+        if let Ok(map) = LOCAL_PEER_STORES.lock() {
+            for (peer_id, store) in map.iter() {
+                if peer_id != &from_peer {
+                    let _ = store.apply_loro_update(data.clone());
+                }
+            }
+        }
+        if let Ok(map) = LOCAL_PEER_NOTE_STORES.lock() {
+            for (peer_id, store) in map.iter() {
+                if peer_id != &from_peer {
+                    let _ = store.apply_loro_update(data.clone());
+                }
+            }
+        }
+        if let Ok(map) = LOCAL_PEER_MESSAGE_STORES.lock() {
+            for (peer_id, store) in map.iter() {
+                if peer_id != &from_peer {
+                    let _ = store.apply_loro_update(data.clone());
+                }
+            }
+        }
+        if let Ok(map) = LOCAL_PEER_AUDIT_STORES.lock() {
+            for (peer_id, store) in map.iter() {
+                if peer_id != &from_peer {
+                    let _ = store.apply_loro_update(data.clone());
+                }
+            }
+        }
 
         // Always store in-memory fallback
         in_memory_broadcast(&from_peer, data.clone(), &peers);
