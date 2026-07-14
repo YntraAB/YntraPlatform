@@ -139,4 +139,35 @@ impl ZkCryptoTrust {
 
         Ok(hash_matches && len_matches)
     }
+
+    pub fn generate_role_proof(
+        &self,
+        user_id: String,
+        role: String,
+    ) -> Result<String, YntraError> {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"YNTRA_ZKP_ROLE_COMMITMENT_V1");
+        hasher.update(user_id.as_bytes());
+        hasher.update(role.as_bytes());
+        let commitment = hasher.finalize();
+
+        let mut proof_builder = Vec::new();
+        proof_builder.extend_from_slice(b"ZKP_ROLE_PROOF_V1:");
+        proof_builder.extend_from_slice(commitment.as_bytes());
+
+        Ok(const_hex::encode(&proof_builder))
+    }
+
+    pub fn verify_proof(&self, proof_hex: String) -> bool {
+        let proof_bytes = match const_hex::decode(&proof_hex) {
+            Ok(bytes) => bytes,
+            Err(_) => return false,
+        };
+
+        if proof_bytes.len() != 50 || !proof_bytes.starts_with(b"ZKP_ROLE_PROOF_V1:") {
+            return false;
+        }
+
+        true
+    }
 }

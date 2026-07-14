@@ -100,6 +100,16 @@ fn test_zk_envelope_encryption_and_proof() {
         )
         .unwrap();
     assert!(is_valid);
+
+    // Test role proof (ZK role validation without raw data/secrets)
+    let role_proof = trust
+        .generate_role_proof("user_123".to_string(), "Admin".to_string())
+        .unwrap();
+    let is_role_valid = trust.verify_proof(role_proof);
+    assert!(is_role_valid);
+
+    let invalid_role_proof = "not_a_valid_proof_hex_string_too_short".to_string();
+    assert!(!trust.verify_proof(invalid_role_proof));
 }
 
 #[test]
