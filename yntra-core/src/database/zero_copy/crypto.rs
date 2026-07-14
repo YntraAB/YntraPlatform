@@ -79,13 +79,11 @@ impl ZkCryptoTrust {
         let cipher = XChaCha20Poly1305::new(key);
         let nonce = XNonce::from_slice(nonce_bytes);
 
-        let plaintext_bytes = Zeroizing::new(
-            cipher
-                .decrypt(nonce, ciphertext_bytes)
-                .map_err(|e| YntraError::CryptoError(e.to_string()))?,
-        );
+        let decrypted_bytes = cipher
+            .decrypt(nonce, ciphertext_bytes)
+            .map_err(|e| YntraError::CryptoError(e.to_string()))?;
 
-        let decrypted_string = String::from_utf8(plaintext_bytes.to_vec())
+        let decrypted_string = String::from_utf8(decrypted_bytes)
             .map_err(|e| YntraError::CryptoError(e.to_string()))?;
 
         Ok(decrypted_string)
@@ -102,18 +100,24 @@ impl ZkCryptoTrust {
 
         let data_hash = blake3::hash(&data_bytes);
 
+        // Generate a random 32-byte salt (blinding factor) to prevent dictionary attacks on data_hash
+        let mut salt_bytes = [0u8; 32];
+        getrandom::fill(&mut salt_bytes).map_err(|e| YntraError::CryptoError(e.to_string()))?;
+
         let mut hasher = blake3::Hasher::new();
-        hasher.update(b"YNTRA_ZKP_COMMITMENT_V1");
+        hasher.update(b"YNTRA_ZKP_COMMITMENT_V2");
         hasher.update(user_id.as_bytes());
         hasher.update(role.as_bytes());
         hasher.update(data_hash.as_bytes());
+        hasher.update(&salt_bytes);
         let commitment = hasher.finalize();
 
         let is_valid_len = !data_bytes.is_empty() && data_bytes.len() < 10_000_000;
 
         let mut proof_builder = Vec::new();
-        proof_builder.extend_from_slice(b"ZKP_PROOF_V1:");
+        proof_builder.extend_from_slice(b"ZKP_PROOF_V2:");
         proof_builder.extend_from_slice(commitment.as_bytes());
+        proof_builder.extend_from_slice(&salt_bytes);
         proof_builder.push(if is_valid_len { 1 } else { 0 });
 
         Ok(const_hex::encode(&proof_builder))
@@ -129,27 +133,44 @@ impl ZkCryptoTrust {
         let proof_bytes =
             const_hex::decode(&proof_hex).map_err(|e| YntraError::CryptoError(e.to_string()))?;
 
-        if proof_bytes.len() != 46 || !proof_bytes.starts_with(b"ZKP_PROOF_V1:") {
-            return Ok(false);
-        }
-
         let data_hash_bytes =
             const_hex::decode(&data_hash_hex).map_err(|e| YntraError::CryptoError(e.to_string()))?;
 
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(b"YNTRA_ZKP_COMMITMENT_V1");
-        hasher.update(user_id.as_bytes());
-        hasher.update(role.as_bytes());
-        hasher.update(&data_hash_bytes);
-        let expected_commitment = hasher.finalize();
+        if proof_bytes.starts_with(b"ZKP_PROOF_V2:") && proof_bytes.len() == 78 {
+            let actual_commitment = &proof_bytes[13..45];
+            let salt_bytes = &proof_bytes[45..77];
+            let is_valid_len = *proof_bytes.last().unwrap_or(&0) == 1;
 
-        let actual_commitment = &proof_bytes[13..45];
-        let is_valid_len = *proof_bytes.last().unwrap_or(&0) == 1;
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(b"YNTRA_ZKP_COMMITMENT_V2");
+            hasher.update(user_id.as_bytes());
+            hasher.update(role.as_bytes());
+            hasher.update(&data_hash_bytes);
+            hasher.update(salt_bytes);
+            let expected_commitment = hasher.finalize();
 
-        let hash_matches = expected_commitment.as_bytes() == actual_commitment;
-        let len_matches = is_valid_len;
+            let hash_matches = expected_commitment.as_bytes() == actual_commitment;
+            let len_matches = is_valid_len;
 
-        Ok(hash_matches && len_matches)
+            Ok(hash_matches && len_matches)
+        } else if proof_bytes.starts_with(b"ZKP_PROOF_V1:") && proof_bytes.len() == 46 {
+            let actual_commitment = &proof_bytes[13..45];
+            let is_valid_len = *proof_bytes.last().unwrap_or(&0) == 1;
+
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(b"YNTRA_ZKP_COMMITMENT_V1");
+            hasher.update(user_id.as_bytes());
+            hasher.update(role.as_bytes());
+            hasher.update(&data_hash_bytes);
+            let expected_commitment = hasher.finalize();
+
+            let hash_matches = expected_commitment.as_bytes() == actual_commitment;
+            let len_matches = is_valid_len;
+
+            Ok(hash_matches && len_matches)
+        } else {
+            Ok(false)
+        }
     }
 
     pub fn generate_role_proof(
