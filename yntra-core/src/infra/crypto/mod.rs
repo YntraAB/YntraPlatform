@@ -376,7 +376,7 @@ pub fn decrypt_opt_field(encrypted_data: Option<String>, workspace_id: &str) -> 
 
 pub fn hash_anonymous_reporter(user_id: &str, workspace_id: &str) -> Result<String, YntraError> {
     let salt = get_system_salt_ref()?;
-    let client_pepper = get_local_client_pepper();
+    let client_pepper = get_local_client_pepper()?;
     
     let mut hasher = blake3::Hasher::new_derive_key("Yntra whistleblower reporter anonymity hash v2");
     hasher.update(&(salt.len() as u64).to_be_bytes());

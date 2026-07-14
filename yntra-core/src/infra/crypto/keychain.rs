@@ -17,33 +17,32 @@ pub fn register_secure_storage_provider(provider: Box<dyn SecureStorageProvider>
     SECURE_STORAGE_PROVIDER.set(provider).is_ok()
 }
 
-pub(crate) fn get_local_client_pepper() -> String {
+pub(crate) fn get_local_client_pepper() -> Result<String, YntraError> {
     #[cfg(not(target_arch = "wasm32"))]
     {
         if let Ok(entry) = keyring::Entry::new("yntra-platform", "client_pepper") {
             if let Ok(pepper) = entry.get_password() {
                 if !pepper.is_empty() {
-                    return pepper;
+                    return Ok(pepper);
                 }
             }
             let mut rand_bytes = [0u8; 32];
-            if getrandom::fill(&mut rand_bytes).is_ok() {
-                let new_pepper = const_hex::encode(&rand_bytes);
-                let _ = entry.set_password(&new_pepper);
-                return new_pepper;
-            }
+            getrandom::fill(&mut rand_bytes).map_err(|e| YntraError::CryptoError(e.to_string()))?;
+            let new_pepper = const_hex::encode(&rand_bytes);
+            let _ = entry.set_password(&new_pepper);
+            return Ok(new_pepper);
         }
         use std::fs;
         use std::path::PathBuf;
         let path = PathBuf::from(crate::database::native::get_database_path("yntra_client_pepper.bin"));
         if let Ok(pepper) = fs::read_to_string(&path) {
-            pepper
+            Ok(pepper)
         } else {
             let mut rand_bytes = [0u8; 32];
-            let _ = getrandom::fill(&mut rand_bytes);
+            getrandom::fill(&mut rand_bytes).map_err(|e| YntraError::CryptoError(e.to_string()))?;
             let new_pepper = const_hex::encode(&rand_bytes);
             let _ = fs::write(&path, &new_pepper);
-            new_pepper
+            Ok(new_pepper)
         }
     }
     #[cfg(target_arch = "wasm32")]
@@ -51,22 +50,27 @@ pub(crate) fn get_local_client_pepper() -> String {
         if let Some(window) = web_sys::window() {
             if let Ok(Some(storage)) = window.local_storage() {
                 if let Ok(Some(pepper)) = storage.get_item("yntra_client_pepper") {
-                    return pepper;
+                    return Ok(pepper);
                 } else {
                     let mut rand_bytes = [0u8; 32];
-                    let _ = getrandom::fill(&mut rand_bytes);
+                    getrandom::fill(&mut rand_bytes).map_err(|e| YntraError::CryptoError(e.to_string()))?;
                     let new_pepper = const_hex::encode(&rand_bytes);
                     let _ = storage.set_item("yntra_client_pepper", &new_pepper);
-                    return new_pepper;
+                    return Ok(new_pepper);
                 }
             }
         }
         static SESSION_PEPPER: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-        SESSION_PEPPER.get_or_init(|| {
-            let mut rand_bytes = [0u8; 32];
-            let _ = getrandom::fill(&mut rand_bytes);
-            const_hex::encode(&rand_bytes)
-        }).clone()
+        if let Some(pepper) = SESSION_PEPPER.get() {
+            return Ok(pepper.clone());
+        }
+        let mut rand_bytes = [0u8; 32];
+        getrandom::fill(&mut rand_bytes).map_err(|e| YntraError::CryptoError(e.to_string()))?;
+        let new_pepper = const_hex::encode(&rand_bytes);
+        match SESSION_PEPPER.set(new_pepper.clone()) {
+            Ok(_) => Ok(new_pepper),
+            Err(_) => Ok(SESSION_PEPPER.get().unwrap().clone()),
+        }
     }
 }
 
