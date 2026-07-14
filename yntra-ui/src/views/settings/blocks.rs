@@ -1,17 +1,18 @@
 #[allow(unused_imports)]
+use super::FinanceSettings;
+#[allow(unused_imports)]
 use super::NotificationsSettings;
 #[allow(unused_imports)]
 use super::SchedulerSettings;
-#[allow(unused_imports)]
-use super::FinanceSettings;
 use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
-use yntra_core::{update_workspace_modules, BlockItem, Workspace};
+use yntra_core::{BlockItem, Workspace, update_workspace_modules};
 
 fn get_module_default_state(block_id: &str) -> bool {
     match block_id {
-        "messaging" | "scheduling" | "notes" | "time" | "directory" | "reporting" | "jobs" | "todos" => true,
+        "messaging" | "scheduling" | "notes" | "time" | "directory" | "reporting" | "jobs"
+        | "todos" => true,
         _ => false,
     }
 }
@@ -51,11 +52,13 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
     let mut is_loading = use_signal(|| true);
 
     // Fetch blocks dynamically from SQLite database
+    let requester_id = props.active_user.id.clone();
     let _blocks = use_resource(move || {
         let trigger = *db_trigger.read();
+        let r_id = requester_id.clone();
         async move {
             let _ = trigger; // read trigger to react
-            if let Ok(list) = yntra_core::get_blocks().await {
+            if let Ok(list) = yntra_core::get_blocks(r_id).await {
                 available_blocks.set(list);
             }
             is_loading.set(false);
@@ -66,17 +69,24 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
         let locale = props.locale.clone();
         let user_id = props.active_user.id.clone();
         let workspace = props.workspace.clone();
-        
+
         move |block: BlockItem, next_state: bool| {
-            println!("handle_toggle called: block_id={}, next_state={}, user_id={}", block.id, next_state, user_id);
+            println!(
+                "handle_toggle called: block_id={}, next_state={}, user_id={}",
+                block.id, next_state, user_id
+            );
             let modules_active_val: serde_json::Value =
                 serde_json::from_str(&workspace.modules_active).unwrap_or_default();
 
             if next_state {
                 // Check dependencies
-                let deps: Vec<String> = serde_json::from_str(&block.dependencies).unwrap_or_default();
+                let deps: Vec<String> =
+                    serde_json::from_str(&block.dependencies).unwrap_or_default();
                 let is_mod_enabled = |mod_id: &str| -> bool {
-                    modules_active_val.get(mod_id).and_then(|v| v.as_bool()).unwrap_or(false)
+                    modules_active_val
+                        .get(mod_id)
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false)
                 };
 
                 let missing: Vec<String> = deps
@@ -86,7 +96,10 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
 
                 if !missing.is_empty() {
                     let missing_str = missing.join(", ");
-                    settings_save_status.set(format!("error:{}", t("blocks-missing-deps", &locale).replace("{deps}", &missing_str)));
+                    settings_save_status.set(format!(
+                        "error:{}",
+                        t("blocks-missing-deps", &locale).replace("{deps}", &missing_str)
+                    ));
                     return;
                 }
             }
@@ -97,14 +110,16 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
                 let active = if b.id == block.id {
                     next_state
                 } else {
-                    modules_active_val.get(&b.id)
+                    modules_active_val
+                        .get(&b.id)
                         .and_then(|v| v.as_bool())
                         .unwrap_or_else(|| get_module_default_state(&b.id))
                 };
                 map.insert(b.id.clone(), serde_json::Value::Bool(active));
             }
 
-            let new_json = serde_json::to_string(&serde_json::Value::Object(map)).unwrap_or_default();
+            let new_json =
+                serde_json::to_string(&serde_json::Value::Object(map)).unwrap_or_default();
             let ws_id = workspace.id.clone();
             let new_json_clone = new_json.clone();
             let requester_uid = user_id.clone();
@@ -207,7 +222,7 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
                             } else {
                                 t(&format!("blocks-categories-{}", cat), &props.locale)
                             };
-                            
+
                             rsx! {
                                 components::Button {
                                     key: "{cat}",
@@ -235,7 +250,7 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
                             let block_item = block.clone();
                             let block_id = block.id.clone();
                             let block_icon = block.icon.clone();
-                            
+
                             let static_block_ids = vec![
                                 "messaging", "scheduling", "notes", "time",
                                 "directory", "reporting", "jobs", "todos"
@@ -248,7 +263,7 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
                             } else {
                                 block.name.clone()
                             };
-                            
+
                             let block_desc_translated = if is_static {
                                 let block_desc_key = format!("settings-blocks-{}-desc", block_id);
                                 t(&block_desc_key, &props.locale)
@@ -258,7 +273,7 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
 
                             let modules_active_val: serde_json::Value =
                                 serde_json::from_str(&props.workspace.modules_active).unwrap_or_default();
-                            
+
                             let is_enabled = if block_id == "assistance" {
                                 false
                             } else {
@@ -266,7 +281,7 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
                                     .and_then(|v| v.as_bool())
                                     .unwrap_or_else(|| get_module_default_state(&block_id))
                             };
-                            
+
                             let is_configurable = block.id == "scheduling"
                                 || block.id == "messaging"
                                 || block.id == "finance"
@@ -274,7 +289,7 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
                                 || block.id == "todos"
                                 || block.id == "notes"
                                 || block.id == "reporting";
-                            
+
                             rsx! {
                                 components::Card {
                                     key: "{block.id}",
@@ -353,7 +368,7 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
                 {
                     let cfg_block_id = cfg_block.id.clone();
                     let cfg_block_icon = cfg_block.icon.clone();
-                    
+
                     let static_block_ids = vec![
                         "messaging", "scheduling", "notes", "time",
                         "directory", "reporting", "jobs", "todos"
@@ -366,21 +381,21 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
                     } else {
                         cfg_block.name.clone()
                     };
-                    
+
                     let cfg_desc_translated = if is_static {
                         let cfg_desc_key = format!("settings-blocks-{}-desc", cfg_block_id);
                         t(&cfg_desc_key, &props.locale)
                     } else {
                         cfg_block.description.clone().unwrap_or_default()
                     };
-                    
+
                     rsx! {
                         components::Dialog {
                             open: true,
                             title: cfg_name_translated.clone(),
                             onclose: move |_| config_block.set(None),
                             max_width: if cfg_block_id == "scheduling" { Some("1000px".to_string()) } else { Some("640px".to_string()) },
-                            div { 
+                            div {
                                 class: format!(
                                     "flex flex-col gap-5 w-full text-sm max-h-[75vh] overflow-y-auto pr-2 {}",
                                     if cfg_block_id == "scheduling" { "max-w-5xl" } else { "max-w-2xl" }
@@ -488,8 +503,9 @@ fn BlockCustomUiSettings(props: BlockCustomUiSettingsProps) -> Element {
 
     let block_settings_val: serde_json::Value =
         serde_json::from_str(&props.workspace.block_settings).unwrap_or_default();
-    
-    let use_custom_ui = block_settings_val.get(&block_id)
+
+    let use_custom_ui = block_settings_val
+        .get(&block_id)
         .and_then(|b| b.get("use_custom_ui"))
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
@@ -499,7 +515,7 @@ fn BlockCustomUiSettings(props: BlockCustomUiSettingsProps) -> Element {
             div { class: "flex items-center justify-between gap-4 p-4 rounded-xl border border-border/60 bg-muted/20",
                 div { class: "flex-1",
                     h5 { class: "text-sm font-bold text-foreground m-0", "Use Specialized App Interface" }
-                    p { class: "text-xs text-muted-foreground m-0 mt-1 leading-relaxed", 
+                    p { class: "text-xs text-muted-foreground m-0 mt-1 leading-relaxed",
                         "When enabled, the app renders a tailored, high-fidelity experience optimized for this module. When disabled, it uses generic forms and database schemas defined by the administrator."
                     }
                 }
@@ -510,21 +526,21 @@ fn BlockCustomUiSettings(props: BlockCustomUiSettingsProps) -> Element {
                         let workspace_id = props.workspace.id.clone();
                         let user_id = use_context::<crate::state::AppState>().active_user_id.read().clone();
                         let ws_block_settings_raw = props.workspace.block_settings.clone();
-                        
+
                         move |val| {
                             settings_save_status.set("saving".to_string());
                             let mut settings_map: serde_json::Value = serde_json::from_str(&ws_block_settings_raw).unwrap_or_default();
-                            
+
                             let mut block_map = settings_map.get(&block_id)
                                 .and_then(|b| b.as_object())
                                 .cloned()
                                 .unwrap_or_default();
-                                
+
                             block_map.insert("use_custom_ui".to_string(), serde_json::Value::Bool(val));
                             if let Some(obj) = settings_map.as_object_mut() {
                                 obj.insert(block_id.clone(), serde_json::Value::Object(block_map));
                             }
-                            
+
                             let settings_str = serde_json::to_string(&settings_map).unwrap_or_default();
                             let ws_id = workspace_id.clone();
                             let requester_uid = user_id.clone();
@@ -571,9 +587,18 @@ fn JobsSettings(props: JobsSettingsProps) -> Element {
     let modules_active_val: serde_json::Value =
         serde_json::from_str(&workspace.modules_active).unwrap_or_default();
 
-    let todos_enabled = modules_active_val.get("todos").and_then(|v| v.as_bool()).unwrap_or(true);
-    let notes_enabled = modules_active_val.get("notes").and_then(|v| v.as_bool()).unwrap_or(true);
-    let reporting_enabled = modules_active_val.get("reporting").and_then(|v| v.as_bool()).unwrap_or(true);
+    let todos_enabled = modules_active_val
+        .get("todos")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let notes_enabled = modules_active_val
+        .get("notes")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let reporting_enabled = modules_active_val
+        .get("reporting")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
 
     let handle_toggle = move |module_key: &'static str, next_state: bool| {
         settings_save_status.set("saving".to_string());
@@ -582,7 +607,10 @@ fn JobsSettings(props: JobsSettingsProps) -> Element {
 
         let new_json = serde_json::to_string(&serde_json::Value::Object(map)).unwrap_or_default();
         let ws_id = workspace.id.clone();
-        let requester_uid = use_context::<crate::state::AppState>().active_user_id.read().clone();
+        let requester_uid = use_context::<crate::state::AppState>()
+            .active_user_id
+            .read()
+            .clone();
         spawn(async move {
             match update_workspace_modules(requester_uid, ws_id, new_json).await {
                 Ok(_) => {
@@ -603,7 +631,7 @@ fn JobsSettings(props: JobsSettingsProps) -> Element {
             div { class: "flex items-center justify-between gap-4 p-4 rounded-xl border border-border/60 bg-muted/20",
                 div { class: "flex-1",
                     h5 { class: "text-sm font-bold text-foreground m-0", "Enable Job Checklist (Todos)" }
-                    p { class: "text-xs text-muted-foreground m-0 mt-1 leading-relaxed", 
+                    p { class: "text-xs text-muted-foreground m-0 mt-1 leading-relaxed",
                         "Include an interactive checklist of tasks for every assigned job ticket."
                     }
                 }
@@ -623,7 +651,7 @@ fn JobsSettings(props: JobsSettingsProps) -> Element {
             div { class: "flex items-center justify-between gap-4 p-4 rounded-xl border border-border/60 bg-muted/20",
                 div { class: "flex-1",
                     h5 { class: "text-sm font-bold text-foreground m-0", "Enable Job Notes" }
-                    p { class: "text-xs text-muted-foreground m-0 mt-1 leading-relaxed", 
+                    p { class: "text-xs text-muted-foreground m-0 mt-1 leading-relaxed",
                         "Allow adding notes and descriptions to document details for each job."
                     }
                 }
@@ -643,7 +671,7 @@ fn JobsSettings(props: JobsSettingsProps) -> Element {
             div { class: "flex items-center justify-between gap-4 p-4 rounded-xl border border-border/60 bg-muted/20",
                 div { class: "flex-1",
                     h5 { class: "text-sm font-bold text-foreground m-0", "Enable Job Completion Reporting" }
-                    p { class: "text-xs text-muted-foreground m-0 mt-1 leading-relaxed", 
+                    p { class: "text-xs text-muted-foreground m-0 mt-1 leading-relaxed",
                         "Require completion reports to be submitted by the assignee when finishing a job."
                     }
                 }

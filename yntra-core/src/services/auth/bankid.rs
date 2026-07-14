@@ -1,8 +1,8 @@
-use crate::{BankIdAuthSession, YntraError};
-use uuid::Uuid;
+use super::hardware::sleep_ms;
 use crate::database;
 use crate::infra::observer::notify_observers;
-use super::hardware::sleep_ms;
+use crate::{BankIdAuthSession, YntraError};
+use uuid::Uuid;
 
 fn spawn_task<F>(future: F)
 where
@@ -46,7 +46,7 @@ fn verify_norwegian_checksum(digits: &str) -> bool {
     if d.len() != 11 {
         return false;
     }
-    
+
     // First control digit
     let w1 = [3, 7, 6, 1, 8, 9, 4, 5, 2];
     let mut sum1 = 0;
@@ -58,7 +58,7 @@ fn verify_norwegian_checksum(digits: &str) -> bool {
     if expected_c1 == 10 || expected_c1 != d[9] {
         return false;
     }
-    
+
     // Second control digit
     let w2 = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2];
     let mut sum2 = 0;
@@ -70,7 +70,7 @@ fn verify_norwegian_checksum(digits: &str) -> bool {
     if expected_c2 == 10 || expected_c2 != d[10] {
         return false;
     }
-    
+
     true
 }
 
@@ -83,7 +83,9 @@ fn verify_auth_signature(public_key_hex: &str, message: &str, signature_hex: &st
         Ok(b) => b,
         Err(_) => return false,
     };
-    let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(&public_key_bytes.try_into().unwrap_or([0u8; 32])) {
+    let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(
+        &public_key_bytes.try_into().unwrap_or([0u8; 32]),
+    ) {
         Ok(k) => k,
         Err(_) => return false,
     };
@@ -117,11 +119,15 @@ fn check_birthdate_match(personal_number: &str, birthdate_ddmmyy: &str) -> bool 
     check_birthdate_match_impl(personal_number, birthdate_ddmmyy, None)
 }
 
-fn check_birthdate_match_impl(personal_number: &str, birthdate_ddmmyy: &str, provider: Option<&str>) -> bool {
+fn check_birthdate_match_impl(
+    personal_number: &str,
+    birthdate_ddmmyy: &str,
+    provider: Option<&str>,
+) -> bool {
     if birthdate_ddmmyy.len() != 6 {
         return false;
     }
-    
+
     let clean_pnum = personal_number.trim();
 
     let mut enforce_se = false;
@@ -141,11 +147,19 @@ fn check_birthdate_match_impl(personal_number: &str, birthdate_ddmmyy: &str, pro
 
     // Handle Finnish Personal Identity Code (Format: DDMMYYCZZZQ)
     let is_finnish_format = if clean_pnum.len() == 11 {
-        let separator = clean_pnum.chars().nth(6).unwrap_or(' ').to_ascii_uppercase();
-        let valid_finnish_separators = ['+', '-', 'A', 'B', 'C', 'D', 'E', 'F', 'Y', 'X', 'W', 'V', 'U'];
-        let has_letter_separator = ['A', 'B', 'C', 'D', 'E', 'F', 'Y', 'X', 'W', 'V', 'U'].contains(&separator);
+        let separator = clean_pnum
+            .chars()
+            .nth(6)
+            .unwrap_or(' ')
+            .to_ascii_uppercase();
+        let valid_finnish_separators = [
+            '+', '-', 'A', 'B', 'C', 'D', 'E', 'F', 'Y', 'X', 'W', 'V', 'U',
+        ];
+        let has_letter_separator =
+            ['A', 'B', 'C', 'D', 'E', 'F', 'Y', 'X', 'W', 'V', 'U'].contains(&separator);
         let has_valid_checksum = verify_finnish_checksum(clean_pnum);
-        valid_finnish_separators.contains(&separator) && (has_letter_separator || has_valid_checksum)
+        valid_finnish_separators.contains(&separator)
+            && (has_letter_separator || has_valid_checksum)
     } else {
         false
     };
@@ -154,10 +168,14 @@ fn check_birthdate_match_impl(personal_number: &str, birthdate_ddmmyy: &str, pro
         if enforce_se || enforce_no || enforce_dk {
             return false;
         }
-        return clean_pnum.to_uppercase().starts_with(birthdate_ddmmyy) && verify_finnish_checksum(clean_pnum);
+        return clean_pnum.to_uppercase().starts_with(birthdate_ddmmyy)
+            && verify_finnish_checksum(clean_pnum);
     }
-    
-    let mut digits: String = personal_number.chars().filter(|c| c.is_ascii_digit()).collect();
+
+    let mut digits: String = personal_number
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .collect();
     let matches = if digits.len() == 11 {
         // DDMMYYXXXXX (Norwegian)
         if enforce_se || enforce_dk || enforce_fi {
@@ -256,10 +274,13 @@ fn check_birthdate_match_impl(personal_number: &str, birthdate_ddmmyy: &str, pro
 }
 
 #[uniffi::export]
-pub async fn initiate_bankid_auth(target_role: String, provider: String) -> Result<BankIdAuthSession, YntraError> {
+pub async fn initiate_bankid_auth(
+    target_role: String,
+    provider: String,
+) -> Result<BankIdAuthSession, YntraError> {
     let session_id = Uuid::new_v4().to_string();
     let created_at = crate::infra::time::get_current_datetime_str();
-    
+
     // Initial status depending on ID provider
     let status = match provider.as_str() {
         "se_bankid" => "qr_scan".to_string(),
@@ -277,8 +298,11 @@ pub async fn initiate_bankid_auth(target_role: String, provider: String) -> Resu
         None
     };
 
+    let token = uuid::Uuid::new_v4().to_string();
+
     let session = BankIdAuthSession {
         id: session_id.clone(),
+        token: token.clone(),
         target_role: target_role.clone(),
         provider: provider.clone(),
         status,
@@ -293,7 +317,7 @@ pub async fn initiate_bankid_auth(target_role: String, provider: String) -> Resu
     let conn = database::acquire_connection().await?;
 
     conn.execute(
-        "INSERT INTO bankid_auth_sessions (id, target_role, provider, status, error_message, qr_data, progress, authenticated_user_id, created_at, challenge) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        "INSERT INTO bankid_auth_sessions (id, target_role, provider, status, error_message, qr_data, progress, authenticated_user_id, created_at, challenge, token) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         crate::params![
             session.id,
             session.target_role,
@@ -304,7 +328,8 @@ pub async fn initiate_bankid_auth(target_role: String, provider: String) -> Resu
             session.progress,
             session.authenticated_user_id,
             session.created_at,
-            session.challenge
+            session.challenge,
+            session.token
         ],
     ).await?;
 
@@ -325,7 +350,10 @@ pub async fn initiate_bankid_auth(target_role: String, provider: String) -> Resu
                 sleep_ms(1000).await;
                 if let Ok(conn) = database::acquire_connection().await {
                     let mut status: Option<String> = None;
-                    if let Ok(mut stmt) = conn.prepare("SELECT status FROM bankid_auth_sessions WHERE id = ?1").await {
+                    if let Ok(mut stmt) = conn
+                        .prepare("SELECT status FROM bankid_auth_sessions WHERE id = ?1")
+                        .await
+                    {
                         if let Ok(mut rows) = stmt.query(crate::params![&session_id_clone]).await {
                             if let Ok(Some(row)) = rows.next().await {
                                 status = row.get::<String>(0).ok();
@@ -334,11 +362,16 @@ pub async fn initiate_bankid_auth(target_role: String, provider: String) -> Resu
                     }
                     if let Some(ref s) = status {
                         if s == "qr_scan" {
-                            let new_qr = format!("bankid.status.qrs.format.{}.{}", elapsed, session_id_clone);
-                            let _ = conn.execute(
-                                "UPDATE bankid_auth_sessions SET qr_data = ?1 WHERE id = ?2",
-                                crate::params![new_qr, &session_id_clone],
-                            ).await;
+                            let new_qr = format!(
+                                "bankid.status.qrs.format.{}.{}",
+                                elapsed, session_id_clone
+                            );
+                            let _ = conn
+                                .execute(
+                                    "UPDATE bankid_auth_sessions SET qr_data = ?1 WHERE id = ?2",
+                                    crate::params![new_qr, &session_id_clone],
+                                )
+                                .await;
                             notify_observers();
                         } else {
                             break;
@@ -357,18 +390,28 @@ pub async fn initiate_bankid_auth(target_role: String, provider: String) -> Resu
 }
 
 #[uniffi::export]
-pub async fn get_bankid_auth_session(session_id: String) -> Result<Option<BankIdAuthSession>, YntraError> {
+pub async fn get_bankid_auth_session(
+    session_id: String,
+    token: String,
+) -> Result<Option<BankIdAuthSession>, YntraError> {
     let conn = database::acquire_connection().await?;
 
     let mut stmt = conn.prepare(
-        "SELECT id, target_role, provider, status, error_message, qr_data, progress, authenticated_user_id, created_at, challenge FROM bankid_auth_sessions WHERE id = ?1"
+        "SELECT id, target_role, provider, status, error_message, qr_data, progress, authenticated_user_id, created_at, challenge, token FROM bankid_auth_sessions WHERE id = ?1"
     ).await?;
 
     let mut rows = stmt.query(crate::params![session_id]).await?;
     if let Some(row) = rows.next().await? {
+        let db_token: String = row.get(10)?;
+        if db_token != token {
+            return Err(YntraError::AuthError(
+                "Access denied: invalid session token".to_string(),
+            ));
+        }
         let err_msg: Option<String> = row.get(4)?;
         Ok(Some(BankIdAuthSession {
             id: row.get(0)?,
+            token: db_token,
             target_role: row.get(1)?,
             provider: row.get(2)?,
             status: row.get(3)?,
@@ -385,17 +428,27 @@ pub async fn get_bankid_auth_session(session_id: String) -> Result<Option<BankId
 }
 
 #[uniffi::export]
-pub async fn submit_bankid_pin(session_id: String, pin: String) -> Result<(), YntraError> {
+pub async fn submit_bankid_pin(session_id: String, token: String, pin: String) -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    let db_token: String = conn.query_row(
+        "SELECT token FROM bankid_auth_sessions WHERE id = ?1",
+        crate::params![&session_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Session not found".to_string()))?;
+
+    if db_token != token {
+        return Err(YntraError::AuthError("Access denied: invalid session token".to_string()));
+    }
+
     #[cfg(debug_assertions)]
     {
         let zeroizing_pin = zeroize::Zeroizing::new(pin);
-        
+
         // 1. First set status to verifying and progress = 0.0
         {
-            let conn = database::acquire_connection().await?;
             conn.execute(
                 "UPDATE bankid_auth_sessions SET status = 'verifying', progress = 0.0 WHERE id = ?1",
-                crate::params![session_id],
+                crate::params![&session_id],
             ).await?;
         }
         notify_observers();
@@ -411,7 +464,10 @@ pub async fn submit_bankid_pin(session_id: String, pin: String) -> Result<(), Yn
                     let parts: Vec<&str> = zeroizing_pin_clone.split('|').collect();
                     if parts.len() == 2 {
                         let phone_input = parts[0];
-                        if let Ok(mut stmt) = conn.prepare("SELECT id FROM users WHERE phone = ?1 LIMIT 1").await {
+                        if let Ok(mut stmt) = conn
+                            .prepare("SELECT id FROM users WHERE phone = ?1 LIMIT 1")
+                            .await
+                        {
                             if let Ok(mut rows) = stmt.query(crate::params![phone_input]).await {
                                 if let Ok(Some(row)) = rows.next().await {
                                     resolved_id = row.get::<String>(0).ok();
@@ -423,20 +479,26 @@ pub async fn submit_bankid_pin(session_id: String, pin: String) -> Result<(), Yn
 
                 if resolved_id.is_none() {
                     let mut target_role = None;
-                    if let Ok(mut stmt) = conn.prepare("SELECT target_role FROM bankid_auth_sessions WHERE id = ?1").await {
+                    if let Ok(mut stmt) = conn
+                        .prepare("SELECT target_role FROM bankid_auth_sessions WHERE id = ?1")
+                        .await
+                    {
                         if let Ok(mut rows) = stmt.query(crate::params![&session_id_clone]).await {
                             if let Ok(Some(row)) = rows.next().await {
                                 target_role = row.get::<String>(0).ok();
                             }
                         }
                     }
-                    
+
                     let role_str = target_role.as_deref().unwrap_or("assistant");
                     if role_str == "admin" || role_str == "platform_admin" {
                         // Require an explicit mock PIN to bypass auth for administrative accounts
                         let pin_val = zeroizing_pin_clone.as_str();
                         if pin_val == "mock_admin" || pin_val == "mock_platform_admin" {
-                            if let Ok(mut stmt) = conn.prepare("SELECT id FROM users WHERE role = ?1 LIMIT 1").await {
+                            if let Ok(mut stmt) = conn
+                                .prepare("SELECT id FROM users WHERE role = ?1 LIMIT 1")
+                                .await
+                            {
                                 if let Ok(mut rows) = stmt.query(crate::params![role_str]).await {
                                     if let Ok(Some(row)) = rows.next().await {
                                         resolved_id = row.get::<String>(0).ok();
@@ -446,7 +508,10 @@ pub async fn submit_bankid_pin(session_id: String, pin: String) -> Result<(), Yn
                         }
                     } else {
                         // Non-administrative roles can continue using standard debug mock PINs
-                        if let Ok(mut stmt) = conn.prepare("SELECT id FROM users WHERE role = ?1 LIMIT 1").await {
+                        if let Ok(mut stmt) = conn
+                            .prepare("SELECT id FROM users WHERE role = ?1 LIMIT 1")
+                            .await
+                        {
                             if let Ok(mut rows) = stmt.query(crate::params![role_str]).await {
                                 if let Ok(Some(row)) = rows.next().await {
                                     resolved_id = row.get::<String>(0).ok();
@@ -467,10 +532,12 @@ pub async fn submit_bankid_pin(session_id: String, pin: String) -> Result<(), Yn
                                 crate::params![progress_pct, uid, session_id_clone],
                             ).await;
                         } else {
-                            let _ = conn.execute(
-                                "UPDATE bankid_auth_sessions SET progress = ?1 WHERE id = ?2",
-                                crate::params![progress_pct, &session_id_clone],
-                            ).await;
+                            let _ = conn
+                                .execute(
+                                    "UPDATE bankid_auth_sessions SET progress = ?1 WHERE id = ?2",
+                                    crate::params![progress_pct, &session_id_clone],
+                                )
+                                .await;
                         }
                     }
                     notify_observers();
@@ -492,10 +559,9 @@ pub async fn submit_bankid_pin(session_id: String, pin: String) -> Result<(), Yn
     #[cfg(not(debug_assertions))]
     {
         let _zeroizing_pin = zeroize::Zeroizing::new(pin);
-        
+
         // Transition status to verifying
         {
-            let conn = database::acquire_connection().await?;
             conn.execute(
                 "UPDATE bankid_auth_sessions SET status = 'verifying', progress = 0.0 WHERE id = ?1",
                 crate::params![&session_id],
@@ -515,64 +581,89 @@ pub async fn verify_hardware_auth_signature(
     signature_hex: String,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
-    
+
     // 1. Get the challenge from the session
-    let session_row: Option<(String, Option<String>)> = conn.query_row(
-        "SELECT status, challenge FROM bankid_auth_sessions WHERE id = ?1",
-        crate::params![&session_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
-    ).await.ok();
-    
+    let session_row: Option<(String, Option<String>)> = conn
+        .query_row(
+            "SELECT status, challenge FROM bankid_auth_sessions WHERE id = ?1",
+            crate::params![&session_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .await
+        .ok();
+
     let (status, challenge_opt) = match session_row {
         Some(row) => row,
         None => return Err(YntraError::NotFoundError("Session not found".to_string())),
     };
-    
+
     if status == "success" || status == "error" {
-        return Err(YntraError::ValidationError("Session already finalized".to_string()));
+        return Err(YntraError::ValidationError(
+            "Session already finalized".to_string(),
+        ));
     }
-    
+
     let challenge_hex = match challenge_opt {
         Some(c) => c,
-        None => return Err(YntraError::ValidationError("No active cryptographic challenge for this session".to_string())),
+        None => {
+            return Err(YntraError::ValidationError(
+                "No active cryptographic challenge for this session".to_string(),
+            ));
+        }
     };
-    
+
     let challenge_bytes = match const_hex::decode(&challenge_hex) {
         Ok(b) => b,
-        Err(_) => return Err(YntraError::ValidationError("Invalid challenge format".to_string())),
+        Err(_) => {
+            return Err(YntraError::ValidationError(
+                "Invalid challenge format".to_string(),
+            ));
+        }
     };
-    
+
     // 2. Parse public key and signature
     let pub_key_bytes = match const_hex::decode(&public_key_hex) {
         Ok(b) => {
             if b.len() != 32 {
-                return Err(YntraError::ValidationError("Invalid public key length (must be 32 bytes)".to_string()));
+                return Err(YntraError::ValidationError(
+                    "Invalid public key length (must be 32 bytes)".to_string(),
+                ));
             }
             let mut arr = [0u8; 32];
             arr.copy_from_slice(&b);
             arr
         }
-        Err(_) => return Err(YntraError::ValidationError("Invalid public key hex".to_string())),
+        Err(_) => {
+            return Err(YntraError::ValidationError(
+                "Invalid public key hex".to_string(),
+            ));
+        }
     };
-    
+
     let sig_bytes = match const_hex::decode(&signature_hex) {
         Ok(b) => {
             if b.len() != 64 {
-                return Err(YntraError::ValidationError("Invalid signature length (must be 64 bytes)".to_string()));
+                return Err(YntraError::ValidationError(
+                    "Invalid signature length (must be 64 bytes)".to_string(),
+                ));
             }
             let mut arr = [0u8; 64];
             arr.copy_from_slice(&b);
             arr
         }
-        Err(_) => return Err(YntraError::ValidationError("Invalid signature hex".to_string())),
+        Err(_) => {
+            return Err(YntraError::ValidationError(
+                "Invalid signature hex".to_string(),
+            ));
+        }
     };
-    
+
     // 3. Verify signature using ed25519-dalek
-    use ed25519_dalek::{VerifyingKey, Signature, Verifier};
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
     let verifying_key = VerifyingKey::from_bytes(&pub_key_bytes)
         .map_err(|e| YntraError::CryptoError(format!("Invalid public key bytes: {}", e)))?;
     let signature = Signature::from_bytes(&sig_bytes);
-    
+
     if verifying_key.verify(&challenge_bytes, &signature).is_err() {
         // Update session to error state
         conn.execute(
@@ -580,11 +671,15 @@ pub async fn verify_hardware_auth_signature(
             crate::params![&session_id],
         ).await?;
         notify_observers();
-        return Err(YntraError::AuthError("Cryptographic signature verification failed".to_string()));
+        return Err(YntraError::AuthError(
+            "Cryptographic signature verification failed".to_string(),
+        ));
     }
-    
+
     // 4. Lookup user by siths_public_key
-    let mut stmt = conn.prepare("SELECT id FROM users WHERE metadata ->> 'siths_public_key' = ?1 LIMIT 1").await?;
+    let mut stmt = conn
+        .prepare("SELECT id FROM users WHERE metadata ->> 'siths_public_key' = ?1 LIMIT 1")
+        .await?;
     let mut rows = stmt.query(crate::params![public_key_hex]).await?;
     if let Some(row) = rows.next().await? {
         let user_id: String = row.get(0)?;
@@ -602,30 +697,52 @@ pub async fn verify_hardware_auth_signature(
             crate::params![&session_id],
         ).await?;
         notify_observers();
-        Err(YntraError::NotFoundError("No user is registered with this Smart Card public key".to_string()))
+        Err(YntraError::NotFoundError(
+            "No user is registered with this Smart Card public key".to_string(),
+        ))
     }
 }
 
 #[uniffi::export]
-pub async fn complete_auth_session(session_id: String, user_id: String, signature_hex: String) -> Result<(), YntraError> {
+pub async fn complete_auth_session(
+    session_id: String,
+    token: String,
+    user_id: String,
+    signature_hex: String,
+) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
 
     // 1. Check if the session exists and is active (not finalized or expired)
-    let (status, created_at): (String, String) = conn.query_row(
-        "SELECT status, created_at FROM bankid_auth_sessions WHERE id = ?1",
-        crate::params![&session_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
-    ).await.map_err(|_| YntraError::NotFoundError("Session not found".to_string()))?;
+    let (status, created_at, db_token): (String, String, String) = conn
+        .query_row(
+            "SELECT status, created_at, token FROM bankid_auth_sessions WHERE id = ?1",
+            crate::params![&session_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Session not found".to_string()))?;
+
+    if db_token != token {
+        return Err(YntraError::AuthError(
+            "Access denied: invalid session token".to_string(),
+        ));
+    }
 
     if status == "success" || status == "error" {
-        return Err(YntraError::ValidationError("Authentication session already finalized".to_string()));
+        return Err(YntraError::ValidationError(
+            "Authentication session already finalized".to_string(),
+        ));
     }
 
     // Check expiry (10 minutes)
     let created_dt = chrono::NaiveDateTime::parse_from_str(&created_at, "%Y-%m-%d %H:%M:%S")
         .map(|dt| dt.and_local_timezone(chrono::Utc).unwrap())
-        .map_err(|e| YntraError::AuthError(format!("Failed to parse session creation time: {}", e)))?;
-    let elapsed = chrono::Utc::now().signed_duration_since(created_dt).num_seconds();
+        .map_err(|e| {
+            YntraError::AuthError(format!("Failed to parse session creation time: {}", e))
+        })?;
+    let elapsed = chrono::Utc::now()
+        .signed_duration_since(created_dt)
+        .num_seconds();
     if elapsed > 600 {
         // Mark session as expired/error
         conn.execute(
@@ -633,29 +750,39 @@ pub async fn complete_auth_session(session_id: String, user_id: String, signatur
             crate::params![&session_id],
         ).await?;
         notify_observers();
-        return Err(YntraError::AuthError("Authentication session expired (older than 10 minutes)".to_string()));
+        return Err(YntraError::AuthError(
+            "Authentication session expired (older than 10 minutes)".to_string(),
+        ));
     }
 
     // Verify user exists and retrieve workspace_id
-    let ws_id_opt: Option<String> = conn.query_row(
-        "SELECT workspace_id FROM users WHERE id = ?1",
-        crate::params![&user_id],
-        |r| Ok(r.get(0)?)
-    ).await.map_err(|_| YntraError::NotFoundError("User does not exist".to_string()))?;
+    let ws_id_opt: Option<String> = conn
+        .query_row(
+            "SELECT workspace_id FROM users WHERE id = ?1",
+            crate::params![&user_id],
+            |r| Ok(r.get(0)?),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("User does not exist".to_string()))?;
 
     let ws_id = match ws_id_opt {
         Some(id) => id,
-        None => return Err(YntraError::ValidationError("User is not assigned to a workspace".to_string())),
+        None => {
+            return Err(YntraError::ValidationError(
+                "User is not assigned to a workspace".to_string(),
+            ));
+        }
     };
 
     // Retrieve creator public key for workspace
-    let creator_pk: Option<String> = conn.query_row(
-        "SELECT creator_public_key FROM workspaces WHERE id = ?1",
-        crate::params![&ws_id],
-        |r| Ok(r.get(0)?)
-    ).await.unwrap_or(None);
-
-
+    let creator_pk: Option<String> = conn
+        .query_row(
+            "SELECT creator_public_key FROM workspaces WHERE id = ?1",
+            crate::params![&ws_id],
+            |r| Ok(r.get(0)?),
+        )
+        .await
+        .unwrap_or(None);
 
     if let Some(pk) = creator_pk {
         if !pk.trim().is_empty() {
@@ -683,8 +810,27 @@ pub async fn complete_auth_session(session_id: String, user_id: String, signatur
 }
 
 #[uniffi::export]
-pub async fn fail_auth_session(session_id: String, error_msg: String) -> Result<(), YntraError> {
+pub async fn fail_auth_session(
+    session_id: String,
+    token: String,
+    error_msg: String,
+) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
+
+    let db_token: String = conn
+        .query_row(
+            "SELECT token FROM bankid_auth_sessions WHERE id = ?1",
+            crate::params![&session_id],
+            |r| r.get(0),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Session not found".to_string()))?;
+
+    if db_token != token {
+        return Err(YntraError::AuthError(
+            "Access denied: invalid session token".to_string(),
+        ));
+    }
 
     conn.execute(
         "UPDATE bankid_auth_sessions SET status = 'error', progress = 0.0, error_message = ?1 WHERE id = ?2",
@@ -695,13 +841,34 @@ pub async fn fail_auth_session(session_id: String, error_msg: String) -> Result<
 }
 
 #[uniffi::export]
-pub async fn update_auth_session_status(session_id: String, status: String, progress: f64) -> Result<(), YntraError> {
+pub async fn update_auth_session_status(
+    session_id: String,
+    token: String,
+    status: String,
+    progress: f64,
+) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
+
+    let db_token: String = conn
+        .query_row(
+            "SELECT token FROM bankid_auth_sessions WHERE id = ?1",
+            crate::params![&session_id],
+            |r| r.get(0),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Session not found".to_string()))?;
+
+    if db_token != token {
+        return Err(YntraError::AuthError(
+            "Access denied: invalid session token".to_string(),
+        ));
+    }
 
     conn.execute(
         "UPDATE bankid_auth_sessions SET status = ?1, progress = ?2 WHERE id = ?3",
         crate::params![status, progress, session_id],
-    ).await?;
+    )
+    .await?;
     notify_observers();
     Ok(())
 }
@@ -775,7 +942,7 @@ mod tests {
         // Finnish new century separators (B for 2000s, Y for 1900s)
         assert!(check_birthdate_match("010100B123D", "010100"));
         assert!(check_birthdate_match("150890Y4562", "150890"));
-        
+
         // Ensure no security bypass/false positives via weak contains fallback
         assert!(!check_birthdate_match("120101B001A", "010100"));
     }
@@ -789,24 +956,40 @@ mod tests {
     #[test]
     fn test_finnish_pic_security_bypass_prevention() {
         // Finnish PIC 131089-3058 (Oct 13, 1989) has a valid Finnish checksum '8'.
-        assert!(check_birthdate_match_impl("131089-3058", "131089", Some("fi_tunnistus")));
-        assert!(!check_birthdate_match_impl("131089-3058", "291013", Some("fi_tunnistus")));
-        assert!(!check_birthdate_match_impl("131089-3058", "131089", Some("se_bankid")));
-        assert!(!check_birthdate_match_impl("131089-3058", "291013", Some("se_bankid")));
+        assert!(check_birthdate_match_impl(
+            "131089-3058",
+            "131089",
+            Some("fi_tunnistus")
+        ));
+        assert!(!check_birthdate_match_impl(
+            "131089-3058",
+            "291013",
+            Some("fi_tunnistus")
+        ));
+        assert!(!check_birthdate_match_impl(
+            "131089-3058",
+            "131089",
+            Some("se_bankid")
+        ));
+        assert!(!check_birthdate_match_impl(
+            "131089-3058",
+            "291013",
+            Some("se_bankid")
+        ));
     }
 
     #[test]
     fn test_hardware_challenge_response_signature() {
         let challenge_bytes = [42u8; 32];
-        
+
         let seed = [1u8; 32];
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
         let public_key = signing_key.verifying_key();
-        
+
         use ed25519_dalek::Signer;
         let signature = signing_key.sign(&challenge_bytes);
-        
-        use ed25519_dalek::{VerifyingKey, Signature, Verifier};
+
+        use ed25519_dalek::{Signature, Verifier, VerifyingKey};
         let vk = VerifyingKey::from_bytes(public_key.as_bytes()).unwrap();
         let sig = Signature::from_bytes(&signature.to_bytes());
         assert!(vk.verify(&challenge_bytes, &sig).is_ok());
@@ -823,20 +1006,35 @@ mod tests {
         // 2. Create a pending bankid session
         let now_str = crate::infra::time::get_current_datetime_str();
         conn.execute(
-            "INSERT OR REPLACE INTO bankid_auth_sessions (id, authenticated_user_id, target_role, provider, qr_data, status, created_at, progress) VALUES ('session-no-ws', 'user-no-ws', 'user', 'se_bankid', '', 'pending', ?1, 100.0)",
+            "INSERT OR REPLACE INTO bankid_auth_sessions (id, authenticated_user_id, target_role, provider, qr_data, status, created_at, progress, token) VALUES ('session-no-ws', 'user-no-ws', 'user', 'se_bankid', '', 'pending', ?1, 100.0, 'mock-token')",
             crate::params![now_str],
         ).await.unwrap();
 
         // 3. Complete authentication session
-        let res = complete_auth_session("session-no-ws".to_string(), "user-no-ws".to_string(), "mock-signature".to_string()).await;
-        
+        let res = complete_auth_session(
+            "session-no-ws".to_string(),
+            "mock-token".to_string(),
+            "user-no-ws".to_string(),
+            "mock-signature".to_string(),
+        )
+        .await;
+
         // 4. Verify it returns ValidationError
         assert!(res.is_err());
-        assert!(matches!(res.err().unwrap(), crate::YntraError::ValidationError(_)));
+        assert!(matches!(
+            res.err().unwrap(),
+            crate::YntraError::ValidationError(_)
+        ));
 
         // Clean up
-        conn.execute("DELETE FROM users WHERE id = 'user-no-ws'", ()).await.unwrap();
-        conn.execute("DELETE FROM bankid_auth_sessions WHERE id = 'session-no-ws'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE id = 'user-no-ws'", ())
+            .await
+            .unwrap();
+        conn.execute(
+            "DELETE FROM bankid_auth_sessions WHERE id = 'session-no-ws'",
+            (),
+        )
+        .await
+        .unwrap();
     }
 }
-

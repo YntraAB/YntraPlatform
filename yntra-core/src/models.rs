@@ -8,7 +8,17 @@ pub enum WorkspaceTemplateType {
     General,
 }
 
-#[derive(uniffi::Record, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct TodoItem {
     pub id: String,
@@ -19,7 +29,17 @@ pub struct TodoItem {
     pub sync_status: String,
 }
 
-#[derive(uniffi::Record, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct Workspace {
     pub id: String,
@@ -33,7 +53,16 @@ pub struct Workspace {
     pub sync_status: String,
 }
 
-#[derive(uniffi::Record, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    PartialEq,
+)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct WorkspaceUser {
     pub id: String,
@@ -64,12 +93,25 @@ impl std::fmt::Debug for WorkspaceUser {
             .field("nfc_badge_uid", &self.nfc_badge_uid)
             .field("updated_at", &self.updated_at)
             .field("sync_status", &self.sync_status)
-            .field("personal_number", &self.personal_number.as_ref().map(|_| "***REDACTED***"))
+            .field(
+                "personal_number",
+                &self.personal_number.as_ref().map(|_| "***REDACTED***"),
+            )
             .finish()
     }
 }
 
-#[derive(uniffi::Record, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct Team {
     pub id: String,
@@ -79,7 +121,17 @@ pub struct Team {
     pub sync_status: String,
 }
 
-#[derive(uniffi::Record, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct TeamEvent {
     pub id: String,
@@ -95,7 +147,17 @@ pub struct TeamEvent {
     pub sync_status: String,
 }
 
-#[derive(uniffi::Record, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct MessageItem {
     pub id: String,
@@ -111,7 +173,17 @@ pub struct MessageItem {
     pub sync_status: String,
 }
 
-#[derive(uniffi::Record, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct DailyNote {
     pub id: String,
@@ -126,7 +198,17 @@ pub struct DailyNote {
     pub sync_status: String,
 }
 
-#[derive(uniffi::Record, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct TimeReport {
     pub id: String,
@@ -144,7 +226,16 @@ pub struct TimeReport {
     pub sync_status: String,
 }
 
-#[derive(uniffi::Record, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    PartialEq,
+)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct ClientProfile {
     pub id: String,
@@ -168,7 +259,10 @@ impl std::fmt::Debug for ClientProfile {
             .field("team_id", &self.team_id)
             .field("first_name", &self.first_name)
             .field("last_name", &self.last_name)
-            .field("personal_number", &self.personal_number.as_ref().map(|_| "***REDACTED***"))
+            .field(
+                "personal_number",
+                &self.personal_number.as_ref().map(|_| "***REDACTED***"),
+            )
             .field("care_level", &self.care_level)
             .field("message_settings", &self.message_settings)
             .field("created_at", &self.created_at)
@@ -178,8 +272,17 @@ impl std::fmt::Debug for ClientProfile {
     }
 }
 
-
-#[derive(uniffi::Record, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct BlockItem {
     pub id: String,
@@ -193,7 +296,17 @@ pub struct BlockItem {
     pub ui_config: Option<String>,
 }
 
-#[derive(uniffi::Record, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct DynamicEntity {
     pub id: String,
@@ -206,7 +319,17 @@ pub struct DynamicEntity {
     pub sync_status: String,
 }
 
-#[derive(uniffi::Record, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct ReportItem {
     pub id: String,
@@ -232,10 +355,21 @@ pub struct EditHistoryEntry {
     pub new_content: Option<String>,
 }
 
-#[derive(uniffi::Record, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct BankIdAuthSession {
     pub id: String,
+    pub token: String,
     pub target_role: String,
     pub provider: String,
     pub status: String,
@@ -247,7 +381,17 @@ pub struct BankIdAuthSession {
     pub challenge: Option<String>,
 }
 
-#[derive(uniffi::Record, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct OauthAuthSession {
     pub id: String,
@@ -260,7 +404,17 @@ pub struct OauthAuthSession {
     pub updated_at: i64,
 }
 
-#[derive(uniffi::Record, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct JobTicket {
     pub id: String,
@@ -287,7 +441,17 @@ pub struct JobTicket {
     pub destination_parking_permit_needed: bool,
 }
 
-#[derive(uniffi::Record, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub struct AuditLogEntry {
     pub id: String,
@@ -301,11 +465,3 @@ pub struct AuditLogEntry {
     pub seq: i64,
     pub signature: Option<String>,
 }
-
-
-
-
-
-
-
-

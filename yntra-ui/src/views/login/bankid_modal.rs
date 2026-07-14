@@ -1,6 +1,6 @@
 use crate::components;
-use dioxus::prelude::*;
 use crate::utils::qr::render_qr_svg;
+use dioxus::prelude::*;
 
 #[derive(Props, Clone)]
 pub struct BankIdModalProps {
@@ -10,6 +10,7 @@ pub struct BankIdModalProps {
     pub bankid_qr_data: Signal<String>,
     pub bankid_pin: Signal<String>,
     pub active_session_id: Signal<Option<String>>,
+    pub active_session_token: Signal<Option<String>>,
     pub provider_val: Signal<String>,
     pub norway_mobile: Signal<String>,
     pub norway_birthdate: Signal<String>,
@@ -30,6 +31,7 @@ pub fn BankIdModal(props: BankIdModalProps) -> Element {
     let bankid_qr_data = props.bankid_qr_data;
     let mut bankid_pin = props.bankid_pin;
     let active_session_id = props.active_session_id;
+    let active_session_token = props.active_session_token;
     let provider_val = props.provider_val;
     let mut norway_mobile = props.norway_mobile;
     let mut norway_birthdate = props.norway_birthdate;
@@ -49,11 +51,11 @@ pub fn BankIdModal(props: BankIdModalProps) -> Element {
             },
             div { class: "flex flex-col items-center text-center gap-5 w-full text-sm",
                 style: "max-width: 320px;",
-                
+
                 // -- Sweden BankID / Denmark MitID QR Scanning (Production Flow)
                 if *provider_val.read() == "se_bankid" || *provider_val.read() == "dk_mitid" {
                     if *bankid_flow_state.read() == "qr_scan" {
-                        h3 { class: "m-0 font-extrabold text-foreground", 
+                        h3 { class: "m-0 font-extrabold text-foreground",
                             if *provider_val.read() == "se_bankid" { "Skanna QR-kod" } else { "Scan QR-kode" }
                         }
                         p { class: "text-muted-foreground m-0 text-xs",
@@ -64,7 +66,7 @@ pub fn BankIdModal(props: BankIdModalProps) -> Element {
                                 "Åbn din MitID app og scan koden for at fortsætte."
                             }
                         }
-                        
+
                         div {
                             class: "rounded-xl flex items-center justify-center",
                             style: "width: 160px; height: 160px; border: 4px solid var(--accent); position: relative; background: hsl(0, 0%, 0%); overflow: hidden; box-shadow: 0 0 15px rgba(99,102,241,0.2);",
@@ -91,10 +93,10 @@ pub fn BankIdModal(props: BankIdModalProps) -> Element {
                                 }
                             },
                             onclick: move |_| {
-                                if let Some(sid) = active_session_id.read().clone() {
+                                if let (Some(sid), Some(tok)) = (active_session_id.read().clone(), active_session_token.read().clone()) {
                                     bankid_pin.set("local_app".to_string());
                                     spawn(async move {
-                                        let _ = yntra_core::submit_bankid_pin(sid, "local_app".to_string()).await;
+                                        let _ = yntra_core::submit_bankid_pin(sid, tok, "local_app".to_string()).await;
                                     });
                                 }
                             },
@@ -107,10 +109,10 @@ pub fn BankIdModal(props: BankIdModalProps) -> Element {
                                 class: "bg-transparent text-[11px] cursor-pointer flex items-center w-full justify-center mt-1",
                                 style: "border: 1px dashed rgba(147,51,234,0.4); border-radius: 6px; padding: 0.4rem 0.6rem; color: hsl(270, 95.2%, 75.3%); gap: 0.35rem; transition: background 0.2s;",
                                 onclick: move |_| {
-                                    if let Some(sid) = active_session_id.read().clone() {
+                                    if let (Some(sid), Some(tok)) = (active_session_id.read().clone(), active_session_token.read().clone()) {
                                         bankid_pin.set("phone_scan".to_string());
                                         spawn(async move {
-                                            let _ = yntra_core::submit_bankid_pin(sid, "phone_scan".to_string()).await;
+                                            let _ = yntra_core::submit_bankid_pin(sid, tok, "phone_scan".to_string()).await;
                                         });
                                     }
                                 },
@@ -143,10 +145,10 @@ pub fn BankIdModal(props: BankIdModalProps) -> Element {
                             class: "yntra-btn w-full mt-2",
                             disabled: norway_mobile.read().len() < 8 || norway_birthdate.read().len() < 6,
                             onclick: move |_| {
-                                if let Some(sid) = active_session_id.read().clone() {
+                                if let (Some(sid), Some(tok)) = (active_session_id.read().clone(), active_session_token.read().clone()) {
                                     let payload = format!("{}|{}", norway_mobile.read(), norway_birthdate.read());
                                     spawn(async move {
-                                        let _ = yntra_core::submit_bankid_pin(sid, payload).await;
+                                        let _ = yntra_core::submit_bankid_pin(sid, tok, payload).await;
                                     });
                                 }
                             },
@@ -180,7 +182,7 @@ pub fn BankIdModal(props: BankIdModalProps) -> Element {
                         p { class: "text-muted-foreground m-0 text-xs",
                             "Please type your 6-digit PIV certificate PIN."
                         }
-                        
+
                         div { class: "flex gap-3 justify-center",
                             style: "margin: 1rem 0;",
                             for i in 0..6 {
@@ -230,10 +232,10 @@ pub fn BankIdModal(props: BankIdModalProps) -> Element {
                                 style: "height: 42px; width: 42px; justify-self: center; background:var(--accent); border-color:var(--accent);",
                                 disabled: bankid_pin.read().len() < 6,
                                 onclick: move |_| {
-                                    if let Some(sid) = active_session_id.read().clone() {
+                                    if let (Some(sid), Some(tok)) = (active_session_id.read().clone(), active_session_token.read().clone()) {
                                         let pin_str = bankid_pin.read().clone();
                                         spawn(async move {
-                                            let _ = yntra_core::submit_bankid_pin(sid, pin_str).await;
+                                            let _ = yntra_core::submit_bankid_pin(sid, tok, pin_str).await;
                                         });
                                     }
                                 },
@@ -245,10 +247,10 @@ pub fn BankIdModal(props: BankIdModalProps) -> Element {
 
                 // -- Shared verifying & success states (Clean production descriptions)
                 if *bankid_flow_state.read() == "verifying" {
-                    h3 { class: "m-0 font-extrabold text-foreground", 
+                    h3 { class: "m-0 font-extrabold text-foreground",
                         if *provider_val.read() == "us_global" { "Verifying Smart Card" } else { "Väntar på godkännande" }
                     }
-                    
+
                     p { class: "text-muted-foreground m-0 text-xs",
                         style: "line-height: 1.4;",
                         if *provider_val.read() == "no_bankid" {
@@ -271,7 +273,7 @@ pub fn BankIdModal(props: BankIdModalProps) -> Element {
                             "Starta BankID-appen på din telefon eller enhet och godkänn legitimeringen."
                         }
                     }
-                    
+
                     div {
                         class: "w-full",
                         style: "height: 6px; background: var(--border-color); border-radius: 3px; overflow: hidden; margin: 1.5rem 0;",
@@ -288,7 +290,7 @@ pub fn BankIdModal(props: BankIdModalProps) -> Element {
                         components::LucideIcon { name: "reporting", class: "h-8 w-8 text-success", }
                     }
                     h3 { class: "m-0 font-extrabold",
-                        style: "color:var(--success);", 
+                        style: "color:var(--success);",
                         if *provider_val.read() == "us_global" { "Authenticated" } else { "Legitimering lyckades" }
                     }
                     p { class: "text-muted-foreground m-0 text-xs",
@@ -299,5 +301,3 @@ pub fn BankIdModal(props: BankIdModalProps) -> Element {
         }
     }
 }
-
-

@@ -1,5 +1,5 @@
-use crate::YntraError;
 use super::super::DbConnection;
+use crate::YntraError;
 
 pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError> {
     conn.execute(
@@ -229,7 +229,8 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             progress REAL NOT NULL DEFAULT 0.0,
             authenticated_user_id TEXT,
             created_at TEXT NOT NULL,
-            challenge TEXT
+            challenge TEXT,
+            token TEXT
         );
 
         CREATE TABLE IF NOT EXISTS oauth_auth_sessions (

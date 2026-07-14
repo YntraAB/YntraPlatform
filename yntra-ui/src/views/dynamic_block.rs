@@ -1,6 +1,8 @@
+use crate::components::{Button, Dialog, DynamicForm, DynamicList, LucideIcon};
 use dioxus::prelude::*;
-use yntra_core::{get_blocks, get_dynamic_entities, save_dynamic_entity, delete_dynamic_entity, DynamicEntity};
-use crate::components::{DynamicList, DynamicForm, Dialog, LucideIcon, Button};
+use yntra_core::{
+    DynamicEntity, delete_dynamic_entity, get_blocks, get_dynamic_entities, save_dynamic_entity,
+};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct DynamicBlockViewProps {
@@ -20,11 +22,13 @@ pub fn DynamicBlockView(props: DynamicBlockViewProps) -> Element {
     // 1. Fetch block definition to get name, description, fields_schema, ui_config
     let db_trig_val = *db_trigger.read();
     let block_id_clone = block_id.clone();
+    let requester_id = props.active_user_id.clone();
     let block_res = use_resource(move || {
         let _ = db_trig_val;
         let b_id = block_id_clone.clone();
+        let r_id = requester_id.clone();
         async move {
-            let list = get_blocks().await.unwrap_or_default();
+            let list = get_blocks(r_id).await.unwrap_or_default();
             list.into_iter().find(|b| b.id == b_id)
         }
     });
@@ -39,7 +43,9 @@ pub fn DynamicBlockView(props: DynamicBlockViewProps) -> Element {
         let b_id = block_id_clone2.clone();
         let r_id = requester_id.clone();
         async move {
-            get_dynamic_entities(r_id, ws_id, b_id).await.unwrap_or_default()
+            get_dynamic_entities(r_id, ws_id, b_id)
+                .await
+                .unwrap_or_default()
         }
     });
 

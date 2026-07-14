@@ -4,16 +4,16 @@ use dioxus::prelude::*;
 use yntra_core::Workspace;
 use yntra_core::WorkspaceUser;
 
-pub mod styles;
 pub mod bankid_modal;
 pub mod hardware_modal;
 pub mod invite_modal;
+pub mod styles;
 
 pub mod two_factor_modal;
 
-use styles::get_keyframes_css;
 use bankid_modal::BankIdModal;
 use invite_modal::InviteModal;
+use styles::get_keyframes_css;
 
 use two_factor_modal::TwoFactorModal;
 
@@ -49,14 +49,14 @@ pub fn LoginView(props: LoginViewProps) -> Element {
     let _show_modal = *props.show_bankid_modal.read();
 
     let region = props.auth_region.read().clone();
-    
+
     let dropdown_label = match props.auth_region.read().as_str() {
         "sv" => "Svenska",
         "no" => "Norsk",
         "da" => "Dansk",
         _ => "English",
     };
-    
+
     let active_user_id = props.active_user_id;
     let active_section = props.active_section;
     let logged_in = props.logged_in;
@@ -69,7 +69,6 @@ pub fn LoginView(props: LoginViewProps) -> Element {
     let users_for_effect = users.clone();
     let users_for_dev = users.clone();
 
-
     // BankID Flow State Signals
     let bankid_flow_state = use_signal(|| "idle".to_string()); // "idle" | "qr_scan" | "pending_pin" | "verifying" | "success"
     let bankid_progress = use_signal(|| 0.0f32);
@@ -77,6 +76,8 @@ pub fn LoginView(props: LoginViewProps) -> Element {
     let bankid_pin = use_signal(String::new);
     #[allow(unused_mut)]
     let mut active_session_id = use_signal(|| Option::<String>::None);
+    #[allow(unused_mut)]
+    let mut active_session_token = use_signal(|| Option::<String>::None);
     let mut provider_val = use_signal(|| "se_bankid".to_string());
 
     // Norway form states
@@ -92,8 +93,6 @@ pub fn LoginView(props: LoginViewProps) -> Element {
     let show_invite_modal = use_signal(|| false);
     let invite_code_input = use_signal(String::new);
     let invite_error = use_signal(|| Option::<String>::None);
-
-
 
     let show_hardware_modal = use_signal(|| false);
     #[allow(unused_variables, unused_mut)]
@@ -114,7 +113,8 @@ pub fn LoginView(props: LoginViewProps) -> Element {
         let mut logged_in = props.logged_in;
         let mut two_factor_user = props.two_factor_user;
 
-        let mut ev = dioxus::document::eval(r#"
+        let mut ev = dioxus::document::eval(
+            r#"
             if (typeof NDEFReader !== 'undefined') {
                 console.log("[Web NFC] Browser supports NDEFReader. Starting passive scanning...");
                 const ndef = new NDEFReader();
@@ -128,31 +128,44 @@ pub fn LoginView(props: LoginViewProps) -> Element {
                     console.warn("[Web NFC] Scanner initialization failed:", err);
                 });
             }
-        "#);
+        "#,
+        );
 
         spawn(async move {
             if let Ok(serde_json::Value::String(badge_uid)) = ev.recv().await {
                 let mut auth_res = yntra_core::authenticate_with_nfc(badge_uid.clone(), None).await;
                 if let Err(yntra_core::YntraError::AuthError(ref msg)) = auth_res {
                     if msg.contains("PIN") {
-                        let mut eval_prompt = dioxus::document::eval(r#"
+                        let mut eval_prompt = dioxus::document::eval(
+                            r#"
                             try {
                                 let pin = prompt("Vänligen ange din NFC-PIN / Please enter your NFC PIN:");
                                 dioxus.send(pin || "");
                             } catch(e) {
                                 dioxus.send("");
                             }
-                        "#);
-                        if let Ok(serde_json::Value::String(provided_pin)) = eval_prompt.recv().await {
+                        "#,
+                        );
+                        if let Ok(serde_json::Value::String(provided_pin)) =
+                            eval_prompt.recv().await
+                        {
                             if !provided_pin.is_empty() {
-                                auth_res = yntra_core::authenticate_with_nfc(badge_uid, Some(provided_pin)).await;
+                                auth_res = yntra_core::authenticate_with_nfc(
+                                    badge_uid,
+                                    Some(provided_pin),
+                                )
+                                .await;
                             }
                         }
                     }
                 }
                 if let Ok(user) = auth_res {
-                    let prefs: serde_json::Value = serde_json::from_str(&user.preferences).unwrap_or_default();
-                    let mfa_enabled = prefs.get("two_factor_enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let prefs: serde_json::Value =
+                        serde_json::from_str(&user.preferences).unwrap_or_default();
+                    let mfa_enabled = prefs
+                        .get("two_factor_enabled")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
                     if mfa_enabled {
                         two_factor_user.set(Some(user));
                     } else {
@@ -162,7 +175,8 @@ pub fn LoginView(props: LoginViewProps) -> Element {
                         } else {
                             active_section.set("dashboard".to_string());
                         }
-                        let is_new_invite = user.phone.is_none() || user.phone.as_ref().map(|p| p.is_empty()).unwrap_or(true);
+                        let is_new_invite = user.phone.is_none()
+                            || user.phone.as_ref().map(|p| p.is_empty()).unwrap_or(true);
                         needs_setup.set(is_new_invite);
                         logged_in.set(true);
                     }
@@ -181,8 +195,15 @@ pub fn LoginView(props: LoginViewProps) -> Element {
                     hardware_auth_type.set("card_or_badge".to_string());
                     hardware_reader_status.set("connecting".to_string());
                     hardware_error_msg.set(None);
-                    if let Ok(sess) = yntra_core::initiate_bankid_auth("assistant".to_string(), "card_or_badge".to_string()).await {
+                    let mut active_tok = active_session_token;
+                    if let Ok(sess) = yntra_core::initiate_bankid_auth(
+                        "assistant".to_string(),
+                        "card_or_badge".to_string(),
+                    )
+                    .await
+                    {
                         active_session_id.set(Some(sess.id.clone()));
+                        active_tok.set(Some(sess.token.clone()));
                     }
                 }
             });
@@ -195,12 +216,14 @@ pub fn LoginView(props: LoginViewProps) -> Element {
             "no" => "no_bankid",
             "da" => "dk_mitid",
             _ => "us_global",
-        }.to_string();
+        }
+        .to_string();
 
         provider_val.set(provider_name.clone());
 
         let mut show_bankid = show_bankid_modal;
         let mut active_sess = active_session_id;
+        let mut active_tok = active_session_token;
         let mut flow_state = bankid_flow_state;
         let mut progress = bankid_progress;
         let mut qr_data = bankid_qr_data;
@@ -209,9 +232,12 @@ pub fn LoginView(props: LoginViewProps) -> Element {
         let mut bdate = norway_birthdate;
 
         spawn(async move {
-            if let Ok(sess) = yntra_core::initiate_bankid_auth("assistant".to_string(), provider_name).await {
+            if let Ok(sess) =
+                yntra_core::initiate_bankid_auth("assistant".to_string(), provider_name).await
+            {
                 show_bankid.set(true);
                 active_sess.set(Some(sess.id.clone()));
+                active_tok.set(Some(sess.token.clone()));
                 flow_state.set(sess.status.clone());
                 progress.set(sess.progress as f32);
                 qr_data.set(sess.qr_data.clone());
@@ -225,7 +251,8 @@ pub fn LoginView(props: LoginViewProps) -> Element {
     use_effect(move || {
         let _trig = db_trigger.read();
         let sid_opt = active_session_id.read().clone();
-        if let Some(sid) = sid_opt {
+        let tok_opt = active_session_token.read().clone();
+        if let (Some(sid), Some(tok)) = (sid_opt, tok_opt) {
             let mut active_user_id = active_user_id;
             let mut active_section = active_section;
             let mut needs_setup = needs_setup;
@@ -237,35 +264,45 @@ pub fn LoginView(props: LoginViewProps) -> Element {
             let mut bankid_qr_data = bankid_qr_data;
             let mut hardware_reader_status = hardware_reader_status;
             let mut active_session_id = active_session_id;
+            let mut active_session_token = active_session_token;
             let mut two_factor_user = two_factor_user;
             let users = users_for_effect.clone();
             let toast = toast;
             let mut pin_prompted_sessions = pin_prompted_sessions;
             let mut last_error_shown = last_error_shown;
             let region = props.auth_region.read().clone();
-            
+
             spawn(async move {
-                if let Ok(Some(s)) = yntra_core::get_bankid_auth_session(sid).await {
-                    if s.provider == "siths" || s.provider == "nfc" || s.provider == "card_or_badge" {
+                let tok_for_polling = tok.clone();
+                if let Ok(Some(s)) = yntra_core::get_bankid_auth_session(sid, tok.clone()).await {
+                    if s.provider == "siths" || s.provider == "nfc" || s.provider == "card_or_badge"
+                    {
                         hardware_reader_status.set(s.status.clone());
                         if s.status == "card_detected" {
                             let sid_str = s.id.clone();
                             let already_prompted = pin_prompted_sessions.read().contains(&sid_str);
                             if !already_prompted {
                                 pin_prompted_sessions.write().insert(sid_str.clone());
-                                let mut eval_prompt = dioxus::document::eval(r#"
+                                let mut eval_prompt = dioxus::document::eval(
+                                    r#"
                                     try {
                                         let pin = prompt("Vänligen ange din kort-PIN / Please enter your card PIN:");
                                         dioxus.send(pin || "");
                                     } catch(e) {
                                         dioxus.send("");
                                     }
-                                "#);
+                                "#,
+                                );
                                 let session_id = sid_str;
+                                let tok_for_hw = tok_for_polling.clone();
                                 spawn(async move {
-                                    if let Ok(serde_json::Value::String(pin)) = eval_prompt.recv().await {
+                                    if let Ok(serde_json::Value::String(pin)) =
+                                        eval_prompt.recv().await
+                                    {
                                         if !pin.is_empty() {
-                                            let _ = yntra_core::complete_hardware_auth(session_id, pin).await;
+                                            let _ =
+                                                yntra_core::complete_hardware_auth(session_id, tok_for_hw, pin)
+                                                    .await;
                                         }
                                     }
                                 });
@@ -285,37 +322,51 @@ pub fn LoginView(props: LoginViewProps) -> Element {
                             } else {
                                 err_msg
                             };
-                            let already_shown = last_error_shown.read().as_ref() == Some(&final_msg);
+                            let already_shown =
+                                last_error_shown.read().as_ref() == Some(&final_msg);
                             if !already_shown {
                                 last_error_shown.set(Some(final_msg.clone()));
                                 toast.error(
                                     t("login-hw-title-siths", &region),
-                                    dioxus_primitives::toast::ToastOptions::new().description(final_msg),
+                                    dioxus_primitives::toast::ToastOptions::new()
+                                        .description(final_msg),
                                 );
                             }
                             active_session_id.set(None);
+                            active_session_token.set(None);
                         } else if s.status == "success" {
                             tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
                             if let Some(uid) = s.authenticated_user_id
-                                && let Some(user) = users.iter().find(|u| u.id == uid) {
-                                    let prefs: serde_json::Value = serde_json::from_str(&user.preferences).unwrap_or_default();
-                                    let mfa_enabled = prefs.get("two_factor_enabled").and_then(|v| v.as_bool()).unwrap_or(false);
-                                    if mfa_enabled {
-                                        two_factor_user.set(Some(user.clone()));
+                                && let Some(user) = users.iter().find(|u| u.id == uid)
+                            {
+                                let prefs: serde_json::Value =
+                                    serde_json::from_str(&user.preferences).unwrap_or_default();
+                                let mfa_enabled = prefs
+                                    .get("two_factor_enabled")
+                                    .and_then(|v| v.as_bool())
+                                    .unwrap_or(false);
+                                if mfa_enabled {
+                                    two_factor_user.set(Some(user.clone()));
+                                } else {
+                                    active_user_id.set(user.id.clone());
+                                    if user.role == "client" {
+                                        active_section.set("client_portal".to_string());
                                     } else {
-                                        active_user_id.set(user.id.clone());
-                                        if user.role == "client" {
-                                            active_section.set("client_portal".to_string());
-                                        } else {
-                                            active_section.set("dashboard".to_string());
-                                        }
-                                        let is_new_invite = user.phone.is_none() || user.phone.as_ref().map(|p| p.is_empty()).unwrap_or(true);
-                                        needs_setup.set(is_new_invite);
-                                        logged_in.set(true);
+                                        active_section.set("dashboard".to_string());
                                     }
+                                    let is_new_invite = user.phone.is_none()
+                                        || user
+                                            .phone
+                                            .as_ref()
+                                            .map(|p| p.is_empty())
+                                            .unwrap_or(true);
+                                    needs_setup.set(is_new_invite);
+                                    logged_in.set(true);
                                 }
+                            }
                             show_hardware_modal.set(false);
                             active_session_id.set(None);
+                            active_session_token.set(None);
                         }
                     } else {
                         bankid_flow_state.set(s.status.clone());
@@ -325,26 +376,37 @@ pub fn LoginView(props: LoginViewProps) -> Element {
                         if s.status == "success" {
                             tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
                             if let Some(uid) = s.authenticated_user_id
-                                && let Some(user) = users.iter().find(|u| u.id == uid) {
-                                    let prefs: serde_json::Value = serde_json::from_str(&user.preferences).unwrap_or_default();
-                                    let mfa_enabled = prefs.get("two_factor_enabled").and_then(|v| v.as_bool()).unwrap_or(false);
-                                    if mfa_enabled {
-                                        two_factor_user.set(Some(user.clone()));
+                                && let Some(user) = users.iter().find(|u| u.id == uid)
+                            {
+                                let prefs: serde_json::Value =
+                                    serde_json::from_str(&user.preferences).unwrap_or_default();
+                                let mfa_enabled = prefs
+                                    .get("two_factor_enabled")
+                                    .and_then(|v| v.as_bool())
+                                    .unwrap_or(false);
+                                if mfa_enabled {
+                                    two_factor_user.set(Some(user.clone()));
+                                } else {
+                                    active_user_id.set(user.id.clone());
+                                    if user.role == "client" {
+                                        active_section.set("client_portal".to_string());
                                     } else {
-                                        active_user_id.set(user.id.clone());
-                                        if user.role == "client" {
-                                            active_section.set("client_portal".to_string());
-                                        } else {
-                                            active_section.set("dashboard".to_string());
-                                        }
-                                        let is_new_invite = user.phone.is_none() || user.phone.as_ref().map(|p| p.is_empty()).unwrap_or(true);
-                                        needs_setup.set(is_new_invite);
-                                        logged_in.set(true);
+                                        active_section.set("dashboard".to_string());
                                     }
+                                    let is_new_invite = user.phone.is_none()
+                                        || user
+                                            .phone
+                                            .as_ref()
+                                            .map(|p| p.is_empty())
+                                            .unwrap_or(true);
+                                    needs_setup.set(is_new_invite);
+                                    logged_in.set(true);
                                 }
+                            }
                             show_bankid_modal.set(false);
                             bankid_flow_state.set("idle".to_string());
                             active_session_id.set(None);
+                            active_session_token.set(None);
                         }
                     }
                 }
@@ -416,18 +478,27 @@ pub fn LoginView(props: LoginViewProps) -> Element {
         #[cfg(not(target_arch = "wasm32"))]
         {
             active_session_id.set(None);
+            active_session_token.set(None);
             hardware_auth_type.set("card_or_badge".to_string());
             hardware_reader_status.set("connecting".to_string());
             hardware_error_msg.set(None);
             let mut active_sess = active_session_id;
+            let mut active_tok = active_session_token;
             let toast_clone = toast.clone();
             let region_clone = props.auth_region.read().clone();
             spawn(async move {
-                if let Ok(sess) = yntra_core::initiate_bankid_auth("assistant".to_string(), "card_or_badge".to_string()).await {
+                if let Ok(sess) = yntra_core::initiate_bankid_auth(
+                    "assistant".to_string(),
+                    "card_or_badge".to_string(),
+                )
+                .await
+                {
                     active_sess.set(Some(sess.id.clone()));
+                    active_tok.set(Some(sess.token.clone()));
                     toast_clone.info(
                         t("login-hw-title-siths", &region_clone),
-                        dioxus_primitives::toast::ToastOptions::new().description(t("login-hw-polling-siths", &region_clone)),
+                        dioxus_primitives::toast::ToastOptions::new()
+                            .description(t("login-hw-polling-siths", &region_clone)),
                     );
                 }
             });
@@ -437,7 +508,8 @@ pub fn LoginView(props: LoginViewProps) -> Element {
             let region_clone = props.auth_region.read().clone();
             toast.info(
                 t("login-hw-title-nfc", &region_clone),
-                dioxus_primitives::toast::ToastOptions::new().description(t("login-hw-polling-nfc", &region_clone)),
+                dioxus_primitives::toast::ToastOptions::new()
+                    .description(t("login-hw-polling-nfc", &region_clone)),
             );
         }
     };
@@ -449,8 +521,14 @@ pub fn LoginView(props: LoginViewProps) -> Element {
         let mut n_setup = needs_setup;
         let mut log_in = logged_in;
         spawn(async move {
-            let targeted_user = users_list.iter()
-                .find(|u| u.email == "dev.user@yntra.se" || u.email == "admin@yntra.se" || u.role == "platform_admin" || u.role == "admin")
+            let targeted_user = users_list
+                .iter()
+                .find(|u| {
+                    u.email == "dev.user@yntra.se"
+                        || u.email == "admin@yntra.se"
+                        || u.role == "platform_admin"
+                        || u.role == "admin"
+                })
                 .or_else(|| users_list.first());
 
             if let Some(user) = targeted_user {
@@ -460,22 +538,30 @@ pub fn LoginView(props: LoginViewProps) -> Element {
                 } else {
                     active_sec.set("dashboard".to_string());
                 }
-                let is_new_invite = user.phone.is_none() || user.phone.as_ref().map(|p| p.is_empty()).unwrap_or(true);
-                let is_dev_or_admin = user.email == "dev.user@yntra.se" || user.email == "admin@yntra.se";
+                let is_new_invite = user.phone.is_none()
+                    || user.phone.as_ref().map(|p| p.is_empty()).unwrap_or(true);
+                let is_dev_or_admin =
+                    user.email == "dev.user@yntra.se" || user.email == "admin@yntra.se";
                 n_setup.set(is_new_invite && !is_dev_or_admin);
                 log_in.set(true);
             } else {
                 // Auto-activate dev invitation on first bypass click
-                if let Ok(user) = yntra_core::activate_invitation_code("WELCOME-OFFLINE-FIRST".to_string()).await {
+                if let Ok(user) =
+                    yntra_core::activate_invitation_code("WELCOME-OFFLINE-FIRST".to_string()).await
+                {
                     active_uid.set(user.id.clone());
                     active_sec.set("dashboard".to_string());
                     n_setup.set(false); // WELCOME-OFFLINE-FIRST is the dev invitation code, so bypass setup
                     log_in.set(true);
-                } else if let Ok(Some(user)) = yntra_core::get_user_by_email("dev.user@yntra.se".to_string()).await {
+                } else if let Ok(Some(user)) =
+                    yntra_core::get_user_by_email("user-2".to_string(), "dev.user@yntra.se".to_string()).await
+                {
                     active_uid.set(user.id.clone());
                     active_sec.set("dashboard".to_string());
-                    let is_new_invite = user.phone.is_none() || user.phone.as_ref().map(|p| p.is_empty()).unwrap_or(true);
-                    let is_dev_or_admin = user.email == "dev.user@yntra.se" || user.email == "admin@yntra.se";
+                    let is_new_invite = user.phone.is_none()
+                        || user.phone.as_ref().map(|p| p.is_empty()).unwrap_or(true);
+                    let is_dev_or_admin =
+                        user.email == "dev.user@yntra.se" || user.email == "admin@yntra.se";
                     n_setup.set(is_new_invite && !is_dev_or_admin);
                     log_in.set(true);
                 }
@@ -550,6 +636,7 @@ pub fn LoginView(props: LoginViewProps) -> Element {
                 bankid_qr_data,
                 bankid_pin,
                 active_session_id,
+                active_session_token,
                 provider_val,
                 norway_mobile,
                 norway_birthdate,
@@ -655,7 +742,7 @@ pub fn LoginView(props: LoginViewProps) -> Element {
                                     }
                                 }
                             }
-                            
+
                             // 2. Hardware Smart Card / NFC Badge authentication
                             {
                                 let hw_label = match region.as_str() {
@@ -762,4 +849,3 @@ pub fn LoginView(props: LoginViewProps) -> Element {
         }
     }
 }
-

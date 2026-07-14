@@ -1,14 +1,14 @@
-use crate::YntraError;
 use super::super::DbConnection;
+use crate::YntraError;
 
 async fn execute_migration_sql(conn: &DbConnection, sql: &str) -> Result<(), YntraError> {
     match conn.execute(sql, ()).await {
         Ok(_) => Ok(()),
         Err(e) => {
             let err_str = e.to_string();
-            if err_str.contains("duplicate column name") 
-                || err_str.contains("already exists") 
-                || err_str.contains("duplicate column") 
+            if err_str.contains("duplicate column name")
+                || err_str.contains("already exists")
+                || err_str.contains("duplicate column")
             {
                 Ok(())
             } else {
@@ -23,9 +23,9 @@ async fn execute_migration_batch(conn: &DbConnection, sql: &str) -> Result<(), Y
         Ok(_) => Ok(()),
         Err(e) => {
             let err_str = e.to_string();
-            if err_str.contains("duplicate column name") 
-                || err_str.contains("already exists") 
-                || err_str.contains("duplicate column") 
+            if err_str.contains("duplicate column name")
+                || err_str.contains("already exists")
+                || err_str.contains("duplicate column")
                 || err_str.contains("duplicate table")
             {
                 Ok(())
@@ -36,68 +36,227 @@ async fn execute_migration_batch(conn: &DbConnection, sql: &str) -> Result<(), Y
     }
 }
 
-pub async fn run_schema_migrations(conn: &DbConnection, current_version: i32) -> Result<i32, YntraError> {
+pub async fn run_schema_migrations(
+    conn: &DbConnection,
+    current_version: i32,
+) -> Result<i32, YntraError> {
     let mut version = current_version;
     if version < 2 {
         execute_migration_sql(conn, "ALTER TABLE users ADD COLUMN siths_card_id TEXT").await?;
         execute_migration_sql(conn, "ALTER TABLE users ADD COLUMN nfc_badge_uid TEXT").await?;
         execute_migration_sql(conn, "ALTER TABLE users ADD COLUMN personal_number TEXT").await?;
-        execute_migration_sql(conn, "ALTER TABLE invitations ADD COLUMN siths_card_id TEXT").await?;
-        execute_migration_sql(conn, "ALTER TABLE invitations ADD COLUMN nfc_badge_uid TEXT").await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE invitations ADD COLUMN siths_card_id TEXT",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE invitations ADD COLUMN nfc_badge_uid TEXT",
+        )
+        .await?;
 
-        execute_migration_sql(conn, "ALTER TABLE todos ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'workspace-1'").await?;
-        execute_migration_sql(conn, "ALTER TABLE todos ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0").await?;
-        execute_migration_sql(conn, "ALTER TABLE todos ADD COLUMN sync_status TEXT DEFAULT 'pending'").await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE todos ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'workspace-1'",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE todos ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE todos ADD COLUMN sync_status TEXT DEFAULT 'pending'",
+        )
+        .await?;
 
-        execute_migration_sql(conn, "ALTER TABLE users ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0").await?;
-        execute_migration_sql(conn, "ALTER TABLE users ADD COLUMN sync_status TEXT DEFAULT 'pending'").await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE users ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE users ADD COLUMN sync_status TEXT DEFAULT 'pending'",
+        )
+        .await?;
 
-        execute_migration_sql(conn, "ALTER TABLE workspaces ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0").await?;
-        execute_migration_sql(conn, "ALTER TABLE workspaces ADD COLUMN sync_status TEXT DEFAULT 'pending'").await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE workspaces ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE workspaces ADD COLUMN sync_status TEXT DEFAULT 'pending'",
+        )
+        .await?;
 
-        execute_migration_sql(conn, "ALTER TABLE teams ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0").await?;
-        execute_migration_sql(conn, "ALTER TABLE teams ADD COLUMN sync_status TEXT DEFAULT 'pending'").await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE teams ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE teams ADD COLUMN sync_status TEXT DEFAULT 'pending'",
+        )
+        .await?;
 
-        execute_migration_sql(conn, "ALTER TABLE team_members ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'workspace-1'").await?;
-        execute_migration_sql(conn, "ALTER TABLE team_members ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0").await?;
-        execute_migration_sql(conn, "ALTER TABLE team_members ADD COLUMN sync_status TEXT DEFAULT 'pending'").await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE team_members ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'workspace-1'",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE team_members ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE team_members ADD COLUMN sync_status TEXT DEFAULT 'pending'",
+        )
+        .await?;
 
-        execute_migration_sql(conn, "ALTER TABLE events ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0").await?;
-        execute_migration_sql(conn, "ALTER TABLE events ADD COLUMN sync_status TEXT DEFAULT 'pending'").await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE events ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE events ADD COLUMN sync_status TEXT DEFAULT 'pending'",
+        )
+        .await?;
 
-        execute_migration_sql(conn, "ALTER TABLE messages ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0").await?;
-        execute_migration_sql(conn, "ALTER TABLE messages ADD COLUMN sync_status TEXT DEFAULT 'pending'").await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE messages ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE messages ADD COLUMN sync_status TEXT DEFAULT 'pending'",
+        )
+        .await?;
 
-        execute_migration_sql(conn, "ALTER TABLE notes ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0").await?;
-        execute_migration_sql(conn, "ALTER TABLE notes ADD COLUMN sync_status TEXT DEFAULT 'pending'").await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE notes ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE notes ADD COLUMN sync_status TEXT DEFAULT 'pending'",
+        )
+        .await?;
 
-        execute_migration_sql(conn, "ALTER TABLE time_reports ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0").await?;
-        execute_migration_sql(conn, "ALTER TABLE time_reports ADD COLUMN sync_status TEXT DEFAULT 'pending'").await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE time_reports ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE time_reports ADD COLUMN sync_status TEXT DEFAULT 'pending'",
+        )
+        .await?;
 
-        execute_migration_sql(conn, "ALTER TABLE clients ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0").await?;
-        execute_migration_sql(conn, "ALTER TABLE clients ADD COLUMN sync_status TEXT DEFAULT 'pending'").await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE clients ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE clients ADD COLUMN sync_status TEXT DEFAULT 'pending'",
+        )
+        .await?;
 
         execute_migration_sql(conn, "ALTER TABLE client_medications ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'workspace-1'").await?;
-        execute_migration_sql(conn, "ALTER TABLE client_medications ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0").await?;
-        execute_migration_sql(conn, "ALTER TABLE client_medications ADD COLUMN sync_status TEXT DEFAULT 'pending'").await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE client_medications ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE client_medications ADD COLUMN sync_status TEXT DEFAULT 'pending'",
+        )
+        .await?;
 
         execute_migration_sql(conn, "ALTER TABLE client_journals ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'workspace-1'").await?;
-        execute_migration_sql(conn, "ALTER TABLE client_journals ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0").await?;
-        execute_migration_sql(conn, "ALTER TABLE client_journals ADD COLUMN sync_status TEXT DEFAULT 'pending'").await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE client_journals ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE client_journals ADD COLUMN sync_status TEXT DEFAULT 'pending'",
+        )
+        .await?;
 
-        execute_migration_sql(conn, "ALTER TABLE reports ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0").await?;
-        execute_migration_sql(conn, "ALTER TABLE reports ADD COLUMN sync_status TEXT DEFAULT 'pending'").await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE reports ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE reports ADD COLUMN sync_status TEXT DEFAULT 'pending'",
+        )
+        .await?;
 
-        execute_migration_sql(conn, "ALTER TABLE invitations ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0").await?;
-        execute_migration_sql(conn, "ALTER TABLE invitations ADD COLUMN sync_status TEXT DEFAULT 'pending'").await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE invitations ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE invitations ADD COLUMN sync_status TEXT DEFAULT 'pending'",
+        )
+        .await?;
 
-        execute_migration_sql(conn, "ALTER TABLE job_tickets ADD COLUMN origin_address TEXT").await?;
-        execute_migration_sql(conn, "ALTER TABLE job_tickets ADD COLUMN destination_address TEXT").await?;
-        execute_migration_sql(conn, "ALTER TABLE job_tickets ADD COLUMN origin_floor INTEGER DEFAULT 0").await?;
-        execute_migration_sql(conn, "ALTER TABLE job_tickets ADD COLUMN destination_floor INTEGER DEFAULT 0").await?;
-        execute_migration_sql(conn, "ALTER TABLE job_tickets ADD COLUMN origin_has_elevator INTEGER DEFAULT 0").await?;
-        execute_migration_sql(conn, "ALTER TABLE job_tickets ADD COLUMN destination_has_elevator INTEGER DEFAULT 0").await?;
-        execute_migration_sql(conn, "ALTER TABLE job_tickets ADD COLUMN origin_parking_permit_needed INTEGER DEFAULT 0").await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE job_tickets ADD COLUMN origin_address TEXT",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE job_tickets ADD COLUMN destination_address TEXT",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE job_tickets ADD COLUMN origin_floor INTEGER DEFAULT 0",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE job_tickets ADD COLUMN destination_floor INTEGER DEFAULT 0",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE job_tickets ADD COLUMN origin_has_elevator INTEGER DEFAULT 0",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE job_tickets ADD COLUMN destination_has_elevator INTEGER DEFAULT 0",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE job_tickets ADD COLUMN origin_parking_permit_needed INTEGER DEFAULT 0",
+        )
+        .await?;
         execute_migration_sql(conn, "ALTER TABLE job_tickets ADD COLUMN destination_parking_permit_needed INTEGER DEFAULT 0").await?;
 
         execute_migration_batch(
@@ -131,8 +290,9 @@ pub async fn run_schema_migrations(conn: &DbConnection, current_version: i32) ->
                 FOREIGN KEY(job_ticket_id) REFERENCES job_tickets(id)
             );
             CREATE INDEX IF NOT EXISTS idx_move_inventory_job ON move_inventory(job_ticket_id);
-            CREATE INDEX IF NOT EXISTS idx_move_quotes_job ON move_quotes(job_ticket_id);"
-        ).await?;
+            CREATE INDEX IF NOT EXISTS idx_move_quotes_job ON move_quotes(job_ticket_id);",
+        )
+        .await?;
 
         execute_migration_batch(
             conn,
@@ -330,16 +490,32 @@ pub async fn run_schema_migrations(conn: &DbConnection, current_version: i32) ->
         version = 2;
     }
     if version < 3 {
-        execute_migration_sql(conn, "ALTER TABLE audit_logs ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'workspace-1'").await?;
-        execute_migration_sql(conn, "CREATE INDEX IF NOT EXISTS idx_audit_logs_workspace ON audit_logs(workspace_id)").await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE audit_logs ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'workspace-1'",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "CREATE INDEX IF NOT EXISTS idx_audit_logs_workspace ON audit_logs(workspace_id)",
+        )
+        .await?;
         version = 3;
     }
     if version < 4 {
-        execute_migration_sql(conn, "ALTER TABLE audit_logs ADD COLUMN seq INTEGER NOT NULL DEFAULT 0").await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE audit_logs ADD COLUMN seq INTEGER NOT NULL DEFAULT 0",
+        )
+        .await?;
         version = 4;
     }
     if version < 5 {
-        execute_migration_sql(conn, "ALTER TABLE workspaces ADD COLUMN creator_public_key TEXT").await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE workspaces ADD COLUMN creator_public_key TEXT",
+        )
+        .await?;
         execute_migration_sql(conn, "ALTER TABLE users ADD COLUMN role_signature TEXT").await?;
         version = 5;
     }
@@ -396,13 +572,22 @@ pub async fn run_schema_migrations(conn: &DbConnection, current_version: i32) ->
                 FOREIGN KEY(workspace_id) REFERENCES workspaces(id),
                 FOREIGN KEY(block_id) REFERENCES blocks(id)
             );
-            CREATE INDEX IF NOT EXISTS idx_entities_block ON entities(workspace_id, block_id);"
-        ).await?;
+            CREATE INDEX IF NOT EXISTS idx_entities_block ON entities(workspace_id, block_id);",
+        )
+        .await?;
         version = 7;
     }
     if version < 8 {
-        execute_migration_sql(conn, "ALTER TABLE workspaces ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0").await?;
-        execute_migration_sql(conn, "ALTER TABLE workspaces ADD COLUMN sync_status TEXT DEFAULT 'pending'").await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE workspaces ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE workspaces ADD COLUMN sync_status TEXT DEFAULT 'pending'",
+        )
+        .await?;
         version = 8;
     }
     if version < 9 {
@@ -417,8 +602,9 @@ pub async fn run_schema_migrations(conn: &DbConnection, current_version: i32) ->
                 authenticated_user_id TEXT,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL
-            );"
-        ).await?;
+            );",
+        )
+        .await?;
         version = 9;
     }
     if version < 10 {
@@ -435,6 +621,14 @@ pub async fn run_schema_migrations(conn: &DbConnection, current_version: i32) ->
         ).await?;
         version = 11;
     }
+    if version < 12 {
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE bankid_auth_sessions ADD COLUMN token TEXT",
+        )
+        .await?;
+        version = 12;
+    }
     Ok(version)
 }
 
@@ -446,7 +640,10 @@ mod tests {
     async fn test_migration_sanity() {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
 
-        let db = libsql::Builder::new_local(":memory:").build().await.unwrap();
+        let db = libsql::Builder::new_local(":memory:")
+            .build()
+            .await
+            .unwrap();
         let raw_conn = db.connect().unwrap();
         let mut conn = crate::database::DbConnection {
             inner: Some(raw_conn),
@@ -454,13 +651,15 @@ mod tests {
             _permit: None,
         };
 
-        crate::database::schema::tables::create_initial_tables(&conn).await.unwrap();
+        crate::database::schema::tables::create_initial_tables(&conn)
+            .await
+            .unwrap();
 
         conn.execute("PRAGMA user_version = 0", ()).await.unwrap();
 
         let migrated_version = run_schema_migrations(&conn, 0).await.unwrap();
-        assert_eq!(migrated_version, 11);
-        
+        assert_eq!(migrated_version, 12);
+
         let has_oauth_sessions = conn.query_row(
             "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='oauth_auth_sessions'",
             (),
