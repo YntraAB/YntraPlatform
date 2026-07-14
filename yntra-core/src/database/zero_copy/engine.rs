@@ -95,6 +95,10 @@ impl ZeroCopyEngine {
                 temp_file
                     .write_all(&rkyv_len.to_be_bytes())
                     .map_err(|e| YntraError::DbError(e.to_string()))?;
+                // Write 8 padding bytes to align rkyv_bytes to 16-byte boundary
+                temp_file
+                    .write_all(&[0u8; 8])
+                    .map_err(|e| YntraError::DbError(e.to_string()))?;
                 temp_file
                     .write_all(rkyv_bytes)
                     .map_err(|e| YntraError::DbError(e.to_string()))?;
@@ -128,6 +132,7 @@ impl ZeroCopyEngine {
         {
             let mut buf = rkyv::util::AlignedVec::<16>::new();
             buf.extend_from_slice(&rkyv_len.to_be_bytes());
+            buf.extend_from_slice(&[0u8; 8]); // 8 padding bytes for 16-byte alignment
             buf.extend_from_slice(rkyv_bytes);
             buf.extend_from_slice(loro_bytes);
             self.buffer = buf;
@@ -138,9 +143,9 @@ impl ZeroCopyEngine {
     #[cfg(not(target_arch = "wasm32"))]
     fn load_loro_from_mmap(&mut self) -> Result<(), YntraError> {
         if let Some(ref m) = self.mmap {
-            if m.len() >= 8 {
+            if m.len() >= 16 {
                 let rkyv_len = u64::from_be_bytes(m[0..8].try_into().unwrap()) as usize;
-                if let Some(loro_offset) = rkyv_len.checked_add(8) {
+                if let Some(loro_offset) = rkyv_len.checked_add(16) {
                     if m.len() >= loro_offset {
                         if m.len() > loro_offset {
                             let loro_bytes = &m[loro_offset..];
@@ -194,15 +199,19 @@ impl ZeroCopyEngine {
 
     pub fn get_rkyv_slice(&self) -> &[u8] {
         let bytes = self.get_bytes();
-        if bytes.len() < 8 {
+        if bytes.len() < 16 {
             return &[];
         }
         let rkyv_len = u64::from_be_bytes(bytes[0..8].try_into().unwrap()) as usize;
-        if let Some(total_len) = rkyv_len.checked_add(8) {
+        if let Some(total_len) = rkyv_len.checked_add(16) {
             if bytes.len() >= total_len {
-                return &bytes[8..total_len];
+                return &bytes[16..total_len];
             }
         }
         &[]
+    }
+
+    pub fn doc(&self) -> &loro::LoroDoc {
+        &self.loro
     }
 }
