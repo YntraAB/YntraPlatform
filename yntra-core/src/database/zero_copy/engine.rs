@@ -1,7 +1,6 @@
 use crate::infra::errors::YntraError;
 
 pub struct ZeroCopyEngine {
-    #[cfg(not(target_arch = "wasm32"))]
     _file_path: String,
     #[cfg(not(target_arch = "wasm32"))]
     file: Option<std::fs::File>,
@@ -14,7 +13,6 @@ pub struct ZeroCopyEngine {
 
 impl ZeroCopyEngine {
     pub fn new(file_path: String) -> Result<Self, YntraError> {
-        let _ = &file_path;
         let loro = loro::LoroDoc::new();
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -55,10 +53,28 @@ impl ZeroCopyEngine {
 
         #[cfg(target_arch = "wasm32")]
         {
-            Ok(Self {
-                buffer: rkyv::util::AlignedVec::<16>::new(),
+            let mut buffer = rkyv::util::AlignedVec::<16>::new();
+
+            // Try to load from browser's localStorage
+            if let Some(window) = web_sys::window() {
+                if let Ok(Some(storage)) = window.local_storage() {
+                    if let Ok(Some(hex_str)) = storage.get_item(&file_path) {
+                        if let Ok(bytes) = const_hex::decode(&hex_str) {
+                            buffer.extend_from_slice(&bytes);
+                        }
+                    }
+                }
+            }
+
+            let mut engine = Self {
+                _file_path: file_path,
+                buffer,
                 loro,
-            })
+            };
+
+            engine.load_loro_from_buffer()?;
+
+            Ok(engine)
         }
     }
 
@@ -111,18 +127,37 @@ impl ZeroCopyEngine {
             self.mmap = None;
             self.file = None;
 
-            std::fs::rename(&temp_path, &self._file_path)
-                .map_err(|e| YntraError::DbError(e.to_string()))?;
+            if let Err(rename_err) = std::fs::rename(&temp_path, &self._file_path) {
+                // Rename failed, restore original file handle and mmap
+                if let Ok(orig_file) = std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&self._file_path)
+                {
+                    if let Ok(orig_mmap) = unsafe { memmap2::MmapMut::map_mut(&orig_file) } {
+                        self.file = Some(orig_file);
+                        self.mmap = Some(orig_mmap);
+                    }
+                }
+                return Err(YntraError::DbError(format!("Rename failed: {}", rename_err)));
+            }
 
-            let file = std::fs::OpenOptions::new()
+            let file = match std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
                 .open(&self._file_path)
-                .map_err(|e| YntraError::DbError(e.to_string()))?;
+            {
+                Ok(f) => f,
+                Err(e) => {
+                    return Err(YntraError::DbError(format!("Reopening file after rename failed: {}", e)));
+                }
+            };
 
-            let m = unsafe {
-                memmap2::MmapMut::map_mut(&file)
-                    .map_err(|e| YntraError::DbError(e.to_string()))?
+            let m = match unsafe { memmap2::MmapMut::map_mut(&file) } {
+                Ok(mmap) => mmap,
+                Err(e) => {
+                    return Err(YntraError::DbError(format!("Re-mapping file after rename failed: {}", e)));
+                }
             };
 
             self.file = Some(file);
@@ -135,6 +170,15 @@ impl ZeroCopyEngine {
             buf.extend_from_slice(&[0u8; 8]); // 8 padding bytes for 16-byte alignment
             buf.extend_from_slice(rkyv_bytes);
             buf.extend_from_slice(loro_bytes);
+
+            // Save to browser's localStorage
+            if let Some(window) = web_sys::window() {
+                if let Ok(Some(storage)) = window.local_storage() {
+                    let hex_str = const_hex::encode(&buf);
+                    let _ = storage.set_item(&self._file_path, &hex_str);
+                }
+            }
+
             self.buffer = buf;
         }
         Ok(())
@@ -161,52 +205,30 @@ impl ZeroCopyEngine {
         Ok(())
     }
 
+    #[cfg(target_arch = "wasm32")]
+    fn load_loro_from_buffer(&mut self) -> Result<(), YntraError> {
+        let len = self.buffer.len();
+        if len >= 16 {
+            let rkyv_len = usize::try_from(u64::from_be_bytes(self.buffer[0..8].try_into().unwrap()))
+                .map_err(|e| YntraError::DbError(format!("Database size overflow: {}", e)))?;
+            if let Some(loro_offset) = rkyv_len.checked_add(16) {
+                if len >= loro_offset {
+                    if len > loro_offset {
+                        let loro_bytes = &self.buffer[loro_offset..];
+                        if let Err(e) = self.loro.import(loro_bytes) {
+                            tracing::warn!("Failed to import Loro state on startup: {:?}", e);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn get_loro_changes(&self) -> Result<Vec<u8>, YntraError> {
         self.loro
             .export(loro::ExportMode::Snapshot)
             .map_err(|e| YntraError::SerializationError(e.to_string()))
-    }
-
-    pub fn apply_loro_update(&mut self, update_bytes: &[u8]) -> Result<(), YntraError> {
-        self.loro
-            .import(update_bytes)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-
-        let rkyv_bytes = {
-            let map = self.loro.get_map("db");
-            if let Some(val) = map.get("bytes") {
-                if let Some(val_ref) = val.as_value() {
-                    if let Some(bytes) = val_ref.as_binary() {
-                        bytes.to_vec()
-                    } else {
-                        self.get_rkyv_slice().to_vec()
-                    }
-                } else {
-                    self.get_rkyv_slice().to_vec()
-                }
-            } else {
-                self.get_rkyv_slice().to_vec()
-            }
-        };
-
-        let loro_bytes = self
-            .loro
-            .export(loro::ExportMode::Snapshot)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-
-        self.save_to_disk(&rkyv_bytes, &loro_bytes)?;
-        Ok(())
-    }
-    pub fn write_serialized(&mut self, rkyv_bytes: &[u8]) -> Result<(), YntraError> {
-        let map = self.loro.get_map("db");
-        let _ = map.insert("bytes", rkyv_bytes.to_vec());
-
-        let loro_bytes = self
-            .loro
-            .export(loro::ExportMode::Snapshot)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-
-        self.save_to_disk(rkyv_bytes, &loro_bytes)
     }
 
     pub fn get_rkyv_slice(&self) -> &[u8] {

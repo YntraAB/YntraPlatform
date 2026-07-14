@@ -6,7 +6,12 @@ pub mod crdt;
 
 use crdt::{apply_diff_to_loro, get_merged_loro_doc, parse_loro_state};
 
-pub fn verify_zkp_if_encrypted(content: &str, user_id: &str, role: &str) -> Result<(), YntraError> {
+pub async fn verify_zkp_if_encrypted(
+    conn: &database::DbConnection,
+    content: &str,
+    user_id: &str,
+    role: &str,
+) -> Result<(), YntraError> {
     if content.starts_with("zero_copy_enc:") {
         let parts: Vec<&str> = content.split(':').collect();
         if parts.len() != 3 {
@@ -21,12 +26,43 @@ pub fn verify_zkp_if_encrypted(content: &str, user_id: &str, role: &str) -> Resu
             .map_err(|e| YntraError::CryptoError(e.to_string()))?;
         let data_hash = blake3::hash(&ciphertext_bytes);
         let data_hash_hex = const_hex::encode(data_hash.as_bytes());
+
+        // Query user's metadata to get public key
+        let metadata_str: Option<String> = conn
+            .query_row(
+                "SELECT metadata FROM users WHERE id = ?1",
+                crate::params![user_id],
+                |r| r.get(0),
+            )
+            .await
+            .ok()
+            .flatten();
+
+        let public_key_hex = if let Some(ref meta) = metadata_str {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(meta) {
+                val.get("public_key")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .or_else(|| {
+                        val.get("siths_public_key")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                    })
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+        .unwrap_or_default();
+
         if !trust
             .verify_compliance_proof(
                 proof.to_string(),
                 user_id.to_string(),
                 role.to_string(),
                 data_hash_hex,
+                public_key_hex,
             )
             .unwrap_or(false)
         {
@@ -284,7 +320,7 @@ pub async fn add_note(
 ) -> Result<DailyNote, YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    verify_zkp_if_encrypted(&content, &auth.user_id, &auth.role)?;
+    verify_zkp_if_encrypted(&conn, &content, &auth.user_id, &auth.role).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
         return Err(YntraError::AuthError(
             "Access denied: workspace mismatch".to_string(),
@@ -428,7 +464,7 @@ pub async fn update_note(
         };
 
         let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-        verify_zkp_if_encrypted(&content, &auth.user_id, &auth.role)?;
+        verify_zkp_if_encrypted(&conn, &content, &auth.user_id, &auth.role).await?;
         if auth.role != "platform_admin" && auth.workspace_id != old_note.workspace_id {
             return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
         }
@@ -852,11 +888,40 @@ pub async fn apply_note_loro_update(
             let data_hash_hex = const_hex::encode(data_hash.as_bytes());
 
             for (uid, urole) in candidates {
+                let metadata_str: Option<String> = conn
+                    .query_row(
+                        "SELECT metadata FROM users WHERE id = ?1",
+                        crate::params![&uid],
+                        |r| r.get(0),
+                    )
+                    .await
+                    .ok()
+                    .flatten();
+
+                let public_key_hex = if let Some(ref meta) = metadata_str {
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(meta) {
+                        val.get("public_key")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                            .or_else(|| {
+                                val.get("siths_public_key")
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string())
+                            })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+                .unwrap_or_default();
+
                 if trust.verify_compliance_proof(
                     proof.to_string(),
                     uid,
                     urole,
                     data_hash_hex.clone(),
+                    public_key_hex,
                 ).unwrap_or(false) {
                     validated = true;
                     break;
@@ -1033,7 +1098,18 @@ mod tests {
 
         // Setup test workspace, team, user, and member relations
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-notes-test', 'Notes WS', '[]', '{}')", ()).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-notes-user', 'ws-notes-test', 'notes@user.com', 'user')", ()).await.unwrap();
+
+        let seed = "super_secure_seed".to_string();
+        let seed_zeroed = zeroize::Zeroizing::new(seed.clone());
+        let mut key_hasher = blake3::Hasher::new_derive_key("Yntra User Key Derivation Context");
+        key_hasher.update(seed_zeroed.as_bytes());
+        let mut private_key_bytes = zeroize::Zeroizing::new([0u8; 32]);
+        key_hasher.finalize_xof().fill(&mut *private_key_bytes);
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key_bytes);
+        let public_key_hex = const_hex::encode(signing_key.verifying_key().to_bytes());
+        let metadata = serde_json::json!({ "public_key": public_key_hex }).to_string();
+
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-notes-user', 'ws-notes-test', 'notes@user.com', 'user', ?1)", crate::params![metadata]).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO teams (id, workspace_id, name) VALUES ('team-notes-test', 'ws-notes-test', 'Notes Team')", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO team_members (team_id, user_id, workspace_id) VALUES ('team-notes-test', 'u-notes-user', 'ws-notes-test')", ()).await.unwrap();
 
@@ -1068,13 +1144,12 @@ mod tests {
 
         // 2. Encrypted content with VALID compliance proof -> Succeeds
         let trust = ZkCryptoTrust::new();
-        let seed = "super_secure_seed".to_string();
         let sensitive_info = "Sensitive database credential".to_string();
         let ciphertext = trust
             .encrypt_workspace_field(seed.clone(), sensitive_info)
             .unwrap();
         let valid_proof = trust
-            .generate_compliance_proof(ciphertext.clone(), author.clone(), "user".to_string())
+            .generate_compliance_proof(seed.clone(), ciphertext.clone(), author.clone(), "user".to_string())
             .unwrap();
         let valid_content = format!("zero_copy_enc:{}:{}", valid_proof, ciphertext);
 
@@ -1228,9 +1303,19 @@ mod tests {
         let _ = conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await;
         let _ = conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await;
 
+        let seed = "collab_secure_seed".to_string();
+        let seed_zeroed = zeroize::Zeroizing::new(seed.clone());
+        let mut key_hasher = blake3::Hasher::new_derive_key("Yntra User Key Derivation Context");
+        key_hasher.update(seed_zeroed.as_bytes());
+        let mut private_key_bytes = zeroize::Zeroizing::new([0u8; 32]);
+        key_hasher.finalize_xof().fill(&mut *private_key_bytes);
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key_bytes);
+        let public_key_hex = const_hex::encode(signing_key.verifying_key().to_bytes());
+        let metadata = serde_json::json!({ "public_key": public_key_hex }).to_string();
+
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Notes Collab WS', '[]', '{}')", crate::params![ws_id]).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-notes-author', ?1, 'author@collab.com', 'user')", crate::params![ws_id]).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-notes-editor', ?1, 'editor@collab.com', 'user')", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-notes-editor', ?1, 'editor@collab.com', 'user', ?2)", crate::params![ws_id, metadata]).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO teams (id, workspace_id, name) VALUES ('team-collab', ?1, 'Collab Team')", crate::params![ws_id]).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO team_members (team_id, user_id, workspace_id) VALUES ('team-collab', 'u-notes-author', ?1)", crate::params![ws_id]).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO team_members (team_id, user_id, workspace_id) VALUES ('team-collab', 'u-notes-editor', ?1)", crate::params![ws_id]).await.unwrap();
@@ -1260,8 +1345,8 @@ mod tests {
         let trust = ZkCryptoTrust::new();
         let seed = "collab_secure_seed".to_string();
         let new_text = "Sensitive editor data".to_string();
-        let ciphertext = trust.encrypt_workspace_field(seed, new_text.clone()).unwrap();
-        let editor_proof = trust.generate_compliance_proof(ciphertext.clone(), "u-notes-editor".to_string(), "user".to_string()).unwrap();
+        let ciphertext = trust.encrypt_workspace_field(seed.clone(), new_text.clone()).unwrap();
+        let editor_proof = trust.generate_compliance_proof(seed, ciphertext.clone(), "u-notes-editor".to_string(), "user".to_string()).unwrap();
         let encrypted_content = format!("zero_copy_enc:{}:{}", editor_proof, ciphertext);
 
         // Apply diff to editor's doc

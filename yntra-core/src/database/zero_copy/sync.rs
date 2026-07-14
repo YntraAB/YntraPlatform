@@ -5,26 +5,52 @@ use std::sync::{Arc, LazyLock, Mutex};
 
 // --- Pillar 2: Geo-Distributed Edge Replicas + P2P Mesh Sync ---
 
-static IN_MEMORY_RELAY: LazyLock<Mutex<HashMap<String, Vec<Vec<u8>>>>> =
+struct PeerRelayQueue {
+    updates: Vec<Vec<u8>>,
+    catchup_doc: Option<loro::LoroDoc>,
+}
+
+impl Default for PeerRelayQueue {
+    fn default() -> Self {
+        Self {
+            updates: Vec::new(),
+            catchup_doc: None,
+        }
+    }
+}
+
+static IN_MEMORY_RELAY: LazyLock<Mutex<HashMap<String, PeerRelayQueue>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn in_memory_broadcast(from_peer: &str, data: Vec<u8>, peers: &[String]) {
     let mut relay = IN_MEMORY_RELAY.lock().unwrap();
     for peer in peers {
         if peer != from_peer {
-            let queue = relay.entry(peer.clone()).or_default();
-            queue.push(data.clone());
-            if queue.len() > 100 {
-                queue.remove(0); // Evict oldest update
+            let q = relay.entry(peer.clone()).or_default();
+            if q.updates.len() >= 100 {
+                let oldest = q.updates.remove(0);
+                let doc = q.catchup_doc.get_or_insert_with(loro::LoroDoc::new);
+                let _ = doc.import(&oldest);
             }
+            q.updates.push(data.clone());
         }
     }
 }
 
 pub(crate) fn in_memory_poll(peer_id: &str) -> Vec<Vec<u8>> {
     let mut relay = IN_MEMORY_RELAY.lock().unwrap();
-    let updates = relay.remove(peer_id).unwrap_or_default();
-    updates
+    if let Some(q) = relay.remove(peer_id) {
+        if let Some(doc) = q.catchup_doc {
+            if let Ok(snapshot) = doc.export(loro::ExportMode::Snapshot) {
+                let mut all = vec![snapshot];
+                all.extend(q.updates);
+                return all;
+            }
+        }
+        q.updates
+    } else {
+        Vec::new()
+    }
 }
 
 async fn do_register_peer(
@@ -812,6 +838,139 @@ impl P2PMeshSyncRouter {
     }
 }
 
+macro_rules! trigger_once_body {
+    ($self:expr, $store:expr) => {{
+        let edge_url = $self.inner.edge_url.clone();
+        let client = $self.inner.client.clone();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            crate::database::native::get_runtime().spawn(async move {
+                if let Ok(local_changes) = $store.get_loro_changes() {
+                    if let Ok(res) = client
+                        .post(&format!("{}/sync", edge_url))
+                        .body(local_changes)
+                        .send()
+                        .await
+                    {
+                        if res.status().is_success() {
+                            if let Ok(remote_bytes) = res.bytes().await {
+                                if !remote_bytes.is_empty() {
+                                    if let Err(e) = $store.apply_loro_update(remote_bytes.to_vec()) {
+                                        tracing::warn!("Failed to apply sync update: {:?}", e);
+                                    } else {
+                                        crate::infra::observer::notify_observers();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            wasm_bindgen_futures::spawn_local(async move {
+                if let Ok(local_changes) = $store.get_loro_changes() {
+                    if let Ok(res) = client
+                        .post(&format!("{}/sync", edge_url))
+                        .body(local_changes)
+                        .send()
+                        .await
+                    {
+                        if res.status().is_success() {
+                            if let Ok(remote_bytes) = res.bytes().await {
+                                if !remote_bytes.is_empty() {
+                                    if let Err(e) = $store.apply_loro_update(remote_bytes.to_vec()) {
+                                        tracing::warn!("Failed to apply sync update: {:?}", e);
+                                    } else {
+                                        crate::infra::observer::notify_observers();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }};
+}
+
+macro_rules! start_loop_body {
+    ($self:expr, $store:expr, $running_flag:ident, $interval_secs:expr) => {{
+        if $self
+            .inner
+            .$running_flag
+            .swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            return Ok(());
+        }
+
+        let edge_url = $self.inner.edge_url.clone();
+        let is_running = $self.inner.$running_flag.clone();
+        let client = $self.inner.client.clone();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            crate::database::native::get_runtime().spawn(async move {
+                while is_running.load(std::sync::atomic::Ordering::SeqCst) {
+                    if let Ok(local_changes) = $store.get_loro_changes() {
+                        if let Ok(res) = client
+                            .post(&format!("{}/sync", edge_url))
+                            .body(local_changes)
+                            .send()
+                            .await
+                        {
+                            if res.status().is_success() {
+                                if let Ok(remote_bytes) = res.bytes().await {
+                                    if !remote_bytes.is_empty() {
+                                        if let Err(e) = $store.apply_loro_update(remote_bytes.to_vec()) {
+                                            tracing::warn!("Failed to apply sync loop update: {:?}", e);
+                                        } else {
+                                            crate::infra::observer::notify_observers();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs($interval_secs as u64)).await;
+                }
+            });
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            wasm_bindgen_futures::spawn_local(async move {
+                while is_running.load(std::sync::atomic::Ordering::SeqCst) {
+                    if let Ok(local_changes) = $store.get_loro_changes() {
+                        if let Ok(res) = client
+                            .post(&format!("{}/sync", edge_url))
+                            .body(local_changes)
+                            .send()
+                            .await
+                        {
+                            if res.status().is_success() {
+                                if let Ok(remote_bytes) = res.bytes().await {
+                                    if !remote_bytes.is_empty() {
+                                        if let Err(e) = $store.apply_loro_update(remote_bytes.to_vec()) {
+                                            tracing::warn!("Failed to apply sync loop update: {:?}", e);
+                                        } else {
+                                            crate::infra::observer::notify_observers();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    crate::infra::time::sleep_ms($interval_secs as u64 * 1000).await;
+                }
+            });
+        }
+
+        Ok(())
+    }};
+}
+
 struct EdgeSyncLoopInner {
     edge_url: String,
     is_running_todos: Arc<std::sync::atomic::AtomicBool>,
@@ -868,215 +1027,19 @@ impl EdgeSyncLoop {
     }
 
     pub fn trigger_sync_once(&self, store: Arc<ZeroCopyStore>) {
-        let edge_url = self.inner.edge_url.clone();
-        let client = self.inner.client.clone();
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::database::native::get_runtime().spawn(async move {
-                if let Ok(local_changes) = store.get_loro_changes() {
-                    if let Ok(res) = client
-                        .post(&format!("{}/sync", edge_url))
-                        .body(local_changes)
-                        .send()
-                        .await
-                    {
-                        if res.status().is_success() {
-                            if let Ok(remote_bytes) = res.bytes().await {
-                                if !remote_bytes.is_empty() {
-                                    if let Err(e) = store.apply_loro_update(remote_bytes.to_vec()) {
-                                        tracing::warn!("Failed to apply sync update: {:?}", e);
-                                    }
-                                    crate::infra::observer::notify_observers();
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            wasm_bindgen_futures::spawn_local(async move {
-                if let Ok(local_changes) = store.get_loro_changes() {
-                    if let Ok(res) = client
-                        .post(&format!("{}/sync", edge_url))
-                        .body(local_changes)
-                        .send()
-                        .await
-                    {
-                        if res.status().is_success() {
-                            if let Ok(remote_bytes) = res.bytes().await {
-                                if !remote_bytes.is_empty() {
-                                    if let Err(e) = store.apply_loro_update(remote_bytes.to_vec()) {
-                                        tracing::warn!("Failed to apply sync update: {:?}", e);
-                                    }
-                                    crate::infra::observer::notify_observers();
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-        }
+        trigger_once_body!(self, store);
     }
 
     pub fn trigger_message_sync_once(&self, store: Arc<ZeroCopyMessageStore>) {
-        let edge_url = self.inner.edge_url.clone();
-        let client = self.inner.client.clone();
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::database::native::get_runtime().spawn(async move {
-                if let Ok(local_changes) = store.get_loro_changes() {
-                    if let Ok(res) = client
-                        .post(&format!("{}/sync", edge_url))
-                        .body(local_changes)
-                        .send()
-                        .await
-                    {
-                        if res.status().is_success() {
-                            if let Ok(remote_bytes) = res.bytes().await {
-                                if !remote_bytes.is_empty() {
-                                    if let Err(e) = store.apply_loro_update(remote_bytes.to_vec()) {
-                                        tracing::warn!("Failed to apply sync update: {:?}", e);
-                                    }
-                                    crate::infra::observer::notify_observers();
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            wasm_bindgen_futures::spawn_local(async move {
-                if let Ok(local_changes) = store.get_loro_changes() {
-                    if let Ok(res) = client
-                        .post(&format!("{}/sync", edge_url))
-                        .body(local_changes)
-                        .send()
-                        .await
-                    {
-                        if res.status().is_success() {
-                            if let Ok(remote_bytes) = res.bytes().await {
-                                if !remote_bytes.is_empty() {
-                                    if let Err(e) = store.apply_loro_update(remote_bytes.to_vec()) {
-                                        tracing::warn!("Failed to apply sync update: {:?}", e);
-                                    }
-                                    crate::infra::observer::notify_observers();
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-        }
+        trigger_once_body!(self, store);
     }
 
     pub fn trigger_note_sync_once(&self, store: Arc<ZeroCopyNoteStore>) {
-        let edge_url = self.inner.edge_url.clone();
-        let client = self.inner.client.clone();
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::database::native::get_runtime().spawn(async move {
-                if let Ok(local_changes) = store.get_loro_changes() {
-                    if let Ok(res) = client
-                        .post(&format!("{}/sync", edge_url))
-                        .body(local_changes)
-                        .send()
-                        .await
-                    {
-                        if res.status().is_success() {
-                            if let Ok(remote_bytes) = res.bytes().await {
-                                if !remote_bytes.is_empty() {
-                                    if let Err(e) = store.apply_loro_update(remote_bytes.to_vec()) {
-                                        tracing::warn!("Failed to apply sync update: {:?}", e);
-                                    }
-                                    crate::infra::observer::notify_observers();
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            wasm_bindgen_futures::spawn_local(async move {
-                if let Ok(local_changes) = store.get_loro_changes() {
-                    if let Ok(res) = client
-                        .post(&format!("{}/sync", edge_url))
-                        .body(local_changes)
-                        .send()
-                        .await
-                    {
-                        if res.status().is_success() {
-                            if let Ok(remote_bytes) = res.bytes().await {
-                                if !remote_bytes.is_empty() {
-                                    if let Err(e) = store.apply_loro_update(remote_bytes.to_vec()) {
-                                        tracing::warn!("Failed to apply sync update: {:?}", e);
-                                    }
-                                    crate::infra::observer::notify_observers();
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-        }
+        trigger_once_body!(self, store);
     }
 
     pub fn trigger_audit_sync_once(&self, store: Arc<ZeroCopyAuditStore>) {
-        let edge_url = self.inner.edge_url.clone();
-        let client = self.inner.client.clone();
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::database::native::get_runtime().spawn(async move {
-                if let Ok(local_changes) = store.get_loro_changes() {
-                    if let Ok(res) = client
-                        .post(&format!("{}/sync", edge_url))
-                        .body(local_changes)
-                        .send()
-                        .await
-                    {
-                        if res.status().is_success() {
-                            if let Ok(remote_bytes) = res.bytes().await {
-                                if !remote_bytes.is_empty() {
-                                    if let Err(e) = store.apply_loro_update(remote_bytes.to_vec()) {
-                                        tracing::warn!("Failed to apply sync update: {:?}", e);
-                                    }
-                                    crate::infra::observer::notify_observers();
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            wasm_bindgen_futures::spawn_local(async move {
-                if let Ok(local_changes) = store.get_loro_changes() {
-                    if let Ok(res) = client
-                        .post(&format!("{}/sync", edge_url))
-                        .body(local_changes)
-                        .send()
-                        .await
-                    {
-                        if res.status().is_success() {
-                            if let Ok(remote_bytes) = res.bytes().await {
-                                if !remote_bytes.is_empty() {
-                                    if let Err(e) = store.apply_loro_update(remote_bytes.to_vec()) {
-                                        tracing::warn!("Failed to apply sync update: {:?}", e);
-                                    }
-                                    crate::infra::observer::notify_observers();
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-        }
+        trigger_once_body!(self, store);
     }
 
     pub fn start_sync_loop(
@@ -1084,77 +1047,7 @@ impl EdgeSyncLoop {
         store: Arc<ZeroCopyStore>,
         interval_secs: u32,
     ) -> Result<(), YntraError> {
-        if self
-            .inner
-            .is_running_todos
-            .swap(true, std::sync::atomic::Ordering::SeqCst)
-        {
-            return Ok(());
-        }
-
-        let edge_url = self.inner.edge_url.clone();
-        let is_running = self.inner.is_running_todos.clone();
-        let client = self.inner.client.clone();
-
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::database::native::get_runtime().spawn(async move {
-                while is_running.load(std::sync::atomic::Ordering::SeqCst) {
-                    if let Ok(local_changes) = store.get_loro_changes() {
-                        if let Ok(res) = client
-                            .post(&format!("{}/sync", edge_url))
-                            .body(local_changes)
-                            .send()
-                            .await
-                        {
-                            if res.status().is_success() {
-                                if let Ok(remote_bytes) = res.bytes().await {
-                                    if !remote_bytes.is_empty() {
-                                        if let Err(e) = store.apply_loro_update(remote_bytes.to_vec()) {
-                                            tracing::warn!("Failed to apply sync loop update: {:?}", e);
-                                        } else {
-                                            crate::infra::observer::notify_observers();
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    tokio::time::sleep(std::time::Duration::from_secs(interval_secs as u64)).await;
-                }
-            });
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            wasm_bindgen_futures::spawn_local(async move {
-                while is_running.load(std::sync::atomic::Ordering::SeqCst) {
-                    if let Ok(local_changes) = store.get_loro_changes() {
-                        if let Ok(res) = client
-                            .post(&format!("{}/sync", edge_url))
-                            .body(local_changes)
-                            .send()
-                            .await
-                        {
-                            if res.status().is_success() {
-                                if let Ok(remote_bytes) = res.bytes().await {
-                                    if !remote_bytes.is_empty() {
-                                        if let Err(e) = store.apply_loro_update(remote_bytes.to_vec()) {
-                                            tracing::warn!("Failed to apply sync loop update: {:?}", e);
-                                        } else {
-                                            crate::infra::observer::notify_observers();
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    crate::infra::time::sleep_ms(interval_secs as u64 * 1000).await;
-                }
-            });
-        }
-
-        Ok(())
+        start_loop_body!(self, store, is_running_todos, interval_secs)
     }
 
     pub fn start_message_sync_loop(
@@ -1162,77 +1055,7 @@ impl EdgeSyncLoop {
         store: Arc<ZeroCopyMessageStore>,
         interval_secs: u32,
     ) -> Result<(), YntraError> {
-        if self
-            .inner
-            .is_running_messages
-            .swap(true, std::sync::atomic::Ordering::SeqCst)
-        {
-            return Ok(());
-        }
-
-        let edge_url = self.inner.edge_url.clone();
-        let is_running = self.inner.is_running_messages.clone();
-        let client = self.inner.client.clone();
-
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::database::native::get_runtime().spawn(async move {
-                while is_running.load(std::sync::atomic::Ordering::SeqCst) {
-                    if let Ok(local_changes) = store.get_loro_changes() {
-                        if let Ok(res) = client
-                            .post(&format!("{}/sync", edge_url))
-                            .body(local_changes)
-                            .send()
-                            .await
-                        {
-                            if res.status().is_success() {
-                                if let Ok(remote_bytes) = res.bytes().await {
-                                    if !remote_bytes.is_empty() {
-                                        if let Err(e) = store.apply_loro_update(remote_bytes.to_vec()) {
-                                            tracing::warn!("Failed to apply sync loop update: {:?}", e);
-                                        } else {
-                                            crate::infra::observer::notify_observers();
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    tokio::time::sleep(std::time::Duration::from_secs(interval_secs as u64)).await;
-                }
-            });
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            wasm_bindgen_futures::spawn_local(async move {
-                while is_running.load(std::sync::atomic::Ordering::SeqCst) {
-                    if let Ok(local_changes) = store.get_loro_changes() {
-                        if let Ok(res) = client
-                            .post(&format!("{}/sync", edge_url))
-                            .body(local_changes)
-                            .send()
-                            .await
-                        {
-                            if res.status().is_success() {
-                                if let Ok(remote_bytes) = res.bytes().await {
-                                    if !remote_bytes.is_empty() {
-                                        if let Err(e) = store.apply_loro_update(remote_bytes.to_vec()) {
-                                            tracing::warn!("Failed to apply sync loop update: {:?}", e);
-                                        } else {
-                                            crate::infra::observer::notify_observers();
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    crate::infra::time::sleep_ms(interval_secs as u64 * 1000).await;
-                }
-            });
-        }
-
-        Ok(())
+        start_loop_body!(self, store, is_running_messages, interval_secs)
     }
 
     pub fn start_note_sync_loop(
@@ -1240,77 +1063,7 @@ impl EdgeSyncLoop {
         store: Arc<ZeroCopyNoteStore>,
         interval_secs: u32,
     ) -> Result<(), YntraError> {
-        if self
-            .inner
-            .is_running_notes
-            .swap(true, std::sync::atomic::Ordering::SeqCst)
-        {
-            return Ok(());
-        }
-
-        let edge_url = self.inner.edge_url.clone();
-        let is_running = self.inner.is_running_notes.clone();
-        let client = self.inner.client.clone();
-
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::database::native::get_runtime().spawn(async move {
-                while is_running.load(std::sync::atomic::Ordering::SeqCst) {
-                    if let Ok(local_changes) = store.get_loro_changes() {
-                        if let Ok(res) = client
-                            .post(&format!("{}/sync", edge_url))
-                            .body(local_changes)
-                            .send()
-                            .await
-                        {
-                            if res.status().is_success() {
-                                if let Ok(remote_bytes) = res.bytes().await {
-                                    if !remote_bytes.is_empty() {
-                                        if let Err(e) = store.apply_loro_update(remote_bytes.to_vec()) {
-                                            tracing::warn!("Failed to apply sync loop update: {:?}", e);
-                                        } else {
-                                            crate::infra::observer::notify_observers();
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    tokio::time::sleep(std::time::Duration::from_secs(interval_secs as u64)).await;
-                }
-            });
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            wasm_bindgen_futures::spawn_local(async move {
-                while is_running.load(std::sync::atomic::Ordering::SeqCst) {
-                    if let Ok(local_changes) = store.get_loro_changes() {
-                        if let Ok(res) = client
-                            .post(&format!("{}/sync", edge_url))
-                            .body(local_changes)
-                            .send()
-                            .await
-                        {
-                            if res.status().is_success() {
-                                if let Ok(remote_bytes) = res.bytes().await {
-                                    if !remote_bytes.is_empty() {
-                                        if let Err(e) = store.apply_loro_update(remote_bytes.to_vec()) {
-                                            tracing::warn!("Failed to apply sync loop update: {:?}", e);
-                                        } else {
-                                            crate::infra::observer::notify_observers();
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    crate::infra::time::sleep_ms(interval_secs as u64 * 1000).await;
-                }
-            });
-        }
-
-        Ok(())
+        start_loop_body!(self, store, is_running_notes, interval_secs)
     }
 
     pub fn start_audit_sync_loop(
@@ -1318,76 +1071,6 @@ impl EdgeSyncLoop {
         store: Arc<ZeroCopyAuditStore>,
         interval_secs: u32,
     ) -> Result<(), YntraError> {
-        if self
-            .inner
-            .is_running_audits
-            .swap(true, std::sync::atomic::Ordering::SeqCst)
-        {
-            return Ok(());
-        }
-
-        let edge_url = self.inner.edge_url.clone();
-        let is_running = self.inner.is_running_audits.clone();
-        let client = self.inner.client.clone();
-
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::database::native::get_runtime().spawn(async move {
-                while is_running.load(std::sync::atomic::Ordering::SeqCst) {
-                    if let Ok(local_changes) = store.get_loro_changes() {
-                        if let Ok(res) = client
-                            .post(&format!("{}/sync", edge_url))
-                            .body(local_changes)
-                            .send()
-                            .await
-                        {
-                            if res.status().is_success() {
-                                if let Ok(remote_bytes) = res.bytes().await {
-                                    if !remote_bytes.is_empty() {
-                                        if let Err(e) = store.apply_loro_update(remote_bytes.to_vec()) {
-                                            tracing::warn!("Failed to apply sync loop update: {:?}", e);
-                                        } else {
-                                            crate::infra::observer::notify_observers();
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    tokio::time::sleep(std::time::Duration::from_secs(interval_secs as u64)).await;
-                }
-            });
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            wasm_bindgen_futures::spawn_local(async move {
-                while is_running.load(std::sync::atomic::Ordering::SeqCst) {
-                    if let Ok(local_changes) = store.get_loro_changes() {
-                        if let Ok(res) = client
-                            .post(&format!("{}/sync", edge_url))
-                            .body(local_changes)
-                            .send()
-                            .await
-                        {
-                            if res.status().is_success() {
-                                if let Ok(remote_bytes) = res.bytes().await {
-                                    if !remote_bytes.is_empty() {
-                                        if let Err(e) = store.apply_loro_update(remote_bytes.to_vec()) {
-                                            tracing::warn!("Failed to apply sync loop update: {:?}", e);
-                                        } else {
-                                            crate::infra::observer::notify_observers();
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    crate::infra::time::sleep_ms(interval_secs as u64 * 1000).await;
-                }
-            });
-        }
-
-        Ok(())
+        start_loop_body!(self, store, is_running_audits, interval_secs)
     }
 }

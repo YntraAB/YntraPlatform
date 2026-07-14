@@ -74,18 +74,28 @@ fn test_zk_envelope_encryption_and_proof() {
     let passkey_seed = "my_super_secure_passkey_hardware_seed".to_string();
     let sensitive_data = "Workspace Secret Financial Details".to_string();
 
+    // Derive user public key from passkey_seed for verification in tests
+    let seed_zeroed = zeroize::Zeroizing::new(passkey_seed.clone());
+    let mut key_hasher = blake3::Hasher::new_derive_key("Yntra User Key Derivation Context");
+    key_hasher.update(seed_zeroed.as_bytes());
+    let mut private_key_bytes = zeroize::Zeroizing::new([0u8; 32]);
+    key_hasher.finalize_xof().fill(&mut *private_key_bytes);
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key_bytes);
+    let public_key_hex = const_hex::encode(signing_key.verifying_key().to_bytes());
+
     // Test encryption/decryption
     let ciphertext = trust
         .encrypt_workspace_field(passkey_seed.clone(), sensitive_data.clone())
         .unwrap();
     let decrypted = trust
-        .decrypt_workspace_field(passkey_seed, ciphertext.clone())
+        .decrypt_workspace_field(passkey_seed.clone(), ciphertext.clone())
         .unwrap();
     assert_eq!(decrypted, sensitive_data);
 
     // Test compliance proof
     let proof = trust
         .generate_compliance_proof(
+            passkey_seed.clone(),
             ciphertext.clone(),
             "user_123".to_string(),
             "Admin".to_string(),
@@ -100,27 +110,28 @@ fn test_zk_envelope_encryption_and_proof() {
             "user_123".to_string(),
             "Admin".to_string(),
             data_hash_hex,
+            public_key_hex.clone(),
         )
         .unwrap();
     assert!(is_valid);
 
     // Test role proof (ZK role validation without raw data/secrets)
     let role_proof = trust
-        .generate_role_proof("user_123".to_string(), "Admin".to_string())
+        .generate_role_proof(passkey_seed.clone(), "user_123".to_string(), "Admin".to_string())
         .unwrap();
-    let is_role_valid = trust.verify_proof(role_proof.clone(), "user_123".to_string(), "Admin".to_string());
+    let is_role_valid = trust.verify_proof(role_proof.clone(), "user_123".to_string(), "Admin".to_string(), public_key_hex.clone());
     assert!(is_role_valid);
 
     // Mismatched role should fail validation
-    let is_mismatched_role_valid = trust.verify_proof(role_proof.clone(), "user_123".to_string(), "Member".to_string());
+    let is_mismatched_role_valid = trust.verify_proof(role_proof.clone(), "user_123".to_string(), "Member".to_string(), public_key_hex.clone());
     assert!(!is_mismatched_role_valid);
 
     // Mismatched user should fail validation
-    let is_mismatched_user_valid = trust.verify_proof(role_proof.clone(), "user_456".to_string(), "Admin".to_string());
+    let is_mismatched_user_valid = trust.verify_proof(role_proof.clone(), "user_456".to_string(), "Admin".to_string(), public_key_hex.clone());
     assert!(!is_mismatched_user_valid);
 
     let invalid_role_proof = "not_a_valid_proof_hex_string_too_short".to_string();
-    assert!(!trust.verify_proof(invalid_role_proof, "user_123".to_string(), "Admin".to_string()));
+    assert!(!trust.verify_proof(invalid_role_proof, "user_123".to_string(), "Admin".to_string(), public_key_hex.clone()));
 }
 
 #[test]
@@ -548,19 +559,35 @@ fn test_in_memory_relay_queue_bounding() {
     router.register_peer("peer_a".to_string());
     router.register_peer("peer_b".to_string());
 
-    // Broadcast 150 updates from peer_a
+    // Generate 150 valid Loro snapshot updates
+    let doc_a = loro::LoroDoc::new();
+    let text_a = doc_a.get_text("content");
+    let mut updates_list = Vec::new();
     for i in 0..150 {
-        router.broadcast_write_network("peer_a".to_string(), vec![i as u8]);
+        text_a.insert(0, &format!("char_{} ", i)).unwrap();
+        let snapshot = doc_a.export(loro::ExportMode::Snapshot).unwrap();
+        updates_list.push(snapshot);
     }
 
-    // Since the queue is hard-limited to 100 entries, peer_b should only have 100 updates!
-    let updates = in_memory_poll("peer_b");
-    assert_eq!(updates.len(), 100);
+    // Broadcast all 150 updates
+    for u in updates_list {
+        router.broadcast_write_network("peer_a".to_string(), u);
+    }
 
-    // Verify FIFO ordering: the oldest updates (0 to 49) should have been evicted,
-    // meaning the first update in the queue should be 50.
-    assert_eq!(updates[0], vec![50]);
-    assert_eq!(updates[99], vec![149]);
+    // Since the queue is hard-limited to 100 entries, but has a catch-up snapshot prepended:
+    let polled = in_memory_poll("peer_b");
+    // 1 catch-up snapshot + 100 updates = 101 polled items
+    assert_eq!(polled.len(), 101);
+
+    // Import all polled items into peer_b's doc
+    let doc_b = loro::LoroDoc::new();
+    for p in polled {
+        doc_b.import(&p).unwrap();
+    }
+
+    // Verify both docs have exactly the same content
+    let text_b = doc_b.get_text("content");
+    assert_eq!(text_b.to_string(), text_a.to_string());
 }
 
 #[test]
