@@ -1,5 +1,5 @@
 use super::stores::{ZeroCopyStore, ZeroCopyMessageStore, ZeroCopyAuditStore, ZeroCopyNoteStore};
-use super::sync::{P2PMeshSyncRouter, in_memory_poll};
+use super::sync::{EdgeSyncLoop, P2PMeshSyncRouter, in_memory_poll};
 use super::crypto::ZkCryptoTrust;
 use crate::models::{TodoItem, MessageItem, AuditLogEntry, DailyNote};
 use std::sync::Arc;
@@ -91,12 +91,15 @@ fn test_zk_envelope_encryption_and_proof() {
             "Admin".to_string(),
         )
         .unwrap();
+    let ciphertext_bytes = const_hex::decode(&ciphertext).unwrap();
+    let data_hash = blake3::hash(&ciphertext_bytes);
+    let data_hash_hex = const_hex::encode(data_hash.as_bytes());
     let is_valid = trust
         .verify_compliance_proof(
             proof,
             "user_123".to_string(),
             "Admin".to_string(),
-            ciphertext,
+            data_hash_hex,
         )
         .unwrap();
     assert!(is_valid);
@@ -368,3 +371,197 @@ fn test_p2p_mesh_sync_router_identity() {
     let invalid_privkey_hex = const_hex::encode(&[3u8; 31]);
     assert!(router.set_identity(invalid_privkey_hex).is_err());
 }
+
+#[test]
+fn test_loro_crdt_dynamic_reconciliation_and_merge() {
+    let temp_dir = std::env::temp_dir();
+    let path_a = temp_dir
+        .join("test_crdt_merge_a.db")
+        .to_string_lossy()
+        .to_string();
+    let path_b = temp_dir
+        .join("test_crdt_merge_b.db")
+        .to_string_lossy()
+        .to_string();
+
+    let _ = std::fs::remove_file(&path_a);
+    let _ = std::fs::remove_file(&path_b);
+
+    let store_a = ZeroCopyStore::new(path_a.clone()).unwrap();
+    let store_b = ZeroCopyStore::new(path_b.clone()).unwrap();
+
+    // Peer A writes Todo 1
+    let todo1 = TodoItem {
+        id: "todo_1".to_string(),
+        workspace_id: "ws_abc".to_string(),
+        text: "Todo A".to_string(),
+        completed: false,
+        updated_at: 100,
+        sync_status: "pending".to_string(),
+    };
+    store_a.write_todos(vec![todo1.clone()]).unwrap();
+
+    // Peer B writes Todo 2 concurrently
+    let todo2 = TodoItem {
+        id: "todo_2".to_string(),
+        workspace_id: "ws_abc".to_string(),
+        text: "Todo B".to_string(),
+        completed: true,
+        updated_at: 200,
+        sync_status: "pending".to_string(),
+    };
+    store_b.write_todos(vec![todo2.clone()]).unwrap();
+
+    // Merge updates
+    let changes_a = store_a.get_loro_changes().unwrap();
+    let changes_b = store_b.get_loro_changes().unwrap();
+
+    // Apply A's changes to B, and B's changes to A
+    store_b.apply_loro_update(changes_a).unwrap();
+    store_a.apply_loro_update(changes_b).unwrap();
+
+    // Read all from B and A - they should contain BOTH Todo 1 and Todo 2 merged conflict-free!
+    let todos_a = store_a.read_all_todos().unwrap();
+    let todos_b = store_b.read_all_todos().unwrap();
+
+    assert_eq!(todos_a.len(), 2);
+    assert_eq!(todos_b.len(), 2);
+
+    assert!(todos_a.iter().any(|t| t.id == "todo_1"));
+    assert!(todos_a.iter().any(|t| t.id == "todo_2"));
+
+    let _ = std::fs::remove_file(&path_a);
+    let _ = std::fs::remove_file(&path_b);
+}
+
+#[test]
+fn test_edge_sync_loop_clone_drop_safety() {
+    let sync_loop = EdgeSyncLoop::new("http://localhost:8080".to_string());
+
+    let temp_dir = std::env::temp_dir();
+    let path = temp_dir
+        .join("test_loop_drop.db")
+        .to_string_lossy()
+        .to_string();
+    let _ = std::fs::remove_file(&path);
+    let store = Arc::new(ZeroCopyStore::new(path.clone()).unwrap());
+
+    sync_loop.start_sync_loop(store, 10).unwrap();
+    assert!(sync_loop.is_running());
+
+    // Clone the loop handle
+    {
+        let clone = sync_loop.clone();
+        assert!(clone.is_running());
+        // Drop the clone here
+    }
+
+    // After dropping the clone, the original loop should STILL be running!
+    assert!(sync_loop.is_running());
+
+    // Stop it explicitly
+    sync_loop.stop_sync_loop();
+    assert!(!sync_loop.is_running());
+
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn test_loro_crdt_batching() {
+    let temp_dir = std::env::temp_dir();
+    let path_main = temp_dir.join("test_batch_main.db").to_string_lossy().to_string();
+    let path_peer_a = temp_dir.join("test_batch_peer_a.db").to_string_lossy().to_string();
+    let path_peer_b = temp_dir.join("test_batch_peer_b.db").to_string_lossy().to_string();
+
+    let _ = std::fs::remove_file(&path_main);
+    let _ = std::fs::remove_file(&path_peer_a);
+    let _ = std::fs::remove_file(&path_peer_b);
+
+    let store_main = ZeroCopyStore::new(path_main.clone()).unwrap();
+    let store_peer_a = ZeroCopyStore::new(path_peer_a.clone()).unwrap();
+    let store_peer_b = ZeroCopyStore::new(path_peer_b.clone()).unwrap();
+
+    // Peer A writes Todo 1
+    let todo1 = TodoItem {
+        id: "todo_1".to_string(),
+        workspace_id: "ws_123".to_string(),
+        text: "Todo 1".to_string(),
+        completed: false,
+        updated_at: 100,
+        sync_status: "pending".to_string(),
+    };
+    store_peer_a.write_todos(vec![todo1]).unwrap();
+    let change1 = store_peer_a.get_loro_changes().unwrap();
+
+    // Peer B writes Todo 2
+    let todo2 = TodoItem {
+        id: "todo_2".to_string(),
+        workspace_id: "ws_123".to_string(),
+        text: "Todo 2".to_string(),
+        completed: true,
+        updated_at: 200,
+        sync_status: "pending".to_string(),
+    };
+    store_peer_b.write_todos(vec![todo2]).unwrap();
+    let change2 = store_peer_b.get_loro_changes().unwrap();
+
+    // Now apply both changes to the main store in a single batch
+    store_main.apply_loro_updates_batch(vec![change1, change2]).unwrap();
+
+    let todos = store_main.read_all_todos().unwrap();
+    assert_eq!(todos.len(), 2);
+    assert!(todos.iter().any(|t| t.id == "todo_1"));
+    assert!(todos.iter().any(|t| t.id == "todo_2"));
+
+    let _ = std::fs::remove_file(&path_main);
+    let _ = std::fs::remove_file(&path_peer_a);
+    let _ = std::fs::remove_file(&path_peer_b);
+}
+
+#[test]
+fn test_edge_sync_loop_note_and_audit_loops() {
+    let sync_loop = EdgeSyncLoop::new("http://localhost:8080".to_string());
+
+    let temp_dir = std::env::temp_dir();
+    let path_note = temp_dir.join("test_note_loop.db").to_string_lossy().to_string();
+    let path_audit = temp_dir.join("test_audit_loop.db").to_string_lossy().to_string();
+    let _ = std::fs::remove_file(&path_note);
+    let _ = std::fs::remove_file(&path_audit);
+
+    let note_store = Arc::new(ZeroCopyNoteStore::new(path_note.clone()).unwrap());
+    let audit_store = Arc::new(ZeroCopyAuditStore::new(path_audit.clone()).unwrap());
+
+    sync_loop.start_note_sync_loop(note_store, 10).unwrap();
+    sync_loop.start_audit_sync_loop(audit_store, 10).unwrap();
+    assert!(sync_loop.is_running());
+
+    sync_loop.stop_sync_loop();
+    assert!(!sync_loop.is_running());
+
+    let _ = std::fs::remove_file(&path_note);
+    let _ = std::fs::remove_file(&path_audit);
+}
+
+#[test]
+fn test_in_memory_relay_queue_bounding() {
+    let router = P2PMeshSyncRouter::new();
+    router.register_peer("peer_a".to_string());
+    router.register_peer("peer_b".to_string());
+
+    // Broadcast 150 updates from peer_a
+    for i in 0..150 {
+        router.broadcast_write_network("peer_a".to_string(), vec![i as u8]);
+    }
+
+    // Since the queue is hard-limited to 100 entries, peer_b should only have 100 updates!
+    let updates = in_memory_poll("peer_b");
+    assert_eq!(updates.len(), 100);
+
+    // Verify FIFO ordering: the oldest updates (0 to 49) should have been evicted,
+    // meaning the first update in the queue should be 50.
+    assert_eq!(updates[0], vec![50]);
+    assert_eq!(updates[99], vec![149]);
+}
+
+
+

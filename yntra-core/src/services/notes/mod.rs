@@ -17,12 +17,16 @@ pub fn verify_zkp_if_encrypted(content: &str, user_id: &str, role: &str) -> Resu
         let proof = parts[1];
         let ciphertext = parts[2];
         let trust = crate::ZkCryptoTrust::new();
+        let ciphertext_bytes = const_hex::decode(ciphertext)
+            .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+        let data_hash = blake3::hash(&ciphertext_bytes);
+        let data_hash_hex = const_hex::encode(data_hash.as_bytes());
         if !trust
             .verify_compliance_proof(
                 proof.to_string(),
                 user_id.to_string(),
                 role.to_string(),
-                ciphertext.to_string(),
+                data_hash_hex,
             )
             .unwrap_or(false)
         {
@@ -842,12 +846,17 @@ pub async fn apply_note_loro_update(
             }
 
             let mut validated = false;
+            let ciphertext_bytes = const_hex::decode(ciphertext)
+                .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+            let data_hash = blake3::hash(&ciphertext_bytes);
+            let data_hash_hex = const_hex::encode(data_hash.as_bytes());
+
             for (uid, urole) in candidates {
                 if trust.verify_compliance_proof(
                     proof.to_string(),
                     uid,
                     urole,
-                    ciphertext.to_string(),
+                    data_hash_hex.clone(),
                 ).unwrap_or(false) {
                     validated = true;
                     break;
