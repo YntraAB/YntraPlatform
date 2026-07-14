@@ -49,7 +49,7 @@ memmap2 = "0.9.5"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = { workspace = true }
-web-sys = { workspace = true, features = ["Storage", "Window"] }
+web-sys = { workspace = true, features = ["Storage", "Window", "WebSocket", "BinaryType", "MessageEvent", "ErrorEvent"] }
 js-sys = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
 tracing-wasm = "0.2.1"

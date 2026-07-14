@@ -18,6 +18,19 @@ static LOCAL_PEER_MESSAGE_STORES: LazyLock<Mutex<StoreMap<ZeroCopyMessageStore>>
 static LOCAL_PEER_AUDIT_STORES: LazyLock<Mutex<StoreMap<ZeroCopyAuditStore>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+#[cfg(target_arch = "wasm32")]
+#[derive(Clone)]
+pub struct WsConnection(web_sys::WebSocket);
+
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for WsConnection {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for WsConnection {}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone)]
+pub struct WsConnection;
+
 // --- Pillar 2: Geo-Distributed Edge Replicas + P2P Mesh Sync ---
 
 struct PeerRelayQueue {
@@ -211,6 +224,8 @@ pub struct P2PMeshSyncRouter {
     relay_url: Arc<Mutex<Option<String>>>,
     client: reqwest::Client,
     signing_key: Arc<Mutex<Option<ed25519_dalek::SigningKey>>>,
+    #[allow(dead_code)]
+    ws_conn: Arc<Mutex<Option<WsConnection>>>,
 }
 
 #[uniffi::export]
@@ -224,6 +239,7 @@ impl P2PMeshSyncRouter {
             relay_url: Arc::new(Mutex::new(None)),
             client: reqwest::Client::new(),
             signing_key: Arc::new(Mutex::new(None)),
+            ws_conn: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -236,6 +252,7 @@ impl P2PMeshSyncRouter {
             relay_url: Arc::new(Mutex::new(Some(relay_url))),
             client: reqwest::Client::new(),
             signing_key: Arc::new(Mutex::new(None)),
+            ws_conn: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -305,7 +322,59 @@ impl P2PMeshSyncRouter {
             }
             #[cfg(target_arch = "wasm32")]
             {
-                wasm_bindgen_futures::spawn_local(do_register_peer(client, relay_url, peer_id, key));
+                wasm_bindgen_futures::spawn_local(do_register_peer(client, relay_url.clone(), peer_id.clone(), key));
+
+                // Establish real-time WebSocket connection to bypass polling latency
+                use wasm_bindgen::JsCast;
+                let ws_url = relay_url
+                    .replace("http://", "ws://")
+                    .replace("https://", "wss://")
+                    .replace("/relay", "")
+                    .trim_end_matches('/')
+                    .to_string()
+                    + "/relay/ws?peer_id="
+                    + &peer_id;
+
+                if let Ok(ws) = web_sys::WebSocket::new(&ws_url) {
+                    ws.set_binary_type(web_sys::BinaryType::Arraybuffer);
+
+                    let onmessage_callback = wasm_bindgen::prelude::Closure::<dyn FnMut(web_sys::MessageEvent)>::new({
+                        move |e: web_sys::MessageEvent| {
+                            if let Ok(ab) = e.data().dyn_into::<js_sys::ArrayBuffer>() {
+                                let array = js_sys::Uint8Array::new(&ab);
+                                let bytes = array.to_vec();
+
+                                if let Ok(map) = LOCAL_PEER_STORES.lock() {
+                                    for store in map.values() {
+                                        let _ = store.apply_loro_update(bytes.clone());
+                                    }
+                                }
+                                if let Ok(map) = LOCAL_PEER_NOTE_STORES.lock() {
+                                    for store in map.values() {
+                                        let _ = store.apply_loro_update(bytes.clone());
+                                    }
+                                }
+                                if let Ok(map) = LOCAL_PEER_MESSAGE_STORES.lock() {
+                                    for store in map.values() {
+                                        let _ = store.apply_loro_update(bytes.clone());
+                                    }
+                                }
+                                if let Ok(map) = LOCAL_PEER_AUDIT_STORES.lock() {
+                                    for store in map.values() {
+                                        let _ = store.apply_loro_update(bytes.clone());
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    ws.set_onmessage(Some(onmessage_callback.as_ref().unchecked_ref()));
+                    onmessage_callback.forget();
+
+                    if let Ok(mut conn_guard) = self.ws_conn.lock() {
+                        *conn_guard = Some(WsConnection(ws));
+                    }
+                }
             }
         }
     }
@@ -394,6 +463,23 @@ impl P2PMeshSyncRouter {
 
         // Retry any previously failed broadcasts before trying the new one
         self.retry_failed_broadcasts();
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let mut ws_sent = false;
+            if let Ok(conn_guard) = self.ws_conn.lock() {
+                if let Some(WsConnection(ref ws)) = *conn_guard {
+                    if ws.ready_state() == web_sys::WebSocket::OPEN {
+                        if ws.send_with_u8_array(&data).is_ok() {
+                            ws_sent = true;
+                        }
+                    }
+                }
+            }
+            if ws_sent {
+                return;
+            }
+        }
 
         if let Some(relay_url) = relay_opt {
             let client = self.client.clone();
