@@ -3,7 +3,126 @@ use crate::models::{AuditLogEntry, DailyNote, MessageItem, TodoItem};
 use std::sync::{Arc, Mutex};
 use super::engine::ZeroCopyEngine;
 
-// --- ZeroCopyStore ---
+// --- Helper Macros to Reduce Code Duplication ---
+
+macro_rules! impl_write_items {
+    ($self:expr, $items:expr) => {{
+        let rkyv_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&$items)
+            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+        {
+            let mut inner = $self.inner.lock().unwrap();
+            let mut cache = $self.cache.lock().unwrap();
+            *cache = None;
+            inner.write_serialized(&rkyv_bytes)?;
+            *cache = Some($items);
+        }
+        Ok(())
+    }};
+}
+
+macro_rules! impl_read_all_items {
+    ($self:expr, $t:ty) => {{
+        {
+            let cache = $self.cache.lock().unwrap();
+            if let Some(ref list) = *cache {
+                return Ok(list.clone());
+            }
+        }
+
+        let inner = $self.inner.lock().unwrap();
+        let rkyv_slice = inner.get_rkyv_slice();
+        if rkyv_slice.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let required_align = std::mem::align_of::<rkyv::Archived<Vec<$t>>>();
+        let list: Vec<$t> = if (rkyv_slice.as_ptr() as usize) % required_align == 0 {
+            let archived =
+                rkyv::access::<rkyv::Archived<Vec<$t>>, rkyv::rancor::Error>(rkyv_slice)
+                    .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            rkyv::deserialize::<Vec<$t>, rkyv::rancor::Error>(archived)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?
+        } else {
+            let mut aligned = rkyv::util::AlignedVec::<16>::new();
+            aligned.extend_from_slice(rkyv_slice);
+            let archived =
+                rkyv::access::<rkyv::Archived<Vec<$t>>, rkyv::rancor::Error>(&aligned)
+                    .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            rkyv::deserialize::<Vec<$t>, rkyv::rancor::Error>(archived)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?
+        };
+
+        {
+            let mut cache = $self.cache.lock().unwrap();
+            *cache = Some(list.clone());
+        }
+        Ok(list)
+    }};
+}
+
+macro_rules! impl_read_item_zero_copy {
+    ($self:expr, $item_id:expr, $t:ty) => {{
+        {
+            let cache = $self.cache.lock().unwrap();
+            if let Some(ref list) = *cache {
+                return Ok(list.iter().find(|item| item.id == $item_id).cloned());
+            }
+        }
+
+        let inner = $self.inner.lock().unwrap();
+        let rkyv_slice = inner.get_rkyv_slice();
+        if rkyv_slice.is_empty() {
+            return Ok(None);
+        }
+
+        let required_align = std::mem::align_of::<rkyv::Archived<Vec<$t>>>();
+        if (rkyv_slice.as_ptr() as usize) % required_align == 0 {
+            let archived =
+                rkyv::access::<rkyv::Archived<Vec<$t>>, rkyv::rancor::Error>(rkyv_slice)
+                    .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            for item in archived.iter() {
+                if item.id == $item_id {
+                    let todo = rkyv::deserialize::<$t, rkyv::rancor::Error>(item)
+                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                    return Ok(Some(todo));
+                }
+            }
+        } else {
+            let mut aligned = rkyv::util::AlignedVec::<16>::new();
+            aligned.extend_from_slice(rkyv_slice);
+            let archived =
+                rkyv::access::<rkyv::Archived<Vec<$t>>, rkyv::rancor::Error>(&aligned)
+                    .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            for item in archived.iter() {
+                if item.id == $item_id {
+                    let todo = rkyv::deserialize::<$t, rkyv::rancor::Error>(item)
+                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                    return Ok(Some(todo));
+                }
+            }
+        }
+
+        Ok(None)
+    }};
+}
+
+macro_rules! impl_get_loro_changes {
+    ($self:expr) => {{
+        let inner = $self.inner.lock().unwrap();
+        inner.get_loro_changes()
+    }};
+}
+
+macro_rules! impl_apply_loro_update {
+    ($self:expr, $update_bytes:expr) => {{
+        let mut inner = $self.inner.lock().unwrap();
+        *$self.cache.lock().unwrap() = None;
+        inner.apply_loro_update(&$update_bytes)?;
+        Ok(())
+    }};
+}
+
+// --- ZeroCopyStore (TodoItem) ---
 
 #[derive(Clone, uniffi::Object)]
 pub struct ZeroCopyStore {
@@ -24,96 +143,15 @@ impl ZeroCopyStore {
 #[uniffi::export]
 impl ZeroCopyStore {
     pub fn write_todos(&self, todos: Vec<TodoItem>) -> Result<(), YntraError> {
-        let rkyv_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&todos)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        {
-            let mut inner = self.inner.lock().unwrap();
-            let mut cache = self.cache.lock().unwrap();
-            *cache = None;
-            inner.write_serialized(&rkyv_bytes)?;
-            *cache = Some(todos);
-        }
-        Ok(())
+        impl_write_items!(self, todos)
     }
 
     pub fn read_todo_zero_copy(&self, todo_id: String) -> Result<Option<TodoItem>, YntraError> {
-        {
-            let cache = self.cache.lock().unwrap();
-            if let Some(ref list) = *cache {
-                return Ok(list.iter().find(|t| t.id == todo_id).cloned());
-            }
-        }
-
-        let inner = self.inner.lock().unwrap();
-        let rkyv_slice = inner.get_rkyv_slice();
-        if rkyv_slice.is_empty() {
-            return Ok(None);
-        }
-
-        if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
-            let archived_todos =
-                rkyv::access::<rkyv::Archived<Vec<TodoItem>>, rkyv::rancor::Error>(rkyv_slice)
-                    .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            for item in archived_todos.iter() {
-                if item.id == todo_id {
-                    let todo = rkyv::deserialize::<TodoItem, rkyv::rancor::Error>(item)
-                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                    return Ok(Some(todo));
-                }
-            }
-        } else {
-            let mut aligned = rkyv::util::AlignedVec::<16>::new();
-            aligned.extend_from_slice(rkyv_slice);
-            let archived_todos =
-                rkyv::access::<rkyv::Archived<Vec<TodoItem>>, rkyv::rancor::Error>(&aligned)
-                    .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            for item in archived_todos.iter() {
-                if item.id == todo_id {
-                    let todo = rkyv::deserialize::<TodoItem, rkyv::rancor::Error>(item)
-                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                    return Ok(Some(todo));
-                }
-            }
-        }
-
-        Ok(None)
+        impl_read_item_zero_copy!(self, todo_id, TodoItem)
     }
 
     pub fn read_all_todos(&self) -> Result<Vec<TodoItem>, YntraError> {
-        {
-            let cache = self.cache.lock().unwrap();
-            if let Some(ref list) = *cache {
-                return Ok(list.clone());
-            }
-        }
-
-        let inner = self.inner.lock().unwrap();
-        let rkyv_slice = inner.get_rkyv_slice();
-        if rkyv_slice.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let list: Vec<TodoItem> = if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
-            let archived_todos =
-                rkyv::access::<rkyv::Archived<Vec<TodoItem>>, rkyv::rancor::Error>(rkyv_slice)
-                    .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            rkyv::deserialize::<Vec<TodoItem>, rkyv::rancor::Error>(archived_todos)
-                .map_err(|e| YntraError::SerializationError(e.to_string()))?
-        } else {
-            let mut aligned = rkyv::util::AlignedVec::<16>::new();
-            aligned.extend_from_slice(rkyv_slice);
-            let archived_todos =
-                rkyv::access::<rkyv::Archived<Vec<TodoItem>>, rkyv::rancor::Error>(&aligned)
-                    .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            rkyv::deserialize::<Vec<TodoItem>, rkyv::rancor::Error>(archived_todos)
-                .map_err(|e| YntraError::SerializationError(e.to_string()))?
-        };
-
-        {
-            let mut cache = self.cache.lock().unwrap();
-            *cache = Some(list.clone());
-        }
-        Ok(list)
+        impl_read_all_items!(self, TodoItem)
     }
 
     pub fn read_todos_by_workspace(
@@ -138,7 +176,8 @@ impl ZeroCopyStore {
         }
 
         let mut filtered = Vec::new();
-        if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
+        let required_align = std::mem::align_of::<rkyv::Archived<Vec<TodoItem>>>();
+        if (rkyv_slice.as_ptr() as usize) % required_align == 0 {
             let archived_todos =
                 rkyv::access::<rkyv::Archived<Vec<TodoItem>>, rkyv::rancor::Error>(rkyv_slice)
                     .map_err(|e| YntraError::SerializationError(e.to_string()))?;
@@ -168,21 +207,15 @@ impl ZeroCopyStore {
     }
 
     pub fn get_loro_changes(&self) -> Result<Vec<u8>, YntraError> {
-        let inner = self.inner.lock().unwrap();
-        inner.get_loro_changes()
+        impl_get_loro_changes!(self)
     }
 
     pub fn apply_loro_update(&self, update_bytes: Vec<u8>) -> Result<(), YntraError> {
-        {
-            let mut inner = self.inner.lock().unwrap();
-            *self.cache.lock().unwrap() = None;
-            inner.apply_loro_update(&update_bytes)?;
-        }
-        Ok(())
+        impl_apply_loro_update!(self, update_bytes)
     }
 }
 
-// --- ZeroCopyMessageStore ---
+// --- ZeroCopyMessageStore (MessageItem) ---
 
 #[derive(Clone, uniffi::Object)]
 pub struct ZeroCopyMessageStore {
@@ -203,57 +236,11 @@ impl ZeroCopyMessageStore {
 #[uniffi::export]
 impl ZeroCopyMessageStore {
     pub fn write_messages(&self, messages: Vec<MessageItem>) -> Result<(), YntraError> {
-        let rkyv_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&messages)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        {
-            let mut inner = self.inner.lock().unwrap();
-            let mut cache = self.cache.lock().unwrap();
-            *cache = None;
-            inner.write_serialized(&rkyv_bytes)?;
-            *cache = Some(messages);
-        }
-        Ok(())
+        impl_write_items!(self, messages)
     }
 
     pub fn read_all_messages(&self) -> Result<Vec<MessageItem>, YntraError> {
-        {
-            let cache = self.cache.lock().unwrap();
-            if let Some(ref list) = *cache {
-                return Ok(list.clone());
-            }
-        }
-
-        let inner = self.inner.lock().unwrap();
-        let rkyv_slice = inner.get_rkyv_slice();
-        if rkyv_slice.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let list: Vec<MessageItem> = if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
-            let archived_msgs = rkyv::access::<
-                rkyv::Archived<Vec<MessageItem>>,
-                rkyv::rancor::Error,
-            >(rkyv_slice)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            rkyv::deserialize::<Vec<MessageItem>, rkyv::rancor::Error>(archived_msgs)
-                .map_err(|e| YntraError::SerializationError(e.to_string()))?
-        } else {
-            let mut aligned = rkyv::util::AlignedVec::<16>::new();
-            aligned.extend_from_slice(rkyv_slice);
-            let archived_msgs = rkyv::access::<
-                rkyv::Archived<Vec<MessageItem>>,
-                rkyv::rancor::Error,
-            >(&aligned)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            rkyv::deserialize::<Vec<MessageItem>, rkyv::rancor::Error>(archived_msgs)
-                .map_err(|e| YntraError::SerializationError(e.to_string()))?
-        };
-
-        {
-            let mut cache = self.cache.lock().unwrap();
-            *cache = Some(list.clone());
-        }
-        Ok(list)
+        impl_read_all_items!(self, MessageItem)
     }
 
     pub fn read_messages_filtered(
@@ -296,8 +283,9 @@ impl ZeroCopyMessageStore {
         }
 
         let mut filtered = Vec::new();
+        let required_align = std::mem::align_of::<rkyv::Archived<Vec<MessageItem>>>();
 
-        if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
+        if (rkyv_slice.as_ptr() as usize) % required_align == 0 {
             let archived_msgs = rkyv::access::<
                 rkyv::Archived<Vec<MessageItem>>,
                 rkyv::rancor::Error,
@@ -356,68 +344,19 @@ impl ZeroCopyMessageStore {
         &self,
         message_id: String,
     ) -> Result<Option<MessageItem>, YntraError> {
-        {
-            let cache = self.cache.lock().unwrap();
-            if let Some(ref list) = *cache {
-                return Ok(list.iter().find(|m| m.id == message_id).cloned());
-            }
-        }
-
-        let inner = self.inner.lock().unwrap();
-        let rkyv_slice = inner.get_rkyv_slice();
-        if rkyv_slice.is_empty() {
-            return Ok(None);
-        }
-
-        if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
-            let archived_msgs = rkyv::access::<
-                rkyv::Archived<Vec<MessageItem>>,
-                rkyv::rancor::Error,
-            >(rkyv_slice)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            for item in archived_msgs.iter() {
-                if item.id == message_id {
-                    let message = rkyv::deserialize::<MessageItem, rkyv::rancor::Error>(item)
-                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                    return Ok(Some(message));
-                }
-            }
-        } else {
-            let mut aligned = rkyv::util::AlignedVec::<16>::new();
-            aligned.extend_from_slice(rkyv_slice);
-            let archived_msgs = rkyv::access::<
-                rkyv::Archived<Vec<MessageItem>>,
-                rkyv::rancor::Error,
-            >(&aligned)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            for item in archived_msgs.iter() {
-                if item.id == message_id {
-                    let message = rkyv::deserialize::<MessageItem, rkyv::rancor::Error>(item)
-                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                    return Ok(Some(message));
-                }
-            }
-        }
-
-        Ok(None)
+        impl_read_item_zero_copy!(self, message_id, MessageItem)
     }
 
     pub fn get_loro_changes(&self) -> Result<Vec<u8>, YntraError> {
-        let inner = self.inner.lock().unwrap();
-        inner.get_loro_changes()
+        impl_get_loro_changes!(self)
     }
 
     pub fn apply_loro_update(&self, update_bytes: Vec<u8>) -> Result<(), YntraError> {
-        {
-            let mut inner = self.inner.lock().unwrap();
-            *self.cache.lock().unwrap() = None;
-            inner.apply_loro_update(&update_bytes)?;
-        }
-        Ok(())
+        impl_apply_loro_update!(self, update_bytes)
     }
 }
 
-// --- ZeroCopyAuditStore ---
+// --- ZeroCopyAuditStore (AuditLogEntry) ---
 
 #[derive(Clone, uniffi::Object)]
 pub struct ZeroCopyAuditStore {
@@ -438,122 +377,27 @@ impl ZeroCopyAuditStore {
 #[uniffi::export]
 impl ZeroCopyAuditStore {
     pub fn write_audit_logs(&self, entries: Vec<AuditLogEntry>) -> Result<(), YntraError> {
-        let rkyv_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&entries)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        {
-            let mut inner = self.inner.lock().unwrap();
-            let mut cache = self.cache.lock().unwrap();
-            *cache = None;
-            inner.write_serialized(&rkyv_bytes)?;
-            *cache = Some(entries);
-        }
-        Ok(())
+        impl_write_items!(self, entries)
     }
 
     pub fn read_all_audit_logs(&self) -> Result<Vec<AuditLogEntry>, YntraError> {
-        {
-            let cache = self.cache.lock().unwrap();
-            if let Some(ref list) = *cache {
-                return Ok(list.clone());
-            }
-        }
-
-        let inner = self.inner.lock().unwrap();
-        let rkyv_slice = inner.get_rkyv_slice();
-        if rkyv_slice.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let list: Vec<AuditLogEntry> = if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
-            let archived_entries = rkyv::access::<
-                rkyv::Archived<Vec<AuditLogEntry>>,
-                rkyv::rancor::Error,
-            >(rkyv_slice)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            rkyv::deserialize::<Vec<AuditLogEntry>, rkyv::rancor::Error>(archived_entries)
-                .map_err(|e| YntraError::SerializationError(e.to_string()))?
-        } else {
-            let mut aligned = rkyv::util::AlignedVec::<16>::new();
-            aligned.extend_from_slice(rkyv_slice);
-            let archived_entries = rkyv::access::<
-                rkyv::Archived<Vec<AuditLogEntry>>,
-                rkyv::rancor::Error,
-            >(&aligned)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            rkyv::deserialize::<Vec<AuditLogEntry>, rkyv::rancor::Error>(archived_entries)
-                .map_err(|e| YntraError::SerializationError(e.to_string()))?
-        };
-
-        {
-            let mut cache = self.cache.lock().unwrap();
-            *cache = Some(list.clone());
-        }
-        Ok(list)
+        impl_read_all_items!(self, AuditLogEntry)
     }
 
     pub fn read_audit_zero_copy(&self, entry_id: String) -> Result<Option<AuditLogEntry>, YntraError> {
-        {
-            let cache = self.cache.lock().unwrap();
-            if let Some(ref list) = *cache {
-                return Ok(list.iter().find(|e| e.id == entry_id).cloned());
-            }
-        }
-
-        let inner = self.inner.lock().unwrap();
-        let rkyv_slice = inner.get_rkyv_slice();
-        if rkyv_slice.is_empty() {
-            return Ok(None);
-        }
-
-        if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
-            let archived_entries = rkyv::access::<
-                rkyv::Archived<Vec<AuditLogEntry>>,
-                rkyv::rancor::Error,
-            >(rkyv_slice)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            for item in archived_entries.iter() {
-                if item.id == entry_id {
-                    let entry = rkyv::deserialize::<AuditLogEntry, rkyv::rancor::Error>(item)
-                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                    return Ok(Some(entry));
-                }
-            }
-        } else {
-            let mut aligned = rkyv::util::AlignedVec::<16>::new();
-            aligned.extend_from_slice(rkyv_slice);
-            let archived_entries = rkyv::access::<
-                rkyv::Archived<Vec<AuditLogEntry>>,
-                rkyv::rancor::Error,
-            >(&aligned)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            for item in archived_entries.iter() {
-                if item.id == entry_id {
-                    let entry = rkyv::deserialize::<AuditLogEntry, rkyv::rancor::Error>(item)
-                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                    return Ok(Some(entry));
-                }
-            }
-        }
-
-        Ok(None)
+        impl_read_item_zero_copy!(self, entry_id, AuditLogEntry)
     }
 
     pub fn get_loro_changes(&self) -> Result<Vec<u8>, YntraError> {
-        let inner = self.inner.lock().unwrap();
-        inner.get_loro_changes()
+        impl_get_loro_changes!(self)
     }
 
     pub fn apply_loro_update(&self, update_bytes: Vec<u8>) -> Result<(), YntraError> {
-        {
-            let mut inner = self.inner.lock().unwrap();
-            *self.cache.lock().unwrap() = None;
-            inner.apply_loro_update(&update_bytes)?;
-        }
-        Ok(())
+        impl_apply_loro_update!(self, update_bytes)
     }
 }
 
-// --- ZeroCopyNoteStore ---
+// --- ZeroCopyNoteStore (DailyNote) ---
 
 #[derive(Clone, uniffi::Object)]
 pub struct ZeroCopyNoteStore {
@@ -574,118 +418,23 @@ impl ZeroCopyNoteStore {
 #[uniffi::export]
 impl ZeroCopyNoteStore {
     pub fn write_notes(&self, notes: Vec<DailyNote>) -> Result<(), YntraError> {
-        let rkyv_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&notes)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        {
-            let mut inner = self.inner.lock().unwrap();
-            let mut cache = self.cache.lock().unwrap();
-            *cache = None;
-            inner.write_serialized(&rkyv_bytes)?;
-            *cache = Some(notes);
-        }
-        Ok(())
+        impl_write_items!(self, notes)
     }
 
     pub fn read_all_notes(&self) -> Result<Vec<DailyNote>, YntraError> {
-        {
-            let cache = self.cache.lock().unwrap();
-            if let Some(ref list) = *cache {
-                return Ok(list.clone());
-            }
-        }
-
-        let inner = self.inner.lock().unwrap();
-        let rkyv_slice = inner.get_rkyv_slice();
-        if rkyv_slice.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let list: Vec<DailyNote> = if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
-            let archived_notes = rkyv::access::<
-                rkyv::Archived<Vec<DailyNote>>,
-                rkyv::rancor::Error,
-            >(rkyv_slice)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            rkyv::deserialize::<Vec<DailyNote>, rkyv::rancor::Error>(archived_notes)
-                .map_err(|e| YntraError::SerializationError(e.to_string()))?
-        } else {
-            let mut aligned = rkyv::util::AlignedVec::<16>::new();
-            aligned.extend_from_slice(rkyv_slice);
-            let archived_notes = rkyv::access::<
-                rkyv::Archived<Vec<DailyNote>>,
-                rkyv::rancor::Error,
-            >(&aligned)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            rkyv::deserialize::<Vec<DailyNote>, rkyv::rancor::Error>(archived_notes)
-                .map_err(|e| YntraError::SerializationError(e.to_string()))?
-        };
-
-        {
-            let mut cache = self.cache.lock().unwrap();
-            *cache = Some(list.clone());
-        }
-        Ok(list)
+        impl_read_all_items!(self, DailyNote)
     }
 
     pub fn read_note_zero_copy(&self, note_id: String) -> Result<Option<DailyNote>, YntraError> {
-        {
-            let cache = self.cache.lock().unwrap();
-            if let Some(ref list) = *cache {
-                return Ok(list.iter().find(|n| n.id == note_id).cloned());
-            }
-        }
-
-        let inner = self.inner.lock().unwrap();
-        let rkyv_slice = inner.get_rkyv_slice();
-        if rkyv_slice.is_empty() {
-            return Ok(None);
-        }
-
-        if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
-            let archived_notes = rkyv::access::<
-                rkyv::Archived<Vec<DailyNote>>,
-                rkyv::rancor::Error,
-            >(rkyv_slice)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            for item in archived_notes.iter() {
-                if item.id == note_id {
-                    let note = rkyv::deserialize::<DailyNote, rkyv::rancor::Error>(item)
-                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                    return Ok(Some(note));
-                }
-            }
-        } else {
-            let mut aligned = rkyv::util::AlignedVec::<16>::new();
-            aligned.extend_from_slice(rkyv_slice);
-            let archived_notes = rkyv::access::<
-                rkyv::Archived<Vec<DailyNote>>,
-                rkyv::rancor::Error,
-            >(&aligned)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            for item in archived_notes.iter() {
-                if item.id == note_id {
-                    let note = rkyv::deserialize::<DailyNote, rkyv::rancor::Error>(item)
-                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                    return Ok(Some(note));
-                }
-            }
-        }
-
-        Ok(None)
+        impl_read_item_zero_copy!(self, note_id, DailyNote)
     }
 
     pub fn get_loro_changes(&self) -> Result<Vec<u8>, YntraError> {
-        let inner = self.inner.lock().unwrap();
-        inner.get_loro_changes()
+        impl_get_loro_changes!(self)
     }
 
     pub fn apply_loro_update(&self, update_bytes: Vec<u8>) -> Result<(), YntraError> {
-        {
-            let mut inner = self.inner.lock().unwrap();
-            *self.cache.lock().unwrap() = None;
-            inner.apply_loro_update(&update_bytes)?;
-        }
-        Ok(())
+        impl_apply_loro_update!(self, update_bytes)
     }
 }
 
