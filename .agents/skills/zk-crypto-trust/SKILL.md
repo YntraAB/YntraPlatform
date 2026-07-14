@@ -23,7 +23,7 @@ To allow the cloud sync server to verify write authority without knowing the use
 
 1. **Proof Generation**: The client generates a cryptographic proof locally using `ZkCryptoTrust::generate_role_proof(user_id, role)`.
 2. **Commit Inclusion**: Bundle the proof together with the encrypted transaction data in the sync payload.
-3. **Cloud Validation**: The remote node runs `ZkCryptoTrust::verify_proof(&proof)` to authorize changes without decrypting the data.
+3. **Cloud Validation**: The remote node runs `ZkCryptoTrust::verify_proof(proof, user_id, role)` to authorize changes without decrypting the data.
 4. **Refer to Example**: See [examples/zkp_auth.rs](file:///c:/Users/hellich/Desktop/YntraPlatform/.agents/skills/zk-crypto-trust/examples/zkp_auth.rs) for a complete workflow.
 
 ---

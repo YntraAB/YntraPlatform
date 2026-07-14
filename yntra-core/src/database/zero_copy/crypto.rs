@@ -158,7 +158,12 @@ impl ZkCryptoTrust {
         Ok(const_hex::encode(&proof_builder))
     }
 
-    pub fn verify_proof(&self, proof_hex: String) -> bool {
+    pub fn verify_proof(
+        &self,
+        proof_hex: String,
+        user_id: String,
+        role: String,
+    ) -> bool {
         let proof_bytes = match const_hex::decode(&proof_hex) {
             Ok(bytes) => bytes,
             Err(_) => return false,
@@ -168,6 +173,13 @@ impl ZkCryptoTrust {
             return false;
         }
 
-        true
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"YNTRA_ZKP_ROLE_COMMITMENT_V1");
+        hasher.update(user_id.as_bytes());
+        hasher.update(role.as_bytes());
+        let expected_commitment = hasher.finalize();
+
+        let actual_commitment = &proof_bytes[18..50];
+        expected_commitment.as_bytes() == actual_commitment
     }
 }

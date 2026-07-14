@@ -21,7 +21,7 @@ pub fn run_cryptographic_verification_example() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     // 5. Verify proof on remote sync engine without exposing user secrets
-    let is_valid = trust.verify_proof(&proof);
+    let is_valid = trust.verify_proof(proof, user_id.to_string(), role.to_string());
     println!("Zero-Knowledge proof validation status: {}", is_valid);
 
     // 6. Decrypt data locally when needed
