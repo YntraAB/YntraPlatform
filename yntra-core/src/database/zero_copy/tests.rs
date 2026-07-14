@@ -105,11 +105,19 @@ fn test_zk_envelope_encryption_and_proof() {
     let role_proof = trust
         .generate_role_proof("user_123".to_string(), "Admin".to_string())
         .unwrap();
-    let is_role_valid = trust.verify_proof(role_proof);
+    let is_role_valid = trust.verify_proof(role_proof.clone(), "user_123".to_string(), "Admin".to_string());
     assert!(is_role_valid);
 
+    // Mismatched role should fail validation
+    let is_mismatched_role_valid = trust.verify_proof(role_proof.clone(), "user_123".to_string(), "Member".to_string());
+    assert!(!is_mismatched_role_valid);
+
+    // Mismatched user should fail validation
+    let is_mismatched_user_valid = trust.verify_proof(role_proof.clone(), "user_456".to_string(), "Admin".to_string());
+    assert!(!is_mismatched_user_valid);
+
     let invalid_role_proof = "not_a_valid_proof_hex_string_too_short".to_string();
-    assert!(!trust.verify_proof(invalid_role_proof));
+    assert!(!trust.verify_proof(invalid_role_proof, "user_123".to_string(), "Admin".to_string()));
 }
 
 #[test]
@@ -343,4 +351,20 @@ fn test_p2p_mesh_note_sync_in_memory_fallback() {
 
     let _ = std::fs::remove_file(&path_a);
     let _ = std::fs::remove_file(&path_b);
+}
+
+#[test]
+fn test_p2p_mesh_sync_router_identity() {
+    let router = P2PMeshSyncRouter::new();
+    // 1. Ephemeral identity should be generated successfully
+    let pubkey_hex = router.set_ephemeral_identity().unwrap();
+    assert_eq!(pubkey_hex.len(), 64); // hex encoded 32-byte public key is 64 chars
+
+    // 2. Setting a valid 32-byte private key hex should succeed
+    let valid_privkey_hex = const_hex::encode(&[3u8; 32]);
+    assert!(router.set_identity(valid_privkey_hex).is_ok());
+
+    // 3. Setting an invalid key length should fail
+    let invalid_privkey_hex = const_hex::encode(&[3u8; 31]);
+    assert!(router.set_identity(invalid_privkey_hex).is_err());
 }

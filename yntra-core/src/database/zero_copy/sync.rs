@@ -23,8 +23,25 @@ pub(crate) fn in_memory_poll(peer_id: &str) -> Vec<Vec<u8>> {
     updates
 }
 
-async fn do_register_peer(client: reqwest::Client, relay_url: String, peer_id: String) {
-    let body = serde_json::json!({ "peer_id": peer_id });
+async fn do_register_peer(
+    client: reqwest::Client,
+    relay_url: String,
+    peer_id: String,
+    signing_key: Option<ed25519_dalek::SigningKey>,
+) {
+    let mut body = serde_json::json!({ "peer_id": peer_id });
+    if let Some(ref key) = signing_key {
+        let timestamp = chrono::Utc::now().timestamp_millis();
+        let msg = format!("register:{}:{}", peer_id, timestamp);
+        use ed25519_dalek::Signer;
+        let signature = key.sign(msg.as_bytes());
+        body = serde_json::json!({
+            "peer_id": peer_id,
+            "timestamp": timestamp,
+            "signature_hex": const_hex::encode(signature.to_bytes()),
+        });
+    }
+
     let mut success = false;
     for attempt in 1..=3 {
         match client
@@ -67,9 +84,30 @@ async fn do_broadcast_write(
     relay_url: String,
     from_peer: String,
     data: Vec<u8>,
+    signing_key: Option<ed25519_dalek::SigningKey>,
 ) {
     let data_hex = const_hex::encode(&data);
-    let body = serde_json::json!({ "from_peer": from_peer, "data_hex": data_hex });
+    let mut body = serde_json::json!({ "from_peer": from_peer, "data_hex": data_hex });
+    if let Some(ref key) = signing_key {
+        let timestamp = chrono::Utc::now().timestamp_millis();
+        let mut msg = Vec::new();
+        msg.extend_from_slice(b"broadcast:");
+        msg.extend_from_slice(from_peer.as_bytes());
+        msg.extend_from_slice(b":");
+        msg.extend_from_slice(&timestamp.to_be_bytes());
+        msg.extend_from_slice(b":");
+        msg.extend_from_slice(&data);
+
+        use ed25519_dalek::Signer;
+        let signature = key.sign(&msg);
+        body = serde_json::json!({
+            "from_peer": from_peer,
+            "data_hex": data_hex,
+            "timestamp": timestamp,
+            "signature_hex": const_hex::encode(signature.to_bytes()),
+        });
+    }
+
     let mut success = false;
     for attempt in 1..=3 {
         match client
@@ -113,6 +151,7 @@ pub struct P2PMeshSyncRouter {
     pending_broadcasts: Arc<Mutex<Vec<Vec<u8>>>>,
     relay_url: Arc<Mutex<Option<String>>>,
     client: reqwest::Client,
+    signing_key: Arc<Mutex<Option<ed25519_dalek::SigningKey>>>,
 }
 
 #[uniffi::export]
@@ -124,6 +163,7 @@ impl P2PMeshSyncRouter {
             pending_broadcasts: Arc::new(Mutex::new(Vec::new())),
             relay_url: Arc::new(Mutex::new(None)),
             client: reqwest::Client::new(),
+            signing_key: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -134,7 +174,31 @@ impl P2PMeshSyncRouter {
             pending_broadcasts: Arc::new(Mutex::new(Vec::new())),
             relay_url: Arc::new(Mutex::new(Some(relay_url))),
             client: reqwest::Client::new(),
+            signing_key: Arc::new(Mutex::new(None)),
         }
+    }
+
+    pub fn set_identity(&self, private_key_hex: String) -> Result<(), YntraError> {
+        let key_bytes = const_hex::decode(&private_key_hex)
+            .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+        if key_bytes.len() != 32 {
+            return Err(YntraError::CryptoError("Invalid private key length".to_string()));
+        }
+        let key_array: [u8; 32] = key_bytes.try_into().unwrap();
+        let key = ed25519_dalek::SigningKey::from_bytes(&key_array);
+        let mut guard = self.signing_key.lock().unwrap();
+        *guard = Some(key);
+        Ok(())
+    }
+
+    pub fn set_ephemeral_identity(&self) -> Result<String, YntraError> {
+        let mut entropy = [0u8; 32];
+        getrandom::fill(&mut entropy).map_err(|e| YntraError::CryptoError(e.to_string()))?;
+        let key = ed25519_dalek::SigningKey::from_bytes(&entropy);
+        let pubkey_hex = const_hex::encode(key.verifying_key().to_bytes());
+        let mut guard = self.signing_key.lock().unwrap();
+        *guard = Some(key);
+        Ok(pubkey_hex)
     }
 
     pub fn register_peer(&self, peer_id: String) {
@@ -149,13 +213,14 @@ impl P2PMeshSyncRouter {
         let relay_opt = self.relay_url.lock().unwrap().clone();
         if let Some(relay_url) = relay_opt {
             let client = self.client.clone();
+            let key = self.signing_key.lock().unwrap().clone();
             #[cfg(not(target_arch = "wasm32"))]
             {
-                crate::database::native::get_runtime().spawn(do_register_peer(client, relay_url, peer_id));
+                crate::database::native::get_runtime().spawn(do_register_peer(client, relay_url, peer_id, key));
             }
             #[cfg(target_arch = "wasm32")]
             {
-                wasm_bindgen_futures::spawn_local(do_register_peer(client, relay_url, peer_id));
+                wasm_bindgen_futures::spawn_local(do_register_peer(client, relay_url, peer_id, key));
             }
         }
     }
@@ -175,14 +240,15 @@ impl P2PMeshSyncRouter {
 
         if let Some(relay_url) = relay_opt {
             let client = self.client.clone();
+            let key = self.signing_key.lock().unwrap().clone();
             #[cfg(not(target_arch = "wasm32"))]
             {
-                crate::database::native::get_runtime().spawn(do_broadcast_write(client, relay_url, from_peer, data));
+                crate::database::native::get_runtime().spawn(do_broadcast_write(client, relay_url, from_peer, data, key));
             }
             #[cfg(target_arch = "wasm32")]
             {
                 wasm_bindgen_futures::spawn_local(do_broadcast_write(
-                    client, relay_url, from_peer, data,
+                    client, relay_url, from_peer, data, key,
                 ));
             }
         } else {
@@ -231,16 +297,25 @@ impl P2PMeshSyncRouter {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 crate::database::native::get_runtime().spawn(async move {
-                    let mut success = false;
+                    let key = self_clone.signing_key.lock().unwrap().clone();
+                    let mut query_params = vec![("peer_id", peer_id.clone())];
+                    if let Some(ref signing_key) = key {
+                        let timestamp = chrono::Utc::now().timestamp_millis().to_string();
+                        let msg = format!("poll:{}:{}", peer_id, timestamp);
+                        use ed25519_dalek::Signer;
+                        let signature = signing_key.sign(msg.as_bytes());
+                        query_params.push(("timestamp", timestamp));
+                        query_params.push(("signature_hex", const_hex::encode(signature.to_bytes())));
+                    }
+
                     if let Ok(res) = client
                         .get(&format!("{}/relay/updates", relay_url))
-                        .query(&[("peer_id", &peer_id)])
+                        .query(&query_params)
                         .send()
                         .await
                     {
                         if res.status().is_success() {
                             if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
-                                success = true;
                                 for u in updates {
                                     if let (Some(from_peer), Some(data_hex)) = (
                                         u.get("from_peer").and_then(|v| v.as_str()),
@@ -259,32 +334,37 @@ impl P2PMeshSyncRouter {
                             }
                         }
                     }
-                    if success {
-                        let _ = in_memory_poll(&peer_id);
-                    } else {
-                        let updates = in_memory_poll(&peer_id);
-                        if !updates.is_empty() {
-                            for u in updates {
-                                let _ = store.apply_loro_update(u);
-                            }
-                            crate::infra::observer::notify_observers();
+                    let updates = in_memory_poll(&peer_id);
+                    if !updates.is_empty() {
+                        for u in updates {
+                            let _ = store.apply_loro_update(u);
                         }
+                        crate::infra::observer::notify_observers();
                     }
                 });
             }
             #[cfg(target_arch = "wasm32")]
             {
                 wasm_bindgen_futures::spawn_local(async move {
-                    let mut success = false;
+                    let key = self_clone.signing_key.lock().unwrap().clone();
+                    let mut query_params = vec![("peer_id", peer_id.clone())];
+                    if let Some(ref signing_key) = key {
+                        let timestamp = chrono::Utc::now().timestamp_millis().to_string();
+                        let msg = format!("poll:{}:{}", peer_id, timestamp);
+                        use ed25519_dalek::Signer;
+                        let signature = signing_key.sign(msg.as_bytes());
+                        query_params.push(("timestamp", timestamp));
+                        query_params.push(("signature_hex", const_hex::encode(signature.to_bytes())));
+                    }
+
                     if let Ok(res) = client
                         .get(&format!("{}/relay/updates", relay_url))
-                        .query(&[("peer_id", &peer_id)])
+                        .query(&query_params)
                         .send()
                         .await
                     {
                         if res.status().is_success() {
                             if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
-                                success = true;
                                 for u in updates {
                                     if let (Some(from_peer), Some(data_hex)) = (
                                         u.get("from_peer").and_then(|v| v.as_str()),
@@ -303,16 +383,12 @@ impl P2PMeshSyncRouter {
                             }
                         }
                     }
-                    if success {
-                        let _ = in_memory_poll(&peer_id);
-                    } else {
-                        let updates = in_memory_poll(&peer_id);
-                        if !updates.is_empty() {
-                            for u in updates {
-                                let _ = store.apply_loro_update(u);
-                            }
-                            crate::infra::observer::notify_observers();
+                    let updates = in_memory_poll(&peer_id);
+                    if !updates.is_empty() {
+                        for u in updates {
+                            let _ = store.apply_loro_update(u);
                         }
+                        crate::infra::observer::notify_observers();
                     }
                 });
             }
@@ -331,16 +407,25 @@ impl P2PMeshSyncRouter {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 crate::database::native::get_runtime().spawn(async move {
-                    let mut success = false;
+                    let key = self_clone.signing_key.lock().unwrap().clone();
+                    let mut query_params = vec![("peer_id", peer_id.clone())];
+                    if let Some(ref signing_key) = key {
+                        let timestamp = chrono::Utc::now().timestamp_millis().to_string();
+                        let msg = format!("poll:{}:{}", peer_id, timestamp);
+                        use ed25519_dalek::Signer;
+                        let signature = signing_key.sign(msg.as_bytes());
+                        query_params.push(("timestamp", timestamp));
+                        query_params.push(("signature_hex", const_hex::encode(signature.to_bytes())));
+                    }
+
                     if let Ok(res) = client
                         .get(&format!("{}/relay/updates", relay_url))
-                        .query(&[("peer_id", &peer_id)])
+                        .query(&query_params)
                         .send()
                         .await
                     {
                         if res.status().is_success() {
                             if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
-                                success = true;
                                 for u in updates {
                                     if let (Some(from_peer), Some(data_hex)) = (
                                         u.get("from_peer").and_then(|v| v.as_str()),
@@ -359,32 +444,37 @@ impl P2PMeshSyncRouter {
                             }
                         }
                     }
-                    if success {
-                        let _ = in_memory_poll(&peer_id);
-                    } else {
-                        let updates = in_memory_poll(&peer_id);
-                        if !updates.is_empty() {
-                            for u in updates {
-                                let _ = store.apply_loro_update(u);
-                            }
-                            crate::infra::observer::notify_observers();
+                    let updates = in_memory_poll(&peer_id);
+                    if !updates.is_empty() {
+                        for u in updates {
+                            let _ = store.apply_loro_update(u);
                         }
+                        crate::infra::observer::notify_observers();
                     }
                 });
             }
             #[cfg(target_arch = "wasm32")]
             {
                 wasm_bindgen_futures::spawn_local(async move {
-                    let mut success = false;
+                    let key = self_clone.signing_key.lock().unwrap().clone();
+                    let mut query_params = vec![("peer_id", peer_id.clone())];
+                    if let Some(ref signing_key) = key {
+                        let timestamp = chrono::Utc::now().timestamp_millis().to_string();
+                        let msg = format!("poll:{}:{}", peer_id, timestamp);
+                        use ed25519_dalek::Signer;
+                        let signature = signing_key.sign(msg.as_bytes());
+                        query_params.push(("timestamp", timestamp));
+                        query_params.push(("signature_hex", const_hex::encode(signature.to_bytes())));
+                    }
+
                     if let Ok(res) = client
                         .get(&format!("{}/relay/updates", relay_url))
-                        .query(&[("peer_id", &peer_id)])
+                        .query(&query_params)
                         .send()
                         .await
                     {
                         if res.status().is_success() {
                             if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
-                                success = true;
                                 for u in updates {
                                     if let (Some(from_peer), Some(data_hex)) = (
                                         u.get("from_peer").and_then(|v| v.as_str()),
@@ -403,16 +493,12 @@ impl P2PMeshSyncRouter {
                             }
                         }
                     }
-                    if success {
-                        let _ = in_memory_poll(&peer_id);
-                    } else {
-                        let updates = in_memory_poll(&peer_id);
-                        if !updates.is_empty() {
-                            for u in updates {
-                                let _ = store.apply_loro_update(u);
-                            }
-                            crate::infra::observer::notify_observers();
+                    let updates = in_memory_poll(&peer_id);
+                    if !updates.is_empty() {
+                        for u in updates {
+                            let _ = store.apply_loro_update(u);
                         }
+                        crate::infra::observer::notify_observers();
                     }
                 });
             }
@@ -427,16 +513,25 @@ impl P2PMeshSyncRouter {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 crate::database::native::get_runtime().spawn(async move {
-                    let mut success = false;
+                    let key = self_clone.signing_key.lock().unwrap().clone();
+                    let mut query_params = vec![("peer_id", peer_id.clone())];
+                    if let Some(ref signing_key) = key {
+                        let timestamp = chrono::Utc::now().timestamp_millis().to_string();
+                        let msg = format!("poll:{}:{}", peer_id, timestamp);
+                        use ed25519_dalek::Signer;
+                        let signature = signing_key.sign(msg.as_bytes());
+                        query_params.push(("timestamp", timestamp));
+                        query_params.push(("signature_hex", const_hex::encode(signature.to_bytes())));
+                    }
+
                     if let Ok(res) = client
                         .get(&format!("{}/relay/updates", relay_url))
-                        .query(&[("peer_id", &peer_id)])
+                        .query(&query_params)
                         .send()
                         .await
                     {
                         if res.status().is_success() {
                             if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
-                                success = true;
                                 for u in updates {
                                     if let (Some(from_peer), Some(data_hex)) = (
                                         u.get("from_peer").and_then(|v| v.as_str()),
@@ -455,32 +550,37 @@ impl P2PMeshSyncRouter {
                             }
                         }
                     }
-                    if success {
-                        let _ = in_memory_poll(&peer_id);
-                    } else {
-                        let updates = in_memory_poll(&peer_id);
-                        if !updates.is_empty() {
-                            for u in updates {
-                                let _ = store.apply_loro_update(u);
-                            }
-                            crate::infra::observer::notify_observers();
+                    let updates = in_memory_poll(&peer_id);
+                    if !updates.is_empty() {
+                        for u in updates {
+                            let _ = store.apply_loro_update(u);
                         }
+                        crate::infra::observer::notify_observers();
                     }
                 });
             }
             #[cfg(target_arch = "wasm32")]
             {
                 wasm_bindgen_futures::spawn_local(async move {
-                    let mut success = false;
+                    let key = self_clone.signing_key.lock().unwrap().clone();
+                    let mut query_params = vec![("peer_id", peer_id.clone())];
+                    if let Some(ref signing_key) = key {
+                        let timestamp = chrono::Utc::now().timestamp_millis().to_string();
+                        let msg = format!("poll:{}:{}", peer_id, timestamp);
+                        use ed25519_dalek::Signer;
+                        let signature = signing_key.sign(msg.as_bytes());
+                        query_params.push(("timestamp", timestamp));
+                        query_params.push(("signature_hex", const_hex::encode(signature.to_bytes())));
+                    }
+
                     if let Ok(res) = client
                         .get(&format!("{}/relay/updates", relay_url))
-                        .query(&[("peer_id", &peer_id)])
+                        .query(&query_params)
                         .send()
                         .await
                     {
                         if res.status().is_success() {
                             if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
-                                success = true;
                                 for u in updates {
                                     if let (Some(from_peer), Some(data_hex)) = (
                                         u.get("from_peer").and_then(|v| v.as_str()),
@@ -499,16 +599,12 @@ impl P2PMeshSyncRouter {
                             }
                         }
                     }
-                    if success {
-                        let _ = in_memory_poll(&peer_id);
-                    } else {
-                        let updates = in_memory_poll(&peer_id);
-                        if !updates.is_empty() {
-                            for u in updates {
-                                let _ = store.apply_loro_update(u);
-                            }
-                            crate::infra::observer::notify_observers();
+                    let updates = in_memory_poll(&peer_id);
+                    if !updates.is_empty() {
+                        for u in updates {
+                            let _ = store.apply_loro_update(u);
                         }
+                        crate::infra::observer::notify_observers();
                     }
                 });
             }
