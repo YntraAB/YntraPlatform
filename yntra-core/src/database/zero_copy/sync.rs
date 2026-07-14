@@ -1,0 +1,809 @@
+use crate::infra::errors::YntraError;
+use super::stores::{ZeroCopyStore, ZeroCopyMessageStore, ZeroCopyNoteStore};
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock, Mutex};
+
+// --- Pillar 2: Geo-Distributed Edge Replicas + P2P Mesh Sync ---
+
+static IN_MEMORY_RELAY: LazyLock<Mutex<HashMap<String, Vec<Vec<u8>>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn in_memory_broadcast(from_peer: &str, data: Vec<u8>, peers: &[String]) {
+    let mut relay = IN_MEMORY_RELAY.lock().unwrap();
+    for peer in peers {
+        if peer != from_peer {
+            relay.entry(peer.clone()).or_default().push(data.clone());
+        }
+    }
+}
+
+pub(crate) fn in_memory_poll(peer_id: &str) -> Vec<Vec<u8>> {
+    let mut relay = IN_MEMORY_RELAY.lock().unwrap();
+    let updates = relay.remove(peer_id).unwrap_or_default();
+    updates
+}
+
+async fn do_register_peer(client: reqwest::Client, relay_url: String, peer_id: String) {
+    let body = serde_json::json!({ "peer_id": peer_id });
+    let mut success = false;
+    for attempt in 1..=3 {
+        match client
+            .post(&format!("{}/relay/register", relay_url))
+            .json(&body)
+            .send()
+            .await
+        {
+            Ok(res) if res.status().is_success() => {
+                success = true;
+                break;
+            }
+            Ok(res) => {
+                tracing::warn!(
+                    "Relay peer registration attempt {} failed with status: {}",
+                    attempt,
+                    res.status()
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Relay peer registration attempt {} failed with connection error: {:?}",
+                    attempt,
+                    e
+                );
+            }
+        }
+        crate::infra::time::sleep_ms(500 * attempt).await;
+    }
+    if !success {
+        tracing::error!(
+            "Failed to register peer {} with relay after multiple attempts",
+            peer_id
+        );
+    }
+}
+
+async fn do_broadcast_write(
+    client: reqwest::Client,
+    relay_url: String,
+    from_peer: String,
+    data: Vec<u8>,
+) {
+    let data_hex = const_hex::encode(&data);
+    let body = serde_json::json!({ "from_peer": from_peer, "data_hex": data_hex });
+    let mut success = false;
+    for attempt in 1..=3 {
+        match client
+            .post(&format!("{}/relay/broadcast", relay_url))
+            .json(&body)
+            .send()
+            .await
+        {
+            Ok(res) if res.status().is_success() => {
+                success = true;
+                break;
+            }
+            Ok(res) => {
+                tracing::warn!(
+                    "Relay broadcast attempt {} failed with status: {}",
+                    attempt,
+                    res.status()
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Relay broadcast attempt {} failed with connection error: {:?}",
+                    attempt,
+                    e
+                );
+            }
+        }
+        crate::infra::time::sleep_ms(500 * attempt).await;
+    }
+    if !success {
+        tracing::error!(
+            "Failed to broadcast update from peer {} to relay after multiple attempts",
+            from_peer
+        );
+    }
+}
+
+#[derive(Clone, uniffi::Object)]
+pub struct P2PMeshSyncRouter {
+    peers: Arc<Mutex<Vec<String>>>,
+    pending_broadcasts: Arc<Mutex<Vec<Vec<u8>>>>,
+    relay_url: Arc<Mutex<Option<String>>>,
+    client: reqwest::Client,
+}
+
+#[uniffi::export]
+impl P2PMeshSyncRouter {
+    #[uniffi::constructor]
+    pub fn new() -> Self {
+        Self {
+            peers: Arc::new(Mutex::new(Vec::new())),
+            pending_broadcasts: Arc::new(Mutex::new(Vec::new())),
+            relay_url: Arc::new(Mutex::new(None)),
+            client: reqwest::Client::new(),
+        }
+    }
+
+    #[uniffi::constructor]
+    pub fn with_relay(relay_url: String) -> Self {
+        Self {
+            peers: Arc::new(Mutex::new(Vec::new())),
+            pending_broadcasts: Arc::new(Mutex::new(Vec::new())),
+            relay_url: Arc::new(Mutex::new(Some(relay_url))),
+            client: reqwest::Client::new(),
+        }
+    }
+
+    pub fn register_peer(&self, peer_id: String) {
+        let mut peers = self.peers.lock().unwrap();
+        if !peers.contains(&peer_id) {
+            peers.push(peer_id);
+        }
+    }
+
+    pub fn register_peer_network(&self, peer_id: String) {
+        self.register_peer(peer_id.clone());
+        let relay_opt = self.relay_url.lock().unwrap().clone();
+        if let Some(relay_url) = relay_opt {
+            let client = self.client.clone();
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                crate::database::native::get_runtime().spawn(do_register_peer(client, relay_url, peer_id));
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                wasm_bindgen_futures::spawn_local(do_register_peer(client, relay_url, peer_id));
+            }
+        }
+    }
+
+    pub fn broadcast_write(&self, data: Vec<u8>) -> Result<(), YntraError> {
+        let mut pending = self.pending_broadcasts.lock().unwrap();
+        pending.push(data);
+        Ok(())
+    }
+
+    pub fn broadcast_write_network(&self, from_peer: String, data: Vec<u8>) {
+        let relay_opt = self.relay_url.lock().unwrap().clone();
+        let peers = self.peers.lock().unwrap().clone();
+
+        // Always store in-memory fallback
+        in_memory_broadcast(&from_peer, data.clone(), &peers);
+
+        if let Some(relay_url) = relay_opt {
+            let client = self.client.clone();
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                crate::database::native::get_runtime().spawn(do_broadcast_write(client, relay_url, from_peer, data));
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                wasm_bindgen_futures::spawn_local(do_broadcast_write(
+                    client, relay_url, from_peer, data,
+                ));
+            }
+        } else {
+            let _ = self.broadcast_write(data);
+        }
+    }
+
+    pub fn receive_update(
+        &self,
+        from_peer: String,
+        update: Vec<u8>,
+        store: Arc<ZeroCopyStore>,
+    ) -> Result<(), YntraError> {
+        store.apply_loro_update(update)?;
+        tracing::info!("Consolidated P2P update from peer: {}", from_peer);
+        Ok(())
+    }
+
+    pub fn receive_message_update(
+        &self,
+        from_peer: String,
+        update: Vec<u8>,
+        store: Arc<ZeroCopyMessageStore>,
+    ) -> Result<(), YntraError> {
+        store.apply_loro_update(update)?;
+        tracing::info!("Consolidated P2P message update from peer: {}", from_peer);
+        Ok(())
+    }
+
+    pub fn receive_note_update(
+        &self,
+        from_peer: String,
+        update: Vec<u8>,
+        store: Arc<ZeroCopyNoteStore>,
+    ) -> Result<(), YntraError> {
+        store.apply_loro_update(update)?;
+        tracing::info!("Consolidated P2P note update from peer: {}", from_peer);
+        Ok(())
+    }
+
+    pub fn trigger_poll_relay_updates(&self, peer_id: String, store: Arc<ZeroCopyStore>) {
+        let relay_opt = self.relay_url.lock().unwrap().clone();
+        if let Some(relay_url) = relay_opt {
+            let self_clone = self.clone();
+            let client = self.client.clone();
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                crate::database::native::get_runtime().spawn(async move {
+                    let mut success = false;
+                    if let Ok(res) = client
+                        .get(&format!("{}/relay/updates", relay_url))
+                        .query(&[("peer_id", &peer_id)])
+                        .send()
+                        .await
+                    {
+                        if res.status().is_success() {
+                            if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
+                                success = true;
+                                for u in updates {
+                                    if let (Some(from_peer), Some(data_hex)) = (
+                                        u.get("from_peer").and_then(|v| v.as_str()),
+                                        u.get("data_hex").and_then(|v| v.as_str()),
+                                    ) {
+                                        if let Ok(update_bytes) = const_hex::decode(data_hex) {
+                                            let _ = self_clone.receive_update(
+                                                from_peer.to_string(),
+                                                update_bytes,
+                                                store.clone(),
+                                            );
+                                        }
+                                    }
+                                }
+                                crate::infra::observer::notify_observers();
+                            }
+                        }
+                    }
+                    if !success {
+                        let updates = in_memory_poll(&peer_id);
+                        if !updates.is_empty() {
+                            for u in updates {
+                                let _ = store.apply_loro_update(u);
+                            }
+                            crate::infra::observer::notify_observers();
+                        }
+                    }
+                });
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                wasm_bindgen_futures::spawn_local(async move {
+                    let mut success = false;
+                    if let Ok(res) = client
+                        .get(&format!("{}/relay/updates", relay_url))
+                        .query(&[("peer_id", &peer_id)])
+                        .send()
+                        .await
+                    {
+                        if res.status().is_success() {
+                            if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
+                                success = true;
+                                for u in updates {
+                                    if let (Some(from_peer), Some(data_hex)) = (
+                                        u.get("from_peer").and_then(|v| v.as_str()),
+                                        u.get("data_hex").and_then(|v| v.as_str()),
+                                    ) {
+                                        if let Ok(update_bytes) = const_hex::decode(data_hex) {
+                                            let _ = self_clone.receive_update(
+                                                from_peer.to_string(),
+                                                update_bytes,
+                                                store.clone(),
+                                            );
+                                        }
+                                    }
+                                }
+                                crate::infra::observer::notify_observers();
+                            }
+                        }
+                    }
+                    if !success {
+                        let updates = in_memory_poll(&peer_id);
+                        if !updates.is_empty() {
+                            for u in updates {
+                                let _ = store.apply_loro_update(u);
+                            }
+                            crate::infra::observer::notify_observers();
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    pub fn trigger_poll_relay_message_updates(
+        &self,
+        peer_id: String,
+        store: Arc<ZeroCopyMessageStore>,
+    ) {
+        let relay_opt = self.relay_url.lock().unwrap().clone();
+        if let Some(relay_url) = relay_opt {
+            let self_clone = self.clone();
+            let client = self.client.clone();
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                crate::database::native::get_runtime().spawn(async move {
+                    let mut success = false;
+                    if let Ok(res) = client
+                        .get(&format!("{}/relay/updates", relay_url))
+                        .query(&[("peer_id", &peer_id)])
+                        .send()
+                        .await
+                    {
+                        if res.status().is_success() {
+                            if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
+                                success = true;
+                                for u in updates {
+                                    if let (Some(from_peer), Some(data_hex)) = (
+                                        u.get("from_peer").and_then(|v| v.as_str()),
+                                        u.get("data_hex").and_then(|v| v.as_str()),
+                                    ) {
+                                        if let Ok(update_bytes) = const_hex::decode(data_hex) {
+                                            let _ = self_clone.receive_message_update(
+                                                from_peer.to_string(),
+                                                update_bytes,
+                                                store.clone(),
+                                            );
+                                        }
+                                    }
+                                }
+                                crate::infra::observer::notify_observers();
+                            }
+                        }
+                    }
+                    if !success {
+                        let updates = in_memory_poll(&peer_id);
+                        if !updates.is_empty() {
+                            for u in updates {
+                                let _ = store.apply_loro_update(u);
+                            }
+                            crate::infra::observer::notify_observers();
+                        }
+                    }
+                });
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                wasm_bindgen_futures::spawn_local(async move {
+                    let mut success = false;
+                    if let Ok(res) = client
+                        .get(&format!("{}/relay/updates", relay_url))
+                        .query(&[("peer_id", &peer_id)])
+                        .send()
+                        .await
+                    {
+                        if res.status().is_success() {
+                            if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
+                                success = true;
+                                for u in updates {
+                                    if let (Some(from_peer), Some(data_hex)) = (
+                                        u.get("from_peer").and_then(|v| v.as_str()),
+                                        u.get("data_hex").and_then(|v| v.as_str()),
+                                    ) {
+                                        if let Ok(update_bytes) = const_hex::decode(data_hex) {
+                                            let _ = self_clone.receive_message_update(
+                                                from_peer.to_string(),
+                                                update_bytes,
+                                                store.clone(),
+                                            );
+                                        }
+                                    }
+                                }
+                                crate::infra::observer::notify_observers();
+                            }
+                        }
+                    }
+                    if !success {
+                        let updates = in_memory_poll(&peer_id);
+                        if !updates.is_empty() {
+                            for u in updates {
+                                let _ = store.apply_loro_update(u);
+                            }
+                            crate::infra::observer::notify_observers();
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    pub fn trigger_poll_relay_note_updates(&self, peer_id: String, store: Arc<ZeroCopyNoteStore>) {
+        let relay_opt = self.relay_url.lock().unwrap().clone();
+        if let Some(relay_url) = relay_opt {
+            let self_clone = self.clone();
+            let client = self.client.clone();
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                crate::database::native::get_runtime().spawn(async move {
+                    let mut success = false;
+                    if let Ok(res) = client
+                        .get(&format!("{}/relay/updates", relay_url))
+                        .query(&[("peer_id", &peer_id)])
+                        .send()
+                        .await
+                    {
+                        if res.status().is_success() {
+                            if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
+                                success = true;
+                                for u in updates {
+                                    if let (Some(from_peer), Some(data_hex)) = (
+                                        u.get("from_peer").and_then(|v| v.as_str()),
+                                        u.get("data_hex").and_then(|v| v.as_str()),
+                                    ) {
+                                        if let Ok(update_bytes) = const_hex::decode(data_hex) {
+                                            let _ = self_clone.receive_note_update(
+                                                from_peer.to_string(),
+                                                update_bytes,
+                                                store.clone(),
+                                            );
+                                        }
+                                    }
+                                }
+                                crate::infra::observer::notify_observers();
+                            }
+                        }
+                    }
+                    if !success {
+                        let updates = in_memory_poll(&peer_id);
+                        if !updates.is_empty() {
+                            for u in updates {
+                                let _ = store.apply_loro_update(u);
+                            }
+                            crate::infra::observer::notify_observers();
+                        }
+                    }
+                });
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                wasm_bindgen_futures::spawn_local(async move {
+                    let mut success = false;
+                    if let Ok(res) = client
+                        .get(&format!("{}/relay/updates", relay_url))
+                        .query(&[("peer_id", &peer_id)])
+                        .send()
+                        .await
+                    {
+                        if res.status().is_success() {
+                            if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
+                                success = true;
+                                for u in updates {
+                                    if let (Some(from_peer), Some(data_hex)) = (
+                                        u.get("from_peer").and_then(|v| v.as_str()),
+                                        u.get("data_hex").and_then(|v| v.as_str()),
+                                    ) {
+                                        if let Ok(update_bytes) = const_hex::decode(data_hex) {
+                                            let _ = self_clone.receive_note_update(
+                                                from_peer.to_string(),
+                                                update_bytes,
+                                                store.clone(),
+                                            );
+                                        }
+                                    }
+                                }
+                                crate::infra::observer::notify_observers();
+                            }
+                        }
+                    }
+                    if !success {
+                        let updates = in_memory_poll(&peer_id);
+                        if !updates.is_empty() {
+                            for u in updates {
+                                let _ = store.apply_loro_update(u);
+                            }
+                            crate::infra::observer::notify_observers();
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    pub fn get_connected_peers(&self) -> Vec<String> {
+        self.peers.lock().unwrap().clone()
+    }
+
+    pub fn drain_pending_broadcasts(&self) -> Vec<Vec<u8>> {
+        let mut pending = self.pending_broadcasts.lock().unwrap();
+        std::mem::take(&mut *pending)
+    }
+}
+
+#[derive(Clone, uniffi::Object)]
+pub struct EdgeSyncLoop {
+    edge_url: String,
+    is_running: Arc<std::sync::atomic::AtomicBool>,
+    client: reqwest::Client,
+}
+
+#[uniffi::export]
+impl EdgeSyncLoop {
+    #[uniffi::constructor]
+    pub fn new(edge_url: String) -> Self {
+        Self {
+            edge_url,
+            is_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            client: reqwest::Client::new(),
+        }
+    }
+
+    pub fn stop_sync_loop(&self) {
+        self.is_running
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        tracing::info!("Edge sync loop stopped");
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.is_running.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    pub fn trigger_sync_once(&self, store: Arc<ZeroCopyStore>) {
+        let edge_url = self.edge_url.clone();
+        let client = self.client.clone();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            crate::database::native::get_runtime().spawn(async move {
+                if let Ok(local_changes) = store.get_loro_changes() {
+                    if let Ok(res) = client
+                        .post(&format!("{}/sync", edge_url))
+                        .body(local_changes)
+                        .send()
+                        .await
+                    {
+                        if res.status().is_success() {
+                            if let Ok(remote_bytes) = res.bytes().await {
+                                if !remote_bytes.is_empty() {
+                                    if let Err(e) = store.apply_loro_update(remote_bytes.to_vec()) {
+                                        tracing::warn!("Failed to apply sync update: {:?}", e);
+                                    }
+                                    crate::infra::observer::notify_observers();
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            wasm_bindgen_futures::spawn_local(async move {
+                if let Ok(local_changes) = store.get_loro_changes() {
+                    if let Ok(res) = client
+                        .post(&format!("{}/sync", edge_url))
+                        .body(local_changes)
+                        .send()
+                        .await
+                    {
+                        if res.status().is_success() {
+                            if let Ok(remote_bytes) = res.bytes().await {
+                                if !remote_bytes.is_empty() {
+                                    if let Err(e) = store.apply_loro_update(remote_bytes.to_vec()) {
+                                        tracing::warn!("Failed to apply sync update: {:?}", e);
+                                    }
+                                    crate::infra::observer::notify_observers();
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    pub fn trigger_message_sync_once(&self, store: Arc<ZeroCopyMessageStore>) {
+        let edge_url = self.edge_url.clone();
+        let client = self.client.clone();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            crate::database::native::get_runtime().spawn(async move {
+                if let Ok(local_changes) = store.get_loro_changes() {
+                    if let Ok(res) = client
+                        .post(&format!("{}/sync", edge_url))
+                        .body(local_changes)
+                        .send()
+                        .await
+                    {
+                        if res.status().is_success() {
+                            if let Ok(remote_bytes) = res.bytes().await {
+                                if !remote_bytes.is_empty() {
+                                    if let Err(e) = store.apply_loro_update(remote_bytes.to_vec()) {
+                                        tracing::warn!("Failed to apply sync update: {:?}", e);
+                                    }
+                                    crate::infra::observer::notify_observers();
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            wasm_bindgen_futures::spawn_local(async move {
+                if let Ok(local_changes) = store.get_loro_changes() {
+                    if let Ok(res) = client
+                        .post(&format!("{}/sync", edge_url))
+                        .body(local_changes)
+                        .send()
+                        .await
+                    {
+                        if res.status().is_success() {
+                            if let Ok(remote_bytes) = res.bytes().await {
+                                if !remote_bytes.is_empty() {
+                                    if let Err(e) = store.apply_loro_update(remote_bytes.to_vec()) {
+                                        tracing::warn!("Failed to apply sync update: {:?}", e);
+                                    }
+                                    crate::infra::observer::notify_observers();
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    pub fn start_sync_loop(
+        &self,
+        store: Arc<ZeroCopyStore>,
+        interval_secs: u32,
+    ) -> Result<(), YntraError> {
+        if self
+            .is_running
+            .swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            return Ok(());
+        }
+
+        let edge_url = self.edge_url.clone();
+        let is_running = self.is_running.clone();
+        let client = self.client.clone();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            crate::database::native::get_runtime().spawn(async move {
+                while is_running.load(std::sync::atomic::Ordering::SeqCst) {
+                    if let Ok(local_changes) = store.get_loro_changes() {
+                        if let Ok(res) = client
+                            .post(&format!("{}/sync", edge_url))
+                            .body(local_changes)
+                            .send()
+                            .await
+                        {
+                            if res.status().is_success() {
+                                if let Ok(remote_bytes) = res.bytes().await {
+                                    if !remote_bytes.is_empty() {
+                                        if let Err(e) = store.apply_loro_update(remote_bytes.to_vec()) {
+                                            tracing::warn!("Failed to apply sync loop update: {:?}", e);
+                                        } else {
+                                            crate::infra::observer::notify_observers();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(interval_secs as u64)).await;
+                }
+            });
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            wasm_bindgen_futures::spawn_local(async move {
+                while is_running.load(std::sync::atomic::Ordering::SeqCst) {
+                    if let Ok(local_changes) = store.get_loro_changes() {
+                        if let Ok(res) = client
+                            .post(&format!("{}/sync", edge_url))
+                            .body(local_changes)
+                            .send()
+                            .await
+                        {
+                            if res.status().is_success() {
+                                if let Ok(remote_bytes) = res.bytes().await {
+                                    if !remote_bytes.is_empty() {
+                                        if let Err(e) = store.apply_loro_update(remote_bytes.to_vec()) {
+                                            tracing::warn!("Failed to apply sync loop update: {:?}", e);
+                                        } else {
+                                            crate::infra::observer::notify_observers();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    crate::infra::time::sleep_ms(interval_secs as u64 * 1000).await;
+                }
+            });
+        }
+
+        Ok(())
+    }
+
+    pub fn start_message_sync_loop(
+        &self,
+        store: Arc<ZeroCopyMessageStore>,
+        interval_secs: u32,
+    ) -> Result<(), YntraError> {
+        if self
+            .is_running
+            .swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            return Ok(());
+        }
+
+        let edge_url = self.edge_url.clone();
+        let is_running = self.is_running.clone();
+        let client = self.client.clone();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            crate::database::native::get_runtime().spawn(async move {
+                while is_running.load(std::sync::atomic::Ordering::SeqCst) {
+                    if let Ok(local_changes) = store.get_loro_changes() {
+                        if let Ok(res) = client
+                            .post(&format!("{}/sync", edge_url))
+                            .body(local_changes)
+                            .send()
+                            .await
+                        {
+                            if res.status().is_success() {
+                                if let Ok(remote_bytes) = res.bytes().await {
+                                    if !remote_bytes.is_empty() {
+                                        if let Err(e) = store.apply_loro_update(remote_bytes.to_vec()) {
+                                            tracing::warn!("Failed to apply sync loop update: {:?}", e);
+                                        } else {
+                                            crate::infra::observer::notify_observers();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(interval_secs as u64)).await;
+                }
+            });
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            wasm_bindgen_futures::spawn_local(async move {
+                while is_running.load(std::sync::atomic::Ordering::SeqCst) {
+                    if let Ok(local_changes) = store.get_loro_changes() {
+                        if let Ok(res) = client
+                            .post(&format!("{}/sync", edge_url))
+                            .body(local_changes)
+                            .send()
+                            .await
+                        {
+                            if res.status().is_success() {
+                                if let Ok(remote_bytes) = res.bytes().await {
+                                    if !remote_bytes.is_empty() {
+                                        if let Err(e) = store.apply_loro_update(remote_bytes.to_vec()) {
+                                            tracing::warn!("Failed to apply sync loop update: {:?}", e);
+                                        } else {
+                                            crate::infra::observer::notify_observers();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    crate::infra::time::sleep_ms(interval_secs as u64 * 1000).await;
+                }
+            });
+        }
+
+        Ok(())
+    }
+}
+
+impl Drop for EdgeSyncLoop {
+    fn drop(&mut self) {
+        self.stop_sync_loop();
+    }
+}
