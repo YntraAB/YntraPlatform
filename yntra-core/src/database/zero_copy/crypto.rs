@@ -203,6 +203,7 @@ impl ZkCryptoTrust {
         user_id: String,
         role: String,
     ) -> Result<String, YntraError> {
+        let _ = user_id;
         let data_bytes =
             const_hex::decode(&data_hex).map_err(|e| YntraError::CryptoError(e.to_string()))?;
 
@@ -221,10 +222,39 @@ impl ZkCryptoTrust {
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key_bytes);
         let public_key = signing_key.verifying_key();
 
-        // Commitment over (user_id, role, data_hash, salt)
+        // 1. Verify schema compliance of the Loro doc update
+        let doc = loro::LoroDoc::new();
+        let is_valid_schema = if doc.import(&data_bytes).is_ok() {
+            let mut valid = true;
+
+            if let Ok(todos) = super::stores::read_all_todos_from_loro(&doc) {
+                for todo in todos {
+                    // Only enforce constraints if the field is actually populated in the delta/update
+                    if !todo.text.is_empty() && todo.text.len() > 255 {
+                        valid = false;
+                    }
+                    if !todo.id.is_empty() && uuid::Uuid::parse_str(&todo.id).is_err() {
+                        valid = false;
+                    }
+                }
+            }
+
+            if let Ok(notes) = super::stores::read_all_notes_from_loro(&doc) {
+                for note in notes {
+                    if !note.subject.is_empty() && note.subject.len() > 255 {
+                        valid = false;
+                    }
+                }
+            }
+            valid
+        } else {
+            // Fallback for raw text payloads in general crypto tests
+            !data_bytes.is_empty() && data_bytes.len() < 10_000_000
+        };
+
+        // Commitment over (role, data_hash, salt) - V3 omits user_id
         let mut hasher = blake3::Hasher::new();
-        hasher.update(b"YNTRA_ZKP_COMMITMENT_V2");
-        hasher.update(user_id.as_bytes());
+        hasher.update(b"YNTRA_ZKP_COMMITMENT_V3");
         hasher.update(role.as_bytes());
         hasher.update(data_hash.as_bytes());
         hasher.update(&salt_bytes);
@@ -234,15 +264,13 @@ impl ZkCryptoTrust {
         use ed25519_dalek::Signer;
         let signature = signing_key.sign(commitment.as_bytes());
 
-        let is_valid_len = !data_bytes.is_empty() && data_bytes.len() < 10_000_000;
-
         let mut proof_builder = Vec::new();
-        proof_builder.extend_from_slice(b"ZKP_PROOF_V2:");
+        proof_builder.extend_from_slice(b"ZKP_PROOF_V3:");
         proof_builder.extend_from_slice(commitment.as_bytes()); // 32 bytes
         proof_builder.extend_from_slice(&salt_bytes); // 32 bytes
         proof_builder.extend_from_slice(&signature.to_bytes()); // 64 bytes
         proof_builder.extend_from_slice(public_key.as_bytes()); // 32 bytes
-        proof_builder.push(if is_valid_len { 1 } else { 0 }); // 1 byte
+        proof_builder.push(if is_valid_schema { 1 } else { 0 }); // 1 byte
 
         Ok(const_hex::encode(&proof_builder))
     }
@@ -274,7 +302,45 @@ impl ZkCryptoTrust {
         let data_hash_bytes =
             const_hex::decode(&data_hash_hex).map_err(|e| YntraError::CryptoError(e.to_string()))?;
 
-        if proof_bytes.starts_with(b"ZKP_PROOF_V2:") && proof_bytes.len() == 174 {
+        if proof_bytes.starts_with(b"ZKP_PROOF_V3:") && proof_bytes.len() == 174 {
+            let actual_commitment = &proof_bytes[13..45];
+            let salt_bytes = &proof_bytes[45..77];
+            let signature_bytes = &proof_bytes[77..141];
+            let proof_public_key = &proof_bytes[141..173];
+            let is_valid_schema = *proof_bytes.last().unwrap_or(&0) == 1;
+
+            let registered_public_key = const_hex::decode(&public_key_hex)
+                .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+            if proof_public_key != registered_public_key {
+                return Ok(false);
+            }
+
+            use ed25519_dalek::Verifier;
+            let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(
+                proof_public_key.try_into().unwrap(),
+            )
+            .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+
+            let signature = ed25519_dalek::Signature::from_bytes(
+                signature_bytes.try_into().unwrap(),
+            );
+
+            if verifying_key.verify(actual_commitment, &signature).is_err() {
+                return Ok(false);
+            }
+
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(b"YNTRA_ZKP_COMMITMENT_V3");
+            hasher.update(role.as_bytes());
+            hasher.update(&data_hash_bytes);
+            hasher.update(salt_bytes);
+            let expected_commitment = hasher.finalize();
+
+            let hash_matches = constant_time_eq(expected_commitment.as_bytes(), actual_commitment);
+            let schema_matches = is_valid_schema;
+
+            Ok(hash_matches && schema_matches)
+        } else if proof_bytes.starts_with(b"ZKP_PROOF_V2:") && proof_bytes.len() == 174 {
             let actual_commitment = &proof_bytes[13..45];
             let salt_bytes = &proof_bytes[45..77];
             let signature_bytes = &proof_bytes[77..141];
@@ -287,7 +353,6 @@ impl ZkCryptoTrust {
                 return Ok(false);
             }
 
-            // Verify the signature on commitment using the public key
             use ed25519_dalek::Verifier;
             let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(
                 proof_public_key.try_into().unwrap(),
@@ -325,6 +390,7 @@ impl ZkCryptoTrust {
         user_id: String,
         role: String,
     ) -> Result<String, YntraError> {
+        let _ = user_id;
         let mut salt_bytes = [0u8; 32];
         getrandom::fill(&mut salt_bytes).map_err(|e| YntraError::CryptoError(e.to_string()))?;
 
@@ -338,8 +404,7 @@ impl ZkCryptoTrust {
         let public_key = signing_key.verifying_key();
 
         let mut hasher = blake3::Hasher::new();
-        hasher.update(b"YNTRA_ZKP_ROLE_COMMITMENT_V2");
-        hasher.update(user_id.as_bytes());
+        hasher.update(b"YNTRA_ZKP_ROLE_COMMITMENT_V3");
         hasher.update(role.as_bytes());
         hasher.update(&salt_bytes);
         let commitment = hasher.finalize();
@@ -349,7 +414,7 @@ impl ZkCryptoTrust {
         let signature = signing_key.sign(commitment.as_bytes());
 
         let mut proof_builder = Vec::new();
-        proof_builder.extend_from_slice(b"ZKP_ROLE_PROOF_V2:");
+        proof_builder.extend_from_slice(b"ZKP_ROLE_PROOF_V3:");
         proof_builder.extend_from_slice(commitment.as_bytes()); // 32 bytes
         proof_builder.extend_from_slice(&salt_bytes); // 32 bytes
         proof_builder.extend_from_slice(&signature.to_bytes()); // 64 bytes
@@ -393,8 +458,7 @@ impl ZkCryptoTrust {
             let c_0_bytes = &payload[64..96];
 
             let mut commitment_hasher = blake3::Hasher::new();
-            commitment_hasher.update(b"YNTRA_ZKP_ROLE_COMMITMENT_V2");
-            commitment_hasher.update(user_id.as_bytes());
+            commitment_hasher.update(b"YNTRA_ZKP_ROLE_COMMITMENT_V3");
             commitment_hasher.update(role.as_bytes());
             commitment_hasher.update(salt_bytes);
             let expected_commitment = commitment_hasher.finalize();
@@ -468,7 +532,44 @@ impl ZkCryptoTrust {
             return self.verify_ring_compliance_proof(proof_hex, dummy_hash_hex, ring_keys).unwrap_or(false);
         }
 
-        if proof_bytes.starts_with(b"ZKP_ROLE_PROOF_V2:") && proof_bytes.len() == 178 {
+        if proof_bytes.starts_with(b"ZKP_ROLE_PROOF_V3:") && proof_bytes.len() == 178 {
+            let actual_commitment = &proof_bytes[18..50];
+            let salt_bytes = &proof_bytes[50..82];
+            let signature_bytes = &proof_bytes[82..146];
+            let proof_public_key = &proof_bytes[146..178];
+
+            let registered_public_key = match const_hex::decode(&public_key_hex) {
+                Ok(b) => b,
+                Err(_) => return false,
+            };
+            if proof_public_key != registered_public_key {
+                return false;
+            }
+
+            use ed25519_dalek::Verifier;
+            let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(
+                proof_public_key.try_into().unwrap(),
+            ) {
+                Ok(k) => k,
+                Err(_) => return false,
+            };
+
+            let signature = ed25519_dalek::Signature::from_bytes(
+                signature_bytes.try_into().unwrap(),
+            );
+
+            if verifying_key.verify(actual_commitment, &signature).is_err() {
+                return false;
+            }
+
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(b"YNTRA_ZKP_ROLE_COMMITMENT_V3");
+            hasher.update(role.as_bytes());
+            hasher.update(salt_bytes);
+            let expected_commitment = hasher.finalize();
+
+            constant_time_eq(expected_commitment.as_bytes(), actual_commitment)
+        } else if proof_bytes.starts_with(b"ZKP_ROLE_PROOF_V2:") && proof_bytes.len() == 178 {
             let actual_commitment = &proof_bytes[18..50];
             let salt_bytes = &proof_bytes[50..82];
             let signature_bytes = &proof_bytes[82..146];
@@ -768,6 +869,7 @@ impl ZkCryptoTrust {
         role: String,
         role_public_keys: Vec<String>,
     ) -> Result<String, YntraError> {
+        let _ = user_id;
         let seed_zeroed = zeroize::Zeroizing::new(passkey_seed);
         if role_public_keys.is_empty() {
             return Err(YntraError::CryptoError("Role ring cannot be empty".to_string()));
@@ -777,8 +879,7 @@ impl ZkCryptoTrust {
         getrandom::fill(&mut salt_bytes).map_err(|e| YntraError::CryptoError(e.to_string()))?;
 
         let mut commitment_hasher = blake3::Hasher::new();
-        commitment_hasher.update(b"YNTRA_ZKP_ROLE_COMMITMENT_V2");
-        commitment_hasher.update(user_id.as_bytes());
+        commitment_hasher.update(b"YNTRA_ZKP_ROLE_COMMITMENT_V3");
         commitment_hasher.update(role.as_bytes());
         commitment_hasher.update(&salt_bytes);
         let commitment = commitment_hasher.finalize();

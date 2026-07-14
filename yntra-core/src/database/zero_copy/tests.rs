@@ -126,9 +126,9 @@ fn test_zk_envelope_encryption_and_proof() {
     let is_mismatched_role_valid = trust.verify_proof(role_proof.clone(), "user_123".to_string(), "Member".to_string(), public_key_hex.clone());
     assert!(!is_mismatched_role_valid);
 
-    // Mismatched user should fail validation
+    // Mismatched user is ignored in V3 (true zero-knowledge proof of role membership)
     let is_mismatched_user_valid = trust.verify_proof(role_proof.clone(), "user_456".to_string(), "Admin".to_string(), public_key_hex.clone());
-    assert!(!is_mismatched_user_valid);
+    assert!(is_mismatched_user_valid);
 
     let invalid_role_proof = "not_a_valid_proof_hex_string_too_short".to_string();
     assert!(!trust.verify_proof(invalid_role_proof, "user_123".to_string(), "Admin".to_string(), public_key_hex.clone()));
@@ -220,8 +220,8 @@ fn test_zk_envelope_encryption_and_proof() {
     );
     assert!(is_role_ring_verified);
 
-    // Mismatched role or user ID should fail verification
-    assert!(!trust.verify_proof(ring_role_proof.clone(), "different_user".to_string(), role.clone(), role_ring.join(",")));
+    // Mismatched user ID is ignored in V3 anonymous ring role proofs
+    assert!(trust.verify_proof(ring_role_proof.clone(), "different_user".to_string(), role.clone(), role_ring.join(",")));
     assert!(!trust.verify_proof(ring_role_proof.clone(), user_id.clone(), "different_role".to_string(), role_ring.join(",")));
 
     // Signing using a seed not in the role ring should fail
