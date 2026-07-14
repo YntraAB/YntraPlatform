@@ -127,7 +127,18 @@ impl ZeroCopyEngine {
             self.mmap = None;
             self.file = None;
 
-            if let Err(rename_err) = std::fs::rename(&temp_path, &self._file_path) {
+            let mut rename_result = std::fs::rename(&temp_path, &self._file_path);
+            if rename_result.is_err() {
+                for attempt in 1..=5 {
+                    std::thread::sleep(std::time::Duration::from_millis(10 * attempt));
+                    rename_result = std::fs::rename(&temp_path, &self._file_path);
+                    if rename_result.is_ok() {
+                        break;
+                    }
+                }
+            }
+
+            if let Err(rename_err) = rename_result {
                 // Rename failed, restore original file handle and mmap
                 if let Ok(orig_file) = std::fs::OpenOptions::new()
                     .read(true)
@@ -175,7 +186,15 @@ impl ZeroCopyEngine {
             if let Some(window) = web_sys::window() {
                 if let Ok(Some(storage)) = window.local_storage() {
                     let hex_str = const_hex::encode(&buf);
-                    let _ = storage.set_item(&self._file_path, &hex_str);
+                    storage
+                        .set_item(&self._file_path, &hex_str)
+                        .map_err(|e| {
+                            let msg = e.as_string().unwrap_or_else(|| "Unknown JavaScript error".to_string());
+                            YntraError::DbError(format!(
+                                "Failed to save database to browser localStorage (quota exceeded or storage disabled): {}",
+                                msg
+                            ))
+                        })?;
                 }
             }
 

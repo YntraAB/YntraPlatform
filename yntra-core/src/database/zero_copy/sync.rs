@@ -2,12 +2,14 @@ use crate::infra::errors::YntraError;
 use super::stores::{ZeroCopyStore, ZeroCopyMessageStore, ZeroCopyNoteStore, ZeroCopyAuditStore};
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
+use super::MutexExt;
 
 // --- Pillar 2: Geo-Distributed Edge Replicas + P2P Mesh Sync ---
 
 struct PeerRelayQueue {
     updates: Vec<Vec<u8>>,
     catchup_doc: Option<loro::LoroDoc>,
+    last_active: i64,
 }
 
 impl Default for PeerRelayQueue {
@@ -15,6 +17,7 @@ impl Default for PeerRelayQueue {
         Self {
             updates: Vec::new(),
             catchup_doc: None,
+            last_active: chrono::Utc::now().timestamp(),
         }
     }
 }
@@ -23,7 +26,10 @@ static IN_MEMORY_RELAY: LazyLock<Mutex<HashMap<String, PeerRelayQueue>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn in_memory_broadcast(from_peer: &str, data: Vec<u8>, peers: &[String]) {
-    let mut relay = IN_MEMORY_RELAY.lock().unwrap();
+    let mut relay = IN_MEMORY_RELAY.lock_poison_safe();
+    let now = chrono::Utc::now().timestamp();
+    relay.retain(|_, q| now - q.last_active < 600);
+
     for peer in peers {
         if peer != from_peer {
             let q = relay.entry(peer.clone()).or_default();
@@ -38,7 +44,7 @@ fn in_memory_broadcast(from_peer: &str, data: Vec<u8>, peers: &[String]) {
 }
 
 pub(crate) fn in_memory_poll(peer_id: &str) -> Vec<Vec<u8>> {
-    let mut relay = IN_MEMORY_RELAY.lock().unwrap();
+    let mut relay = IN_MEMORY_RELAY.lock_poison_safe();
     if let Some(q) = relay.remove(peer_id) {
         if let Some(doc) = q.catchup_doc {
             if let Ok(snapshot) = doc.export(loro::ExportMode::Snapshot) {
@@ -174,7 +180,11 @@ async fn do_broadcast_write(
             from_peer
         );
         if let Some(queue) = failed_queue {
-            queue.lock().unwrap().push((from_peer, data));
+            let mut q = queue.lock_poison_safe();
+            if q.len() >= 100 {
+                q.remove(0);
+            }
+            q.push((from_peer, data));
         }
     }
 }
@@ -223,7 +233,7 @@ impl P2PMeshSyncRouter {
         }
         let key_array: [u8; 32] = key_bytes.try_into().unwrap();
         let key = ed25519_dalek::SigningKey::from_bytes(&key_array);
-        let mut guard = self.signing_key.lock().unwrap();
+        let mut guard = self.signing_key.lock_poison_safe();
         *guard = Some(key);
         Ok(())
     }
@@ -233,13 +243,13 @@ impl P2PMeshSyncRouter {
         getrandom::fill(&mut entropy).map_err(|e| YntraError::CryptoError(e.to_string()))?;
         let key = ed25519_dalek::SigningKey::from_bytes(&entropy);
         let pubkey_hex = const_hex::encode(key.verifying_key().to_bytes());
-        let mut guard = self.signing_key.lock().unwrap();
+        let mut guard = self.signing_key.lock_poison_safe();
         *guard = Some(key);
         Ok(pubkey_hex)
     }
 
     pub fn register_peer(&self, peer_id: String) {
-        let mut peers = self.peers.lock().unwrap();
+        let mut peers = self.peers.lock_poison_safe();
         if !peers.contains(&peer_id) {
             peers.push(peer_id);
         }
@@ -247,10 +257,10 @@ impl P2PMeshSyncRouter {
 
     pub fn register_peer_network(&self, peer_id: String) {
         self.register_peer(peer_id.clone());
-        let relay_opt = self.relay_url.lock().unwrap().clone();
+        let relay_opt = self.relay_url.lock_poison_safe().clone();
         if let Some(relay_url) = relay_opt {
             let client = self.client.clone();
-            let key = self.signing_key.lock().unwrap().clone();
+            let key = self.signing_key.lock_poison_safe().clone();
             #[cfg(not(target_arch = "wasm32"))]
             {
                 crate::database::native::get_runtime().spawn(do_register_peer(client, relay_url, peer_id, key));
@@ -263,15 +273,15 @@ impl P2PMeshSyncRouter {
     }
 
     pub fn broadcast_write(&self, data: Vec<u8>) -> Result<(), YntraError> {
-        let mut pending = self.pending_broadcasts.lock().unwrap();
+        let mut pending = self.pending_broadcasts.lock_poison_safe();
         pending.push(data);
         Ok(())
     }
 
     pub fn retry_failed_broadcasts(&self) {
-        let relay_opt = self.relay_url.lock().unwrap().clone();
+        let relay_opt = self.relay_url.lock_poison_safe().clone();
         if let Some(relay_url) = relay_opt {
-            let mut failed = self.failed_broadcasts.lock().unwrap();
+            let mut failed = self.failed_broadcasts.lock_poison_safe();
             if failed.is_empty() {
                 return;
             }
@@ -279,7 +289,7 @@ impl P2PMeshSyncRouter {
             tracing::info!("Retrying {} failed P2P broadcasts...", to_retry.len());
             for (from_peer, data) in to_retry {
                 let client = self.client.clone();
-                let key = self.signing_key.lock().unwrap().clone();
+                let key = self.signing_key.lock_poison_safe().clone();
                 let queue_clone = Some(self.failed_broadcasts.clone());
                 #[cfg(not(target_arch = "wasm32"))]
                 {
@@ -308,8 +318,8 @@ impl P2PMeshSyncRouter {
     }
 
     pub fn broadcast_write_network(&self, from_peer: String, data: Vec<u8>) {
-        let relay_opt = self.relay_url.lock().unwrap().clone();
-        let peers = self.peers.lock().unwrap().clone();
+        let relay_opt = self.relay_url.lock_poison_safe().clone();
+        let peers = self.peers.lock_poison_safe().clone();
 
         // Always store in-memory fallback
         in_memory_broadcast(&from_peer, data.clone(), &peers);
@@ -319,7 +329,7 @@ impl P2PMeshSyncRouter {
 
         if let Some(relay_url) = relay_opt {
             let client = self.client.clone();
-            let key = self.signing_key.lock().unwrap().clone();
+            let key = self.signing_key.lock_poison_safe().clone();
             let queue_clone = Some(self.failed_broadcasts.clone());
             #[cfg(not(target_arch = "wasm32"))]
             {
@@ -393,14 +403,14 @@ impl P2PMeshSyncRouter {
     }
 
     pub fn trigger_poll_relay_updates(&self, peer_id: String, store: Arc<ZeroCopyStore>) {
-        let relay_opt = self.relay_url.lock().unwrap().clone();
+        let relay_opt = self.relay_url.lock_poison_safe().clone();
         if let Some(relay_url) = relay_opt {
             let self_clone = self.clone();
             let client = self.client.clone();
             #[cfg(not(target_arch = "wasm32"))]
             {
                 crate::database::native::get_runtime().spawn(async move {
-                    let key = self_clone.signing_key.lock().unwrap().clone();
+                    let key = self_clone.signing_key.lock_poison_safe().clone();
                     let mut query_params = vec![("peer_id", peer_id.clone())];
                     if let Some(ref signing_key) = key {
                         let timestamp = chrono::Utc::now().timestamp_millis().to_string();
@@ -450,7 +460,7 @@ impl P2PMeshSyncRouter {
             #[cfg(target_arch = "wasm32")]
             {
                 wasm_bindgen_futures::spawn_local(async move {
-                    let key = self_clone.signing_key.lock().unwrap().clone();
+                    let key = self_clone.signing_key.lock_poison_safe().clone();
                     let mut query_params = vec![("peer_id", peer_id.clone())];
                     if let Some(ref signing_key) = key {
                         let timestamp = chrono::Utc::now().timestamp_millis().to_string();
@@ -505,14 +515,14 @@ impl P2PMeshSyncRouter {
         peer_id: String,
         store: Arc<ZeroCopyMessageStore>,
     ) {
-        let relay_opt = self.relay_url.lock().unwrap().clone();
+        let relay_opt = self.relay_url.lock_poison_safe().clone();
         if let Some(relay_url) = relay_opt {
             let self_clone = self.clone();
             let client = self.client.clone();
             #[cfg(not(target_arch = "wasm32"))]
             {
                 crate::database::native::get_runtime().spawn(async move {
-                    let key = self_clone.signing_key.lock().unwrap().clone();
+                    let key = self_clone.signing_key.lock_poison_safe().clone();
                     let mut query_params = vec![("peer_id", peer_id.clone())];
                     if let Some(ref signing_key) = key {
                         let timestamp = chrono::Utc::now().timestamp_millis().to_string();
@@ -562,7 +572,7 @@ impl P2PMeshSyncRouter {
             #[cfg(target_arch = "wasm32")]
             {
                 wasm_bindgen_futures::spawn_local(async move {
-                    let key = self_clone.signing_key.lock().unwrap().clone();
+                    let key = self_clone.signing_key.lock_poison_safe().clone();
                     let mut query_params = vec![("peer_id", peer_id.clone())];
                     if let Some(ref signing_key) = key {
                         let timestamp = chrono::Utc::now().timestamp_millis().to_string();
@@ -613,14 +623,14 @@ impl P2PMeshSyncRouter {
     }
 
     pub fn trigger_poll_relay_note_updates(&self, peer_id: String, store: Arc<ZeroCopyNoteStore>) {
-        let relay_opt = self.relay_url.lock().unwrap().clone();
+        let relay_opt = self.relay_url.lock_poison_safe().clone();
         if let Some(relay_url) = relay_opt {
             let self_clone = self.clone();
             let client = self.client.clone();
             #[cfg(not(target_arch = "wasm32"))]
             {
                 crate::database::native::get_runtime().spawn(async move {
-                    let key = self_clone.signing_key.lock().unwrap().clone();
+                    let key = self_clone.signing_key.lock_poison_safe().clone();
                     let mut query_params = vec![("peer_id", peer_id.clone())];
                     if let Some(ref signing_key) = key {
                         let timestamp = chrono::Utc::now().timestamp_millis().to_string();
@@ -670,7 +680,7 @@ impl P2PMeshSyncRouter {
             #[cfg(target_arch = "wasm32")]
             {
                 wasm_bindgen_futures::spawn_local(async move {
-                    let key = self_clone.signing_key.lock().unwrap().clone();
+                    let key = self_clone.signing_key.lock_poison_safe().clone();
                     let mut query_params = vec![("peer_id", peer_id.clone())];
                     if let Some(ref signing_key) = key {
                         let timestamp = chrono::Utc::now().timestamp_millis().to_string();
@@ -721,14 +731,14 @@ impl P2PMeshSyncRouter {
     }
 
     pub fn trigger_poll_relay_audit_updates(&self, peer_id: String, store: Arc<ZeroCopyAuditStore>) {
-        let relay_opt = self.relay_url.lock().unwrap().clone();
+        let relay_opt = self.relay_url.lock_poison_safe().clone();
         if let Some(relay_url) = relay_opt {
             let self_clone = self.clone();
             let client = self.client.clone();
             #[cfg(not(target_arch = "wasm32"))]
             {
                 crate::database::native::get_runtime().spawn(async move {
-                    let key = self_clone.signing_key.lock().unwrap().clone();
+                    let key = self_clone.signing_key.lock_poison_safe().clone();
                     let mut query_params = vec![("peer_id", peer_id.clone())];
                     if let Some(ref signing_key) = key {
                         let timestamp = chrono::Utc::now().timestamp_millis().to_string();
@@ -778,7 +788,7 @@ impl P2PMeshSyncRouter {
             #[cfg(target_arch = "wasm32")]
             {
                 wasm_bindgen_futures::spawn_local(async move {
-                    let key = self_clone.signing_key.lock().unwrap().clone();
+                    let key = self_clone.signing_key.lock_poison_safe().clone();
                     let mut query_params = vec![("peer_id", peer_id.clone())];
                     if let Some(ref signing_key) = key {
                         let timestamp = chrono::Utc::now().timestamp_millis().to_string();
@@ -829,11 +839,11 @@ impl P2PMeshSyncRouter {
     }
 
     pub fn get_connected_peers(&self) -> Vec<String> {
-        self.peers.lock().unwrap().clone()
+        self.peers.lock_poison_safe().clone()
     }
 
     pub fn drain_pending_broadcasts(&self) -> Vec<Vec<u8>> {
-        let mut pending = self.pending_broadcasts.lock().unwrap();
+        let mut pending = self.pending_broadcasts.lock_poison_safe();
         std::mem::take(&mut *pending)
     }
 }
@@ -896,7 +906,7 @@ macro_rules! trigger_once_body {
 }
 
 macro_rules! start_loop_body {
-    ($self:expr, $store:expr, $running_flag:ident, $interval_secs:expr) => {{
+    ($self:expr, $store:expr, $running_flag:ident, $gen_flag:ident, $interval_secs:expr) => {{
         if $self
             .inner
             .$running_flag
@@ -905,14 +915,18 @@ macro_rules! start_loop_body {
             return Ok(());
         }
 
+        let my_gen = $self.inner.$gen_flag.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         let edge_url = $self.inner.edge_url.clone();
         let is_running = $self.inner.$running_flag.clone();
+        let active_gen = $self.inner.$gen_flag.clone();
         let client = $self.inner.client.clone();
 
         #[cfg(not(target_arch = "wasm32"))]
         {
             crate::database::native::get_runtime().spawn(async move {
-                while is_running.load(std::sync::atomic::Ordering::SeqCst) {
+                while is_running.load(std::sync::atomic::Ordering::SeqCst)
+                    && active_gen.load(std::sync::atomic::Ordering::SeqCst) == my_gen
+                {
                     if let Ok(local_changes) = $store.get_loro_changes() {
                         if let Ok(res) = client
                             .post(&format!("{}/sync", edge_url))
@@ -941,7 +955,9 @@ macro_rules! start_loop_body {
         #[cfg(target_arch = "wasm32")]
         {
             wasm_bindgen_futures::spawn_local(async move {
-                while is_running.load(std::sync::atomic::Ordering::SeqCst) {
+                while is_running.load(std::sync::atomic::Ordering::SeqCst)
+                    && active_gen.load(std::sync::atomic::Ordering::SeqCst) == my_gen
+                {
                     if let Ok(local_changes) = $store.get_loro_changes() {
                         if let Ok(res) = client
                             .post(&format!("{}/sync", edge_url))
@@ -977,6 +993,10 @@ struct EdgeSyncLoopInner {
     is_running_messages: Arc<std::sync::atomic::AtomicBool>,
     is_running_notes: Arc<std::sync::atomic::AtomicBool>,
     is_running_audits: Arc<std::sync::atomic::AtomicBool>,
+    todo_gen: Arc<std::sync::atomic::AtomicU64>,
+    message_gen: Arc<std::sync::atomic::AtomicU64>,
+    note_gen: Arc<std::sync::atomic::AtomicU64>,
+    audit_gen: Arc<std::sync::atomic::AtomicU64>,
     client: reqwest::Client,
 }
 
@@ -986,6 +1006,10 @@ impl Drop for EdgeSyncLoopInner {
         self.is_running_messages.store(false, std::sync::atomic::Ordering::SeqCst);
         self.is_running_notes.store(false, std::sync::atomic::Ordering::SeqCst);
         self.is_running_audits.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.todo_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.message_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.note_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.audit_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         tracing::info!("Edge sync loop stopped (all handles dropped)");
     }
 }
@@ -1006,6 +1030,10 @@ impl EdgeSyncLoop {
                 is_running_messages: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 is_running_notes: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 is_running_audits: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                todo_gen: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                message_gen: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                note_gen: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                audit_gen: Arc::new(std::sync::atomic::AtomicU64::new(0)),
                 client: reqwest::Client::new(),
             }),
         }
@@ -1016,6 +1044,10 @@ impl EdgeSyncLoop {
         self.inner.is_running_messages.store(false, std::sync::atomic::Ordering::SeqCst);
         self.inner.is_running_notes.store(false, std::sync::atomic::Ordering::SeqCst);
         self.inner.is_running_audits.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.inner.todo_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.inner.message_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.inner.note_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.inner.audit_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         tracing::info!("Edge sync loop stopped");
     }
 
@@ -1047,7 +1079,7 @@ impl EdgeSyncLoop {
         store: Arc<ZeroCopyStore>,
         interval_secs: u32,
     ) -> Result<(), YntraError> {
-        start_loop_body!(self, store, is_running_todos, interval_secs)
+        start_loop_body!(self, store, is_running_todos, todo_gen, interval_secs)
     }
 
     pub fn start_message_sync_loop(
@@ -1055,7 +1087,7 @@ impl EdgeSyncLoop {
         store: Arc<ZeroCopyMessageStore>,
         interval_secs: u32,
     ) -> Result<(), YntraError> {
-        start_loop_body!(self, store, is_running_messages, interval_secs)
+        start_loop_body!(self, store, is_running_messages, message_gen, interval_secs)
     }
 
     pub fn start_note_sync_loop(
@@ -1063,7 +1095,7 @@ impl EdgeSyncLoop {
         store: Arc<ZeroCopyNoteStore>,
         interval_secs: u32,
     ) -> Result<(), YntraError> {
-        start_loop_body!(self, store, is_running_notes, interval_secs)
+        start_loop_body!(self, store, is_running_notes, note_gen, interval_secs)
     }
 
     pub fn start_audit_sync_loop(
@@ -1071,6 +1103,6 @@ impl EdgeSyncLoop {
         store: Arc<ZeroCopyAuditStore>,
         interval_secs: u32,
     ) -> Result<(), YntraError> {
-        start_loop_body!(self, store, is_running_audits, interval_secs)
+        start_loop_body!(self, store, is_running_audits, audit_gen, interval_secs)
     }
 }

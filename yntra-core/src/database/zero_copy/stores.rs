@@ -2,6 +2,7 @@ use crate::infra::errors::YntraError;
 use crate::models::{AuditLogEntry, DailyNote, MessageItem, TodoItem};
 use std::sync::{Arc, Mutex};
 use super::engine::ZeroCopyEngine;
+use super::MutexExt;
 
 // --- Field Helpers for Loro Map Deserialization ---
 
@@ -459,8 +460,8 @@ fn read_all_notes_from_loro(loro: &loro::LoroDoc) -> Result<Vec<DailyNote>, Yntr
 macro_rules! impl_write_items {
     ($self:expr, $items:expr, $sync_fn:path) => {{
         {
-            let mut inner = $self.inner.lock().unwrap();
-            let mut cache = $self.cache.lock().unwrap();
+            let mut inner = $self.inner.lock_poison_safe();
+            let mut cache = $self.cache.lock_poison_safe();
             *cache = None;
             let mut sorted_items = $items;
             sorted_items.sort_by(|a, b| a.id.cmp(&b.id));
@@ -478,13 +479,13 @@ macro_rules! impl_write_items {
 macro_rules! impl_read_all_items {
     ($self:expr, $t:ty) => {{
         {
-            let cache = $self.cache.lock().unwrap();
+            let cache = $self.cache.lock_poison_safe();
             if let Some(ref list) = *cache {
                 return Ok(list.clone());
             }
         }
 
-        let inner = $self.inner.lock().unwrap();
+        let inner = $self.inner.lock_poison_safe();
         let rkyv_slice = inner.get_rkyv_slice();
         if rkyv_slice.is_empty() {
             return Ok(Vec::new());
@@ -511,7 +512,7 @@ macro_rules! impl_read_all_items {
         };
 
         {
-            let mut cache = $self.cache.lock().unwrap();
+            let mut cache = $self.cache.lock_poison_safe();
             *cache = Some(list.clone());
         }
         Ok(list)
@@ -521,13 +522,13 @@ macro_rules! impl_read_all_items {
 macro_rules! impl_read_item_zero_copy {
     ($self:expr, $item_id:expr, $t:ty) => {{
         {
-            let cache = $self.cache.lock().unwrap();
+            let cache = $self.cache.lock_poison_safe();
             if let Some(ref list) = *cache {
                 return Ok(list.iter().find(|item| item.id == $item_id).cloned());
             }
         }
 
-        let inner = $self.inner.lock().unwrap();
+        let inner = $self.inner.lock_poison_safe();
         let rkyv_slice = inner.get_rkyv_slice();
         if rkyv_slice.is_empty() {
             return Ok(None);
@@ -601,15 +602,15 @@ macro_rules! impl_read_item_zero_copy {
 
 macro_rules! impl_get_loro_changes {
     ($self:expr) => {{
-        let inner = $self.inner.lock().unwrap();
+        let inner = $self.inner.lock_poison_safe();
         inner.get_loro_changes()
     }};
 }
 
 macro_rules! impl_apply_loro_update {
     ($self:expr, $update_bytes:expr, $read_fn:path) => {{
-        let mut inner = $self.inner.lock().unwrap();
-        *$self.cache.lock().unwrap() = None;
+        let mut inner = $self.inner.lock_poison_safe();
+        *$self.cache.lock_poison_safe() = None;
         inner.doc().import(&$update_bytes)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         let mut items = $read_fn(inner.doc())?;
@@ -627,8 +628,8 @@ macro_rules! impl_apply_loro_updates_batch {
         if $updates.is_empty() {
             return Ok(());
         }
-        let mut inner = $self.inner.lock().unwrap();
-        *$self.cache.lock().unwrap() = None;
+        let mut inner = $self.inner.lock_poison_safe();
+        *$self.cache.lock_poison_safe() = None;
         for update in &$updates {
             inner.doc().import(update)
                 .map_err(|e| YntraError::SerializationError(e.to_string()))?;
@@ -680,7 +681,7 @@ impl ZeroCopyStore {
         workspace_id: String,
     ) -> Result<Vec<TodoItem>, YntraError> {
         {
-            let cache = self.cache.lock().unwrap();
+            let cache = self.cache.lock_poison_safe();
             if let Some(ref list) = *cache {
                 return Ok(list
                     .iter()
@@ -690,7 +691,7 @@ impl ZeroCopyStore {
             }
         }
 
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock_poison_safe();
         let rkyv_slice = inner.get_rkyv_slice();
         if rkyv_slice.is_empty() {
             return Ok(Vec::new());
@@ -781,7 +782,7 @@ impl ZeroCopyMessageStore {
             user_teams.iter().map(|t| t.as_str()).collect();
 
         {
-            let cache = self.cache.lock().unwrap();
+            let cache = self.cache.lock_poison_safe();
             if let Some(ref list) = *cache {
                 let mut filtered = Vec::new();
                 for msg in list {
@@ -804,7 +805,7 @@ impl ZeroCopyMessageStore {
             }
         }
 
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock_poison_safe();
         let rkyv_slice = inner.get_rkyv_slice();
         if rkyv_slice.is_empty() {
             return Ok(Vec::new());

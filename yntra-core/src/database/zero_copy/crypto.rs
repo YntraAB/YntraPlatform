@@ -193,7 +193,7 @@ impl ZkCryptoTrust {
             hasher.update(salt_bytes);
             let expected_commitment = hasher.finalize();
 
-            let hash_matches = expected_commitment.as_bytes() == actual_commitment;
+            let hash_matches = constant_time_eq(expected_commitment.as_bytes(), actual_commitment);
             let len_matches = is_valid_len;
 
             Ok(hash_matches && len_matches)
@@ -208,7 +208,7 @@ impl ZkCryptoTrust {
             hasher.update(&data_hash_bytes);
             let expected_commitment = hasher.finalize();
 
-            let hash_matches = expected_commitment.as_bytes() == actual_commitment;
+            let hash_matches = constant_time_eq(expected_commitment.as_bytes(), actual_commitment);
             let len_matches = is_valid_len;
 
             Ok(hash_matches && len_matches)
@@ -309,7 +309,7 @@ impl ZkCryptoTrust {
             hasher.update(salt_bytes);
             let expected_commitment = hasher.finalize();
 
-            expected_commitment.as_bytes() == actual_commitment
+            constant_time_eq(expected_commitment.as_bytes(), actual_commitment)
         } else if proof_bytes.starts_with(b"ZKP_ROLE_PROOF_V1:") && proof_bytes.len() == 82 {
             let actual_commitment = &proof_bytes[18..50];
             let salt_bytes = &proof_bytes[50..82];
@@ -321,9 +321,21 @@ impl ZkCryptoTrust {
             hasher.update(salt_bytes);
             let expected_commitment = hasher.finalize();
 
-            expected_commitment.as_bytes() == actual_commitment
+            constant_time_eq(expected_commitment.as_bytes(), actual_commitment)
         } else {
             false
         }
     }
+}
+
+#[inline(never)]
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut result = 0;
+    for (x, y) in a.iter().zip(b.iter()) {
+        result |= x ^ y;
+    }
+    result == 0
 }
