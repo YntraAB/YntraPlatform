@@ -134,8 +134,63 @@ where
     }
 }
 
+pub async fn init_database_async() -> Result<(), YntraError> {
+    if DATABASE.get().is_some() {
+        return Ok(());
+    }
+
+    let db_path = if cfg!(test) {
+        "file:memdb1?mode=memory&cache=shared".to_string()
+    } else {
+        get_database_path("yntra_local.db")
+    };
+    let credentials = if let Some(creds) = super::sync::get_configured_credentials() {
+        Some(creds)
+    } else if let (Ok(url), Ok(token)) = (std::env::var("LIBSQL_URL"), std::env::var("LIBSQL_AUTH_TOKEN")) {
+        Some((url, token))
+    } else {
+        None
+    };
+    let is_replica = credentials.is_some();
+
+    let db = if let Some((url, token)) = credentials {
+        libsql::Builder::new_remote_replica(&db_path, url, token)
+            .build()
+            .await
+            .map_err(|e| YntraError::DbError(e.to_string()))?
+    } else {
+        libsql::Builder::new_local(&db_path)
+            .build()
+            .await
+            .map_err(|e| YntraError::DbError(e.to_string()))?
+    };
+
+    if is_replica {
+        let _ = db.sync().await;
+    }
+
+    #[cfg(test)]
+    {
+        let keep_alive = db.connect().map_err(|e| YntraError::DbError(e.to_string()))?;
+        let _ = KEEP_ALIVE_CONN.set(keep_alive);
+    }
+    
+    let raw_conn = db.connect().map_err(|e| YntraError::DbError(e.to_string()))?;
+    let _ = raw_conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;").await;
+    let conn = DbConnection {
+        inner: Some(raw_conn),
+        in_transaction: std::sync::atomic::AtomicBool::new(false),
+        _permit: None,
+    };
+    super::schema::setup_schema(&conn).await.map_err(|e| YntraError::DbError(e.to_string()))?;
+    
+    let _ = DATABASE.set(db);
+    Ok(())
+}
+
 pub fn get_database() -> &'static libsql::Database {
     DATABASE.get_or_init(|| {
+        tracing::warn!("get_database() called synchronously before async initialization! Falling back to block_on.");
         block_on(async {
             let db_path = if cfg!(test) {
                 "file:memdb1?mode=memory&cache=shared".to_string()
@@ -163,8 +218,6 @@ pub fn get_database() -> &'static libsql::Database {
                     .expect("Failed to build local database")
             };
 
-            
-            // Try sync once if using replica
             if is_replica {
                 let _ = db.sync().await;
             }

@@ -226,6 +226,7 @@ macro_rules! named_params {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn init_wasm_db() -> Result<(), YntraError> {
+    database::native::init_database_async().await?;
     Ok(())
 }
 
