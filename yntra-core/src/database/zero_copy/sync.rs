@@ -259,7 +259,9 @@ impl P2PMeshSyncRouter {
                             }
                         }
                     }
-                    if !success {
+                    if success {
+                        let _ = in_memory_poll(&peer_id);
+                    } else {
                         let updates = in_memory_poll(&peer_id);
                         if !updates.is_empty() {
                             for u in updates {
@@ -301,7 +303,9 @@ impl P2PMeshSyncRouter {
                             }
                         }
                     }
-                    if !success {
+                    if success {
+                        let _ = in_memory_poll(&peer_id);
+                    } else {
                         let updates = in_memory_poll(&peer_id);
                         if !updates.is_empty() {
                             for u in updates {
@@ -355,7 +359,9 @@ impl P2PMeshSyncRouter {
                             }
                         }
                     }
-                    if !success {
+                    if success {
+                        let _ = in_memory_poll(&peer_id);
+                    } else {
                         let updates = in_memory_poll(&peer_id);
                         if !updates.is_empty() {
                             for u in updates {
@@ -397,7 +403,9 @@ impl P2PMeshSyncRouter {
                             }
                         }
                     }
-                    if !success {
+                    if success {
+                        let _ = in_memory_poll(&peer_id);
+                    } else {
                         let updates = in_memory_poll(&peer_id);
                         if !updates.is_empty() {
                             for u in updates {
@@ -447,7 +455,9 @@ impl P2PMeshSyncRouter {
                             }
                         }
                     }
-                    if !success {
+                    if success {
+                        let _ = in_memory_poll(&peer_id);
+                    } else {
                         let updates = in_memory_poll(&peer_id);
                         if !updates.is_empty() {
                             for u in updates {
@@ -489,7 +499,9 @@ impl P2PMeshSyncRouter {
                             }
                         }
                     }
-                    if !success {
+                    if success {
+                        let _ = in_memory_poll(&peer_id);
+                    } else {
                         let updates = in_memory_poll(&peer_id);
                         if !updates.is_empty() {
                             for u in updates {
