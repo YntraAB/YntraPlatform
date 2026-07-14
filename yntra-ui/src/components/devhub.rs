@@ -17,6 +17,7 @@ impl PartialEq for DevHubDialogProps {
 
 #[component]
 pub fn DevHubDialog(props: DevHubDialogProps) -> Element {
+    let state = use_context::<crate::state::AppState>();
     let open = props.open;
     let onclose = props.onclose;
     let onsubmit = props.onsubmit;
@@ -36,6 +37,7 @@ pub fn DevHubDialog(props: DevHubDialogProps) -> Element {
         let email = admin_email.read().trim().to_string();
         let school = *selected_preset.read() == "school";
         let assistance = *selected_preset.read() == "assistance";
+        let uid = state.active_user_id.read().clone();
 
         spawn(async move {
             is_loading.set(true);
@@ -46,7 +48,7 @@ pub fn DevHubDialog(props: DevHubDialogProps) -> Element {
                 school, assistance, assistance, assistance
             );
 
-            match create_workspace_via_hub(name, email, modules_json).await {
+            match create_workspace_via_hub(uid, name, email, modules_json).await {
                 Ok(_) => {
                     onsubmit.call(());
                     onclose.call(());

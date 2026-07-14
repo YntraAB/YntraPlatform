@@ -182,13 +182,8 @@ fn get_formatted_today_date(today_str: &str, locale: &str) -> String {
 pub fn DashboardView(props: DashboardViewProps) -> Element {
     let state = use_context::<crate::state::AppState>();
     let active_user = props.active_user;
-    let events = state.events.read().clone().unwrap_or_default();
     let unread_messages_count = props.unread_messages_count;
-    let time_reports = state.time_reports.read().clone().unwrap_or_default();
-    let notes = state.notes.read().clone().unwrap_or_default();
     let db_trigger = props.db_trigger;
-    let teams = state.teams.read().clone().unwrap_or_default();
-    let clients = state.clients.read().clone().unwrap_or_default();
     let mut active_section = props.active_section;
     let auth_region = props.auth_region;
     let workspace = props.workspace.clone();
@@ -410,69 +405,90 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
         .clone()
         .unwrap_or_else(|| active_user.email.clone());
 
+    #[derive(Clone, PartialEq)]
     struct RenderedEvent {
         id: String,
         title: String,
         time_range: String,
     }
 
-    // Pre-calculate mapped data for the declarative layout
-    let rendered_today_events = {
-        let mut list: Vec<TeamEvent> = events
-            .iter()
-            .filter(|e| e.start_time.starts_with(&today_prefix))
-            .cloned()
-            .collect();
-        list.sort_by(|a, b| a.start_time.cmp(&b.start_time));
-        list.truncate(3);
+    // Pre-calculate mapped data with memoized signals to avoid recalculation on every render
+    let rendered_today_events_memo = use_memo({
+        let today_prefix = today_prefix.clone();
+        move || {
+            let events_opt = state.events.read();
+            let events_ref = events_opt.as_ref().map(|v| &v[..]).unwrap_or(&[]);
+            let mut list: Vec<TeamEvent> = events_ref
+                .iter()
+                .filter(|e| e.start_time.starts_with(&today_prefix))
+                .cloned()
+                .collect();
+            list.sort_by(|a, b| a.start_time.cmp(&b.start_time));
+            list.truncate(3);
 
-        let mapped: Vec<RenderedEvent> = list
-            .iter()
-            .map(|event| {
-                let start_time_part = if event.start_time.len() >= 16 {
-                    &event.start_time[11..16]
-                } else {
-                    &event.start_time
-                };
-                let end_time_part = if event.end_time.len() >= 16 {
-                    &event.end_time[11..16]
-                } else {
-                    &event.end_time
-                };
-                RenderedEvent {
-                    id: event.id.clone(),
-                    title: event.title.clone(),
-                    time_range: format!("{} - {}", start_time_part, end_time_part),
-                }
-            })
-            .collect();
-        mapped
-    };
+            let mapped: Vec<RenderedEvent> = list
+                .iter()
+                .map(|event| {
+                    let start_time_part = if event.start_time.len() >= 16 {
+                        &event.start_time[11..16]
+                    } else {
+                        &event.start_time
+                    };
+                    let end_time_part = if event.end_time.len() >= 16 {
+                        &event.end_time[11..16]
+                    } else {
+                        &event.end_time
+                    };
+                    RenderedEvent {
+                        id: event.id.clone(),
+                        title: event.title.clone(),
+                        time_range: format!("{} - {}", start_time_part, end_time_part),
+                    }
+                })
+                .collect();
+            mapped
+        }
+    });
 
-    let pending_tickets = {
-        let tickets = job_tickets.read().clone().unwrap_or_default();
-        let mut list: Vec<yntra_core::JobTicket> = tickets
+    let pending_tickets_memo = use_memo(move || {
+        let tickets_opt = job_tickets.read();
+        let tickets_ref = tickets_opt.as_ref().map(|v| &v[..]).unwrap_or(&[]);
+        let mut list: Vec<yntra_core::JobTicket> = tickets_ref
             .iter()
             .filter(|t| t.status == "pending" || t.status == "assigned")
             .cloned()
             .collect();
         list.truncate(3);
         list
-    };
+    });
 
-    let active_todos = {
-        let todo_list = todos.read().clone().unwrap_or_default();
+    let active_todos_memo = use_memo(move || {
+        let todo_list = todos.read();
+        let todo_ref = todo_list.as_ref().map(|v| &v[..]).unwrap_or(&[]);
         let mut list: Vec<yntra_core::TodoItem> =
-            todo_list.iter().filter(|t| !t.completed).cloned().collect();
+            todo_ref.iter().filter(|t| !t.completed).cloned().collect();
         list.truncate(3);
         list
-    };
+    });
 
-    let today_hours: f64 = time_reports
-        .iter()
-        .filter(|r| r.date == today_prefix)
-        .map(|r| r.hours)
-        .sum();
+    let today_hours_memo = use_memo({
+        let today_prefix = today_prefix.clone();
+        move || {
+            let trs_opt = state.time_reports.read();
+            let trs_ref = trs_opt.as_ref().map(|v| &v[..]).unwrap_or(&[]);
+            let today_hours: f64 = trs_ref
+                .iter()
+                .filter(|r| r.date == today_prefix)
+                .map(|r| r.hours)
+                .sum();
+            today_hours
+        }
+    });
+
+    let rendered_today_events = rendered_today_events_memo.read();
+    let pending_tickets = pending_tickets_memo.read();
+    let active_todos = active_todos_memo.read();
+    let today_hours = *today_hours_memo.read();
 
     let course_count = 0;
     let slot_count = 0;
@@ -637,15 +653,23 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                             class: "text-sm font-medium",
                                             "{t(\"section-notes\", &locale)}"
                                         }
-                                        if !notes.is_empty() {
-                                            span {
-                                                class: "flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground",
-                                                "{notes.len()}"
-                                            }
-                                        } else {
-                                            span {
-                                                class: "text-sm text-muted-foreground",
-                                                "0"
+                                        {
+                                            let notes_opt = state.notes.read();
+                                            let notes_len = notes_opt.as_ref().map(|v| v.len()).unwrap_or(0);
+                                            if notes_len > 0 {
+                                                rsx! {
+                                                    span {
+                                                        class: "flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground",
+                                                        "{notes_len}"
+                                                    }
+                                                }
+                                            } else {
+                                                rsx! {
+                                                    span {
+                                                        class: "text-sm text-muted-foreground",
+                                                        "0"
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -930,7 +954,7 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                         }
                                         span {
                                             class: "flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground",
-                                            "{clients.len()}"
+                                            "{state.clients.read().as_ref().map(|v| v.len()).unwrap_or(0)}"
                                         }
                                     }
                                 }
@@ -1169,8 +1193,8 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
         time_report_modal::TimeReportModal {
             show_report_time_modal: show_report_time_modal,
             active_user: active_user.clone(),
-            teams: teams,
-            clients: clients,
+            teams: state.teams.read().clone().unwrap_or_default(),
+            clients: state.clients.read().clone().unwrap_or_default(),
             db_trigger: db_trigger,
             locale: locale.clone(),
         }

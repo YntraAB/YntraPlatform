@@ -30,6 +30,7 @@ impl PartialEq for AddEventModalProps {
 
 #[component]
 pub fn AddEventModal(props: AddEventModalProps) -> Element {
+    let state = use_context::<crate::state::AppState>();
     let mut show_add_event_modal = props.show_add_event_modal;
     let mut editing_event = props.editing_event;
     let db_trigger = props.db_trigger;
@@ -40,7 +41,8 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
     // Fetch the active template type from core database
     let template_type_res = use_resource(move || {
         let ws_id = workspace_id.clone();
-        async move { yntra_core::get_workspace_template_type(ws_id).await }
+        let uid = state.active_user_id.read().clone();
+        async move { yntra_core::get_workspace_template_type(uid, ws_id).await }
     });
 
     // Form inputs local states

@@ -38,7 +38,8 @@ pub fn EventDetailModal(props: EventDetailModalProps) -> Element {
             .as_ref()
             .map(|e| e.workspace_id.clone())
             .unwrap_or_else(|| "workspace-1".to_string());
-        async move { yntra_core::get_workspace_template_type(ws_id).await }
+        let uid = state.active_user_id.read().clone();
+        async move { yntra_core::get_workspace_template_type(uid, ws_id).await }
     });
 
     if let Some(ref ev) = *show_event_detail_modal.read() {
