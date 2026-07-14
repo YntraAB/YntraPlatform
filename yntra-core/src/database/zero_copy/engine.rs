@@ -1,5 +1,15 @@
 use crate::infra::errors::YntraError;
 
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_name = yntra_save_store_bin, catch)]
+    async fn js_save_store_bin(file_name: &str, data: &js_sys::Uint8Array) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue>;
+
+    #[wasm_bindgen(js_name = yntra_load_store_bin, catch)]
+    async fn js_load_store_bin(file_name: &str) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue>;
+}
+
 pub struct ZeroCopyEngine {
     _file_path: String,
     #[cfg(not(target_arch = "wasm32"))]
@@ -55,7 +65,7 @@ impl ZeroCopyEngine {
         {
             let mut buffer = rkyv::util::AlignedVec::<16>::new();
 
-            // Try to load from browser's localStorage
+            // Try to load from browser's localStorage as a fallback
             if let Some(window) = web_sys::window() {
                 if let Ok(Some(storage)) = window.local_storage() {
                     if let Ok(Some(hex_str)) = storage.get_item(&file_path) {
@@ -76,6 +86,10 @@ impl ZeroCopyEngine {
 
             Ok(engine)
         }
+    }
+
+    pub fn file_path(&self) -> &str {
+        &self._file_path
     }
 
     pub fn get_bytes(&self) -> &[u8] {
@@ -186,17 +200,17 @@ impl ZeroCopyEngine {
             if let Some(window) = web_sys::window() {
                 if let Ok(Some(storage)) = window.local_storage() {
                     let hex_str = const_hex::encode(&buf);
-                    storage
-                        .set_item(&self._file_path, &hex_str)
-                        .map_err(|e| {
-                            let msg = e.as_string().unwrap_or_else(|| "Unknown JavaScript error".to_string());
-                            YntraError::DbError(format!(
-                                "Failed to save database to browser localStorage (quota exceeded or storage disabled): {}",
-                                msg
-                            ))
-                        })?;
+                    let _ = storage.set_item(&self._file_path, &hex_str);
                 }
             }
+
+            // Save to OPFS asynchronously in a spawned task
+            let file_path = self._file_path.clone();
+            let bytes_vec = buf.to_vec();
+            wasm_bindgen_futures::spawn_local(async move {
+                let array = js_sys::Uint8Array::from(&bytes_vec[..]);
+                let _ = js_save_store_bin(&file_path, &array).await;
+            });
 
             self.buffer = buf;
         }
@@ -269,5 +283,16 @@ impl ZeroCopyEngine {
 
     pub fn doc(&self) -> &loro::LoroDoc {
         &self.loro
+    }
+
+    #[allow(unused_variables)]
+    pub fn load_from_bytes(&mut self, bytes: &[u8]) -> Result<(), YntraError> {
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.buffer.clear();
+            self.buffer.extend_from_slice(bytes);
+            self.load_loro_from_buffer()?;
+        }
+        Ok(())
     }
 }

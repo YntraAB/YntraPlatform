@@ -59,10 +59,10 @@ window.yntra_execute_sql = function(type, sql, params) {
   });
 };
 
-window.yntra_save_store_bin = async function(uint8Array) {
+window.yntra_save_store_bin = async function(fileName, uint8Array) {
   try {
     const root = await navigator.storage.getDirectory();
-    const fileHandle = await root.getFileHandle("yntra_store.bin", { create: true });
+    const fileHandle = await root.getFileHandle(fileName, { create: true });
     const writable = await fileHandle.createWritable();
     await writable.write(uint8Array);
     await writable.close();
@@ -71,10 +71,10 @@ window.yntra_save_store_bin = async function(uint8Array) {
   }
 };
 
-window.yntra_load_store_bin = async function() {
+window.yntra_load_store_bin = async function(fileName) {
   try {
     const root = await navigator.storage.getDirectory();
-    const fileHandle = await root.getFileHandle("yntra_store.bin", { create: true });
+    const fileHandle = await root.getFileHandle(fileName, { create: true });
     const file = await fileHandle.getFile();
     if (file.size > 0) {
       const buffer = await file.arrayBuffer();

@@ -205,7 +205,7 @@ pub async fn add_report(
         ).await;
 
         // Also write to ZeroCopyMessageStore to keep inbox and DB synchronized
-        let store = crate::services::messages::get_message_store();
+        let store = crate::services::messages::get_message_store(&item.workspace_id);
         if let Ok(mut messages) = store.read_all_messages() {
             let msg_item = MessageItem {
                 id: msg_id,

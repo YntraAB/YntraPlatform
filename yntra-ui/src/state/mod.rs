@@ -10,7 +10,7 @@ use yntra_core::{
     ClientProfile, DailyNote, MessageItem, ReportItem, Team, TeamEvent, TimeReport, TodoItem,
     Workspace, WorkspaceUser, clear_observers, clear_session_key, get_users, init_tracing,
     init_wasm_db, is_session_key_set, load_local_workspace_key, register_observer,
-    start_background_sync,
+    start_background_sync, load_workspace_zero_copy_stores,
 };
 
 #[derive(Clone, Copy)]
@@ -193,6 +193,7 @@ pub fn use_init_app_state() -> AppState {
         spawn(async move {
             let _ = init_tracing();
             let _ = init_wasm_db().await;
+            let _ = load_workspace_zero_copy_stores("workspace-1".to_string()).await;
             start_background_sync(30);
             let mut eval = dioxus::document::eval(
                 r#"
@@ -276,8 +277,9 @@ pub fn use_init_app_state() -> AppState {
                             .clone()
                             .unwrap_or_else(|| "workspace-1".to_string());
                         if !is_session_key_set() {
-                            let _ = load_local_workspace_key(ws_id).await;
+                            let _ = load_local_workspace_key(ws_id.clone()).await;
                         }
+                        let _ = load_workspace_zero_copy_stores(ws_id).await;
                         active_role_sig.set(user.role.clone());
                     }
                 }

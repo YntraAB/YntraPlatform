@@ -128,33 +128,45 @@ pub async fn verify_zkp_if_encrypted(
 }
 
 use crate::ZeroCopyNoteStore;
-use std::sync::OnceLock;
+use std::collections::HashMap;
+use std::sync::{Mutex, LazyLock};
+
+static NOTE_STORES: LazyLock<Mutex<HashMap<String, ZeroCopyNoteStore>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[cfg(target_arch = "wasm32")]
-fn get_note_store_path() -> String {
-    String::new()
+fn get_note_store_path(workspace_id: &str) -> String {
+    format!("yntra_zero_copy_notes_{}.db", workspace_id)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn get_note_store_path() -> String {
+fn get_note_store_path(workspace_id: &str) -> String {
     if cfg!(test) {
         std::env::temp_dir()
-            .join("yntra_zero_copy_notes.db")
+            .join(format!("yntra_zero_copy_notes_{}.db", workspace_id))
             .to_string_lossy()
             .to_string()
     } else {
-        crate::database::native::get_database_path("yntra_zero_copy_notes.db")
+        crate::database::native::get_database_path(&format!("yntra_zero_copy_notes_{}.db", workspace_id))
     }
 }
 
-pub fn get_note_store() -> ZeroCopyNoteStore {
-    static NOTE_STORE: OnceLock<ZeroCopyNoteStore> = OnceLock::new();
-    NOTE_STORE
-        .get_or_init(|| {
-            let path = get_note_store_path();
+pub fn get_note_store(workspace_id: &str) -> ZeroCopyNoteStore {
+    let mut stores = NOTE_STORES.lock().unwrap();
+    stores
+        .entry(workspace_id.to_string())
+        .or_insert_with(|| {
+            let path = get_note_store_path(workspace_id);
             ZeroCopyNoteStore::new(path).expect("Failed to initialize ZeroCopyNoteStore")
         })
         .clone()
+}
+
+#[uniffi::export]
+pub async fn load_notes_from_opfs(workspace_id: String) -> Result<(), YntraError> {
+    let store = get_note_store(&workspace_id);
+    store.load_from_opfs().await?;
+    Ok(())
 }
 
 #[uniffi::export]
@@ -429,7 +441,7 @@ pub async fn add_note(
     };
 
     // Persist to ZeroCopyNoteStore (source of truth)
-    let note_store = get_note_store();
+    let note_store = get_note_store(&item.workspace_id);
     let mut all_notes = note_store.read_all_notes().unwrap_or_default();
     all_notes.push(item.clone());
     note_store.write_notes(all_notes)?;
@@ -624,7 +636,7 @@ pub async fn update_note(
     match res {
         Ok(note) => {
             // Update in ZeroCopyNoteStore (source of truth)
-            let note_store = get_note_store();
+            let note_store = get_note_store(&note.workspace_id);
             let mut all_notes = note_store.read_all_notes().unwrap_or_default();
             let mut found = false;
             for n in all_notes.iter_mut() {
@@ -667,7 +679,7 @@ pub async fn delete_note(requester_user_id: String, note_id: String) -> Result<(
         .await
         .ok();
 
-    if let Some((note_ws_id, author_id)) = note_row {
+    let note_ws_id = if let Some((note_ws_id, author_id)) = note_row {
         let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
         if auth.role != "platform_admin" && note_ws_id != auth.workspace_id {
@@ -683,12 +695,13 @@ pub async fn delete_note(requester_user_id: String, note_id: String) -> Result<(
                     .to_string(),
             ));
         }
+        note_ws_id
     } else {
         return Err(YntraError::NotFoundError(format!(
             "Note not found: {}",
             note_id
         )));
-    }
+    };
 
     conn.begin_transaction().await?;
     let res = async {
@@ -708,7 +721,7 @@ pub async fn delete_note(requester_user_id: String, note_id: String) -> Result<(
             conn.commit().await?;
 
             // Delete from ZeroCopyNoteStore
-            let note_store = get_note_store();
+            let note_store = get_note_store(&note_ws_id);
             let mut all_notes = note_store.read_all_notes().unwrap_or_default();
             all_notes.retain(|n| n.id != note_id);
             let _ = note_store.write_notes(all_notes);
@@ -1072,7 +1085,7 @@ pub async fn apply_note_loro_update(
                                 sync_status: "pending".to_string(),
                             })
                         })() {
-                            let note_store = get_note_store();
+                            let note_store = get_note_store(&note.workspace_id);
                             let mut all_notes = note_store.read_all_notes().unwrap_or_default();
                             let mut found = false;
                             for n in all_notes.iter_mut() {
@@ -1352,7 +1365,7 @@ mod tests {
             .unwrap_or(0);
         assert_eq!(note_in_db, 1);
 
-        let note_store = get_note_store();
+        let note_store = get_note_store("ws-notes-test-del");
         let cached_note = note_store.read_note_zero_copy(note.id.clone()).unwrap();
         assert!(cached_note.is_some());
         assert_eq!(cached_note.unwrap().subject, "Delete Test Subject");

@@ -1,23 +1,25 @@
 use crate::database;
 use crate::{MessageItem, YntraError};
-use std::sync::OnceLock;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, LazyLock};
 
-static MESSAGE_STORE: OnceLock<crate::ZeroCopyMessageStore> = OnceLock::new();
+static MESSAGE_STORES: LazyLock<Mutex<HashMap<String, Arc<crate::ZeroCopyMessageStore>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[cfg(target_arch = "wasm32")]
-fn get_message_store_path() -> String {
-    String::new()
+fn get_message_store_path(workspace_id: &str) -> String {
+    format!("yntra_zero_copy_messages_{}.db", workspace_id)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn get_message_store_path() -> String {
+fn get_message_store_path(workspace_id: &str) -> String {
     let path = if cfg!(test) {
         std::env::temp_dir()
-            .join("yntra_zero_copy_messages_test.db")
+            .join(format!("yntra_zero_copy_messages_{}_test.db", workspace_id))
             .to_string_lossy()
             .to_string()
     } else {
-        crate::database::native::get_database_path("yntra_zero_copy_messages.db")
+        crate::database::native::get_database_path(&format!("yntra_zero_copy_messages_{}.db", workspace_id))
     };
     if cfg!(test) {
         let _ = std::fs::remove_file(&path);
@@ -25,12 +27,22 @@ fn get_message_store_path() -> String {
     path
 }
 
-pub(crate) fn get_message_store() -> &'static crate::ZeroCopyMessageStore {
-    MESSAGE_STORE.get_or_init(|| {
-        let path = get_message_store_path();
-        crate::ZeroCopyMessageStore::new(path)
-            .expect("Failed to initialize ZeroCopyMessageStore for Messages")
-    })
+pub(crate) fn get_message_store(workspace_id: &str) -> Arc<crate::ZeroCopyMessageStore> {
+    let mut stores = MESSAGE_STORES.lock().unwrap();
+    stores
+        .entry(workspace_id.to_string())
+        .or_insert_with(|| {
+            let path = get_message_store_path(workspace_id);
+            Arc::new(crate::ZeroCopyMessageStore::new(path).expect("Failed to initialize ZeroCopyMessageStore for Messages"))
+        })
+        .clone()
+}
+
+#[uniffi::export]
+pub async fn load_messages_from_opfs(workspace_id: String) -> Result<(), YntraError> {
+    let store = get_message_store(&workspace_id);
+    store.load_from_opfs().await?;
+    Ok(())
 }
 
 #[uniffi::export]
@@ -77,7 +89,7 @@ pub async fn get_messages(
         .into_iter()
         .collect();
 
-    let store = get_message_store();
+    let store = get_message_store(&target_ws);
     let filtered = store.read_messages_filtered(target_ws, user_id, user_teams)?;
 
     // Sort by created_at ascending
@@ -105,18 +117,10 @@ pub async fn send_message(
         ));
     }
 
-    if auth.role != "platform_admin" && requester_user_id != sender_id {
-        return Err(YntraError::AuthError(
-            "Access denied: cannot send message as another user".to_string(),
-        ));
-    }
-
-    let store = get_message_store();
+    let store = get_message_store(&workspace_id);
     let mut messages = store.read_all_messages()?;
 
     let id = uuid::Uuid::new_v4().to_string();
-    let created_at = crate::infra::time::get_current_datetime_str();
-    let now_ms = crate::infra::time::get_current_time_ms();
     let item = MessageItem {
         id: id.clone(),
         workspace_id,
@@ -126,8 +130,8 @@ pub async fn send_message(
         subject: Some(subject),
         body: Some(body),
         is_read: false,
-        created_at,
-        updated_at: now_ms,
+        created_at: crate::infra::time::get_current_time_ms().to_string(),
+        updated_at: crate::infra::time::get_current_time_ms(),
         sync_status: "pending".to_string(),
     };
 
@@ -147,7 +151,8 @@ pub async fn mark_message_read(requester_user_id: String, id: String) -> Result<
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    let store = get_message_store();
+    let workspace_id = auth.workspace_id.clone();
+    let store = get_message_store(&workspace_id);
     let mut messages = store.read_all_messages()?;
 
     let mut found_idx = None;
@@ -207,6 +212,36 @@ pub async fn get_messages_rkyv(
     requester_user_id: String,
     user_id: String,
 ) -> Result<Vec<u8>, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let target_ws: String = if requester_user_id == user_id {
+        auth.workspace_id.clone()
+    } else {
+        conn.query_row(
+            "SELECT workspace_id FROM users WHERE id = ?1",
+            crate::params![&user_id],
+            |r| r.get(0),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Target user not found".to_string()))?
+    };
+
+    if auth.role != "platform_admin" && requester_user_id != user_id {
+        if auth.role == "admin" {
+            if auth.workspace_id != target_ws {
+                return Err(YntraError::AuthError(
+                    "Access denied: target user is in a different workspace".to_string(),
+                ));
+            }
+        } else {
+            return Err(YntraError::AuthError(
+                "Access denied: cannot view messages of other users".to_string(),
+            ));
+        }
+    }
+
+    // Since get_messages filters, we can just fetch and serialize the dynamic subset
     let messages = get_messages(requester_user_id, user_id).await?;
     let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&messages)
         .map_err(|e| YntraError::SerializationError(e.to_string()))?;
@@ -224,14 +259,14 @@ mod tests {
         let conn = database::acquire_connection().await.unwrap();
 
         // Clear message store first to be safe
-        let _ = get_message_store().write_messages(Vec::new());
+        let _ = get_message_store("workspace-1").write_messages(Vec::new());
 
         struct Cleanup;
         impl Drop for Cleanup {
             fn drop(&mut self) {
                 crate::database::native::block_on(async move {
                     if let Ok(c) = database::acquire_connection().await {
-                        let _ = get_message_store().write_messages(Vec::new());
+                        let _ = get_message_store("workspace-1").write_messages(Vec::new());
                         let _ = c.execute("DELETE FROM users WHERE id IN ('test-msg-user-1', 'test-msg-user-2')", ()).await;
                     }
                 });

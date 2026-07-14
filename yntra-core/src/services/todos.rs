@@ -1,23 +1,25 @@
 use crate::database;
 use crate::{TodoItem, YntraError};
-use std::sync::OnceLock;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, LazyLock};
 
-static TODO_STORE: OnceLock<crate::ZeroCopyStore> = OnceLock::new();
+static TODO_STORES: LazyLock<Mutex<HashMap<String, Arc<crate::ZeroCopyStore>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[cfg(target_arch = "wasm32")]
-fn get_todo_store_path() -> String {
-    String::new()
+fn get_todo_store_path(workspace_id: &str) -> String {
+    format!("yntra_zero_copy_todos_{}.db", workspace_id)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn get_todo_store_path() -> String {
+fn get_todo_store_path(workspace_id: &str) -> String {
     let path = if cfg!(test) {
         std::env::temp_dir()
-            .join("yntra_zero_copy_todos_test.db")
+            .join(format!("yntra_zero_copy_todos_{}_test.db", workspace_id))
             .to_string_lossy()
             .to_string()
     } else {
-        crate::database::native::get_database_path("yntra_zero_copy_todos.db")
+        crate::database::native::get_database_path(&format!("yntra_zero_copy_todos_{}.db", workspace_id))
     };
     if cfg!(test) {
         let _ = std::fs::remove_file(&path);
@@ -25,11 +27,22 @@ fn get_todo_store_path() -> String {
     path
 }
 
-fn get_todo_store() -> &'static crate::ZeroCopyStore {
-    TODO_STORE.get_or_init(|| {
-        let path = get_todo_store_path();
-        crate::ZeroCopyStore::new(path).expect("Failed to initialize ZeroCopyStore for Todos")
-    })
+pub fn get_todo_store(workspace_id: &str) -> Arc<crate::ZeroCopyStore> {
+    let mut stores = TODO_STORES.lock().unwrap();
+    stores
+        .entry(workspace_id.to_string())
+        .or_insert_with(|| {
+            let path = get_todo_store_path(workspace_id);
+            Arc::new(crate::ZeroCopyStore::new(path).expect("Failed to initialize ZeroCopyStore for Todos"))
+        })
+        .clone()
+}
+
+#[uniffi::export]
+pub async fn load_todos_from_opfs(workspace_id: String) -> Result<(), YntraError> {
+    let store = get_todo_store(&workspace_id);
+    store.load_from_opfs().await?;
+    Ok(())
 }
 
 #[uniffi::export]
@@ -45,7 +58,7 @@ pub async fn get_todos(
         ));
     }
 
-    let store = get_todo_store();
+    let store = get_todo_store(&workspace_id);
     let filtered = store.read_todos_by_workspace(workspace_id)?;
     Ok(filtered)
 }
@@ -64,7 +77,7 @@ pub async fn add_todo(
         ));
     }
 
-    let store = get_todo_store();
+    let store = get_todo_store(&workspace_id);
     let mut todos = store.read_all_todos()?;
 
     let id = uuid::Uuid::new_v4().to_string();
@@ -92,7 +105,10 @@ pub async fn toggle_todo(requester_user_id: String, id: String) -> Result<(), Yn
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    let store = get_todo_store();
+    // Find workspace_id from SQLite or use the user's workspace_id since todo is not globally registered
+    // We can query all stores or query the user's workspace_id store as default
+    let workspace_id = auth.workspace_id.clone();
+    let store = get_todo_store(&workspace_id);
     let mut todos = store.read_all_todos()?;
 
     let mut found = false;
@@ -132,10 +148,17 @@ pub async fn get_todos_rkyv(
     requester_user_id: String,
     workspace_id: String,
 ) -> Result<Vec<u8>, YntraError> {
-    let todos = get_todos(requester_user_id, workspace_id).await?;
-    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&todos)
-        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-    Ok(bytes.into_vec())
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    let store = get_todo_store(&workspace_id);
+    let bytes = store.get_rkyv_bytes()?;
+    Ok(bytes)
 }
 
 #[cfg(test)]
@@ -153,7 +176,7 @@ mod tests {
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-todo-user', 'ws-todo-test', 'todo@user.com', 'user')", ()).await.unwrap();
 
         // Clear store first to be safe
-        let _ = get_todo_store().write_todos(Vec::new());
+        let _ = get_todo_store("ws-todo-test").write_todos(Vec::new());
 
         struct Cleanup {
             ws_id: String,
@@ -163,7 +186,7 @@ mod tests {
                 let ws_id = self.ws_id.clone();
                 crate::database::native::block_on(async move {
                     if let Ok(c) = crate::database::acquire_connection().await {
-                        let _ = get_todo_store().write_todos(Vec::new());
+                        let _ = get_todo_store(&ws_id).write_todos(Vec::new());
                         let _ = c
                             .execute(
                                 "DELETE FROM users WHERE workspace_id = ?1",

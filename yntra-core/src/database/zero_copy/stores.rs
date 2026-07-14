@@ -67,7 +67,7 @@ fn sync_todos_to_loro(loro: &loro::LoroDoc, todos: &[TodoItem]) -> Result<(), Yn
     Ok(())
 }
 
-fn read_all_todos_from_loro(loro: &loro::LoroDoc) -> Result<Vec<TodoItem>, YntraError> {
+pub(crate) fn read_all_todos_from_loro(loro: &loro::LoroDoc) -> Result<Vec<TodoItem>, YntraError> {
     let db_map = loro.get_map("db");
     let mut todos = Vec::new();
     let mut err = None;
@@ -386,7 +386,7 @@ fn sync_notes_to_loro(loro: &loro::LoroDoc, notes: &[DailyNote]) -> Result<(), Y
     Ok(())
 }
 
-fn read_all_notes_from_loro(loro: &loro::LoroDoc) -> Result<Vec<DailyNote>, YntraError> {
+pub(crate) fn read_all_notes_from_loro(loro: &loro::LoroDoc) -> Result<Vec<DailyNote>, YntraError> {
     let db_map = loro.get_map("db");
     let mut notes = Vec::new();
     let mut err = None;
@@ -472,6 +472,7 @@ macro_rules! impl_write_items {
             inner.save_to_disk(&rkyv_bytes, &loro_bytes)?;
             *cache = Some(sorted_items);
         }
+        crate::infra::observer::notify_observers();
         Ok(())
     }};
 }
@@ -619,6 +620,7 @@ macro_rules! impl_apply_loro_update {
         let rkyv_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&items)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         inner.save_to_disk(&rkyv_bytes, &loro_bytes)?;
+        crate::infra::observer::notify_observers();
         Ok(())
     }};
 }
@@ -640,6 +642,7 @@ macro_rules! impl_apply_loro_updates_batch {
         let rkyv_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&items)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         inner.save_to_disk(&rkyv_bytes, &loro_bytes)?;
+        crate::infra::observer::notify_observers();
         Ok(())
     }};
 }
@@ -741,6 +744,26 @@ impl ZeroCopyStore {
 
     pub fn apply_loro_updates_batch(&self, updates: Vec<Vec<u8>>) -> Result<(), YntraError> {
         impl_apply_loro_updates_batch!(self, updates, read_all_todos_from_loro)
+    }
+
+    pub async fn load_from_opfs(&self) -> Result<(), YntraError> {
+        let file_path = {
+            let inner = self.inner.lock_poison_safe();
+            inner.file_path().to_string()
+        };
+        let bytes = load_from_opfs_by_path(&file_path).await?;
+        if let Some(bytes) = bytes {
+            let mut inner = self.inner.lock_poison_safe();
+            inner.load_from_bytes(&bytes)?;
+        }
+        let mut cache = self.cache.lock_poison_safe();
+        *cache = None;
+        Ok(())
+    }
+
+    pub fn get_rkyv_bytes(&self) -> Result<Vec<u8>, YntraError> {
+        let inner = self.inner.lock_poison_safe();
+        Ok(inner.get_rkyv_slice().to_vec())
     }
 }
 
@@ -890,6 +913,26 @@ impl ZeroCopyMessageStore {
     pub fn apply_loro_updates_batch(&self, updates: Vec<Vec<u8>>) -> Result<(), YntraError> {
         impl_apply_loro_updates_batch!(self, updates, read_all_messages_from_loro)
     }
+
+    pub async fn load_from_opfs(&self) -> Result<(), YntraError> {
+        let file_path = {
+            let inner = self.inner.lock_poison_safe();
+            inner.file_path().to_string()
+        };
+        let bytes = load_from_opfs_by_path(&file_path).await?;
+        if let Some(bytes) = bytes {
+            let mut inner = self.inner.lock_poison_safe();
+            inner.load_from_bytes(&bytes)?;
+        }
+        let mut cache = self.cache.lock_poison_safe();
+        *cache = None;
+        Ok(())
+    }
+
+    pub fn get_rkyv_bytes(&self) -> Result<Vec<u8>, YntraError> {
+        let inner = self.inner.lock_poison_safe();
+        Ok(inner.get_rkyv_slice().to_vec())
+    }
 }
 
 // --- ZeroCopyAuditStore (AuditLogEntry) ---
@@ -934,6 +977,26 @@ impl ZeroCopyAuditStore {
 
     pub fn apply_loro_updates_batch(&self, updates: Vec<Vec<u8>>) -> Result<(), YntraError> {
         impl_apply_loro_updates_batch!(self, updates, read_all_audits_from_loro)
+    }
+
+    pub async fn load_from_opfs(&self) -> Result<(), YntraError> {
+        let file_path = {
+            let inner = self.inner.lock_poison_safe();
+            inner.file_path().to_string()
+        };
+        let bytes = load_from_opfs_by_path(&file_path).await?;
+        if let Some(bytes) = bytes {
+            let mut inner = self.inner.lock_poison_safe();
+            inner.load_from_bytes(&bytes)?;
+        }
+        let mut cache = self.cache.lock_poison_safe();
+        *cache = None;
+        Ok(())
+    }
+
+    pub fn get_rkyv_bytes(&self) -> Result<Vec<u8>, YntraError> {
+        let inner = self.inner.lock_poison_safe();
+        Ok(inner.get_rkyv_slice().to_vec())
     }
 }
 
@@ -980,6 +1043,26 @@ impl ZeroCopyNoteStore {
     pub fn apply_loro_updates_batch(&self, updates: Vec<Vec<u8>>) -> Result<(), YntraError> {
         impl_apply_loro_updates_batch!(self, updates, read_all_notes_from_loro)
     }
+
+    pub async fn load_from_opfs(&self) -> Result<(), YntraError> {
+        let file_path = {
+            let inner = self.inner.lock_poison_safe();
+            inner.file_path().to_string()
+        };
+        let bytes = load_from_opfs_by_path(&file_path).await?;
+        if let Some(bytes) = bytes {
+            let mut inner = self.inner.lock_poison_safe();
+            inner.load_from_bytes(&bytes)?;
+        }
+        let mut cache = self.cache.lock_poison_safe();
+        *cache = None;
+        Ok(())
+    }
+
+    pub fn get_rkyv_bytes(&self) -> Result<Vec<u8>, YntraError> {
+        let inner = self.inner.lock_poison_safe();
+        Ok(inner.get_rkyv_slice().to_vec())
+    }
 }
 
 // --- Helpers ---
@@ -1018,4 +1101,39 @@ pub fn create_peer_note_store(name: String) -> Result<ZeroCopyNoteStore, YntraEr
         let _ = name;
         ZeroCopyNoteStore::new(String::new())
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_name = yntra_load_store_bin, catch)]
+    async fn js_load_store_bin_stores(file_name: &str) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue>;
+}
+
+pub async fn load_from_opfs_by_path(file_path: &str) -> Result<Option<Vec<u8>>, YntraError> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let fut = js_load_store_bin_stores(file_path);
+        let send_fut = crate::database::wasm::SendFuture::new(fut);
+        match send_fut.await {
+            Ok(js_val) => {
+                if !js_val.is_null() && !js_val.is_undefined() {
+                    let array = js_sys::Uint8Array::new(&js_val);
+                    let bytes = array.to_vec();
+                    if !bytes.is_empty() {
+                        return Ok(Some(bytes));
+                    }
+                }
+            }
+            Err(e) => {
+                let msg = e.as_string().unwrap_or_else(|| "Unknown OPFS load error".to_string());
+                return Err(YntraError::DbError(msg));
+            }
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = file_path;
+    }
+    Ok(None)
 }

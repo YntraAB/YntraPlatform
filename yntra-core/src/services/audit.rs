@@ -1,24 +1,26 @@
 use crate::database;
 use crate::{AuditLogEntry, YntraError};
-use std::sync::OnceLock;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, LazyLock};
 use uuid::Uuid;
 
-static AUDIT_STORE: OnceLock<crate::ZeroCopyAuditStore> = OnceLock::new();
+static AUDIT_STORES: LazyLock<Mutex<HashMap<String, Arc<crate::ZeroCopyAuditStore>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[cfg(target_arch = "wasm32")]
-fn get_audit_store_path() -> String {
-    String::new()
+fn get_audit_store_path(workspace_id: &str) -> String {
+    format!("yntra_zero_copy_audit_{}.db", workspace_id)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn get_audit_store_path() -> String {
+fn get_audit_store_path(workspace_id: &str) -> String {
     let path = if cfg!(test) {
         std::env::temp_dir()
-            .join("yntra_zero_copy_audit_test.db")
+            .join(format!("yntra_zero_copy_audit_{}_test.db", workspace_id))
             .to_string_lossy()
             .to_string()
     } else {
-        crate::database::native::get_database_path("yntra_zero_copy_audit.db")
+        crate::database::native::get_database_path(&format!("yntra_zero_copy_audit_{}.db", workspace_id))
     };
     if cfg!(test) {
         let _ = std::fs::remove_file(&path);
@@ -26,12 +28,22 @@ fn get_audit_store_path() -> String {
     path
 }
 
-fn get_audit_store() -> &'static crate::ZeroCopyAuditStore {
-    AUDIT_STORE.get_or_init(|| {
-        let path = get_audit_store_path();
-        crate::ZeroCopyAuditStore::new(path)
-            .expect("Failed to initialize ZeroCopyAuditStore for Audit Logs")
-    })
+pub(crate) fn get_audit_store(workspace_id: &str) -> Arc<crate::ZeroCopyAuditStore> {
+    let mut stores = AUDIT_STORES.lock().unwrap();
+    stores
+        .entry(workspace_id.to_string())
+        .or_insert_with(|| {
+            let path = get_audit_store_path(workspace_id);
+            Arc::new(crate::ZeroCopyAuditStore::new(path).expect("Failed to initialize ZeroCopyAuditStore for Audit Logs"))
+        })
+        .clone()
+}
+
+#[uniffi::export]
+pub async fn load_audits_from_opfs(workspace_id: String) -> Result<(), YntraError> {
+    let store = get_audit_store(&workspace_id);
+    store.load_from_opfs().await?;
+    Ok(())
 }
 
 fn compute_hash(
@@ -186,9 +198,6 @@ pub async fn log_action_with_conn(
     let id = Uuid::new_v4().to_string();
     let timestamp = crate::infra::time::get_current_time_ms();
 
-    let store = get_audit_store();
-    let mut all_entries = store.read_all_audit_logs()?;
-
     // Load users & clients to resolve workspace IDs only for the current action
     let mut actor_ids = std::collections::HashSet::new();
     let mut client_ids = std::collections::HashSet::new();
@@ -212,6 +221,9 @@ pub async fn log_action_with_conn(
             .cloned()
             .unwrap_or_else(|| "workspace-1".to_string())
     };
+
+    let store = get_audit_store(&ws_id);
+    let mut all_entries = store.read_all_audit_logs()?;
 
     // Find previous hash and seq for this workspace
     let mut prev_hash = "genesis".to_string();
@@ -323,7 +335,7 @@ pub async fn get_audit_logs(requester_user_id: String) -> Result<Vec<AuditLogEnt
         ));
     }
 
-    let store = get_audit_store();
+    let store = get_audit_store(&ws_id);
     let all = store.read_all_audit_logs()?;
 
     if auth.role == "platform_admin" {
@@ -354,7 +366,8 @@ pub async fn verify_audit_log_chain(requester_user_id: String) -> Result<bool, Y
         ));
     }
 
-    let store = get_audit_store();
+    let ws_id = auth.workspace_id.clone();
+    let store = get_audit_store(&ws_id);
     let all = store.read_all_audit_logs()?;
 
     // Group by workspace
@@ -488,7 +501,7 @@ mod tests {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         let conn = database::acquire_connection().await.unwrap();
         // Clear audit store
-        let _ = get_audit_store().write_audit_logs(Vec::new());
+        let _ = get_audit_store("workspace-test-verify").write_audit_logs(Vec::new());
 
         // Setup platform_admin user
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('workspace-test-verify', 'Verify WS', '[]', '{}')", ()).await.unwrap();
@@ -511,7 +524,8 @@ mod tests {
         let conn = database::acquire_connection().await.unwrap();
 
         // Clear audit store
-        let _ = get_audit_store().write_audit_logs(Vec::new());
+        let _ = get_audit_store("workspace-test-2").write_audit_logs(Vec::new());
+        let _ = get_audit_store("workspace-test-1").write_audit_logs(Vec::new());
 
         // Setup workspace-test-1 and workspace-test-2
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('workspace-test-1', 'WS 1', '[]', '{}')", ()).await.unwrap();
@@ -557,7 +571,8 @@ mod tests {
         assert!(chain_ok);
 
         // Clean up
-        let _ = get_audit_store().write_audit_logs(Vec::new());
+        let _ = get_audit_store("workspace-test-2").write_audit_logs(Vec::new());
+        let _ = get_audit_store("workspace-test-1").write_audit_logs(Vec::new());
         conn.execute("DELETE FROM clients WHERE id = 'test-client-1'", ())
             .await
             .unwrap();

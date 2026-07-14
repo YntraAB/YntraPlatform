@@ -258,3 +258,12 @@ pub fn init_tracing() -> Result<(), YntraError> {
     });
     Ok(())
 }
+
+#[uniffi::export]
+pub async fn load_workspace_zero_copy_stores(workspace_id: String) -> Result<(), YntraError> {
+    services::todos::load_todos_from_opfs(workspace_id.clone()).await?;
+    services::messages::load_messages_from_opfs(workspace_id.clone()).await?;
+    services::notes::load_notes_from_opfs(workspace_id.clone()).await?;
+    services::audit::load_audits_from_opfs(workspace_id).await?;
+    Ok(())
+}
