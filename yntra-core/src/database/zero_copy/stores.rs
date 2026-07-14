@@ -42,18 +42,41 @@ fn sync_todos_to_loro(loro: &loro::LoroDoc, todos: &[TodoItem]) -> Result<(), Yn
     let mut current_keys = std::collections::HashSet::new();
     for todo in todos {
         current_keys.insert(todo.id.clone());
-        let item_map = match db_map.get(&todo.id) {
-            Some(loro::ValueOrContainer::Container(loro::Container::Map(m))) => m,
-            _ => db_map
-                .insert_container(&todo.id, loro::LoroMap::new())
-                .map_err(|e| YntraError::SerializationError(e.to_string()))?,
+        let _item_map = match db_map.get(&todo.id) {
+            Some(loro::ValueOrContainer::Container(loro::Container::Map(m))) => {
+                if get_string(&m, "id").ok().as_ref() != Some(&todo.id) {
+                    m.insert("id", todo.id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_string(&m, "workspace_id").ok().as_ref() != Some(&todo.workspace_id) {
+                    m.insert("workspace_id", todo.workspace_id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_string(&m, "text").ok().as_ref() != Some(&todo.text) {
+                    m.insert("text", todo.text.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_bool(&m, "completed").ok() != Some(todo.completed) {
+                    m.insert("completed", todo.completed).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_i64(&m, "updated_at").ok() != Some(todo.updated_at) {
+                    m.insert("updated_at", todo.updated_at).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_string(&m, "sync_status").ok().as_ref() != Some(&todo.sync_status) {
+                    m.insert("sync_status", todo.sync_status.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                m
+            }
+            _ => {
+                let m = db_map
+                    .insert_container(&todo.id, loro::LoroMap::new())
+                    .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("id", todo.id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("workspace_id", todo.workspace_id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("text", todo.text.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("completed", todo.completed).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("updated_at", todo.updated_at).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("sync_status", todo.sync_status.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m
+            }
         };
-        item_map.insert("id", todo.id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        item_map.insert("workspace_id", todo.workspace_id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        item_map.insert("text", todo.text.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        item_map.insert("completed", todo.completed).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        item_map.insert("updated_at", todo.updated_at).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        item_map.insert("sync_status", todo.sync_status.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
     }
     let mut keys_to_delete = Vec::new();
     db_map.for_each(|k, _| {
@@ -121,38 +144,91 @@ fn sync_messages_to_loro(loro: &loro::LoroDoc, messages: &[MessageItem]) -> Resu
     let mut current_keys = std::collections::HashSet::new();
     for msg in messages {
         current_keys.insert(msg.id.clone());
-        let item_map = match db_map.get(&msg.id) {
-            Some(loro::ValueOrContainer::Container(loro::Container::Map(m))) => m,
-            _ => db_map
-                .insert_container(&msg.id, loro::LoroMap::new())
-                .map_err(|e| YntraError::SerializationError(e.to_string()))?,
+        let _item_map = match db_map.get(&msg.id) {
+            Some(loro::ValueOrContainer::Container(loro::Container::Map(m))) => {
+                if get_string(&m, "id").ok().as_ref() != Some(&msg.id) {
+                    m.insert("id", msg.id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_string(&m, "workspace_id").ok().as_ref() != Some(&msg.workspace_id) {
+                    m.insert("workspace_id", msg.workspace_id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_opt_string(&m, "sender_id").ok() != Some(msg.sender_id.clone()) {
+                    match &msg.sender_id {
+                        Some(v) => m.insert("sender_id", v.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                        None => m.insert("sender_id", loro::LoroValue::Null).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                    };
+                }
+                if get_opt_string(&m, "receiver_id").ok() != Some(msg.receiver_id.clone()) {
+                    match &msg.receiver_id {
+                        Some(v) => m.insert("receiver_id", v.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                        None => m.insert("receiver_id", loro::LoroValue::Null).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                    };
+                }
+                if get_opt_string(&m, "target_team_id").ok() != Some(msg.target_team_id.clone()) {
+                    match &msg.target_team_id {
+                        Some(v) => m.insert("target_team_id", v.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                        None => m.insert("target_team_id", loro::LoroValue::Null).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                    };
+                }
+                if get_opt_string(&m, "subject").ok() != Some(msg.subject.clone()) {
+                    match &msg.subject {
+                        Some(v) => m.insert("subject", v.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                        None => m.insert("subject", loro::LoroValue::Null).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                    };
+                }
+                if get_opt_string(&m, "body").ok() != Some(msg.body.clone()) {
+                    match &msg.body {
+                        Some(v) => m.insert("body", v.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                        None => m.insert("body", loro::LoroValue::Null).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                    };
+                }
+                if get_bool(&m, "is_read").ok() != Some(msg.is_read) {
+                    m.insert("is_read", msg.is_read).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_string(&m, "created_at").ok().as_ref() != Some(&msg.created_at) {
+                    m.insert("created_at", msg.created_at.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_i64(&m, "updated_at").ok() != Some(msg.updated_at) {
+                    m.insert("updated_at", msg.updated_at).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_string(&m, "sync_status").ok().as_ref() != Some(&msg.sync_status) {
+                    m.insert("sync_status", msg.sync_status.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                m
+            }
+            _ => {
+                let m = db_map
+                    .insert_container(&msg.id, loro::LoroMap::new())
+                    .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("id", msg.id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("workspace_id", msg.workspace_id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                match &msg.sender_id {
+                    Some(v) => m.insert("sender_id", v.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                    None => m.insert("sender_id", loro::LoroValue::Null).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                }
+                match &msg.receiver_id {
+                    Some(v) => m.insert("receiver_id", v.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                    None => m.insert("receiver_id", loro::LoroValue::Null).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                }
+                match &msg.target_team_id {
+                    Some(v) => m.insert("target_team_id", v.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                    None => m.insert("target_team_id", loro::LoroValue::Null).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                }
+                match &msg.subject {
+                    Some(v) => m.insert("subject", v.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                    None => m.insert("subject", loro::LoroValue::Null).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                }
+                match &msg.body {
+                    Some(v) => m.insert("body", v.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                    None => m.insert("body", loro::LoroValue::Null).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                }
+                m.insert("is_read", msg.is_read).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("created_at", msg.created_at.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("updated_at", msg.updated_at).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("sync_status", msg.sync_status.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m
+            }
         };
-        item_map.insert("id", msg.id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        item_map.insert("workspace_id", msg.workspace_id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        match &msg.sender_id {
-            Some(v) => item_map.insert("sender_id", v.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?,
-            None => item_map.insert("sender_id", loro::LoroValue::Null).map_err(|e| YntraError::SerializationError(e.to_string()))?,
-        }
-        match &msg.receiver_id {
-            Some(v) => item_map.insert("receiver_id", v.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?,
-            None => item_map.insert("receiver_id", loro::LoroValue::Null).map_err(|e| YntraError::SerializationError(e.to_string()))?,
-        }
-        match &msg.target_team_id {
-            Some(v) => item_map.insert("target_team_id", v.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?,
-            None => item_map.insert("target_team_id", loro::LoroValue::Null).map_err(|e| YntraError::SerializationError(e.to_string()))?,
-        }
-        match &msg.subject {
-            Some(v) => item_map.insert("subject", v.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?,
-            None => item_map.insert("subject", loro::LoroValue::Null).map_err(|e| YntraError::SerializationError(e.to_string()))?,
-        }
-        match &msg.body {
-            Some(v) => item_map.insert("body", v.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?,
-            None => item_map.insert("body", loro::LoroValue::Null).map_err(|e| YntraError::SerializationError(e.to_string()))?,
-        }
-        item_map.insert("is_read", msg.is_read).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        item_map.insert("created_at", msg.created_at.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        item_map.insert("updated_at", msg.updated_at).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        item_map.insert("sync_status", msg.sync_status.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
     }
     let mut keys_to_delete = Vec::new();
     db_map.for_each(|k, _| {
@@ -245,28 +321,69 @@ fn sync_audits_to_loro(loro: &loro::LoroDoc, entries: &[AuditLogEntry]) -> Resul
     let mut current_keys = std::collections::HashSet::new();
     for entry in entries {
         current_keys.insert(entry.id.clone());
-        let item_map = match db_map.get(&entry.id) {
-            Some(loro::ValueOrContainer::Container(loro::Container::Map(m))) => m,
-            _ => db_map
-                .insert_container(&entry.id, loro::LoroMap::new())
-                .map_err(|e| YntraError::SerializationError(e.to_string()))?,
+        let _item_map = match db_map.get(&entry.id) {
+            Some(loro::ValueOrContainer::Container(loro::Container::Map(m))) => {
+                if get_string(&m, "id").ok().as_ref() != Some(&entry.id) {
+                    m.insert("id", entry.id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_string(&m, "workspace_id").ok().as_ref() != Some(&entry.workspace_id) {
+                    m.insert("workspace_id", entry.workspace_id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_string(&m, "actor_id").ok().as_ref() != Some(&entry.actor_id) {
+                    m.insert("actor_id", entry.actor_id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_opt_string(&m, "target_client_id").ok() != Some(entry.target_client_id.clone()) {
+                    match &entry.target_client_id {
+                        Some(v) => m.insert("target_client_id", v.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                        None => m.insert("target_client_id", loro::LoroValue::Null).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                    };
+                }
+                if get_string(&m, "action_type").ok().as_ref() != Some(&entry.action_type) {
+                    m.insert("action_type", entry.action_type.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_i64(&m, "timestamp").ok() != Some(entry.timestamp) {
+                    m.insert("timestamp", entry.timestamp).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_string(&m, "prev_hash").ok().as_ref() != Some(&entry.prev_hash) {
+                    m.insert("prev_hash", entry.prev_hash.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_string(&m, "curr_hash").ok().as_ref() != Some(&entry.curr_hash) {
+                    m.insert("curr_hash", entry.curr_hash.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_i64(&m, "seq").ok() != Some(entry.seq) {
+                    m.insert("seq", entry.seq).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_opt_string(&m, "signature").ok() != Some(entry.signature.clone()) {
+                    match &entry.signature {
+                        Some(v) => m.insert("signature", v.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                        None => m.insert("signature", loro::LoroValue::Null).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                    };
+                }
+                m
+            }
+            _ => {
+                let m = db_map
+                    .insert_container(&entry.id, loro::LoroMap::new())
+                    .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("id", entry.id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("workspace_id", entry.workspace_id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("actor_id", entry.actor_id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                match &entry.target_client_id {
+                    Some(v) => m.insert("target_client_id", v.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                    None => m.insert("target_client_id", loro::LoroValue::Null).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                }
+                m.insert("action_type", entry.action_type.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("timestamp", entry.timestamp).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("prev_hash", entry.prev_hash.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("curr_hash", entry.curr_hash.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("seq", entry.seq).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                match &entry.signature {
+                    Some(v) => m.insert("signature", v.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                    None => m.insert("signature", loro::LoroValue::Null).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                }
+                m
+            }
         };
-        item_map.insert("id", entry.id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        item_map.insert("workspace_id", entry.workspace_id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        item_map.insert("actor_id", entry.actor_id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        match &entry.target_client_id {
-            Some(v) => item_map.insert("target_client_id", v.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?,
-            None => item_map.insert("target_client_id", loro::LoroValue::Null).map_err(|e| YntraError::SerializationError(e.to_string()))?,
-        }
-        item_map.insert("action_type", entry.action_type.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        item_map.insert("timestamp", entry.timestamp).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        item_map.insert("prev_hash", entry.prev_hash.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        item_map.insert("curr_hash", entry.curr_hash.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        item_map.insert("seq", entry.seq).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        match &entry.signature {
-            Some(v) => item_map.insert("signature", v.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?,
-            None => item_map.insert("signature", loro::LoroValue::Null).map_err(|e| YntraError::SerializationError(e.to_string()))?,
-        }
     }
     let mut keys_to_delete = Vec::new();
     db_map.for_each(|k, _| {
@@ -354,25 +471,63 @@ fn sync_notes_to_loro(loro: &loro::LoroDoc, notes: &[DailyNote]) -> Result<(), Y
     let mut current_keys = std::collections::HashSet::new();
     for note in notes {
         current_keys.insert(note.id.clone());
-        let item_map = match db_map.get(&note.id) {
-            Some(loro::ValueOrContainer::Container(loro::Container::Map(m))) => m,
-            _ => db_map
-                .insert_container(&note.id, loro::LoroMap::new())
-                .map_err(|e| YntraError::SerializationError(e.to_string()))?,
+        let _item_map = match db_map.get(&note.id) {
+            Some(loro::ValueOrContainer::Container(loro::Container::Map(m))) => {
+                if get_string(&m, "id").ok().as_ref() != Some(&note.id) {
+                    m.insert("id", note.id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_string(&m, "workspace_id").ok().as_ref() != Some(&note.workspace_id) {
+                    m.insert("workspace_id", note.workspace_id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_string(&m, "team_id").ok().as_ref() != Some(&note.team_id) {
+                    m.insert("team_id", note.team_id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_opt_string(&m, "author_id").ok() != Some(note.author_id.clone()) {
+                    match &note.author_id {
+                        Some(v) => m.insert("author_id", v.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                        None => m.insert("author_id", loro::LoroValue::Null).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                    };
+                }
+                if get_string(&m, "subject").ok().as_ref() != Some(&note.subject) {
+                    m.insert("subject", note.subject.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_string(&m, "content").ok().as_ref() != Some(&note.content) {
+                    m.insert("content", note.content.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_string(&m, "edit_history").ok().as_ref() != Some(&note.edit_history) {
+                    m.insert("edit_history", note.edit_history.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_string(&m, "created_at").ok().as_ref() != Some(&note.created_at) {
+                    m.insert("created_at", note.created_at.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_i64(&m, "updated_at").ok() != Some(note.updated_at) {
+                    m.insert("updated_at", note.updated_at).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                if get_string(&m, "sync_status").ok().as_ref() != Some(&note.sync_status) {
+                    m.insert("sync_status", note.sync_status.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                }
+                m
+            }
+            _ => {
+                let m = db_map
+                    .insert_container(&note.id, loro::LoroMap::new())
+                    .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("id", note.id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("workspace_id", note.workspace_id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("team_id", note.team_id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                match &note.author_id {
+                    Some(v) => m.insert("author_id", v.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                    None => m.insert("author_id", loro::LoroValue::Null).map_err(|e| YntraError::SerializationError(e.to_string()))?,
+                }
+                m.insert("subject", note.subject.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("content", note.content.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("edit_history", note.edit_history.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("created_at", note.created_at.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("updated_at", note.updated_at).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m.insert("sync_status", note.sync_status.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                m
+            }
         };
-        item_map.insert("id", note.id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        item_map.insert("workspace_id", note.workspace_id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        item_map.insert("team_id", note.team_id.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        match &note.author_id {
-            Some(v) => item_map.insert("author_id", v.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?,
-            None => item_map.insert("author_id", loro::LoroValue::Null).map_err(|e| YntraError::SerializationError(e.to_string()))?,
-        }
-        item_map.insert("subject", note.subject.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        item_map.insert("content", note.content.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        item_map.insert("edit_history", note.edit_history.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        item_map.insert("created_at", note.created_at.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        item_map.insert("updated_at", note.updated_at).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        item_map.insert("sync_status", note.sync_status.clone()).map_err(|e| YntraError::SerializationError(e.to_string()))?;
     }
     let mut keys_to_delete = Vec::new();
     db_map.for_each(|k, _| {
@@ -458,22 +613,111 @@ pub(crate) fn read_all_notes_from_loro(loro: &loro::LoroDoc) -> Result<Vec<Daily
 // --- Helper Macros to Reduce Code Duplication ---
 
 macro_rules! impl_write_items {
-    ($self:expr, $items:expr, $sync_fn:path) => {{
+    ($self:expr, $items:expr, $sync_fn:path, $table_name:expr) => {{
         {
             let mut inner = $self.inner.lock_poison_safe();
             let mut cache = $self.cache.lock_poison_safe();
-            *cache = None;
             let mut sorted_items = $items;
             sorted_items.sort_by(|a, b| a.id.cmp(&b.id));
+
+            let modified_ids: Vec<String> = if let Some(ref old_list) = *cache {
+                let mut ids = Vec::new();
+                for new_item in &sorted_items {
+                    if let Some(old_item) = old_list.iter().find(|o| o.id == new_item.id) {
+                        if old_item != new_item {
+                            ids.push(new_item.id.clone());
+                        }
+                    } else {
+                        ids.push(new_item.id.clone());
+                    }
+                }
+                ids
+            } else {
+                sorted_items.iter().map(|item| item.id.clone()).collect()
+            };
+
+            *cache = None;
             $sync_fn(inner.doc(), &sorted_items)?;
             let loro_bytes = inner.get_loro_changes()?;
             let rkyv_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&sorted_items)
                 .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             inner.save_to_disk(&rkyv_bytes, &loro_bytes)?;
             *cache = Some(sorted_items);
+
+            for id in modified_ids {
+                crate::infra::observer::set_last_modified_record($table_name, &id);
+            }
         }
         crate::infra::observer::notify_observers();
         Ok(())
+    }};
+}
+
+macro_rules! impl_get_count {
+    ($self:expr, $t:ty) => {{
+        let inner = $self.inner.lock_poison_safe();
+        let rkyv_slice = inner.get_rkyv_slice();
+        if rkyv_slice.is_empty() {
+            return Ok(0);
+        }
+        let required_align = std::cmp::max(
+            std::mem::align_of::<rkyv::Archived<Vec<$t>>>(),
+            std::mem::align_of::<rkyv::Archived<$t>>(),
+        );
+        if (rkyv_slice.as_ptr() as usize) % required_align == 0 {
+            let archived = rkyv::access::<rkyv::Archived<Vec<$t>>, rkyv::rancor::Error>(rkyv_slice)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            Ok(archived.len() as u32)
+        } else {
+            let mut aligned = vec![0u8; rkyv_slice.len() + required_align];
+            let offset = required_align - (aligned.as_ptr() as usize % required_align);
+            let aligned_slice = &mut aligned[offset..offset + rkyv_slice.len()];
+            aligned_slice.copy_from_slice(rkyv_slice);
+            let archived = rkyv::access::<rkyv::Archived<Vec<$t>>, rkyv::rancor::Error>(aligned_slice)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            Ok(archived.len() as u32)
+        }
+    }};
+}
+
+macro_rules! impl_get_at {
+    ($self:expr, $index:expr, $t:ty) => {{
+        let inner = $self.inner.lock_poison_safe();
+        let rkyv_slice = inner.get_rkyv_slice();
+        if rkyv_slice.is_empty() {
+            return Ok(None);
+        }
+        let required_align = std::cmp::max(
+            std::mem::align_of::<rkyv::Archived<Vec<$t>>>(),
+            std::mem::align_of::<rkyv::Archived<$t>>(),
+        );
+        if (rkyv_slice.as_ptr() as usize) % required_align == 0 {
+            let archived = rkyv::access::<rkyv::Archived<Vec<$t>>, rkyv::rancor::Error>(rkyv_slice)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            if ($index as usize) < archived.len() {
+                let archived_item = &archived[$index as usize];
+                let deserialized = rkyv::deserialize::<$t, rkyv::rancor::Error>(archived_item)
+                    .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                Ok(Some(deserialized))
+            } else {
+                Ok(None)
+            }
+        } else {
+            let mut aligned = vec![0u8; rkyv_slice.len() + required_align];
+            let offset = required_align - (aligned.as_ptr() as usize % required_align);
+            let aligned_slice = &mut aligned[offset..offset + rkyv_slice.len()];
+            aligned_slice.copy_from_slice(rkyv_slice);
+            let archived = rkyv::access::<rkyv::Archived<Vec<$t>>, rkyv::rancor::Error>(aligned_slice)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            if ($index as usize) < archived.len() {
+                let archived_item = &archived[$index as usize];
+                let deserialized = rkyv::deserialize::<$t, rkyv::rancor::Error>(archived_item)
+                    .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                Ok(Some(deserialized))
+            } else {
+                Ok(None)
+            }
+        }
     }};
 }
 
@@ -668,7 +912,7 @@ impl ZeroCopyStore {
 #[uniffi::export]
 impl ZeroCopyStore {
     pub fn write_todos(&self, todos: Vec<TodoItem>) -> Result<(), YntraError> {
-        impl_write_items!(self, todos, sync_todos_to_loro)
+        impl_write_items!(self, todos, sync_todos_to_loro, "todos")
     }
 
     pub fn read_todo_zero_copy(&self, todo_id: String) -> Result<Option<TodoItem>, YntraError> {
@@ -677,6 +921,14 @@ impl ZeroCopyStore {
 
     pub fn read_all_todos(&self) -> Result<Vec<TodoItem>, YntraError> {
         impl_read_all_items!(self, TodoItem)
+    }
+
+    pub fn get_todos_count(&self) -> Result<u32, YntraError> {
+        impl_get_count!(self, TodoItem)
+    }
+
+    pub fn get_todo_at(&self, index: u32) -> Result<Option<TodoItem>, YntraError> {
+        impl_get_at!(self, index, TodoItem)
     }
 
     pub fn read_todos_by_workspace(
@@ -744,11 +996,19 @@ impl ZeroCopyMessageStore {
 #[uniffi::export]
 impl ZeroCopyMessageStore {
     pub fn write_messages(&self, messages: Vec<MessageItem>) -> Result<(), YntraError> {
-        impl_write_items!(self, messages, sync_messages_to_loro)
+        impl_write_items!(self, messages, sync_messages_to_loro, "messages")
     }
 
     pub fn read_all_messages(&self) -> Result<Vec<MessageItem>, YntraError> {
         impl_read_all_items!(self, MessageItem)
+    }
+
+    pub fn get_messages_count(&self) -> Result<u32, YntraError> {
+        impl_get_count!(self, MessageItem)
+    }
+
+    pub fn get_message_at(&self, index: u32) -> Result<Option<MessageItem>, YntraError> {
+        impl_get_at!(self, index, MessageItem)
     }
 
     pub fn read_messages_filtered(
@@ -842,11 +1102,19 @@ impl ZeroCopyAuditStore {
 #[uniffi::export]
 impl ZeroCopyAuditStore {
     pub fn write_audit_logs(&self, entries: Vec<AuditLogEntry>) -> Result<(), YntraError> {
-        impl_write_items!(self, entries, sync_audits_to_loro)
+        impl_write_items!(self, entries, sync_audits_to_loro, "audits")
     }
 
     pub fn read_all_audit_logs(&self) -> Result<Vec<AuditLogEntry>, YntraError> {
         impl_read_all_items!(self, AuditLogEntry)
+    }
+
+    pub fn get_audits_count(&self) -> Result<u32, YntraError> {
+        impl_get_count!(self, AuditLogEntry)
+    }
+
+    pub fn get_audit_at(&self, index: u32) -> Result<Option<AuditLogEntry>, YntraError> {
+        impl_get_at!(self, index, AuditLogEntry)
     }
 
     pub fn read_audit_zero_copy(&self, entry_id: String) -> Result<Option<AuditLogEntry>, YntraError> {
@@ -907,11 +1175,19 @@ impl ZeroCopyNoteStore {
 #[uniffi::export]
 impl ZeroCopyNoteStore {
     pub fn write_notes(&self, notes: Vec<DailyNote>) -> Result<(), YntraError> {
-        impl_write_items!(self, notes, sync_notes_to_loro)
+        impl_write_items!(self, notes, sync_notes_to_loro, "notes")
     }
 
     pub fn read_all_notes(&self) -> Result<Vec<DailyNote>, YntraError> {
         impl_read_all_items!(self, DailyNote)
+    }
+
+    pub fn get_notes_count(&self) -> Result<u32, YntraError> {
+        impl_get_count!(self, DailyNote)
+    }
+
+    pub fn get_note_at(&self, index: u32) -> Result<Option<DailyNote>, YntraError> {
+        impl_get_at!(self, index, DailyNote)
     }
 
     pub fn read_note_zero_copy(&self, note_id: String) -> Result<Option<DailyNote>, YntraError> {
