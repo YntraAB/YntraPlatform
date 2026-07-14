@@ -7,9 +7,13 @@ pub trait DatabaseObserver: Send + Sync {
     fn on_table_changed(&self, _table: String) {
         self.on_database_changed();
     }
+    fn on_record_changed(&self, _table: String, _id: String) {
+        self.on_table_changed(_table);
+    }
 }
 
 static MODIFIED_TABLES: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+static MODIFIED_RECORDS: OnceLock<Mutex<Vec<(String, String)>>> = OnceLock::new();
 
 pub fn set_last_modified_table(table: &str) {
     if let Ok(mut tables) = MODIFIED_TABLES
@@ -17,6 +21,15 @@ pub fn set_last_modified_table(table: &str) {
         .lock()
     {
         tables.insert(table.to_string());
+    }
+}
+
+pub fn set_last_modified_record(table: &str, id: &str) {
+    if let Ok(mut records) = MODIFIED_RECORDS
+        .get_or_init(|| Mutex::new(Vec::new()))
+        .lock()
+    {
+        records.push((table.to_string(), id.to_string()));
     }
 }
 
@@ -51,6 +64,15 @@ pub fn notify_observers() {
         std::collections::HashSet::new()
     };
 
+    let records = if let Ok(mut lock) = MODIFIED_RECORDS
+        .get_or_init(|| Mutex::new(Vec::new()))
+        .lock()
+    {
+        std::mem::take(&mut *lock)
+    } else {
+        Vec::new()
+    };
+
     // Clone the list of observers while holding the lock, then release it immediately
     // to prevent reentrancy deadlocks when invoking external FFI callback code.
     let observers = if let Ok(lock) = get_observers().lock() {
@@ -59,15 +81,21 @@ pub fn notify_observers() {
         Vec::new()
     };
 
-    if tables.is_empty() {
-        for observer in observers {
-            observer.on_database_changed();
+    if !records.is_empty() {
+        for observer in &observers {
+            for (table, id) in &records {
+                observer.on_record_changed(table.clone(), id.clone());
+            }
         }
-    } else {
-        for observer in observers {
+    } else if !tables.is_empty() {
+        for observer in &observers {
             for table in &tables {
                 observer.on_table_changed(table.clone());
             }
+        }
+    } else {
+        for observer in observers {
+            observer.on_database_changed();
         }
     }
 }
@@ -75,6 +103,12 @@ pub fn notify_observers() {
 pub fn discard_observers_dirty_state() {
     if let Ok(mut lock) = MODIFIED_TABLES
         .get_or_init(|| Mutex::new(std::collections::HashSet::new()))
+        .lock()
+    {
+        lock.clear();
+    }
+    if let Ok(mut lock) = MODIFIED_RECORDS
+        .get_or_init(|| Mutex::new(Vec::new()))
         .lock()
     {
         lock.clear();

@@ -248,6 +248,24 @@ pub async fn get_messages_rkyv(
     Ok(bytes.into_vec())
 }
 
+#[uniffi::export]
+pub async fn get_message_by_id(
+    requester_user_id: String,
+    workspace_id: String,
+    message_id: String,
+) -> Result<Option<MessageItem>, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    let store = get_message_store(&workspace_id);
+    store.read_message_zero_copy(message_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

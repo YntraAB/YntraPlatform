@@ -375,6 +375,24 @@ pub async fn get_notes(
 }
 
 #[uniffi::export]
+pub async fn get_note_by_id(
+    requester_user_id: String,
+    workspace_id: String,
+    note_id: String,
+) -> Result<Option<DailyNote>, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    let store = get_note_store(&workspace_id);
+    store.read_note_zero_copy(note_id)
+}
+
+#[uniffi::export]
 pub async fn add_note(
     requester_user_id: String,
     workspace_id: String,

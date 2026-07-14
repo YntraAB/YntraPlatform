@@ -403,13 +403,13 @@ pub fn use_init_app_state() -> AppState {
         users,
         teams,
         events,
-        messages,
-        notes,
+        mut messages,
+        mut notes,
         time_reports,
         clients,
         reports,
         workspaces,
-        todos,
+        mut todos,
     ) = resources::init_resources(
         active_user_id,
         background_error,
@@ -491,32 +491,112 @@ pub fn use_init_app_state() -> AppState {
                                 let mut update_db = false;
 
                                 for table in pending_tables.drain() {
-                                    match table.as_str() {
-                                        "todos" => update_todos = true,
-                                        "users" | "team_members" => update_users = true,
-                                        "teams" => update_teams = true,
-                                        "events" => update_events = true,
-                                        "messages" => update_messages = true,
-                                        "notes" | "note_updates" => update_notes = true,
-                                        "time_reports" => update_time = true,
-                                        "clients" | "client_medications" | "client_journals" => update_clients = true,
-                                        "reports" => update_reports = true,
-                                        "workspaces" => update_workspaces = true,
-                                        "job_tickets" | "move_inventory" | "move_quotes" => update_jobs = true,
-                                        "audit_logs" => {},
-                                        "bankid_auth_sessions" => {},
-                                        _ => {
-                                            update_todos = true;
-                                            update_users = true;
-                                            update_teams = true;
-                                            update_events = true;
-                                            update_messages = true;
-                                            update_notes = true;
-                                            update_time = true;
-                                            update_clients = true;
-                                            update_reports = true;
-                                            update_workspaces = true;
-                                            update_jobs = true;
+                                    if let Some(pos) = table.find(':') {
+                                        let table_name = &table[..pos];
+                                        let record_id = &table[pos+1..];
+                                        match table_name {
+                                            "todos" => {
+                                                let ws_id = workspace.read().as_ref().map(|w| w.id.clone()).unwrap_or_else(|| "workspace-1".to_string());
+                                                let uid = active_user_id.read().clone();
+                                                spawn({
+                                                    let record_id = record_id.to_string();
+                                                    async move {
+                                                        if let Ok(Some(item)) = yntra_core::get_todo_by_id(uid, ws_id, record_id).await {
+                                                            if let Some(list) = todos.write().as_mut() {
+                                                                if let Some(pos) = list.iter().position(|x| x.id == item.id) {
+                                                                    list[pos] = item;
+                                                                } else {
+                                                                    list.push(item);
+                                                                    list.sort_by(|a, b| a.id.cmp(&b.id));
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                });
+                                            }
+                                            "messages" => {
+                                                let ws_id = workspace.read().as_ref().map(|w| w.id.clone()).unwrap_or_else(|| "workspace-1".to_string());
+                                                let uid = active_user_id.read().clone();
+                                                spawn({
+                                                    let record_id = record_id.to_string();
+                                                    async move {
+                                                        if let Ok(Some(item)) = yntra_core::get_message_by_id(uid, ws_id, record_id).await {
+                                                            if let Some(list) = messages.write().as_mut() {
+                                                                if let Some(pos) = list.iter().position(|x| x.id == item.id) {
+                                                                    list[pos] = item;
+                                                                } else {
+                                                                    list.push(item);
+                                                                    list.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                });
+                                            }
+                                            "notes" => {
+                                                let ws_id = workspace.read().as_ref().map(|w| w.id.clone()).unwrap_or_else(|| "workspace-1".to_string());
+                                                let uid = active_user_id.read().clone();
+                                                spawn({
+                                                    let record_id = record_id.to_string();
+                                                    async move {
+                                                        if let Ok(Some(item)) = yntra_core::get_note_by_id(uid, ws_id, record_id).await {
+                                                            if let Some(list) = notes.write().as_mut() {
+                                                                if let Some(pos) = list.iter().position(|x| x.id == item.id) {
+                                                                    list[pos] = item;
+                                                                } else {
+                                                                    list.push(item);
+                                                                    list.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                });
+                                            }
+                                            _ => {
+                                                match table_name {
+                                                    "todos" => update_todos = true,
+                                                    "users" | "team_members" => update_users = true,
+                                                    "teams" => update_teams = true,
+                                                    "events" => update_events = true,
+                                                    "messages" => update_messages = true,
+                                                    "notes" | "note_updates" => update_notes = true,
+                                                    "time_reports" => update_time = true,
+                                                    "clients" | "client_medications" | "client_journals" => update_clients = true,
+                                                    "reports" => update_reports = true,
+                                                    "workspaces" => update_workspaces = true,
+                                                    "job_tickets" | "move_inventory" | "move_quotes" => update_jobs = true,
+                                                    _ => {}
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        match table.as_str() {
+                                            "todos" => update_todos = true,
+                                            "users" | "team_members" => update_users = true,
+                                            "teams" => update_teams = true,
+                                            "events" => update_events = true,
+                                            "messages" => update_messages = true,
+                                            "notes" | "note_updates" => update_notes = true,
+                                            "time_reports" => update_time = true,
+                                            "clients" | "client_medications" | "client_journals" => update_clients = true,
+                                            "reports" => update_reports = true,
+                                            "workspaces" => update_workspaces = true,
+                                            "job_tickets" | "move_inventory" | "move_quotes" => update_jobs = true,
+                                            "audit_logs" => {},
+                                            "bankid_auth_sessions" => {},
+                                            _ => {
+                                                update_todos = true;
+                                                update_users = true;
+                                                update_teams = true;
+                                                update_events = true;
+                                                update_messages = true;
+                                                update_notes = true;
+                                                update_time = true;
+                                                update_clients = true;
+                                                update_reports = true;
+                                                update_workspaces = true;
+                                                update_jobs = true;
+                                            }
                                         }
                                     }
                                     if table != "audit_logs" {

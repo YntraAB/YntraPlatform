@@ -161,6 +161,24 @@ pub async fn get_todos_rkyv(
     Ok(bytes)
 }
 
+#[uniffi::export]
+pub async fn get_todo_by_id(
+    requester_user_id: String,
+    workspace_id: String,
+    todo_id: String,
+) -> Result<Option<TodoItem>, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    let store = get_todo_store(&workspace_id);
+    store.read_todo_zero_copy(todo_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

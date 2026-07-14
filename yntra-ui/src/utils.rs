@@ -20,6 +20,10 @@ impl DatabaseObserver for DioxusDbObserver {
     fn on_table_changed(&self, table: String) {
         let _ = self.tx.send(table);
     }
+
+    fn on_record_changed(&self, table: String, id: String) {
+        let _ = self.tx.send(format!("{}:{}", table, id));
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
