@@ -683,55 +683,11 @@ impl ZeroCopyStore {
         &self,
         workspace_id: String,
     ) -> Result<Vec<TodoItem>, YntraError> {
-        {
-            let cache = self.cache.lock_poison_safe();
-            if let Some(ref list) = *cache {
-                return Ok(list
-                    .iter()
-                    .filter(|t| t.workspace_id == workspace_id)
-                    .cloned()
-                    .collect());
-            }
-        }
-
-        let inner = self.inner.lock_poison_safe();
-        let rkyv_slice = inner.get_rkyv_slice();
-        if rkyv_slice.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let mut filtered = Vec::new();
-        let required_align = std::cmp::max(
-            std::mem::align_of::<rkyv::Archived<Vec<TodoItem>>>(),
-            std::mem::align_of::<rkyv::Archived<TodoItem>>(),
-        );
-        if (rkyv_slice.as_ptr() as usize) % required_align == 0 {
-            let archived_todos =
-                rkyv::access::<rkyv::Archived<Vec<TodoItem>>, rkyv::rancor::Error>(rkyv_slice)
-                    .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            for item in archived_todos.iter() {
-                if item.workspace_id == workspace_id {
-                    let todo = rkyv::deserialize::<TodoItem, rkyv::rancor::Error>(item)
-                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                    filtered.push(todo);
-                }
-            }
-        } else {
-            let mut aligned = rkyv::util::AlignedVec::<16>::new();
-            aligned.extend_from_slice(rkyv_slice);
-            let archived_todos =
-                rkyv::access::<rkyv::Archived<Vec<TodoItem>>, rkyv::rancor::Error>(&aligned)
-                    .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            for item in archived_todos.iter() {
-                if item.workspace_id == workspace_id {
-                    let todo = rkyv::deserialize::<TodoItem, rkyv::rancor::Error>(item)
-                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                    filtered.push(todo);
-                }
-            }
-        }
-
-        Ok(filtered)
+        let all_todos = self.read_all_todos()?;
+        Ok(all_todos
+            .into_iter()
+            .filter(|t| t.workspace_id == workspace_id)
+            .collect())
     }
 
     pub fn get_loro_changes(&self) -> Result<Vec<u8>, YntraError> {
@@ -804,94 +760,24 @@ impl ZeroCopyMessageStore {
         let team_set: std::collections::HashSet<&str> =
             user_teams.iter().map(|t| t.as_str()).collect();
 
-        {
-            let cache = self.cache.lock_poison_safe();
-            if let Some(ref list) = *cache {
-                let mut filtered = Vec::new();
-                for msg in list {
-                    if msg.workspace_id != workspace_id {
-                        continue;
-                    }
-                    let is_sender = msg.sender_id.as_ref().map(|s| s.as_str()) == Some(user_id.as_str());
-                    let is_receiver =
-                        msg.receiver_id.as_ref().map(|r| r.as_str()) == Some(user_id.as_str());
-                    let is_team_recipient = msg
-                        .target_team_id
-                        .as_ref()
-                        .map(|tid| team_set.contains(tid.as_str()))
-                        .unwrap_or(false);
-                    if is_sender || is_receiver || is_team_recipient {
-                        filtered.push(msg.clone());
-                    }
-                }
-                return Ok(filtered);
-            }
-        }
-
-        let inner = self.inner.lock_poison_safe();
-        let rkyv_slice = inner.get_rkyv_slice();
-        if rkyv_slice.is_empty() {
-            return Ok(Vec::new());
-        }
-
+        let all_msgs = self.read_all_messages()?;
         let mut filtered = Vec::new();
-        let required_align = std::cmp::max(
-            std::mem::align_of::<rkyv::Archived<Vec<MessageItem>>>(),
-            std::mem::align_of::<rkyv::Archived<MessageItem>>(),
-        );
-
-        if (rkyv_slice.as_ptr() as usize) % required_align == 0 {
-            let archived_msgs = rkyv::access::<
-                rkyv::Archived<Vec<MessageItem>>,
-                rkyv::rancor::Error,
-            >(rkyv_slice)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            for msg in archived_msgs.iter() {
-                if msg.workspace_id != workspace_id {
-                    continue;
-                }
-                let is_sender = msg.sender_id.as_ref().map(|s| s.as_str()) == Some(user_id.as_str());
-                let is_receiver =
-                    msg.receiver_id.as_ref().map(|r| r.as_str()) == Some(user_id.as_str());
-                let is_team_recipient = msg
-                    .target_team_id
-                    .as_ref()
-                    .map(|tid| team_set.contains(tid.as_str()))
-                    .unwrap_or(false);
-                if is_sender || is_receiver || is_team_recipient {
-                    let message = rkyv::deserialize::<MessageItem, rkyv::rancor::Error>(msg)
-                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                    filtered.push(message);
-                }
+        for msg in all_msgs {
+            if msg.workspace_id != workspace_id {
+                continue;
             }
-        } else {
-            let mut aligned = rkyv::util::AlignedVec::<16>::new();
-            aligned.extend_from_slice(rkyv_slice);
-            let archived_msgs = rkyv::access::<
-                rkyv::Archived<Vec<MessageItem>>,
-                rkyv::rancor::Error,
-            >(&aligned)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            for msg in archived_msgs.iter() {
-                if msg.workspace_id != workspace_id {
-                    continue;
-                }
-                let is_sender = msg.sender_id.as_ref().map(|s| s.as_str()) == Some(user_id.as_str());
-                let is_receiver =
-                    msg.receiver_id.as_ref().map(|r| r.as_str()) == Some(user_id.as_str());
-                let is_team_recipient = msg
-                    .target_team_id
-                    .as_ref()
-                    .map(|tid| team_set.contains(tid.as_str()))
-                    .unwrap_or(false);
-                if is_sender || is_receiver || is_team_recipient {
-                    let message = rkyv::deserialize::<MessageItem, rkyv::rancor::Error>(msg)
-                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                    filtered.push(message);
-                }
+            let is_sender = msg.sender_id.as_ref().map(|s| s.as_str()) == Some(user_id.as_str());
+            let is_receiver =
+                msg.receiver_id.as_ref().map(|r| r.as_str()) == Some(user_id.as_str());
+            let is_team_recipient = msg
+                .target_team_id
+                .as_ref()
+                .map(|tid| team_set.contains(tid.as_str()))
+                .unwrap_or(false);
+            if is_sender || is_receiver || is_team_recipient {
+                filtered.push(msg);
             }
         }
-
         Ok(filtered)
     }
 
