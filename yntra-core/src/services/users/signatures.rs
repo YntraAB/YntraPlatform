@@ -1,5 +1,5 @@
-use crate::database;
 use crate::YntraError;
+use crate::database;
 
 pub async fn ensure_user_role_signature(
     conn: &database::DbConnection,
@@ -9,7 +9,15 @@ pub async fn ensure_user_role_signature(
 ) -> Result<(), YntraError> {
     let mut cached_pk = None;
     let mut cached_sk = None;
-    ensure_user_role_signature_impl(conn, user_id, role, workspace_id, &mut cached_pk, &mut cached_sk).await
+    ensure_user_role_signature_impl(
+        conn,
+        user_id,
+        role,
+        workspace_id,
+        &mut cached_pk,
+        &mut cached_sk,
+    )
+    .await
 }
 
 pub async fn ensure_user_role_signature_impl(
@@ -22,11 +30,15 @@ pub async fn ensure_user_role_signature_impl(
 ) -> Result<(), YntraError> {
     let needs_signature = role != "anonymous" && role != "deleted";
     if !needs_signature {
-        let current_sig: Option<String> = conn.query_row(
-            "SELECT role_signature FROM users WHERE id = ?1",
-            crate::params![user_id],
-            |r| r.get(0)
-        ).await.ok().flatten();
+        let current_sig: Option<String> = conn
+            .query_row(
+                "SELECT role_signature FROM users WHERE id = ?1",
+                crate::params![user_id],
+                |r| r.get(0),
+            )
+            .await
+            .ok()
+            .flatten();
         if current_sig.is_some() {
             let now_ms = crate::infra::time::get_current_time_ms();
             conn.execute(
@@ -39,17 +51,22 @@ pub async fn ensure_user_role_signature_impl(
 
     // 1. Check if workspace already has a public key configured (with caching)
     if cached_pk.is_none() {
-        let creator_pk: Option<String> = conn.query_row(
-            "SELECT creator_public_key FROM workspaces WHERE id = ?1",
-            crate::params![workspace_id],
-            |r| Ok(r.get(0)?)
-        ).await.ok().flatten();
+        let creator_pk: Option<String> = conn
+            .query_row(
+                "SELECT creator_public_key FROM workspaces WHERE id = ?1",
+                crate::params![workspace_id],
+                |r| Ok(r.get(0)?),
+            )
+            .await
+            .ok()
+            .flatten();
         *cached_pk = Some(creator_pk.unwrap_or_default());
     }
 
     let private_key_setting = format!("creator_private_key_{}", workspace_id);
     if cached_sk.is_none() {
-        let creator_sk: Option<String> = crate::infra::crypto::get_local_secret(&private_key_setting).await?;
+        let creator_sk: Option<String> =
+            crate::infra::crypto::get_local_secret(&private_key_setting).await?;
         *cached_sk = Some(creator_sk.unwrap_or_default());
     }
 
@@ -59,7 +76,11 @@ pub async fn ensure_user_role_signature_impl(
     let pk_is_empty = creator_pk_val.trim().is_empty();
     let sk_is_empty = creator_sk_val.trim().is_empty();
 
-    let mut active_sk = if !sk_is_empty { Some(creator_sk_val.clone()) } else { None };
+    let mut active_sk = if !sk_is_empty {
+        Some(creator_sk_val.clone())
+    } else {
+        None
+    };
 
     // 2. If not configured, generate keypair and store them
     if pk_is_empty {
@@ -67,7 +88,7 @@ pub async fn ensure_user_role_signature_impl(
             let keys = crate::infra::crypto::generate_workspace_keypair()?;
             let pub_hex = &keys[0];
             let priv_hex = &keys[1];
-            
+
             let now_ms = crate::infra::time::get_current_time_ms();
             conn.execute(
                 "UPDATE workspaces SET creator_public_key = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
@@ -82,11 +103,13 @@ pub async fn ensure_user_role_signature_impl(
         } else {
             let private_key_bytes = zeroize::Zeroizing::new(
                 const_hex::decode(creator_sk_val)
-                    .map_err(|e| crate::infra::errors::YntraError::CryptoError(e.to_string()))?
+                    .map_err(|e| crate::infra::errors::YntraError::CryptoError(e.to_string()))?,
             );
             let mut private_key_array = zeroize::Zeroizing::new([0u8; 32]);
             if private_key_bytes.len() != 32 {
-                return Err(crate::infra::errors::YntraError::CryptoError("Invalid private key length".to_string()));
+                return Err(crate::infra::errors::YntraError::CryptoError(
+                    "Invalid private key length".to_string(),
+                ));
             }
             private_key_array.copy_from_slice(&private_key_bytes[..32]);
             let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key_array);
@@ -105,11 +128,15 @@ pub async fn ensure_user_role_signature_impl(
     // 3. Generate role signature and save to users table
     if let Some(ref sk) = active_sk {
         let sig = crate::infra::crypto::generate_role_signature(sk, user_id, role, workspace_id)?;
-        let current_sig: Option<String> = conn.query_row(
-            "SELECT role_signature FROM users WHERE id = ?1",
-            crate::params![user_id],
-            |r| r.get(0)
-        ).await.ok().flatten();
+        let current_sig: Option<String> = conn
+            .query_row(
+                "SELECT role_signature FROM users WHERE id = ?1",
+                crate::params![user_id],
+                |r| r.get(0),
+            )
+            .await
+            .ok()
+            .flatten();
         if current_sig.as_ref() != Some(&sig) {
             let now_ms = crate::infra::time::get_current_time_ms();
             conn.execute(
@@ -146,11 +173,20 @@ pub async fn reconcile_role_signatures(requester_user_id: String) -> Result<(), 
                 let mut cached_pk = None;
                 let mut cached_sk = None;
                 for (u_id, u_role) in to_sign {
-                    ensure_user_role_signature_impl(&conn, &u_id, &u_role, &auth.workspace_id, &mut cached_pk, &mut cached_sk).await?;
+                    ensure_user_role_signature_impl(
+                        &conn,
+                        &u_id,
+                        &u_role,
+                        &auth.workspace_id,
+                        &mut cached_pk,
+                        &mut cached_sk,
+                    )
+                    .await?;
                 }
                 Ok::<(), YntraError>(())
-            }.await;
-            
+            }
+            .await;
+
             match res {
                 Ok(_) => conn.commit().await?,
                 Err(e) => {

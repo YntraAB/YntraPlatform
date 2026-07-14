@@ -28,8 +28,12 @@ pub fn TwoFactorSettings(props: TwoFactorSettingsProps) -> Element {
     let locale = props.locale.clone();
 
     let mut is_enabled = use_signal(|| {
-        let prefs: serde_json::Value = serde_json::from_str(&account_preferences.read()).unwrap_or_default();
-        prefs.get("two_factor_enabled").and_then(|v| v.as_bool()).unwrap_or(false)
+        let prefs: serde_json::Value =
+            serde_json::from_str(&account_preferences.read()).unwrap_or_default();
+        prefs
+            .get("two_factor_enabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
     });
     let mut show_enroll_modal = use_signal(|| false);
     let mut otp_code = use_signal(|| vec!["".to_string(); 6]);
@@ -45,8 +49,13 @@ pub fn TwoFactorSettings(props: TwoFactorSettingsProps) -> Element {
         if *show_enroll_modal.read() {
             (*enrollment_secret.read()).clone()
         } else {
-            let prefs: serde_json::Value = serde_json::from_str(&account_preferences.read()).unwrap_or_default();
-            prefs.get("totp_secret").and_then(|v| v.as_str()).unwrap_or("").to_string()
+            let prefs: serde_json::Value =
+                serde_json::from_str(&account_preferences.read()).unwrap_or_default();
+            prefs
+                .get("totp_secret")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string()
         }
     });
 

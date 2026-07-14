@@ -1,31 +1,38 @@
 use crate::components;
 use dioxus::prelude::*;
-use yntra_core::{TodoItem, DailyNote, ZkCryptoTrust, P2PMeshSyncRouter};
 use std::sync::Arc;
+use yntra_core::{DailyNote, P2PMeshSyncRouter, TodoItem, ZkCryptoTrust};
 
 #[component]
 pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>) -> Element {
     // 1. Initialize Peer stores and mesh router
     let store_a = use_hook(|| {
-        yntra_core::create_peer_store("peer_a".to_string()).expect("Failed to initialize Peer A Store")
-    }).clone();
+        yntra_core::create_peer_store("peer_a".to_string())
+            .expect("Failed to initialize Peer A Store")
+    })
+    .clone();
 
     let store_b = use_hook(|| {
-        yntra_core::create_peer_store("peer_b".to_string()).expect("Failed to initialize Peer B Store")
-    }).clone();
+        yntra_core::create_peer_store("peer_b".to_string())
+            .expect("Failed to initialize Peer B Store")
+    })
+    .clone();
 
     // Notes Stores
     let store_notes_a = use_hook(|| {
-        yntra_core::create_peer_note_store("peer_a".to_string()).expect("Failed to initialize Peer A Notes Store")
-    }).clone();
+        yntra_core::create_peer_note_store("peer_a".to_string())
+            .expect("Failed to initialize Peer A Notes Store")
+    })
+    .clone();
 
     let store_notes_b = use_hook(|| {
-        yntra_core::create_peer_note_store("peer_b".to_string()).expect("Failed to initialize Peer B Notes Store")
-    }).clone();
+        yntra_core::create_peer_note_store("peer_b".to_string())
+            .expect("Failed to initialize Peer B Notes Store")
+    })
+    .clone();
 
-    let router = use_hook(|| {
-        P2PMeshSyncRouter::with_relay("http://localhost:8081".to_string())
-    }).clone();
+    let router =
+        use_hook(|| P2PMeshSyncRouter::with_relay("http://localhost:8081".to_string())).clone();
 
     let trust = use_hook(|| ZkCryptoTrust::new()).clone();
 
@@ -57,11 +64,13 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
     // Navigation Tab
     let mut active_tab = use_signal(|| "todos".to_string());
 
-    let mut logs = use_signal(|| vec![
+    let mut logs = use_signal(|| {
+        vec![
         "[P2P Mesh] Collaboration Playground started.".to_string(),
         "[P2P Mesh] Connecting peers to local coordination relay server (port 8081)...".to_string(),
         "[P2P Fallback] Offline loopback channel loaded successfully (auto-sync fallback enabled).".to_string()
-    ]);
+    ]
+    });
     let mut is_connected = use_signal(|| true);
 
     // Register peers on network and load initial lists
@@ -109,22 +118,36 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                 loop {
                     #[cfg(not(target_arch = "wasm32"))]
                     tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-                    
+
                     #[cfg(target_arch = "wasm32")]
                     {
                         let promise = js_sys::Promise::new(&mut |resolve, _| {
                             let window = web_sys::window().unwrap();
-                            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 1500);
+                            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+                                &resolve, 1500,
+                            );
                         });
                         let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
                     }
 
                     if *is_connected.read() {
-                        router.trigger_poll_relay_updates("peer_a".to_string(), Arc::new(store_a.clone()));
-                        router.trigger_poll_relay_updates("peer_b".to_string(), Arc::new(store_b.clone()));
+                        router.trigger_poll_relay_updates(
+                            "peer_a".to_string(),
+                            Arc::new(store_a.clone()),
+                        );
+                        router.trigger_poll_relay_updates(
+                            "peer_b".to_string(),
+                            Arc::new(store_b.clone()),
+                        );
 
-                        router.trigger_poll_relay_note_updates("peer_a".to_string(), Arc::new(store_notes_a.clone()));
-                        router.trigger_poll_relay_note_updates("peer_b".to_string(), Arc::new(store_notes_b.clone()));
+                        router.trigger_poll_relay_note_updates(
+                            "peer_a".to_string(),
+                            Arc::new(store_notes_a.clone()),
+                        );
+                        router.trigger_poll_relay_note_updates(
+                            "peer_b".to_string(),
+                            Arc::new(store_notes_b.clone()),
+                        );
                     }
 
                     if let Ok(list) = store_a.read_all_todos() {
@@ -146,7 +169,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
 
     rsx! {
         div { class: "flex flex-col h-full w-full bg-background box-border p-6",
-            
+
             // Header bar
             div { class: "flex shrink-0 items-center justify-between border-b border-border pb-4 mb-4",
                 div {
@@ -158,7 +181,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                         "Real-time local synchronization using memory-mapped ZeroCopyStores and Loro CRDT merge packets."
                     }
                 }
-                
+
                 // Network status indicator
                 div { class: "flex items-center gap-3 bg-white/[0.02] border border-border px-4 py-2 rounded-lg",
                     span { class: "text-sm font-semibold", "Peer Mesh Link:" }
@@ -203,7 +226,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
 
             // Grid layout for Peer Nodes A & B
             div { class: "grid grid-cols-2 gap-6 flex-1 min-h-0 mb-4",
-                
+
                 // Peer A panel
                 div { class: "flex flex-col border border-border rounded-xl bg-card overflow-hidden",
                     div { class: "p-4 border-b border-border bg-white/[0.01] flex items-center justify-between",
@@ -248,7 +271,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                     } else {
                         rsx! {}
                     }}
-                    
+
                     {if *active_tab.read() == "todos" {
                         rsx! {
                             // Input bar
@@ -403,7 +426,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                                 let subject = note_subject_a.read().clone();
                                                 let content = note_content_a.read().clone();
                                                 if subject.trim().is_empty() || content.trim().is_empty() { return; }
-                                                
+
                                                 // ZK Passkey Envelope Encryption
                                                 let key = passkey_a.read().clone();
                                                 let encrypted_content = match trust.encrypt_workspace_field(key, content.clone()) {
@@ -415,7 +438,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                                         return;
                                                     }
                                                 };
-                                                
+
                                                 // Generate ZK Compliance Proof
                                                 let user_id = user_id_a.read().clone();
                                                 let role = role_a.read().clone();
@@ -428,7 +451,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                                         return;
                                                     }
                                                 };
-                                                
+
                                                 // Serialise metadata to edit_history
                                                 let metadata = serde_json::json!({
                                                     "compliance_proof": proof,
@@ -436,7 +459,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                                     "role": role,
                                                 });
                                                 let edit_history_str = serde_json::to_string(&metadata).unwrap_or_else(|_| "[]".to_string());
-                                                
+
                                                 let mut list = store.read_all_notes().unwrap_or_default();
                                                 list.push(DailyNote {
                                                     id: uuid::Uuid::new_v4().to_string(),
@@ -478,7 +501,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                         {
                                             let key = passkey_a.read().clone();
                                             let decrypted_res = trust.decrypt_workspace_field(key, n.content.clone());
-                                            
+
                                             // Parse ZK Proof metadata from edit_history
                                             let history_str = n.edit_history.clone();
                                             let proof_info = serde_json::from_str::<serde_json::Value>(&history_str).ok().and_then(|v| {
@@ -487,13 +510,13 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                                 let role = v.get("role")?.as_str()?.to_string();
                                                 Some((proof, user_id, role))
                                             });
-                                            
+
                                             let verification_result = if let Some((ref proof, ref uid, ref r)) = proof_info {
                                                 trust.verify_compliance_proof(proof.clone(), uid.clone(), r.clone(), n.content.clone()).unwrap_or(false)
                                             } else {
                                                 false
                                             };
-                                            
+
                                             rsx! {
                                                 div { class: "flex flex-col bg-white/[0.01] border border-border/40 p-3 rounded-lg gap-2 hover:border-border transition relative overflow-hidden",
                                                     div { class: "flex items-center justify-between",
@@ -503,7 +526,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                                         }
                                                         span { class: "text-[10px] text-muted-foreground", "{n.created_at}" }
                                                     }
-                                                    
+
                                                     // Decrypted output or fallback
                                                     {match decrypted_res {
                                                         Ok(plaintext) => rsx! {
@@ -538,7 +561,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                                         let verified_text = if verification_result { "Verified (Pass)" } else { "Failed (Invalid ZK Proof)" };
                                                         let verified_class = if verification_result { "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" } else { "text-rose-400 bg-rose-500/10 border-rose-500/20" };
                                                         let icon_name = if verification_result { "shield-check" } else { "alert-triangle" };
-                                                        
+
                                                         rsx! {
                                                             div { class: "mt-2 pt-2 border-t border-border/30 flex flex-col gap-1.5",
                                                                 div { class: "flex items-center justify-between",
@@ -604,7 +627,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                         return;
                                     }
                                     let mut curr_logs = logs.read().clone();
-                                    
+
                                     // Sync Todos
                                     if let Ok(changes) = store_a.get_loro_changes() {
                                         curr_logs.push(format!("[Peer A] Exported Loro Todos update ({} bytes)", changes.len()));
@@ -618,7 +641,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                         router.broadcast_write_network("peer_a".to_string(), changes);
                                         router.trigger_poll_relay_note_updates("peer_b".to_string(), Arc::new(store_notes_b.clone()));
                                     }
-                                    
+
                                     curr_logs.push("[Peer B] Polled and merged CRDT changes successfully!".to_string());
                                     if let Ok(list) = store_b.read_all_todos() {
                                         todos_b.set(list);
@@ -679,7 +702,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                     } else {
                         rsx! {}
                     }}
-                    
+
                     {if *active_tab.read() == "todos" {
                         rsx! {
                             // Input bar
@@ -834,7 +857,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                                 let subject = note_subject_b.read().clone();
                                                 let content = note_content_b.read().clone();
                                                 if subject.trim().is_empty() || content.trim().is_empty() { return; }
-                                                
+
                                                 // ZK Passkey Envelope Encryption
                                                 let key = passkey_b.read().clone();
                                                 let encrypted_content = match trust.encrypt_workspace_field(key, content.clone()) {
@@ -846,7 +869,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                                         return;
                                                     }
                                                 };
-                                                
+
                                                 // Generate ZK Compliance Proof
                                                 let user_id = user_id_b.read().clone();
                                                 let role = role_b.read().clone();
@@ -859,7 +882,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                                         return;
                                                     }
                                                 };
-                                                
+
                                                 // Serialise metadata to edit_history
                                                 let metadata = serde_json::json!({
                                                     "compliance_proof": proof,
@@ -867,7 +890,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                                     "role": role,
                                                 });
                                                 let edit_history_str = serde_json::to_string(&metadata).unwrap_or_else(|_| "[]".to_string());
-                                                
+
                                                 let mut list = store.read_all_notes().unwrap_or_default();
                                                 list.push(DailyNote {
                                                     id: uuid::Uuid::new_v4().to_string(),
@@ -909,7 +932,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                         {
                                             let key = passkey_b.read().clone();
                                             let decrypted_res = trust.decrypt_workspace_field(key, n.content.clone());
-                                            
+
                                             // Parse ZK Proof metadata from edit_history
                                             let history_str = n.edit_history.clone();
                                             let proof_info = serde_json::from_str::<serde_json::Value>(&history_str).ok().and_then(|v| {
@@ -918,13 +941,13 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                                 let role = v.get("role")?.as_str()?.to_string();
                                                 Some((proof, user_id, role))
                                             });
-                                            
+
                                             let verification_result = if let Some((ref proof, ref uid, ref r)) = proof_info {
                                                 trust.verify_compliance_proof(proof.clone(), uid.clone(), r.clone(), n.content.clone()).unwrap_or(false)
                                             } else {
                                                 false
                                             };
-                                            
+
                                             rsx! {
                                                 div { class: "flex flex-col bg-white/[0.01] border border-border/40 p-3 rounded-lg gap-2 hover:border-border transition relative overflow-hidden",
                                                     div { class: "flex items-center justify-between",
@@ -934,7 +957,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                                         }
                                                         span { class: "text-[10px] text-muted-foreground", "{n.created_at}" }
                                                     }
-                                                    
+
                                                     // Decrypted output or fallback
                                                     {match decrypted_res {
                                                         Ok(plaintext) => rsx! {
@@ -969,7 +992,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                                         let verified_text = if verification_result { "Verified (Pass)" } else { "Failed (Invalid ZK Proof)" };
                                                         let verified_class = if verification_result { "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" } else { "text-rose-400 bg-rose-500/10 border-rose-500/20" };
                                                         let icon_name = if verification_result { "shield-check" } else { "alert-triangle" };
-                                                        
+
                                                         rsx! {
                                                             div { class: "mt-2 pt-2 border-t border-border/30 flex flex-col gap-1.5",
                                                                 div { class: "flex items-center justify-between",
@@ -1035,7 +1058,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                         return;
                                     }
                                     let mut curr_logs = logs.read().clone();
-                                    
+
                                     // Sync Todos
                                     if let Ok(changes) = store_b.get_loro_changes() {
                                         curr_logs.push(format!("[Peer B] Exported Loro Todos update ({} bytes)", changes.len()));
@@ -1049,7 +1072,7 @@ pub fn P2PPlaygroundView(active_user_id: Signal<String>, db_trigger: Signal<u32>
                                         router.broadcast_write_network("peer_b".to_string(), changes);
                                         router.trigger_poll_relay_note_updates("peer_a".to_string(), Arc::new(store_notes_a.clone()));
                                     }
-                                    
+
                                     curr_logs.push("[Peer A] Polled and merged CRDT changes successfully!".to_string());
                                     if let Ok(list) = store_a.read_all_todos() {
                                         todos_a.set(list);

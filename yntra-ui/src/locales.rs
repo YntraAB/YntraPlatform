@@ -64,30 +64,31 @@ pub fn t_with_args(key: &str, locale: &str, args: &[(&str, &str)]) -> String {
 
         // Try looking up the message in target locale
         if let Some(msg) = bundle.get_message(key)
-            && let Some(pattern) = msg.value() {
-                let mut fluent_args = fluent_bundle::FluentArgs::new();
-                for &(k, v) in args {
-                    fluent_args.set(k, v);
-                }
-                let mut errors = vec![];
-                let formatted = bundle.format_pattern(pattern, Some(&fluent_args), &mut errors);
-                return formatted.to_string();
+            && let Some(pattern) = msg.value()
+        {
+            let mut fluent_args = fluent_bundle::FluentArgs::new();
+            for &(k, v) in args {
+                fluent_args.set(k, v);
             }
+            let mut errors = vec![];
+            let formatted = bundle.format_pattern(pattern, Some(&fluent_args), &mut errors);
+            return formatted.to_string();
+        }
 
         // Key-by-key fallback chain: if missing from target locale, try "en"
         if locale != "en"
             && let Some(en_bundle) = bundles_borrow.get("en")
-                && let Some(msg) = en_bundle.get_message(key)
-                    && let Some(pattern) = msg.value() {
-                        let mut fluent_args = fluent_bundle::FluentArgs::new();
-                        for &(k, v) in args {
-                            fluent_args.set(k, v);
-                        }
-                        let mut errors = vec![];
-                        let formatted =
-                            en_bundle.format_pattern(pattern, Some(&fluent_args), &mut errors);
-                        return formatted.to_string();
-                    }
+            && let Some(msg) = en_bundle.get_message(key)
+            && let Some(pattern) = msg.value()
+        {
+            let mut fluent_args = fluent_bundle::FluentArgs::new();
+            for &(k, v) in args {
+                fluent_args.set(k, v);
+            }
+            let mut errors = vec![];
+            let formatted = en_bundle.format_pattern(pattern, Some(&fluent_args), &mut errors);
+            return formatted.to_string();
+        }
 
         key.to_string()
     })

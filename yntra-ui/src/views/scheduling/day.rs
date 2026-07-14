@@ -1,8 +1,8 @@
+use super::utils::*;
 use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::TeamEvent;
-use super::utils::*;
 
 #[derive(Props, Clone)]
 pub struct DayViewProps {
@@ -43,12 +43,15 @@ pub fn DayView(props: DayViewProps) -> Element {
     let selected_date_str = selected_calendar_date.read().clone();
     let mut dragged_over_cell = props.dragged_over_cell;
 
-    let day_events: Vec<TeamEvent> = props.scheduled_events
+    let day_events: Vec<TeamEvent> = props
+        .scheduled_events
         .iter()
         .filter(|ev| {
             if ev.start_time.starts_with(&selected_date_str) {
                 true
-            } else { !ev.start_time.contains('-') && selected_date_str == "2026-06-30" }
+            } else {
+                !ev.start_time.contains('-') && selected_date_str == "2026-06-30"
+            }
         })
         .cloned()
         .collect();
@@ -64,7 +67,7 @@ pub fn DayView(props: DayViewProps) -> Element {
             class: "flex-1 overflow-y-auto scrollbar-dark border border-border rounded-xl bg-background",
             style: "max-height: 600px;",
             div { class: "flex min-h-full",
-                
+
                 // Time column
                 div { class: "w-16 flex-shrink-0 border-r border-border bg-sidebar",
                     div { class: "h-4 border-b border-border" }
@@ -82,7 +85,7 @@ pub fn DayView(props: DayViewProps) -> Element {
                 }
 
                 // Day column with events
-                div { 
+                div {
                     class: "relative flex-1 bg-background/20 {drag_over_class}",
                     ondragover: move |e| {
                         e.prevent_default();
@@ -236,9 +239,9 @@ pub fn DayView(props: DayViewProps) -> Element {
                                 }
 
                                 // Hover Information Popup (Top centered placement)
-                                div { 
+                                div {
                                     class: "pointer-events-none absolute bottom-full left-1/2 z-[100] mb-2 -translate-x-1/2 hidden w-64 rounded-xl border border-border bg-background/95 p-4 shadow-2xl backdrop-blur-md duration-200 animate-in fade-in slide-in-from-bottom-2 group-hover:block",
-                                    
+
                                     div { class: "mb-2 flex items-center justify-between text-[10px] text-muted-foreground",
                                         span {
                                             class: "rounded px-2 py-0.5 font-bold uppercase tracking-wider",

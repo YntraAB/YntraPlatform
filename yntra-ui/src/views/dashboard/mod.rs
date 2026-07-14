@@ -2,8 +2,8 @@ use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::TeamEvent;
-use yntra_core::WorkspaceUser;
 use yntra_core::Workspace;
+use yntra_core::WorkspaceUser;
 
 mod time_report_modal;
 
@@ -36,7 +36,13 @@ fn get_formatted_today_date(today_str: &str, locale: &str) -> String {
     let days_in_month = |m: u32, y: i32| match m {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
         4 | 6 | 9 | 11 => 30,
-        2 => if is_leap(y) { 29 } else { 28 },
+        2 => {
+            if is_leap(y) {
+                29
+            } else {
+                28
+            }
+        }
         _ => 30,
     };
 
@@ -220,14 +226,15 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
         }
     });
 
-
-
     // Parse active modules from workspace
     let modules_active: serde_json::Value =
         serde_json::from_str(&workspace.modules_active).unwrap_or_default();
 
     let is_module_active = |block_id: &str| -> bool {
-        modules_active.get(block_id).and_then(|v| v.as_bool()).unwrap_or(false)
+        modules_active
+            .get(block_id)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
     };
 
     struct WidgetMeta {
@@ -236,15 +243,42 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
     }
 
     let all_widgets = vec![
-        WidgetMeta { id: "scheduling", block_id: "scheduling" },
-        WidgetMeta { id: "messaging", block_id: "messaging" },
-        WidgetMeta { id: "jobs", block_id: "jobs" },
-        WidgetMeta { id: "todos", block_id: "todos" },
-        WidgetMeta { id: "time", block_id: "time" },
-        WidgetMeta { id: "assistance", block_id: "assistance" },
-        WidgetMeta { id: "academics", block_id: "academics" },
-        WidgetMeta { id: "library", block_id: "library" },
-        WidgetMeta { id: "finance", block_id: "finance" },
+        WidgetMeta {
+            id: "scheduling",
+            block_id: "scheduling",
+        },
+        WidgetMeta {
+            id: "messaging",
+            block_id: "messaging",
+        },
+        WidgetMeta {
+            id: "jobs",
+            block_id: "jobs",
+        },
+        WidgetMeta {
+            id: "todos",
+            block_id: "todos",
+        },
+        WidgetMeta {
+            id: "time",
+            block_id: "time",
+        },
+        WidgetMeta {
+            id: "assistance",
+            block_id: "assistance",
+        },
+        WidgetMeta {
+            id: "academics",
+            block_id: "academics",
+        },
+        WidgetMeta {
+            id: "library",
+            block_id: "library",
+        },
+        WidgetMeta {
+            id: "finance",
+            block_id: "finance",
+        },
     ];
 
     let allowed_widgets: Vec<WidgetMeta> = all_widgets
@@ -256,8 +290,13 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
     let user_prefs: serde_json::Value =
         serde_json::from_str(&active_user.preferences).unwrap_or_default();
 
-    let selected_widgets: Vec<String> = if let Some(arr) = user_prefs.get("dashboard_widgets").and_then(|v| v.as_array()) {
-        arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()
+    let selected_widgets: Vec<String> = if let Some(arr) = user_prefs
+        .get("dashboard_widgets")
+        .and_then(|v| v.as_array())
+    {
+        arr.iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect()
     } else {
         allowed_widgets.iter().map(|w| w.id.to_string()).collect()
     };
@@ -279,15 +318,69 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
         let val = t(key, locale);
         if val == key || val.is_empty() {
             match id {
-                "scheduling" => match locale { "sv" => "Kommande händelser", "no" => "Kommende hendelser", "da" => "Kommende begivenheder", _ => "Upcoming Events" }.to_string(),
-                "messaging" => match locale { "sv" => "Kommunikation", "no" => "Kommunikasjon", "da" => "Kommunikation", _ => "Communications" }.to_string(),
-                "jobs" => match locale { "sv" => "Arbetspass & Uppdrag", "no" => "Arbeidspass & Oppdrag", "da" => "Arbejdspas & Opgaver", _ => "Job Tickets" }.to_string(),
-                "todos" => match locale { "sv" => "Uppgifter & Att göra", "no" => "Oppgaver & Gjøremål", "da" => "Opgaver & To-do", _ => "Todos" }.to_string(),
-                "time" => match locale { "sv" => "Tidrapportering", "no" => "Tidsrapportering", "da" => "Tidsrapportering", _ => "Time Sheets" }.to_string(),
-                "assistance" => match locale { "sv" => "Omsorg & Assistans", "no" => "Omsorg & Assistanse", "da" => "Omsorg & Assistance", _ => "Care & Assistance" }.to_string(),
-                "academics" => match locale { "sv" => "Skola & Kurser", "no" => "Skole & Kurs", "da" => "Skole & Kurser", _ => "School Academics" }.to_string(),
-                "library" => match locale { "sv" => "Skolbibliotek", "no" => "Skolebibliotek", "da" => "Skolebibliotek", _ => "School Library" }.to_string(),
-                "finance" => match locale { "sv" => "Skolfakturering", "no" => "Skolefakturering", "da" => "Skolefakturering", _ => "School Billing" }.to_string(),
+                "scheduling" => match locale {
+                    "sv" => "Kommande händelser",
+                    "no" => "Kommende hendelser",
+                    "da" => "Kommende begivenheder",
+                    _ => "Upcoming Events",
+                }
+                .to_string(),
+                "messaging" => match locale {
+                    "sv" => "Kommunikation",
+                    "no" => "Kommunikasjon",
+                    "da" => "Kommunikation",
+                    _ => "Communications",
+                }
+                .to_string(),
+                "jobs" => match locale {
+                    "sv" => "Arbetspass & Uppdrag",
+                    "no" => "Arbeidspass & Oppdrag",
+                    "da" => "Arbejdspas & Opgaver",
+                    _ => "Job Tickets",
+                }
+                .to_string(),
+                "todos" => match locale {
+                    "sv" => "Uppgifter & Att göra",
+                    "no" => "Oppgaver & Gjøremål",
+                    "da" => "Opgaver & To-do",
+                    _ => "Todos",
+                }
+                .to_string(),
+                "time" => match locale {
+                    "sv" => "Tidrapportering",
+                    "no" => "Tidsrapportering",
+                    "da" => "Tidsrapportering",
+                    _ => "Time Sheets",
+                }
+                .to_string(),
+                "assistance" => match locale {
+                    "sv" => "Omsorg & Assistans",
+                    "no" => "Omsorg & Assistanse",
+                    "da" => "Omsorg & Assistance",
+                    _ => "Care & Assistance",
+                }
+                .to_string(),
+                "academics" => match locale {
+                    "sv" => "Skola & Kurser",
+                    "no" => "Skole & Kurs",
+                    "da" => "Skole & Kurser",
+                    _ => "School Academics",
+                }
+                .to_string(),
+                "library" => match locale {
+                    "sv" => "Skolbibliotek",
+                    "no" => "Skolebibliotek",
+                    "da" => "Skolebibliotek",
+                    _ => "School Library",
+                }
+                .to_string(),
+                "finance" => match locale {
+                    "sv" => "Skolfakturering",
+                    "no" => "Skolefakturering",
+                    "da" => "Skolefakturering",
+                    _ => "School Billing",
+                }
+                .to_string(),
                 _ => id.to_string(),
             }
         } else {
@@ -312,7 +405,10 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
 
     let t_welcome = t("dashboard-welcome", &locale);
     let t_report_time_btn = t("timereports-report-time-btn", &locale);
-    let user_name = active_user.full_name.clone().unwrap_or_else(|| active_user.email.clone());
+    let user_name = active_user
+        .full_name
+        .clone()
+        .unwrap_or_else(|| active_user.email.clone());
 
     struct RenderedEvent {
         id: String,
@@ -329,16 +425,27 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
             .collect();
         list.sort_by(|a, b| a.start_time.cmp(&b.start_time));
         list.truncate(3);
-        
-        let mapped: Vec<RenderedEvent> = list.iter().map(|event| {
-            let start_time_part = if event.start_time.len() >= 16 { &event.start_time[11..16] } else { &event.start_time };
-            let end_time_part = if event.end_time.len() >= 16 { &event.end_time[11..16] } else { &event.end_time };
-            RenderedEvent {
-                id: event.id.clone(),
-                title: event.title.clone(),
-                time_range: format!("{} - {}", start_time_part, end_time_part),
-            }
-        }).collect();
+
+        let mapped: Vec<RenderedEvent> = list
+            .iter()
+            .map(|event| {
+                let start_time_part = if event.start_time.len() >= 16 {
+                    &event.start_time[11..16]
+                } else {
+                    &event.start_time
+                };
+                let end_time_part = if event.end_time.len() >= 16 {
+                    &event.end_time[11..16]
+                } else {
+                    &event.end_time
+                };
+                RenderedEvent {
+                    id: event.id.clone(),
+                    title: event.title.clone(),
+                    time_range: format!("{} - {}", start_time_part, end_time_part),
+                }
+            })
+            .collect();
         mapped
     };
 
@@ -355,11 +462,8 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
 
     let active_todos = {
         let todo_list = todos.read().clone().unwrap_or_default();
-        let mut list: Vec<yntra_core::TodoItem> = todo_list
-            .iter()
-            .filter(|t| !t.completed)
-            .cloned()
-            .collect();
+        let mut list: Vec<yntra_core::TodoItem> =
+            todo_list.iter().filter(|t| !t.completed).cloned().collect();
         list.truncate(3);
         list
     };
@@ -381,19 +485,20 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
         checked: bool,
     }
 
-    let rendered_allowed_widgets: Vec<RenderedWidget> = allowed_widgets.iter().map(|w| {
-        RenderedWidget {
+    let rendered_allowed_widgets: Vec<RenderedWidget> = allowed_widgets
+        .iter()
+        .map(|w| RenderedWidget {
             id: w.id.to_string(),
             label: get_widget_label(w.id, &locale),
             icon: w.block_id.to_string(),
             checked: selected_widgets.contains(&w.id.to_string()),
-        }
-    }).collect();
+        })
+        .collect();
 
     rsx! {
         div {
             class: "flex flex-col gap-8 p-6 bg-background",
-            
+
             // Header bar
             div {
                 class: "mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-end",
@@ -432,7 +537,7 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
             // Grid widgets layout
             div {
                 class: "grid gap-6 md:grid-cols-2 lg:grid-cols-3",
-                
+
                 // 1. Scheduling Widget
                 if selected_widgets.contains(&"scheduling".to_string()) && is_module_active("scheduling") {
                     div {
@@ -594,7 +699,7 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                 div {
                                     class: "space-y-3",
                                     if pending_tickets.is_empty() {
-                                        p { class: "text-sm text-muted-foreground m-0 py-4", 
+                                        p { class: "text-sm text-muted-foreground m-0 py-4",
                                             match locale.as_str() {
                                                 "sv" => "Inga pågående uppdrag.",
                                                 "no" => "Ingen pågående oppdrag.",
@@ -619,7 +724,7 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                 button {
                                     class: "mt-4 w-full flex justify-center items-center gap-2 bg-secondary hover:bg-secondary/80 text-secondary-foreground border-0 font-semibold py-2.5 px-4 rounded-lg cursor-pointer transition-colors text-sm shadow-sm",
                                     onclick: move |_| active_section.set("jobs".to_string()),
-                                    span { 
+                                    span {
                                         match locale.as_str() {
                                             "sv" => "Visa alla uppdrag",
                                             "no" => "Vis alle oppdrag",
@@ -694,7 +799,7 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                             }
                                         }
                                     }
-                                    
+
                                     // Add Todo input field
                                     div { class: "flex items-center gap-2 mt-2 pt-2 border-t border-border/40",
                                         input {
@@ -1117,19 +1222,19 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                             } else {
                                                 next_selected.retain(|x| x != &w_id);
                                             }
-                                            
+
                                             let mut new_prefs: serde_json::Value = serde_json::from_str(&active_user.preferences).unwrap_or_default();
                                             new_prefs.as_object_mut().unwrap().insert(
                                                 "dashboard_widgets".to_string(),
                                                 serde_json::to_value(next_selected).unwrap()
                                             );
-                                            
+
                                             let pref_json = serde_json::to_string(&new_prefs).unwrap_or_default();
                                             let req_id = active_user.id.clone();
                                             let u_id = active_user.id.clone();
                                             let u_name = active_user.full_name.clone();
                                             let u_phone = active_user.phone.clone();
-                                            
+
                                             spawn(async move {
                                                 let _ = yntra_core::update_user_profile(
                                                     req_id,

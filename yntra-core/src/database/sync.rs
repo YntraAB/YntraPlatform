@@ -1,5 +1,8 @@
-use std::sync::{Mutex, OnceLock, atomic::{AtomicBool, Ordering}};
 use crate::YntraError;
+use std::sync::{
+    Mutex, OnceLock,
+    atomic::{AtomicBool, Ordering},
+};
 
 // Database Credentials Configuration Injection
 #[derive(Clone)]
@@ -19,7 +22,8 @@ pub fn configure_database_sync(url: String, token: String) {
 
 pub fn get_configured_credentials() -> Option<(String, String)> {
     if let Ok(lock) = DB_CONFIG.get_or_init(|| Mutex::new(None)).lock() {
-        lock.as_ref().map(|cfg| (cfg.url.clone(), cfg.token.clone()))
+        lock.as_ref()
+            .map(|cfg| (cfg.url.clone(), cfg.token.clone()))
     } else {
         None
     }
@@ -29,7 +33,10 @@ pub fn get_configured_credentials() -> Option<(String, String)> {
 #[wasm_bindgen::prelude::wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_name = yntra_sync_db, catch)]
-    async fn js_sync_db(url: &str, token: &str) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue>;
+    async fn js_sync_db(
+        url: &str,
+        token: &str,
+    ) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue>;
 }
 
 #[uniffi::export]
@@ -46,7 +53,9 @@ pub async fn sync_database() -> Result<(), YntraError> {
         let has_sync_env = std::env::var("LIBSQL_URL").is_ok();
         if config.is_some() || has_sync_env {
             let db = super::native::get_database();
-            db.sync().await.map_err(|e| YntraError::SyncError(e.to_string()))?;
+            db.sync()
+                .await
+                .map_err(|e| YntraError::SyncError(e.to_string()))?;
             let _ = crate::services::notes::merge_unmerged_notes().await;
             crate::infra::observer::notify_observers();
         }
@@ -82,7 +91,9 @@ pub async fn sync_database() -> Result<(), YntraError> {
                     }
                 }
                 Err(e) => {
-                    let msg = e.as_string().unwrap_or_else(|| "Unknown JS sync error".to_string());
+                    let msg = e
+                        .as_string()
+                        .unwrap_or_else(|| "Unknown JS sync error".to_string());
                     return Err(YntraError::SyncError(msg));
                 }
             }
@@ -117,14 +128,14 @@ pub fn start_background_sync(interval_secs: u32) {
                 } else {
                     base_interval
                 };
-                
+
                 tokio::time::sleep(std::time::Duration::from_secs(current_interval)).await;
-                
+
                 if SYNC_CANCELLED.load(Ordering::SeqCst) {
                     SYNC_RUNNING.store(false, Ordering::SeqCst);
                     break;
                 }
-                
+
                 match sync_database().await {
                     Ok(_) => consecutive_failures = 0,
                     Err(_) => consecutive_failures = (consecutive_failures + 1).min(5),
@@ -144,14 +155,14 @@ pub fn start_background_sync(interval_secs: u32) {
                 } else {
                     base_interval
                 };
-                
+
                 sleep_ms(current_interval * 1000).await;
-                
+
                 if SYNC_CANCELLED.load(Ordering::SeqCst) {
                     SYNC_RUNNING.store(false, Ordering::SeqCst);
                     break;
                 }
-                
+
                 match sync_database().await {
                     Ok(_) => consecutive_failures = 0,
                     Err(_) => consecutive_failures = (consecutive_failures + 1).min(5),

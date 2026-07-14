@@ -1,6 +1,6 @@
+use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::add_time_report;
-use crate::locales::t;
 
 #[derive(Props, Clone)]
 pub struct TimeReportModalProps {
@@ -29,7 +29,7 @@ pub fn TimeReportModal(props: TimeReportModalProps) -> Element {
     let assistant_teams_list = props.assistant_teams_list.clone();
     let active_user_id = props.active_user_id.clone();
     let workspace_id = props.workspace_id.clone();
-    
+
     let mut time_date = props.time_date;
     let mut time_start = props.time_start;
     let mut time_end = props.time_end;

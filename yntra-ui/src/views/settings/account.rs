@@ -44,44 +44,79 @@ pub fn AccountSettings(props: AccountSettingsProps) -> Element {
 
     // Local state loaded from preferences JSON in the local SQLite database
     let mut phone_privacy = use_signal(|| {
-        let prefs: serde_json::Value = serde_json::from_str(&account_preferences.read()).unwrap_or_default();
-        prefs.get("phone_privacy").and_then(|p| p.as_str()).unwrap_or("organization").to_string()
+        let prefs: serde_json::Value =
+            serde_json::from_str(&account_preferences.read()).unwrap_or_default();
+        prefs
+            .get("phone_privacy")
+            .and_then(|p| p.as_str())
+            .unwrap_or("organization")
+            .to_string()
     });
     let mut location_privacy = use_signal(|| {
-        let prefs: serde_json::Value = serde_json::from_str(&account_preferences.read()).unwrap_or_default();
-        prefs.get("location_privacy").and_then(|p| p.as_str()).unwrap_or("organization").to_string()
+        let prefs: serde_json::Value =
+            serde_json::from_str(&account_preferences.read()).unwrap_or_default();
+        prefs
+            .get("location_privacy")
+            .and_then(|p| p.as_str())
+            .unwrap_or("organization")
+            .to_string()
     });
     let mut location_val = use_signal(|| {
-        let prefs: serde_json::Value = serde_json::from_str(&account_preferences.read()).unwrap_or_default();
-        prefs.get("location").and_then(|l| l.as_str()).unwrap_or("Stockholm, SE").to_string()
+        let prefs: serde_json::Value =
+            serde_json::from_str(&account_preferences.read()).unwrap_or_default();
+        prefs
+            .get("location")
+            .and_then(|l| l.as_str())
+            .unwrap_or("Stockholm, SE")
+            .to_string()
     });
     let mut selected_accent = use_signal(|| {
-        let prefs: serde_json::Value = serde_json::from_str(&account_preferences.read()).unwrap_or_default();
-        prefs.get("accent").and_then(|a| a.as_str()).unwrap_or("primary").to_string()
+        let prefs: serde_json::Value =
+            serde_json::from_str(&account_preferences.read()).unwrap_or_default();
+        prefs
+            .get("accent")
+            .and_then(|a| a.as_str())
+            .unwrap_or("primary")
+            .to_string()
     });
     let mut selected_theme = use_signal(|| {
-        let prefs: serde_json::Value = serde_json::from_str(&account_preferences.read()).unwrap_or_default();
-        prefs.get("theme").and_then(|t| t.as_str()).unwrap_or("dark").to_string()
+        let prefs: serde_json::Value =
+            serde_json::from_str(&account_preferences.read()).unwrap_or_default();
+        prefs
+            .get("theme")
+            .and_then(|t| t.as_str())
+            .unwrap_or("dark")
+            .to_string()
     });
     // In React it is a float like 1.0. Let's keep it as f32 in range [0.8, 1.2]
     let mut font_scale = use_signal(|| {
-        let prefs: serde_json::Value = serde_json::from_str(&account_preferences.read()).unwrap_or_default();
-        let scale = prefs.get("font_scale").and_then(|f| f.as_f64()).unwrap_or(1.0) as f32;
+        let prefs: serde_json::Value =
+            serde_json::from_str(&account_preferences.read()).unwrap_or_default();
+        let scale = prefs
+            .get("font_scale")
+            .and_then(|f| f.as_f64())
+            .unwrap_or(1.0) as f32;
         if scale > 2.0 { scale / 100.0 } else { scale }
     });
     let mut selected_language = use_signal(|| {
-        let prefs: serde_json::Value = serde_json::from_str(&account_preferences.read()).unwrap_or_default();
-        prefs.get("language").and_then(|l| l.as_str()).unwrap_or("US").to_string()
+        let prefs: serde_json::Value =
+            serde_json::from_str(&account_preferences.read()).unwrap_or_default();
+        prefs
+            .get("language")
+            .and_then(|l| l.as_str())
+            .unwrap_or("US")
+            .to_string()
     });
 
     let update_preference = {
         let active_user_id = active_user.id.clone();
         let account_name = account_name;
         let account_phone = account_phone;
-        
+
         move |key: &str, val: serde_json::Value| {
             account_save_status.set("saving".to_string());
-            let mut prefs: serde_json::Value = serde_json::from_str(&account_preferences.read()).unwrap_or_default();
+            let mut prefs: serde_json::Value =
+                serde_json::from_str(&account_preferences.read()).unwrap_or_default();
             prefs[key] = val.clone();
             if key == "accent" {
                 prefs["accent_color"] = val;
@@ -95,7 +130,14 @@ pub fn AccountSettings(props: AccountSettingsProps) -> Element {
             let prefs_val = prefs_str.clone();
             let requester_uid = uid.clone();
             spawn(async move {
-                let _ = update_user_profile(requester_uid.clone(), requester_uid, name_val, phone_val, prefs_val).await;
+                let _ = update_user_profile(
+                    requester_uid.clone(),
+                    requester_uid,
+                    name_val,
+                    phone_val,
+                    prefs_val,
+                )
+                .await;
             });
 
             let current_trig = *db_trigger.read();
@@ -108,15 +150,16 @@ pub fn AccountSettings(props: AccountSettingsProps) -> Element {
         let active_user_id = active_user.id.clone();
         let account_name = account_name;
         let account_phone = account_phone;
-        
+
         move || {
             account_save_status.set("saving".to_string());
-            
-            let mut prefs: serde_json::Value = serde_json::from_str(&account_preferences.read()).unwrap_or_default();
+
+            let mut prefs: serde_json::Value =
+                serde_json::from_str(&account_preferences.read()).unwrap_or_default();
             prefs["phone_privacy"] = serde_json::json!(*phone_privacy.read());
             prefs["location_privacy"] = serde_json::json!(*location_privacy.read());
             prefs["location"] = serde_json::json!(*location_val.read());
-            
+
             let prefs_str = serde_json::to_string(&prefs).unwrap_or_default();
             account_preferences.set(prefs_str.clone());
 
@@ -137,7 +180,7 @@ pub fn AccountSettings(props: AccountSettingsProps) -> Element {
     rsx! {
         div { class: "space-y-6",
             div { class: "grid grid-cols-1 gap-6 md:grid-cols-2",
-                
+
                 // 1. Personal Details Card
                 components::Card { class: "flex flex-col border-2 border-border/50 bg-card/40 shadow-sm backdrop-blur-sm",
                     components::CardHeader {
@@ -261,7 +304,7 @@ pub fn AccountSettings(props: AccountSettingsProps) -> Element {
                         }
                     }
                     components::CardContent { class: "space-y-8",
-                        
+
                         // Accent Color Scheme
                         div { class: "space-y-4",
                             label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
@@ -272,7 +315,7 @@ pub fn AccountSettings(props: AccountSettingsProps) -> Element {
                                     ACCENT_COLORS.iter().map(|&(c_name, c_val)| {
                                         let is_active = *selected_accent.read() == c_val;
                                         let bg_val = if c_val == "primary" { "var(--accent-color)" } else { c_val };
-                                        
+
                                         rsx! {
                                             button {
                                                 key: "{c_val}",
@@ -391,7 +434,7 @@ pub fn AccountSettings(props: AccountSettingsProps) -> Element {
                                             ("system", "monitor", t("settings-theme-system", &props.locale)),
                                         ].into_iter().map(|(val, icon, label)| {
                                             let is_active = *selected_theme.read() == val;
-                                            
+
                                             rsx! {
                                                 button {
                                                     key: "{val}",

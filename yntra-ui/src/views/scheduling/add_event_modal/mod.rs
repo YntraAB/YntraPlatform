@@ -4,11 +4,11 @@ pub mod time_inputs;
 use template_inputs::TemplateInputs;
 use time_inputs::TimeInputs;
 
+use super::utils::*;
 use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
-use yntra_core::{Team, WorkspaceUser, TeamEvent};
-use super::utils::*;
+use yntra_core::{Team, TeamEvent, WorkspaceUser};
 
 #[derive(Props, Clone)]
 pub struct AddEventModalProps {
@@ -40,12 +40,8 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
     // Fetch the active template type from core database
     let template_type_res = use_resource(move || {
         let ws_id = workspace_id.clone();
-        async move {
-            yntra_core::get_workspace_template_type(ws_id).await
-        }
+        async move { yntra_core::get_workspace_template_type(ws_id).await }
     });
-
-
 
     // Form inputs local states
     let mut category = use_signal(|| "assistance_time".to_string());
@@ -69,7 +65,7 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
     let mut end_date = use_signal(String::new);
     let mut end_time = use_signal(|| "10:00".to_string());
     let mut description = use_signal(String::new);
-    
+
     // Collapsible states
     let show_overlap = use_signal(|| false);
     let show_breaks = use_signal(|| false);
@@ -95,21 +91,25 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
     use_effect(move || {
         let is_add_open = *show_add_event_modal.read();
         let edit_opt = editing_event.read();
-        
+
         if let Some(ref ev) = *edit_opt {
             let meta = parse_metadata(&ev.metadata);
-            category.set(meta.category.clone().unwrap_or_else(|| "assistance_time".to_string()));
+            category.set(
+                meta.category
+                    .clone()
+                    .unwrap_or_else(|| "assistance_time".to_string()),
+            );
             description.set(meta.description.clone().unwrap_or_default());
             team_id.set(ev.team_id.clone().unwrap_or_default());
             assignee_id.set(ev.assignee_id.clone().unwrap_or_default());
             client_id.set(ev.user_id.clone().unwrap_or_else(|| "none".to_string()));
-            
+
             selected_course_id.set(meta.course_id.clone().unwrap_or_else(|| "none".to_string()));
             classroom_text.set(meta.classroom.clone().unwrap_or_default());
             vehicle_id_text.set(meta.vehicle_id.clone().unwrap_or_default());
             cargo_volume_text.set(meta.cargo_volume.clone().unwrap_or_default());
             destination_text.set(meta.destination.clone().unwrap_or_default());
-            
+
             let parts_start: Vec<&str> = ev.start_time.split(' ').collect();
             if parts_start.len() == 2 {
                 start_date.set(parts_start[0].to_string());
@@ -118,7 +118,7 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
                 start_date.set(props.selected_calendar_date.read().clone());
                 start_time.set(ev.start_time.clone());
             }
-            
+
             let parts_end: Vec<&str> = ev.end_time.split(' ').collect();
             if parts_end.len() == 2 {
                 end_date.set(parts_end[0].to_string());
@@ -127,7 +127,7 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
                 end_date.set(props.selected_calendar_date.read().clone());
                 end_time.set(ev.end_time.clone());
             }
-            
+
             if let Some(ref w) = meta.waiting_time {
                 waiting_from.set(w.from.clone());
                 waiting_to.set(w.to.clone());
@@ -135,7 +135,7 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
                 waiting_from.set(String::new());
                 waiting_to.set(String::new());
             }
-            
+
             if let Some(ref acts) = meta.active_times {
                 if let Some(act) = acts.first() {
                     active1_from.set(act.from.clone());
@@ -166,7 +166,7 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
                 active3_from.set(String::new());
                 active3_to.set(String::new());
             }
-            
+
             if let Some(ref b) = meta.r#break {
                 break_from.set(b.from.clone());
                 break_to.set(b.to.clone());
@@ -190,14 +190,15 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
             } else {
                 team_id.set(String::new());
             }
-            let non_clients: Vec<&WorkspaceUser> = effect_users.iter().filter(|u| u.role != "client").collect();
+            let non_clients: Vec<&WorkspaceUser> =
+                effect_users.iter().filter(|u| u.role != "client").collect();
             if !non_clients.is_empty() {
                 assignee_id.set(non_clients[0].id.clone());
             } else {
                 assignee_id.set(String::new());
             }
             client_id.set("none".to_string());
-            
+
             selected_course_id.set("none".to_string());
             classroom_text.set(String::new());
             vehicle_id_text.set(String::new());
@@ -207,7 +208,7 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
             end_date.set(props.selected_calendar_date.read().clone());
             start_time.set("09:00".to_string());
             end_time.set("10:00".to_string());
-            
+
             waiting_from.set(String::new());
             waiting_to.set(String::new());
             active1_from.set(String::new());
@@ -222,20 +223,48 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
         }
     });
 
-    let clients: Vec<WorkspaceUser> = users.iter().filter(|u| u.role == "client").cloned().collect();
-    let staff_users: Vec<WorkspaceUser> = users.iter().filter(|u| u.role != "client").cloned().collect();
+    let clients: Vec<WorkspaceUser> = users
+        .iter()
+        .filter(|u| u.role == "client")
+        .cloned()
+        .collect();
+    let staff_users: Vec<WorkspaceUser> = users
+        .iter()
+        .filter(|u| u.role != "client")
+        .cloned()
+        .collect();
 
-    let template = template_type_res.read().as_ref().and_then(|r| r.as_ref().ok().copied()).unwrap_or(yntra_core::WorkspaceTemplateType::General);
+    let template = template_type_res
+        .read()
+        .as_ref()
+        .and_then(|r| r.as_ref().ok().copied())
+        .unwrap_or(yntra_core::WorkspaceTemplateType::General);
     let cats_list = get_categories_for_template(template);
     let quick_cats = match template {
-        yntra_core::WorkspaceTemplateType::Care => vec!["assistance_time", "on_call", "administrative_hours", "meeting", "other"],
-        yntra_core::WorkspaceTemplateType::School => vec!["lectures", "lab_slots", "grading_hours", "meeting", "other"],
-        yntra_core::WorkspaceTemplateType::MovingCompany => vec!["packing", "loading", "transport", "unloading", "other"],
-        yntra_core::WorkspaceTemplateType::General => vec!["meeting", "administrative_hours", "training", "other"],
+        yntra_core::WorkspaceTemplateType::Care => vec![
+            "assistance_time",
+            "on_call",
+            "administrative_hours",
+            "meeting",
+            "other",
+        ],
+        yntra_core::WorkspaceTemplateType::School => {
+            vec!["lectures", "lab_slots", "grading_hours", "meeting", "other"]
+        }
+        yntra_core::WorkspaceTemplateType::MovingCompany => {
+            vec!["packing", "loading", "transport", "unloading", "other"]
+        }
+        yntra_core::WorkspaceTemplateType::General => {
+            vec!["meeting", "administrative_hours", "training", "other"]
+        }
     };
 
     let is_open = *show_add_event_modal.read() || editing_event.read().is_some();
-    let title_key = if editing_event.read().is_some() { "scheduler-edit-event" } else { "scheduler-new-event" };
+    let title_key = if editing_event.read().is_some() {
+        "scheduler-edit-event"
+    } else {
+        "scheduler-new-event"
+    };
 
     rsx! {
         components::Dialog {
@@ -245,10 +274,10 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
                 editing_event.set(None);
             },
             title: t(title_key, &props.locale),
-            div { 
+            div {
                 class: "flex flex-col gap-5 text-left max-h-[75vh] overflow-y-auto pr-1 scrollbar-dark",
                 style: "min-width: 440px; box-sizing: border-box; padding: 0.5rem;",
-                
+
                 // Category Select
                 div { class: "flex flex-col gap-2",
                     label { class: "text-xs font-semibold uppercase tracking-wider text-muted-foreground",
@@ -490,7 +519,7 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
                             let t_id = if team_id.read().is_empty() { None } else { Some(team_id.read().clone()) };
                             let a_id = if assignee_id.read().is_empty() { None } else { Some(assignee_id.read().clone()) };
                             let r_id = if *client_id.read() == "none" { None } else { Some(client_id.read().clone()) };
-                            
+
                             let start_dt = format!("{} {}", *start_date.read(), *start_time.read());
                             let end_dt = format!("{} {}", *end_date.read(), *end_time.read());
 
@@ -527,7 +556,7 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
 
                             let course_val = if *selected_course_id.read() == "none" { None } else { Some(selected_course_id.read().clone()) };
                             let classroom_val = if classroom_text.read().is_empty() { None } else { Some(classroom_text.read().clone()) };
-                            
+
                             let vehicle_val = if vehicle_id_text.read().is_empty() { None } else { Some(vehicle_id_text.read().clone()) };
                             let volume_val = if cargo_volume_text.read().is_empty() { None } else { Some(cargo_volume_text.read().clone()) };
                             let dest_val = if destination_text.read().is_empty() { None } else { Some(destination_text.read().clone()) };
@@ -546,7 +575,7 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
                             };
 
                             let metadata_str = serde_json::to_string(&metadata_obj).unwrap_or_else(|_| "{}".to_string());
-                            
+
                             let title_val = t(&format!("scheduler-categories-{}", cat_val), &props.locale);
 
                             let state = use_context::<crate::state::AppState>();

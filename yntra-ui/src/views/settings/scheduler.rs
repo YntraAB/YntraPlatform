@@ -22,65 +22,89 @@ pub fn SchedulerSettings(props: SchedulerSettingsProps) -> Element {
     let mut db_trigger = props.db_trigger;
     let workspace = props.workspace.clone();
 
-    let settings_val: serde_json::Value = serde_json::from_str(&workspace.settings).unwrap_or_default();
+    let settings_val: serde_json::Value =
+        serde_json::from_str(&workspace.settings).unwrap_or_default();
 
     // Local states matching SchedulerSettings.tsx
     let mut default_calendar_view = use_signal(|| {
-        settings_val.get("default_calendar_view").and_then(|v| v.as_str()).unwrap_or("week").to_string()
+        settings_val
+            .get("default_calendar_view")
+            .and_then(|v| v.as_str())
+            .unwrap_or("week")
+            .to_string()
     });
-    
-    let local_start_hours = settings_val.get("business_hours")
+
+    let local_start_hours = settings_val
+        .get("business_hours")
         .and_then(|bh| bh.get("start"))
         .and_then(|v| v.as_i64())
         .unwrap_or_else(|| {
-            settings_val.get("start_hour").and_then(|v| v.as_i64()).unwrap_or(7)
+            settings_val
+                .get("start_hour")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(7)
         });
     let mut start_hour = use_signal(|| local_start_hours as i32);
 
-    let local_end_hours = settings_val.get("business_hours")
+    let local_end_hours = settings_val
+        .get("business_hours")
         .and_then(|bh| bh.get("end"))
         .and_then(|v| v.as_i64())
         .unwrap_or_else(|| {
-            settings_val.get("end_hour").and_then(|v| v.as_i64()).unwrap_or(17)
+            settings_val
+                .get("end_hour")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(17)
         });
     let mut end_hour = use_signal(|| local_end_hours as i32);
 
     let mut calendar_density = use_signal(|| {
-        settings_val.get("calendar_density").and_then(|v| v.as_str()).unwrap_or("compact").to_string()
+        settings_val
+            .get("calendar_density")
+            .and_then(|v| v.as_str())
+            .unwrap_or("compact")
+            .to_string()
     });
-
-
 
     let state = use_context::<crate::state::AppState>();
     let handle_update_settings = {
         let ws_settings_raw = workspace.settings.clone();
         let ws_id = workspace.id.clone();
         let user_id = state.active_user_id.read().clone();
-        move |new_view: Option<String>, new_density: Option<String>, new_start: Option<i32>, new_end: Option<i32>| {
+        move |new_view: Option<String>,
+              new_density: Option<String>,
+              new_start: Option<i32>,
+              new_end: Option<i32>| {
             settings_save_status.set("saving".to_string());
-            
-            let mut settings_map: serde_json::Value = serde_json::from_str(&ws_settings_raw).unwrap_or_default();
+
+            let mut settings_map: serde_json::Value =
+                serde_json::from_str(&ws_settings_raw).unwrap_or_default();
             if let Some(view) = new_view {
                 settings_map["default_calendar_view"] = serde_json::json!(view);
             }
             if let Some(density) = new_density {
                 settings_map["calendar_density"] = serde_json::json!(density);
             }
-            
+
             let bh_start = new_start.unwrap_or(*start_hour.read());
             let bh_end = new_end.unwrap_or(*end_hour.read());
-            
+
             settings_map["business_hours"] = serde_json::json!({
                 "start": bh_start,
                 "end": bh_end
             });
-            
+
             let settings_str = serde_json::to_string(&settings_map).unwrap_or_default();
             let ws_id_clone = ws_id.clone();
             let settings_str_clone = settings_str.clone();
             let requester_uid = user_id.clone();
             spawn(async move {
-                let _ = yntra_core::update_workspace_settings(requester_uid, ws_id_clone, settings_str_clone).await;
+                let _ = yntra_core::update_workspace_settings(
+                    requester_uid,
+                    ws_id_clone,
+                    settings_str_clone,
+                )
+                .await;
             });
 
             let current_trig = *db_trigger.read();
@@ -92,7 +116,7 @@ pub fn SchedulerSettings(props: SchedulerSettingsProps) -> Element {
     rsx! {
         div { class: "space-y-6",
             div { class: "grid grid-cols-1 gap-6 md:grid-cols-2",
-                
+
                 // 1. Calendar Display Card
                 components::Card { class: "border-2 border-border/50 bg-card/40 shadow-sm backdrop-blur-sm",
                     components::CardHeader {

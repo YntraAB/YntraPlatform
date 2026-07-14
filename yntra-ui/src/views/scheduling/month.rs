@@ -1,8 +1,8 @@
+use super::utils::*;
 use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::TeamEvent;
-use super::utils::*;
 
 #[derive(Props, Clone)]
 pub struct MonthViewProps {
@@ -37,7 +37,7 @@ pub fn MonthView(props: MonthViewProps) -> Element {
 
     rsx! {
         div { class: "scrollbar-dark flex-1 overflow-y-auto p-4 flex flex-col gap-1.5",
-            
+
             // Day Labels
             div { class: "mb-2 grid grid-cols-7 gap-1",
                 for label in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].iter() {
@@ -132,7 +132,7 @@ pub fn MonthView(props: MonthViewProps) -> Element {
                                          }
                                      }
                                 },
-                                
+
                                 // Day Number
                                 div {
                                     class: if is_today {
@@ -159,7 +159,7 @@ pub fn MonthView(props: MonthViewProps) -> Element {
                                         div {
                                             key: "{item.1}",
                                             class: "group relative block pointer-events-auto select-none",
-                                            
+
                                             // Month Card
                                             div {
                                                 class: "cursor-pointer truncate rounded px-1.5 py-0.5 text-[10px] transition-all duration-150 hover:brightness-110 block font-semibold border-l-2",
@@ -210,9 +210,9 @@ pub fn MonthView(props: MonthViewProps) -> Element {
                                             }
 
                                             // Hover Tooltip Popup (Pure CSS group-hover)
-                                            div { 
+                                            div {
                                                 class: "pointer-events-none absolute bottom-full left-0 z-[100] mb-2 hidden w-64 rounded-xl border border-border bg-background/95 p-4 shadow-2xl backdrop-blur-md duration-200 animate-in fade-in slide-in-from-bottom-1 group-hover:block",
-                                                
+
                                                 div { class: "mb-2 flex items-center justify-between text-[10px] text-muted-foreground",
                                                     span {
                                                         class: "rounded px-2 py-0.5 font-bold uppercase tracking-wider",

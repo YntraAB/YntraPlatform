@@ -3,12 +3,13 @@ use crate::observer::notify_observers;
 use crate::{Workspace, YntraError};
 
 #[uniffi::export]
-pub async fn get_workspace() -> Result<Workspace, YntraError> {
+pub async fn get_workspace(requester_user_id: String) -> Result<Workspace, YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    let mut stmt = conn.prepare("SELECT id, name, modules_active, settings, brand_color, logo_url, block_settings, updated_at, sync_status FROM workspaces LIMIT 1").await?;
+    let mut stmt = conn.prepare("SELECT id, name, modules_active, settings, brand_color, logo_url, block_settings, updated_at, sync_status FROM workspaces WHERE id = ?1").await?;
 
-    let mut rows = stmt.query(()).await?;
+    let mut rows = stmt.query(crate::params![&auth.workspace_id]).await?;
     if let Some(row) = rows.next().await? {
         Ok(Workspace {
             id: row.get(0)?,
@@ -22,24 +23,38 @@ pub async fn get_workspace() -> Result<Workspace, YntraError> {
             sync_status: row.get(8)?,
         })
     } else {
-        Err(YntraError::NotFoundError("No workspace found".to_string()))
+        Err(YntraError::NotFoundError(format!("Workspace '{}' not found", auth.workspace_id)))
     }
 }
 
 #[uniffi::export]
-pub async fn update_workspace_modules(requester_user_id: String, workspace_id: String, modules_json: String) -> Result<(), YntraError> {
-    println!("update_workspace_modules FFI called: requester_user_id={}, workspace_id={}, modules_json={}", requester_user_id, workspace_id, modules_json);
+pub async fn update_workspace_modules(
+    requester_user_id: String,
+    workspace_id: String,
+    modules_json: String,
+) -> Result<(), YntraError> {
+    println!(
+        "update_workspace_modules FFI called: requester_user_id={}, workspace_id={}, modules_json={}",
+        requester_user_id, workspace_id, modules_json
+    );
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if !auth.is_admin {
-        return Err(YntraError::AuthError("Access denied: administrator privileges required".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: administrator privileges required".to_string(),
+        ));
     }
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let modules_val: serde_json::Value = serde_json::from_str(&modules_json).unwrap_or_default();
-    let reset_roles = modules_val.get("reset_roles").and_then(|v| v.as_bool()).unwrap_or(false);
+    let reset_roles = modules_val
+        .get("reset_roles")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     let now_ms = crate::infra::time::get_current_time_ms();
     let res = conn.execute(
@@ -67,51 +82,95 @@ pub async fn get_workspaces(requester_user_id: String) -> Result<Vec<Workspace>,
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     let (sql, params) = if auth.role == "platform_admin" {
-        ("SELECT id, name, modules_active, settings, brand_color, logo_url, block_settings, updated_at, sync_status FROM workspaces", crate::params![])
+        (
+            "SELECT id, name, modules_active, settings, brand_color, logo_url, block_settings, updated_at, sync_status FROM workspaces",
+            crate::params![],
+        )
     } else {
-        ("SELECT id, name, modules_active, settings, brand_color, logo_url, block_settings, updated_at, sync_status FROM workspaces WHERE id = ?1", crate::params![&auth.workspace_id])
+        (
+            "SELECT id, name, modules_active, settings, brand_color, logo_url, block_settings, updated_at, sync_status FROM workspaces WHERE id = ?1",
+            crate::params![&auth.workspace_id],
+        )
     };
 
     let mut stmt = conn.prepare(sql).await?;
 
-    let list = stmt.query_map(params, |row| {
-        Ok(Workspace {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            modules_active: row.get(2)?,
-            settings: row.get(3)?,
-            brand_color: row.get(4)?,
-            logo_url: row.get(5)?,
-            block_settings: row.get(6)?,
-            updated_at: row.get(7)?,
-            sync_status: row.get(8)?,
+    let list = stmt
+        .query_map(params, |row| {
+            Ok(Workspace {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                modules_active: row.get(2)?,
+                settings: row.get(3)?,
+                brand_color: row.get(4)?,
+                logo_url: row.get(5)?,
+                block_settings: row.get(6)?,
+                updated_at: row.get(7)?,
+                sync_status: row.get(8)?,
+            })
         })
-    }).await?;
+        .await?;
 
     Ok(list)
 }
 
 #[uniffi::export]
-pub async fn get_workspace_template_type(workspace_id: String) -> Result<crate::WorkspaceTemplateType, YntraError> {
+pub async fn get_workspace_template_type(
+    workspace_id: String,
+) -> Result<crate::WorkspaceTemplateType, YntraError> {
     let conn = database::acquire_connection().await?;
-    let modules_json: Option<String> = conn.query_row(
-        "SELECT modules_active FROM workspaces WHERE id = ?1",
-        crate::params![workspace_id],
-        |row| row.get(0)
-    ).await.ok();
+    let modules_json: Option<String> = conn
+        .query_row(
+            "SELECT modules_active FROM workspaces WHERE id = ?1",
+            crate::params![workspace_id],
+            |row| row.get(0),
+        )
+        .await
+        .ok();
 
     if let Some(modules_json) = modules_json {
-        let modules_val: serde_json::Value = serde_json::from_str(&modules_json).unwrap_or_default();
-        let is_school = modules_val.get("school").and_then(|v| v.as_bool()).unwrap_or(false)
-            || modules_val.get("academics").and_then(|v| v.as_bool()).unwrap_or(false)
-            || modules_val.get("attendance").and_then(|v| v.as_bool()).unwrap_or(false)
-            || modules_val.get("finance").and_then(|v| v.as_bool()).unwrap_or(false)
-            || modules_val.get("library").and_then(|v| v.as_bool()).unwrap_or(false)
-            || modules_val.get("timetable").and_then(|v| v.as_bool()).unwrap_or(false);
-        let is_assistance = modules_val.get("assistance").and_then(|v| v.as_bool()).unwrap_or(false)
-            || modules_val.get("journals").and_then(|v| v.as_bool()).unwrap_or(false)
-            || modules_val.get("medications").and_then(|v| v.as_bool()).unwrap_or(false);
-        let is_moving_company = modules_val.get("moving_company").and_then(|v| v.as_bool()).unwrap_or(false);
+        let modules_val: serde_json::Value =
+            serde_json::from_str(&modules_json).unwrap_or_default();
+        let is_school = modules_val
+            .get("school")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+            || modules_val
+                .get("academics")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            || modules_val
+                .get("attendance")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            || modules_val
+                .get("finance")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            || modules_val
+                .get("library")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            || modules_val
+                .get("timetable")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+        let is_assistance = modules_val
+            .get("assistance")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+            || modules_val
+                .get("journals")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            || modules_val
+                .get("medications")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+        let is_moving_company = modules_val
+            .get("moving_company")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         if is_school {
             Ok(crate::WorkspaceTemplateType::School)
@@ -129,16 +188,35 @@ pub async fn get_workspace_template_type(workspace_id: String) -> Result<crate::
 
 fn get_default_settings_for_modules(modules_json: &str) -> String {
     let modules_val: serde_json::Value = serde_json::from_str(modules_json).unwrap_or_default();
-    let is_assistance = modules_val.get("assistance").and_then(|v| v.as_bool()).unwrap_or(false)
-        || modules_val.get("journals").and_then(|v| v.as_bool()).unwrap_or(false)
-        || modules_val.get("medications").and_then(|v| v.as_bool()).unwrap_or(false);
-    let is_moving_company = modules_val.get("moving_company").and_then(|v| v.as_bool()).unwrap_or(false);
-    let care_subtype = modules_val.get("care_subtype").and_then(|v| v.as_str()).unwrap_or("aldreomsorg");
-    let locale = modules_val.get("locale").and_then(|v| v.as_str()).unwrap_or("se");
-    let is_scandi = locale.starts_with("se") || locale.starts_with("no") || locale.starts_with("dk");
+    let is_assistance = modules_val
+        .get("assistance")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+        || modules_val
+            .get("journals")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        || modules_val
+            .get("medications")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+    let is_moving_company = modules_val
+        .get("moving_company")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let care_subtype = modules_val
+        .get("care_subtype")
+        .and_then(|v| v.as_str())
+        .unwrap_or("aldreomsorg");
+    let locale = modules_val
+        .get("locale")
+        .and_then(|v| v.as_str())
+        .unwrap_or("se");
+    let is_scandi =
+        locale.starts_with("se") || locale.starts_with("no") || locale.starts_with("dk");
 
     let mut settings_map = serde_json::Map::new();
-    
+
     if is_moving_company {
         let moving_roles = super::role_templates::get_moving_company_roles(is_scandi);
         settings_map.insert("roles".to_string(), moving_roles);
@@ -147,7 +225,8 @@ fn get_default_settings_for_modules(modules_json: &str) -> String {
         settings_map.insert("roles".to_string(), care_roles);
     }
 
-    serde_json::to_string(&serde_json::Value::Object(settings_map)).unwrap_or_else(|_| "{}".to_string())
+    serde_json::to_string(&serde_json::Value::Object(settings_map))
+        .unwrap_or_else(|_| "{}".to_string())
 }
 
 #[uniffi::export]
@@ -203,11 +282,16 @@ pub async fn create_workspace_via_hub(
 }
 
 #[uniffi::export]
-pub async fn delete_workspace_via_hub(requester_user_id: String, workspace_id: String) -> Result<(), YntraError> {
+pub async fn delete_workspace_via_hub(
+    requester_user_id: String,
+    workspace_id: String,
+) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" {
-        return Err(YntraError::AuthError("Access denied: platform administrator privileges required".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: platform administrator privileges required".to_string(),
+        ));
     }
 
     conn.begin_transaction().await?;
@@ -271,10 +355,14 @@ pub async fn update_workspace_general(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if !auth.is_admin {
-        return Err(YntraError::AuthError("Access denied: administrator privileges required".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: administrator privileges required".to_string(),
+        ));
     }
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -288,14 +376,22 @@ pub async fn update_workspace_general(
 }
 
 #[uniffi::export]
-pub async fn update_workspace_settings(requester_user_id: String, workspace_id: String, settings_json: String) -> Result<(), YntraError> {
+pub async fn update_workspace_settings(
+    requester_user_id: String,
+    workspace_id: String,
+    settings_json: String,
+) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if !auth.is_admin {
-        return Err(YntraError::AuthError("Access denied: administrator privileges required".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: administrator privileges required".to_string(),
+        ));
     }
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -309,14 +405,22 @@ pub async fn update_workspace_settings(requester_user_id: String, workspace_id: 
 }
 
 #[uniffi::export]
-pub async fn update_workspace_block_settings(requester_user_id: String, workspace_id: String, block_settings_json: String) -> Result<(), YntraError> {
+pub async fn update_workspace_block_settings(
+    requester_user_id: String,
+    workspace_id: String,
+    block_settings_json: String,
+) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if !auth.is_admin {
-        return Err(YntraError::AuthError("Access denied: administrator privileges required".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: administrator privileges required".to_string(),
+        ));
     }
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -360,7 +464,17 @@ mod tests {
         assert!(list2.iter().any(|w| w.id == ws_id2));
 
         // Clean up
-        conn.execute("DELETE FROM users WHERE id IN ('ws-user-admin', 'ws-user-padmin')", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id IN (?1, ?2)", crate::params![ws_id1, ws_id2]).await.unwrap();
+        conn.execute(
+            "DELETE FROM users WHERE id IN ('ws-user-admin', 'ws-user-padmin')",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM workspaces WHERE id IN (?1, ?2)",
+            crate::params![ws_id1, ws_id2],
+        )
+        .await
+        .unwrap();
     }
 }

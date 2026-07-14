@@ -1,10 +1,10 @@
+use super::utils::format_month_year;
 use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::TimeReport;
 use yntra_core::WorkspaceUser;
-use yntra_core::{update_time_report_status, delete_time_report};
-use super::utils::format_month_year;
+use yntra_core::{delete_time_report, update_time_report_status};
 
 #[derive(Props, Clone)]
 pub struct ShiftListProps {
@@ -60,22 +60,32 @@ pub fn ShiftList(props: ShiftListProps) -> Element {
         .filter(|r| r.status == "approved")
         .cloned()
         .collect();
-    
+
     let items_per_page = 10;
     let total_pages = (std::cmp::max(1, filtered_reports.len().div_ceil(items_per_page))) as i32;
     let current_page_val = *current_page.read();
-    let current_page_val = if current_page_val > total_pages { total_pages } else { current_page_val };
+    let current_page_val = if current_page_val > total_pages {
+        total_pages
+    } else {
+        current_page_val
+    };
     let start_idx = ((current_page_val - 1) * items_per_page as i32) as usize;
-    let end_idx = std::cmp::min(filtered_reports.len(), (current_page_val * items_per_page as i32) as usize);
+    let end_idx = std::cmp::min(
+        filtered_reports.len(),
+        (current_page_val * items_per_page as i32) as usize,
+    );
     let page_reports = if start_idx < filtered_reports.len() {
         filtered_reports[start_idx..end_idx].to_vec()
     } else {
         Vec::new()
     };
-    
+
     let all_page_ids: Vec<String> = page_reports.iter().map(|r| r.id.clone()).collect();
-    let is_all_selected = !all_page_ids.is_empty() && all_page_ids.iter().all(|id| selected_time_reports.read().contains(id));
-    
+    let is_all_selected = !all_page_ids.is_empty()
+        && all_page_ids
+            .iter()
+            .all(|id| selected_time_reports.read().contains(id));
+
     rsx! {
         div { class: "relative flex h-full flex-1 flex-col bg-background duration-300 animate-in fade-in",
             // View subheader tab selection
@@ -116,7 +126,7 @@ pub fn ShiftList(props: ShiftListProps) -> Element {
                     "Tillbaka"
                 }
             }
-            
+
             if *list_mode.read() == "history" {
                 div { class: "scrollbar-dark w-full flex-1 overflow-y-auto flex flex-col",
                     if history_reports.is_empty() {
@@ -132,7 +142,7 @@ pub fn ShiftList(props: ShiftListProps) -> Element {
                                     div {
                                         key: "{report.id}",
                                         class: "group flex items-center border-b border-border/30 px-8 py-4 transition-colors hover:bg-white/[0.015] list-item-hover",
-                                        
+
                                         div { class: "mr-5 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-emerald-500/5 font-bold text-emerald-500",
                                             components::LucideIcon { name: "file-check", class: "h-5 w-5" }
                                         }
@@ -198,7 +208,7 @@ pub fn ShiftList(props: ShiftListProps) -> Element {
                                     }
                                 }
                             }
-                            
+
                             select {
                                 class: "yntra-input text-xs h-9 px-3 border border-border bg-white/[0.01]",
                                 style: "max-width:180px;",
@@ -212,7 +222,7 @@ pub fn ShiftList(props: ShiftListProps) -> Element {
                                 option { value: "approved", "Godkända ({filtered_reports.iter().filter(|r| r.status == \"approved\").count()})" }
                                 option { value: "rejected", "Avvisade ({filtered_reports.iter().filter(|r| r.status == \"rejected\").count()})" }
                             }
-                            
+
                             if !selected_time_reports.read().is_empty() {
                                 div { class: "flex items-center gap-2 border-l border-border/50 pl-5 duration-300 animate-in fade-in slide-in-from-left-2",
                                     if is_manager {
@@ -274,7 +284,7 @@ pub fn ShiftList(props: ShiftListProps) -> Element {
                                 }
                             }
                         }
-                        
+
                         div { class: "flex items-center gap-5",
                             if !is_manager {
                                 button {
@@ -318,7 +328,7 @@ pub fn ShiftList(props: ShiftListProps) -> Element {
                             }
                         }
                     }
-                    
+
                     // The actual list of report items
                     div { class: "scrollbar-dark w-full flex-1 overflow-y-auto flex flex-col",
                         if page_reports.is_empty() {
@@ -340,28 +350,28 @@ pub fn ShiftList(props: ShiftListProps) -> Element {
                                         .find(|t| Some(t.id.clone()) == report.team_id)
                                         .map(|t| t.name.clone())
                                         .unwrap_or_else(|| "Unassigned Team".to_string());
-                                    
+
                                     let display_title = if selected_team_id.read().is_some() {
                                         user_name.clone()
                                     } else {
                                         team_name.clone()
                                     };
-                                    
+
                                     let (status_text, status_color, status_bg) = match report.status.as_str() {
                                         "approved" => ("Godkänt", "var(--success)", "rgba(16, 185, 129, 0.1)"),
                                         "rejected" => ("Avvisat", "var(--danger)", "rgba(239, 68, 68, 0.1)"),
                                         _ => ("Väntar attest", "var(--warning)", "rgba(245, 158, 11, 0.1)"),
                                     };
-                                    
+
                                     let start_time_str = report.start_time.clone().unwrap_or_else(|| "08:00".to_string());
                                     let end_time_str = report.end_time.clone().unwrap_or_else(|| "17:00".to_string());
-                                    
+
                                     rsx! {
                                         div {
                                             key: "{report.id}",
                                             class: "group flex items-center border-b border-border/30 px-8 py-3.5 transition-colors hover:bg-white/[0.015] list-item-hover",
                                             style: if is_checked { "background: rgba(255,255,255,0.02);" } else { "" },
-                                            
+
                                             // Individual Row Checkbox selector
                                             div {
                                                 class: "flex w-8 shrink-0 cursor-pointer justify-center p-1",
@@ -381,7 +391,7 @@ pub fn ShiftList(props: ShiftListProps) -> Element {
                                                     }
                                                 }
                                             }
-                                            
+
                                             div {
                                                 class: "ml-4 w-48 shrink-0 truncate pr-4 text-sm font-semibold text-foreground md:w-64",
                                                 div {
@@ -393,7 +403,7 @@ pub fn ShiftList(props: ShiftListProps) -> Element {
                                                     "{report.note.clone().unwrap_or_default()}"
                                                 }
                                             }
-                                            
+
                                             div {
                                                 class: "flex min-w-0 flex-1 items-center gap-6 pr-4",
                                                 div {
@@ -407,7 +417,7 @@ pub fn ShiftList(props: ShiftListProps) -> Element {
                                                     span { class: "text-xs text-muted-foreground/60 font-normal", "h" }
                                                 }
                                             }
-                                            
+
                                             div {
                                                 class: "flex w-40 shrink-0 items-center justify-end pr-4",
                                                 span {
@@ -416,7 +426,7 @@ pub fn ShiftList(props: ShiftListProps) -> Element {
                                                     "{status_text}"
                                                 }
                                             }
-                                            
+
                                             div {
                                                 class: "flex w-[120px] shrink-0 items-center justify-end gap-3 text-right text-xs font-mono text-muted-foreground/60",
                                                 "{report.date}"

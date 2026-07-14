@@ -2,13 +2,13 @@
 // Trigger rebuild to pick up tailwind.css changes
 use dioxus::prelude::*;
 
+pub mod blocks;
 pub mod components;
+pub mod layouts;
 pub mod locales;
+pub mod state;
 pub mod utils;
 pub mod views;
-pub mod blocks;
-pub mod state;
-pub mod layouts;
 
 fn main() {
     // Initialize the logger
@@ -17,13 +17,9 @@ fn main() {
     // Launch the Dioxus App
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let config = dioxus::desktop::Config::new().with_window(
-            dioxus::desktop::WindowBuilder::new()
-                .with_always_on_top(false)
-        );
-        dioxus::LaunchBuilder::new()
-            .with_cfg(config)
-            .launch(App);
+        let config = dioxus::desktop::Config::new()
+            .with_window(dioxus::desktop::WindowBuilder::new().with_always_on_top(false));
+        dioxus::LaunchBuilder::new().with_cfg(config).launch(App);
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -65,7 +61,10 @@ fn App() -> Element {
     // Handle section changes with guards
     let is_client = *state.active_user_role.read() == "client";
 
-    if is_client && *active_section.read() != "messaging" && *active_section.read() != "client_portal" && *active_section.read() != "directory"
+    if is_client
+        && *active_section.read() != "messaging"
+        && *active_section.read() != "client_portal"
+        && *active_section.read() != "directory"
     {
         active_section.set("client_portal".to_string());
     }
@@ -81,7 +80,7 @@ fn App() -> Element {
         updated_at: 0,
         sync_status: "synced".to_string(),
     });
-    
+
     let on_desktop_oauth_callback = state.on_desktop_oauth.clone();
 
     rsx! {

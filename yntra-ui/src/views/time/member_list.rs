@@ -1,7 +1,7 @@
 use crate::components;
 use dioxus::prelude::*;
-use yntra_core::WorkspaceUser;
 use yntra_core::TimeReport;
+use yntra_core::WorkspaceUser;
 
 #[derive(Props, Clone)]
 pub struct MemberListProps {
@@ -69,7 +69,7 @@ pub fn MemberList(props: MemberListProps) -> Element {
                             let total_hours: f64 = u_shifts.iter().map(|s| s.hours).sum();
                             let has_pending = u_shifts.iter().any(|s| s.status == "pending_attest");
                             let has_rejected = u_shifts.iter().any(|s| s.status == "rejected");
-                            
+
                             let (status_text, status_color, status_bg) = if u_shifts.is_empty() {
                                 ("Not Submitted", "var(--text-muted)", "rgba(255,255,255,0.03)")
                             } else if has_pending {
@@ -79,7 +79,7 @@ pub fn MemberList(props: MemberListProps) -> Element {
                             } else {
                                 ("Approved", "var(--success)", "rgba(16,185,129,0.1)")
                             };
-                            
+
                             rsx! {
                                 div {
                                     key: "{u_id}",
@@ -89,7 +89,7 @@ pub fn MemberList(props: MemberListProps) -> Element {
                                         current_level.set("shift_list".to_string());
                                     },
                                     class: "group flex cursor-pointer items-center border-b border-border/30 px-8 py-4 transition-all duration-200 hover:bg-white/[0.02] list-item-hover",
-                                    
+
                                     div { class: "mr-5 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white/[0.04] font-bold text-lg text-foreground transition-all group-hover:bg-primary group-hover:text-primary-foreground",
                                         "{u_name.chars().next().unwrap_or('?')}"
                                     }
@@ -98,7 +98,7 @@ pub fn MemberList(props: MemberListProps) -> Element {
                                         div { class: "mt-0.5 text-[11px] font-medium uppercase tracking-widest text-muted-foreground/60", "{u_role}" }
                                     }
                                     div { class: "min-w-0 flex-1 pr-4" }
-                                    
+
                                     div { class: "flex w-32 shrink-0 flex-col items-end justify-center pr-4",
                                         div { class: "flex items-baseline gap-1",
                                             span { class: "text-lg font-bold text-foreground", "{total_hours}" }
@@ -106,14 +106,14 @@ pub fn MemberList(props: MemberListProps) -> Element {
                                         }
                                         span { class: "text-[10px] font-medium uppercase tracking-tighter text-muted-foreground/60", "Rapporterat" }
                                     }
-                                    
+
                                     div { class: "flex w-40 shrink-0 items-center justify-end pr-4",
                                         span { class: "inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide uppercase",
                                             style: "background: {status_bg}; color: {status_color}; border: 1px solid {status_color}20;",
                                             "{status_text}"
                                         }
                                     }
-                                    
+
                                     div { class: "flex w-8 shrink-0 items-center justify-end text-muted-foreground/30 transition-all group-hover:translate-x-1 group-hover:text-foreground",
                                         components::LucideIcon { name: "chevron-right", class: "h-5 w-5" }
                                     }

@@ -1,9 +1,9 @@
+use crate::components;
+use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::MessageItem;
 use yntra_core::WorkspaceUser;
 use yntra_core::mark_message_read;
-use crate::components;
-use crate::locales::t;
 
 mod compose;
 mod detail;
@@ -70,8 +70,13 @@ pub fn MessagingView(props: MessagingViewProps) -> Element {
         .cloned()
         .collect();
 
-    let user_prefs: serde_json::Value = serde_json::from_str(&active_user.preferences).unwrap_or_default();
-    let region = user_prefs.get("language").and_then(|l| l.as_str()).unwrap_or("US").to_string();
+    let user_prefs: serde_json::Value =
+        serde_json::from_str(&active_user.preferences).unwrap_or_default();
+    let region = user_prefs
+        .get("language")
+        .and_then(|l| l.as_str())
+        .unwrap_or("US")
+        .to_string();
 
     let users_for_messaging = users.clone();
 
@@ -116,7 +121,7 @@ pub fn MessagingView(props: MessagingViewProps) -> Element {
                             }
                         }
                     }
-                    
+
                     div { class: "flex items-center gap-4",
                         components::Tabs {
                             tabs: vec![
@@ -139,7 +144,7 @@ pub fn MessagingView(props: MessagingViewProps) -> Element {
                         }
                     }
                 }
-                
+
                 div { class: "scrollbar-dark w-full flex-1 overflow-y-auto flex flex-col",
                     if filtered_messages.is_empty() {
                         div { class: "text-center text-muted-foreground/60 py-16",
@@ -186,7 +191,7 @@ pub fn MessagingView(props: MessagingViewProps) -> Element {
                                         } else {
                                             snippet
                                         };
-                                        
+
                                         let icon_name = if is_unread { "mail" } else { "mail-open" };
                                         let class_sender = if is_unread { "font-bold text-foreground" } else { "font-semibold text-foreground/80" };
                                         let class_subject = if is_unread { "font-bold text-foreground" } else { "text-foreground/90" };
@@ -207,11 +212,11 @@ pub fn MessagingView(props: MessagingViewProps) -> Element {
                                                     }
                                                 },
                                                 class: "group flex items-center border-b border-border/30 px-8 py-4 transition-colors hover:bg-white/[0.015] list-item-hover cursor-pointer",
-                                                
+
                                                 div { class: "mr-4 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.04] text-primary transition-colors group-hover:bg-primary/10",
                                                     components::LucideIcon { name: icon_name, class: "h-4 w-4 text-primary" }
                                                 }
-                                                
+
                                                 div { class: "w-48 shrink-0 truncate pr-4 text-sm font-semibold text-foreground md:w-64",
                                                     span { class: "{class_sender}",
                                                         "{display_name}"
@@ -220,12 +225,12 @@ pub fn MessagingView(props: MessagingViewProps) -> Element {
                                                         span { class: "ml-2 h-1.5 w-1.5 rounded-full bg-primary inline-block" }
                                                     }
                                                 }
-                                                
+
                                                 div { class: "flex min-w-0 flex-1 items-center gap-2 truncate pr-4 text-sm",
                                                     span { class: "{class_subject}", "{subject_str}" }
                                                     span { class: "truncate text-muted-foreground/60 font-light", "- {snippet_truncated}" }
                                                 }
-                                                
+
                                                 div { class: "w-32 shrink-0 text-right text-xs font-mono text-muted-foreground/60 pr-2",
                                                     "{msg.created_at}"
                                                 }
@@ -237,7 +242,7 @@ pub fn MessagingView(props: MessagingViewProps) -> Element {
                         }
                     }
                 }
-                
+
                 // Floating Action Button
                 div { class: "absolute bottom-10 right-10 z-20",
                     button {

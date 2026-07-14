@@ -46,7 +46,9 @@ pub fn JobsView(props: JobsViewProps) -> Element {
 
     // Selected job state
     let mut selected_job_id = use_signal(|| Option::<String>::None);
-    let selected_job = selected_job_id.read().clone()
+    let selected_job = selected_job_id
+        .read()
+        .clone()
         .and_then(|id| jobs.iter().find(|j| j.id == id).cloned());
 
     // Selected job checklist & report states
@@ -62,16 +64,19 @@ pub fn JobsView(props: JobsViewProps) -> Element {
     use_effect(use_reactive(&selected_job_id, move |selected_id| {
         if let Some(id) = selected_id.read().clone()
             && let Some(jobs_list) = jobs_resource.read().as_ref()
-                && let Some(job) = jobs_list.iter().find(|j| j.id == id) {
-                    let items: Vec<ChecklistItem> = serde_json::from_str(&job.checklist_json).unwrap_or_default();
-                    checklist_state.set(items);
-                    completion_report_state.set(job.completion_report.clone().unwrap_or_default());
-                }
+            && let Some(job) = jobs_list.iter().find(|j| j.id == id)
+        {
+            let items: Vec<ChecklistItem> =
+                serde_json::from_str(&job.checklist_json).unwrap_or_default();
+            checklist_state.set(items);
+            completion_report_state.set(job.completion_report.clone().unwrap_or_default());
+        }
     }));
 
     // Filter jobs by status tabs (All, Assigned, In Progress, Completed)
     let status_filter = active_status_state.read().clone();
-    let filtered_jobs: Vec<JobTicket> = jobs.iter()
+    let filtered_jobs: Vec<JobTicket> = jobs
+        .iter()
         .filter(|j| {
             if status_filter == "all" {
                 true
@@ -123,7 +128,7 @@ pub fn JobsView(props: JobsViewProps) -> Element {
             // Two-column responsive layout
             div {
                 style: "display: flex; gap: 1.5rem; align-items: start; width: 100%; flex-wrap: wrap; box-sizing: border-box;",
-                
+
                 // Left Column: Job Tickets List
                 div {
                     style: "display: flex; flex-direction: column; gap: 0.75rem; width: 340px; flex-shrink: 0; min-width: 280px;",
@@ -134,11 +139,11 @@ pub fn JobsView(props: JobsViewProps) -> Element {
                             p { class: "mt-2 text-sm", "{t(\"jobs-empty-filter\", &region)}" }
                         }
                     }
-                    
+
                     {filtered_jobs.into_iter().map(|job| {
                         let job_id = job.id.clone();
                         let is_selected = selected_job_id.read().as_ref() == Some(&job_id);
-                        
+
                         let priority_color = match job.priority.as_str() {
                             "critical" => "background: rgba(239, 68, 68, 0.15); color: hsl(0, 90.6%, 70.8%); border: 1px solid rgba(239, 68, 68, 0.2);",
                             "high" => "background: rgba(245, 158, 11, 0.15); color: hsl(43.3, 96.4%, 56.3%); border: 1px solid rgba(245, 158, 11, 0.2);",
@@ -162,7 +167,7 @@ pub fn JobsView(props: JobsViewProps) -> Element {
                                         "padding: 1rem; border-color: {}; transition: all 0.2s;",
                                         if is_selected { "var(--accent)" } else { "var(--border-color)" }
                                     ),
-                                    
+
                                     // Top Row: Priority & Status Badges
                                     div { class: "flex justify-between items-center mb-2",
                                         span {
@@ -174,12 +179,12 @@ pub fn JobsView(props: JobsViewProps) -> Element {
                                             "{job.status}"
                                         }
                                     }
-                                    
+
                                     h3 { class: "text-sm font-bold",
                                     style: "margin: 0 0 0.25rem 0;", "{job.title}" }
                                     p { class: "text-xs text-muted-foreground",
                                     style: "margin: 0 0 0.5rem 0; line-height: 1.3;", "{job.description}" }
-                                    
+
                                     // Bottom Metadata
                                     div { class: "flex items-center text-xs text-muted-foreground",
                                     style: "gap: 0.35rem;",

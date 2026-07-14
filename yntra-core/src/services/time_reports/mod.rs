@@ -6,7 +6,10 @@ use crate::{TimeReport, YntraError};
 use validation::*;
 
 #[uniffi::export]
-pub async fn get_time_reports(requester_user_id: String, user_id: Option<String>) -> Result<Vec<TimeReport>, YntraError> {
+pub async fn get_time_reports(
+    requester_user_id: String,
+    user_id: Option<String>,
+) -> Result<Vec<TimeReport>, YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     let ws_id = auth.workspace_id.clone();
@@ -36,7 +39,9 @@ pub async fn get_time_reports(requester_user_id: String, user_id: Option<String>
     } else {
         if let Some(ref uid) = user_id {
             if uid != &requester_user_id {
-                return Err(YntraError::AuthError("Access denied: you can only view your own time reports".to_string()));
+                return Err(YntraError::AuthError(
+                    "Access denied: you can only view your own time reports".to_string(),
+                ));
             }
         }
         (
@@ -46,23 +51,25 @@ pub async fn get_time_reports(requester_user_id: String, user_id: Option<String>
     };
 
     let mut stmt = conn.prepare(&query).await?;
-    let list = stmt.query_map(crate::rusqlite::params_from_iter(params), |row| {
-        Ok(TimeReport {
-            id: row.get(0)?,
-            workspace_id: row.get(1)?,
-            user_id: row.get(2)?,
-            team_id: row.get(3)?,
-            date: row.get(4)?,
-            start_time: row.get(5)?,
-            end_time: row.get(6)?,
-            hours: row.get(7)?,
-            note: row.get(8)?,
-            status: row.get(9)?,
-            created_at: row.get(10)?,
-            updated_at: row.get(11)?,
-            sync_status: row.get(12)?,
+    let list = stmt
+        .query_map(crate::rusqlite::params_from_iter(params), |row| {
+            Ok(TimeReport {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                user_id: row.get(2)?,
+                team_id: row.get(3)?,
+                date: row.get(4)?,
+                start_time: row.get(5)?,
+                end_time: row.get(6)?,
+                hours: row.get(7)?,
+                note: row.get(8)?,
+                status: row.get(9)?,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
+                sync_status: row.get(12)?,
+            })
         })
-    }).await?;
+        .await?;
 
     Ok(list)
 }
@@ -81,49 +88,72 @@ pub async fn add_time_report(
     end_time: Option<String>,
 ) -> Result<TimeReport, YntraError> {
     if hours <= 0.0 {
-        return Err(YntraError::ValidationError("Logged hours must be greater than zero".to_string()));
+        return Err(YntraError::ValidationError(
+            "Logged hours must be greater than zero".to_string(),
+        ));
     }
 
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
     if auth.role != "platform_admin" && auth.role != "admin" && requester_user_id != user_id {
-        return Err(YntraError::AuthError("Access denied: cannot add time report for another user".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: cannot add time report for another user".to_string(),
+        ));
     }
 
-    let (target_user_ws, user_prefs_json_raw, settings_json_raw): (String, Option<String>, Option<String>) = conn.query_row(
-        "SELECT u.workspace_id, u.preferences, w.settings \
+    let (target_user_ws, user_prefs_json_raw, settings_json_raw): (
+        String,
+        Option<String>,
+        Option<String>,
+    ) = conn
+        .query_row(
+            "SELECT u.workspace_id, u.preferences, w.settings \
          FROM users u \
          LEFT JOIN workspaces w ON u.workspace_id = w.id \
          WHERE u.id = ?1",
-        crate::params![&user_id],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-    ).await.map_err(|_| YntraError::NotFoundError("User not found".to_string()))?;
+            crate::params![&user_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("User not found".to_string()))?;
 
     if target_user_ws != workspace_id {
-        return Err(YntraError::ValidationError("User does not belong to the specified workspace".to_string()));
+        return Err(YntraError::ValidationError(
+            "User does not belong to the specified workspace".to_string(),
+        ));
     }
 
     // 1. Calculate dates and convert target date to days
     let target_days = match parse_date(&date) {
         Some((y, m, d)) => date_to_days(y, m, d),
-        None => return Err(YntraError::ValidationError("Invalid date format, expected YYYY-MM-DD".to_string())),
+        None => {
+            return Err(YntraError::ValidationError(
+                "Invalid date format, expected YYYY-MM-DD".to_string(),
+            ));
+        }
     };
 
     // 2. Fetch logged hours, workspace settings, and user preferences to determine national limits
     let (settings, user_prefs_json, user_reports) = {
         let settings_json = if auth.role != "platform_admin" && auth.workspace_id == workspace_id {
-            auth.workspace_settings.clone().unwrap_or_else(|| "{}".to_string())
+            auth.workspace_settings
+                .clone()
+                .unwrap_or_else(|| "{}".to_string())
         } else {
             settings_json_raw.unwrap_or_else(|| "{}".to_string())
         };
 
         let user_prefs_json = user_prefs_json_raw.unwrap_or_else(|| "{}".to_string());
 
-        let settings: serde_json::Value = serde_json::from_str(&settings_json).unwrap_or(serde_json::Value::Null);
-        let week_start_day = settings.get("week_start")
+        let settings: serde_json::Value =
+            serde_json::from_str(&settings_json).unwrap_or(serde_json::Value::Null);
+        let week_start_day = settings
+            .get("week_start")
             .and_then(|v| v.as_i64())
             .unwrap_or(1) as i32;
 
@@ -137,7 +167,9 @@ pub async fn add_time_report(
 
         let mut user_reports = Vec::new();
         let mut stmt = conn.prepare("SELECT date, hours, start_time, end_time FROM time_reports WHERE user_id = ?1 AND date >= ?2 AND date <= ?3").await?;
-        let mut rows = stmt.query(crate::params![&user_id, start_date_str, end_date_str]).await?;
+        let mut rows = stmt
+            .query(crate::params![&user_id, start_date_str, end_date_str])
+            .await?;
         while let Some(row) = rows.next().await? {
             let r_date: String = row.get(0)?;
             let r_hours: f64 = row.get(1)?;
@@ -149,36 +181,53 @@ pub async fn add_time_report(
     };
 
     // Parse configuration fields
-    let u_prefs: serde_json::Value = serde_json::from_str(&user_prefs_json).unwrap_or(serde_json::Value::Null);
+    let u_prefs: serde_json::Value =
+        serde_json::from_str(&user_prefs_json).unwrap_or(serde_json::Value::Null);
 
-    let target_region_raw = u_prefs.get("target_region")
+    let target_region_raw = u_prefs
+        .get("target_region")
         .or_else(|| settings.get("target_region"))
         .and_then(|v| v.as_str())
         .unwrap_or("EU");
     let target_region = target_region_raw.to_uppercase();
 
-    let week_start_day = settings.get("week_start")
+    let week_start_day = settings
+        .get("week_start")
         .and_then(|v| v.as_i64())
         .unwrap_or(1) as i32;
     let target_week_start = get_week_start_days(target_days, week_start_day);
 
-    let allow_overtime = u_prefs.get("allow_overtime")
+    let allow_overtime = u_prefs
+        .get("allow_overtime")
         .or_else(|| settings.get("allow_overtime"))
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    let allow_union_exempt = u_prefs.get("allow_union_exempt")
+    let allow_union_exempt = u_prefs
+        .get("allow_union_exempt")
         .or_else(|| settings.get("allow_union_exempt"))
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
     // Resolve rules from Compliance Registry
     let rule = crate::infra::compliance::ComplianceRegistry::get_rule(&target_region);
-    let daily_limit = if allow_overtime { rule.max_daily_limit_with_overtime } else { rule.standard_daily_limit };
-    let weekly_limit = if allow_overtime || allow_union_exempt { rule.max_weekly_limit_with_exemption } else { rule.standard_weekly_limit };
+    let daily_limit = if allow_overtime {
+        rule.max_daily_limit_with_overtime
+    } else {
+        rule.standard_daily_limit
+    };
+    let weekly_limit = if allow_overtime || allow_union_exempt {
+        rule.max_weekly_limit_with_exemption
+    } else {
+        rule.standard_weekly_limit
+    };
 
     let mandatory_rest_hours_limit = if rule.mandatory_daily_rest_hours > 0.0 {
-        if allow_union_exempt { 8.0 } else { rule.mandatory_daily_rest_hours }
+        if allow_union_exempt {
+            8.0
+        } else {
+            rule.mandatory_daily_rest_hours
+        }
     } else {
         0.0
     };
@@ -187,26 +236,42 @@ pub async fn add_time_report(
     // Convert existing user reports to absolute minute intervals
     let mut existing_intervals = Vec::new();
     for (r_date, r_hrs, r_start, r_end) in &user_reports {
-        if let Some(interval) = get_report_interval(r_date, *r_hrs, r_start.as_deref(), r_end.as_deref()) {
+        if let Some(interval) =
+            get_report_interval(r_date, *r_hrs, r_start.as_deref(), r_end.as_deref())
+        {
             existing_intervals.push(interval);
         }
     }
 
     // 3. Resolve interval bounds for new report
-    let (new_start_abs, new_end_abs) = if let (Some(s_str), Some(e_str)) = (start_time.as_deref(), end_time.as_deref()) {
-        match get_report_interval(&date, hours, Some(s_str), Some(e_str)) {
-            Some(interval) => interval,
-            None => return Err(YntraError::ValidationError("Invalid start_time or end_time format (expected HH:MM)".to_string())),
-        }
-    } else {
-        // Omitted shift times: resolve a non-overlapping fallback interval
-        let (y, m, d) = match parse_date(&date) {
-            Some(parts) => parts,
-            None => return Err(YntraError::ValidationError("Invalid date format, expected YYYY-MM-DD".to_string())),
+    let (new_start_abs, new_end_abs) =
+        if let (Some(s_str), Some(e_str)) = (start_time.as_deref(), end_time.as_deref()) {
+            match get_report_interval(&date, hours, Some(s_str), Some(e_str)) {
+                Some(interval) => interval,
+                None => {
+                    return Err(YntraError::ValidationError(
+                        "Invalid start_time or end_time format (expected HH:MM)".to_string(),
+                    ));
+                }
+            }
+        } else {
+            // Omitted shift times: resolve a non-overlapping fallback interval
+            let (y, m, d) = match parse_date(&date) {
+                Some(parts) => parts,
+                None => {
+                    return Err(YntraError::ValidationError(
+                        "Invalid date format, expected YYYY-MM-DD".to_string(),
+                    ));
+                }
+            };
+            let day_start_min = date_to_days(y, m, d) * 1440;
+            resolve_fallback_interval_for_day(
+                day_start_min,
+                hours,
+                &existing_intervals,
+                mandatory_rest_min,
+            )
         };
-        let day_start_min = date_to_days(y, m, d) * 1440;
-        resolve_fallback_interval_for_day(day_start_min, hours, &existing_intervals, mandatory_rest_min)
-    };
 
     let start_day_idx = new_start_abs / 1440;
     let end_day_idx = (new_end_abs - 1) / 1440;
@@ -216,7 +281,10 @@ pub async fn add_time_report(
     if hours > interval_duration_hrs {
         return Err(YntraError::ValidationError(format!(
             "Logged hours ({:.2}h) cannot exceed the shift duration ({:.2}h from {} to {})",
-            hours, interval_duration_hrs, start_time.as_deref().unwrap_or(""), end_time.as_deref().unwrap_or("")
+            hours,
+            interval_duration_hrs,
+            start_time.as_deref().unwrap_or(""),
+            end_time.as_deref().unwrap_or("")
         )));
     }
 
@@ -265,16 +333,17 @@ pub async fn add_time_report(
             rule.mandatory_daily_rest_hours
         };
         let mandatory_rest_min = (mandatory_rest_hours_limit * 60.0) as i32;
-        
+
         let mut sorted_intervals = all_intervals.clone();
         sorted_intervals.sort_by_key(|x| x.0);
-        
+
         for i in 0..sorted_intervals.len() {
             let (s_start, _s_end) = sorted_intervals[i];
             let window_start = s_start;
-            let dst_change_in_window = adjust_duration_for_dst(window_start, window_start + 1440, &target_region);
+            let dst_change_in_window =
+                adjust_duration_for_dst(window_start, window_start + 1440, &target_region);
             let window_end = s_start + 1440 + dst_change_in_window;
-            
+
             // Collect all segments overlapping with W
             let mut segments = Vec::new();
             for &(start, end) in &sorted_intervals {
@@ -284,11 +353,11 @@ pub async fn add_time_report(
                     segments.push((seg_start, seg_end));
                 }
             }
-            
+
             // Find max gap in W
             let mut max_rest = 0;
             let mut current_point = window_start;
-            
+
             for &(seg_start, seg_end) in &segments {
                 if seg_start > current_point {
                     let gap_dst = adjust_duration_for_dst(current_point, seg_start, &target_region);
@@ -299,7 +368,7 @@ pub async fn add_time_report(
                 }
                 current_point = current_point.max(seg_end);
             }
-            
+
             if window_end > current_point {
                 let gap_dst = adjust_duration_for_dst(current_point, window_end, &target_region);
                 let rest_gap = window_end - current_point + gap_dst;
@@ -307,11 +376,13 @@ pub async fn add_time_report(
                     max_rest = rest_gap;
                 }
             }
-            
+
             if max_rest < mandatory_rest_min {
                 return Err(YntraError::ValidationError(format!(
                     "Daily working hours violation under {}: does not satisfy mandatory {}h consecutive daily rest period in the 24h window starting at {}",
-                    rule.law_name, mandatory_rest_hours_limit, format_abs_minutes_to_datetime(s_start)
+                    rule.law_name,
+                    mandatory_rest_hours_limit,
+                    format_abs_minutes_to_datetime(s_start)
                 )));
             }
         }
@@ -364,7 +435,9 @@ pub async fn add_time_report(
             if rolling_average > 48.0 {
                 return Err(YntraError::ValidationError(format!(
                     "Rolling 16-week average weekly working hours ({:.2}h) exceeds the legal limit of 48.0h under {} in the 16-week window starting at {}.",
-                    rolling_average, rule.law_name, format_date_from_days(w_start)
+                    rolling_average,
+                    rule.law_name,
+                    format_date_from_days(w_start)
                 )));
             }
         }
@@ -374,14 +447,20 @@ pub async fn add_time_report(
     if matches!(target_region.as_str(), "SE" | "NO" | "DK" | "FI" | "EU") {
         let weekly_rest_limit_hrs = if target_region == "SE" { 36.0 } else { 35.0 };
         let weekly_rest_limit_min = (weekly_rest_limit_hrs * 60.0) as i32;
-        
+
         let mut sorted_intervals = all_intervals.clone();
         sorted_intervals.sort_by_key(|x| x.0);
-        
+
         // EU/Nordic laws mandate weekly rest in each period of seven days (rolling window)
         // We verify all rolling 7-day windows containing any day of the new shift.
         for win_start in (start_day_idx - 6)..=end_day_idx {
-            check_weekly_rest_for_week(win_start, &sorted_intervals, &target_region, weekly_rest_limit_min, rule.law_name)?;
+            check_weekly_rest_for_week(
+                win_start,
+                &sorted_intervals,
+                &target_region,
+                weekly_rest_limit_min,
+                rule.law_name,
+            )?;
         }
     }
 
@@ -391,14 +470,14 @@ pub async fn add_time_report(
         let mut weekly_total_hours = 0.0;
         let mut max_daily_hours = 0.0;
         let mut daily_hours_map = std::collections::HashMap::new();
-        
+
         for &(start, end) in &all_intervals {
             let start_day = start / 1440;
             let end_day = (end - 1) / 1440;
             for d in start_day..=end_day {
                 if d >= target_week_start && d < target_week_start + 7 {
                     active_days.insert(d);
-                    
+
                     let day_start = d * 1440;
                     let day_end = day_start + 1440;
                     let overlap_start = start.max(day_start);
@@ -410,14 +489,14 @@ pub async fn add_time_report(
                 }
             }
         }
-        
+
         for &hrs in daily_hours_map.values() {
             weekly_total_hours += hrs;
             if hrs > max_daily_hours {
                 max_daily_hours = hrs;
             }
         }
-        
+
         if active_days.len() >= 7 {
             // Apply Section 554 exceptions: exempt if weekly total <= 30h and daily <= 6h on all days
             let is_exempt = weekly_total_hours <= 30.0 && max_daily_hours <= 6.0;
@@ -433,7 +512,7 @@ pub async fn add_time_report(
     let id = uuid::Uuid::new_v4().to_string();
     let created_at = crate::infra::time::get_current_datetime_str();
     let now_ms = crate::infra::time::get_current_time_ms();
-    
+
     let item = TimeReport {
         id: id.clone(),
         workspace_id,
@@ -488,24 +567,35 @@ pub async fn add_time_report(
 }
 
 #[uniffi::export]
-pub async fn update_time_report_status(requester_user_id: String, id: String, status: String) -> Result<(), YntraError> {
+pub async fn update_time_report_status(
+    requester_user_id: String,
+    id: String,
+    status: String,
+) -> Result<(), YntraError> {
     let now_ms = crate::infra::time::get_current_time_ms();
     let conn = database::acquire_connection().await?;
 
-    let report_ws: String = conn.query_row(
-        "SELECT workspace_id FROM time_reports WHERE id = ?1",
-        crate::params![&id],
-        |r| r.get(0)
-    ).await.map_err(|_| YntraError::NotFoundError("Time report not found".to_string()))?;
+    let report_ws: String = conn
+        .query_row(
+            "SELECT workspace_id FROM time_reports WHERE id = ?1",
+            crate::params![&id],
+            |r| r.get(0),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Time report not found".to_string()))?;
 
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     if !auth.is_admin {
-        return Err(YntraError::AuthError("Access denied: administrator privileges required".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: administrator privileges required".to_string(),
+        ));
     }
 
     if auth.role != "platform_admin" && auth.workspace_id != report_ws {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     conn.execute(
@@ -521,33 +611,41 @@ pub async fn update_time_report_status(requester_user_id: String, id: String, st
 pub async fn delete_time_report(requester_user_id: String, id: String) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
 
-    let (report_ws, report_user): (String, String) = conn.query_row(
-        "SELECT workspace_id, user_id FROM time_reports WHERE id = ?1",
-        crate::params![&id],
-        |r| Ok((r.get(0)?, r.get(1)?))
-    ).await.map_err(|_| YntraError::NotFoundError("Time report not found".to_string()))?;
+    let (report_ws, report_user): (String, String) = conn
+        .query_row(
+            "SELECT workspace_id, user_id FROM time_reports WHERE id = ?1",
+            crate::params![&id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Time report not found".to_string()))?;
 
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     if auth.role != "platform_admin" && auth.workspace_id != report_ws {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     if !auth.is_admin && report_user != requester_user_id {
-        return Err(YntraError::AuthError("Access denied: you can only delete your own time reports".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: you can only delete your own time reports".to_string(),
+        ));
     }
 
-    conn.execute(
-        "DELETE FROM time_reports WHERE id = ?1",
-        crate::params![id],
-    ).await?;
+    conn.execute("DELETE FROM time_reports WHERE id = ?1", crate::params![id])
+        .await?;
 
     notify_observers();
     Ok(())
 }
 
 #[uniffi::export]
-pub async fn get_time_reports_rkyv(requester_user_id: String, user_id: Option<String>) -> Result<Vec<u8>, YntraError> {
+pub async fn get_time_reports_rkyv(
+    requester_user_id: String,
+    user_id: Option<String>,
+) -> Result<Vec<u8>, YntraError> {
     let reports = get_time_reports(requester_user_id, user_id).await?;
     let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&reports)
         .map_err(|e| YntraError::SerializationError(e.to_string()))?;
@@ -572,6 +670,9 @@ mod tests {
         assert_eq!(parse_date("1969-12-31"), None);
         assert_eq!(parse_date("2026-13-01"), None);
         assert_eq!(parse_date("2026-07-32"), None);
+        assert_eq!(parse_date("2026-02-29"), None); // Non-leap year February 29
+        assert_eq!(parse_date("2024-02-29"), Some((2024, 2, 29))); // Leap year February 29
+        assert_eq!(parse_date("2026-04-31"), None); // April only has 30 days
     }
 
     #[test]
@@ -626,10 +727,10 @@ mod tests {
     fn test_daily_hours_on_day_partitioning() {
         let j5_idx = date_to_days(2026, 7, 5);
         let j5_start = j5_idx * 1440;
-        
+
         let shift = (j5_start + 1320, j5_start + 1800);
         let intervals = vec![shift];
-        
+
         assert_eq!(get_hours_on_day(j5_idx, &intervals), 2.0);
         assert_eq!(get_hours_on_day(j5_idx + 1, &intervals), 6.0);
     }
@@ -640,9 +741,18 @@ mod tests {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         let conn = database::acquire_connection().await.unwrap();
 
-        let _ = conn.execute("DELETE FROM time_reports WHERE workspace_id = 'ws-time-test'", ()).await;
-        let _ = conn.execute("DELETE FROM users WHERE workspace_id = 'ws-time-test'", ()).await;
-        let _ = conn.execute("DELETE FROM workspaces WHERE id = 'ws-time-test'", ()).await;
+        let _ = conn
+            .execute(
+                "DELETE FROM time_reports WHERE workspace_id = 'ws-time-test'",
+                (),
+            )
+            .await;
+        let _ = conn
+            .execute("DELETE FROM users WHERE workspace_id = 'ws-time-test'", ())
+            .await;
+        let _ = conn
+            .execute("DELETE FROM workspaces WHERE id = 'ws-time-test'", ())
+            .await;
 
         conn.execute("INSERT INTO workspaces (id, name, modules_active, settings) VALUES ('ws-time-test', 'Time Test WS', '[]', '{\"target_region\":\"SE\"}')", ()).await.unwrap();
         conn.execute("INSERT INTO users (id, workspace_id, email, role, preferences) VALUES ('u-time-test', 'ws-time-test', 'test@time.se', 'user', '{\"target_region\":\"SE\", \"allow_overtime\":true}')", ()).await.unwrap();
@@ -685,15 +795,29 @@ mod tests {
             1.0,
             "Extra hours".to_string(),
             None,
-            None
-        ).await;
+            None,
+        )
+        .await;
 
         assert!(res.is_err());
-        assert!(res.unwrap_err().to_string().contains("Rolling 16-week average"));
+        assert!(
+            res.unwrap_err()
+                .to_string()
+                .contains("Rolling 16-week average")
+        );
 
-        conn.execute("DELETE FROM time_reports WHERE workspace_id = 'ws-time-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM users WHERE id = 'u-time-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-time-test'", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM time_reports WHERE workspace_id = 'ws-time-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute("DELETE FROM users WHERE id = 'u-time-test'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-time-test'", ())
+            .await
+            .unwrap();
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -702,9 +826,18 @@ mod tests {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         let conn = database::acquire_connection().await.unwrap();
 
-        let _ = conn.execute("DELETE FROM time_reports WHERE workspace_id = 'ws-rest-test'", ()).await;
-        let _ = conn.execute("DELETE FROM users WHERE workspace_id = 'ws-rest-test'", ()).await;
-        let _ = conn.execute("DELETE FROM workspaces WHERE id = 'ws-rest-test'", ()).await;
+        let _ = conn
+            .execute(
+                "DELETE FROM time_reports WHERE workspace_id = 'ws-rest-test'",
+                (),
+            )
+            .await;
+        let _ = conn
+            .execute("DELETE FROM users WHERE workspace_id = 'ws-rest-test'", ())
+            .await;
+        let _ = conn
+            .execute("DELETE FROM workspaces WHERE id = 'ws-rest-test'", ())
+            .await;
 
         conn.execute("INSERT INTO workspaces (id, name, modules_active, settings) VALUES ('ws-rest-test', 'Rest Test WS', '[]', '{\"target_region\":\"SE\"}')", ()).await.unwrap();
         conn.execute("INSERT INTO users (id, workspace_id, email, role, preferences) VALUES ('u-rest-test', 'ws-rest-test', 'test@rest.se', 'user', '{\"target_region\":\"SE\", \"allow_overtime\":false}')", ()).await.unwrap();
@@ -719,7 +852,9 @@ mod tests {
             "Friday Shift".to_string(),
             Some("08:00".to_string()),
             Some("16:00".to_string()),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         let res = add_time_report(
             "u-rest-test".to_string(),
@@ -731,13 +866,27 @@ mod tests {
             "Monday Shift".to_string(),
             Some("09:00".to_string()),
             Some("17:00".to_string()),
-        ).await;
+        )
+        .await;
 
-        assert!(res.is_ok(), "Weekend-spanning rest should not violate weekly rest limit: {:?}", res.err());
+        assert!(
+            res.is_ok(),
+            "Weekend-spanning rest should not violate weekly rest limit: {:?}",
+            res.err()
+        );
 
-        conn.execute("DELETE FROM time_reports WHERE workspace_id = 'ws-rest-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM users WHERE id = 'u-rest-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-rest-test'", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM time_reports WHERE workspace_id = 'ws-rest-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute("DELETE FROM users WHERE id = 'u-rest-test'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-rest-test'", ())
+            .await
+            .unwrap();
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -746,9 +895,18 @@ mod tests {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         let conn = database::acquire_connection().await.unwrap();
 
-        let _ = conn.execute("DELETE FROM time_reports WHERE workspace_id = 'ws-ca-test'", ()).await;
-        let _ = conn.execute("DELETE FROM users WHERE workspace_id = 'ws-ca-test'", ()).await;
-        let _ = conn.execute("DELETE FROM workspaces WHERE id = 'ws-ca-test'", ()).await;
+        let _ = conn
+            .execute(
+                "DELETE FROM time_reports WHERE workspace_id = 'ws-ca-test'",
+                (),
+            )
+            .await;
+        let _ = conn
+            .execute("DELETE FROM users WHERE workspace_id = 'ws-ca-test'", ())
+            .await;
+        let _ = conn
+            .execute("DELETE FROM workspaces WHERE id = 'ws-ca-test'", ())
+            .await;
 
         conn.execute("INSERT INTO workspaces (id, name, modules_active, settings) VALUES ('ws-ca-test', 'CA Test WS', '[]', '{\"target_region\":\"US-CA\"}')", ()).await.unwrap();
         conn.execute("INSERT INTO users (id, workspace_id, email, role, preferences) VALUES ('u-ca-test', 'ws-ca-test', 'test@ca.us', 'user', '{\"target_region\":\"US-CA\", \"allow_overtime\":false}')", ()).await.unwrap();
@@ -768,7 +926,9 @@ mod tests {
                 "Part-time Shift".to_string(),
                 Some("09:00".to_string()),
                 Some("12:00".to_string()),
-            ).await.unwrap();
+            )
+            .await
+            .unwrap();
         }
 
         let sunday_idx = base_date + 6;
@@ -784,12 +944,22 @@ mod tests {
             "Sunday Shift".to_string(),
             Some("09:00".to_string()),
             Some("12:00".to_string()),
-        ).await;
+        )
+        .await;
 
-        assert!(res.is_ok(), "Part-time worker should be exempt from the 7-day rule: {:?}", res.err());
+        assert!(
+            res.is_ok(),
+            "Part-time worker should be exempt from the 7-day rule: {:?}",
+            res.err()
+        );
 
-        let _ = conn.execute("DELETE FROM time_reports WHERE date = ?1 AND user_id = 'u-ca-test'", crate::params![format_date_from_days(sunday_idx)]).await;
-        
+        let _ = conn
+            .execute(
+                "DELETE FROM time_reports WHERE date = ?1 AND user_id = 'u-ca-test'",
+                crate::params![format_date_from_days(sunday_idx)],
+            )
+            .await;
+
         let res_fail = add_time_report(
             "u-ca-test".to_string(),
             "ws-ca-test".to_string(),
@@ -800,14 +970,32 @@ mod tests {
             "Long Sunday Shift".to_string(),
             Some("09:00".to_string()),
             Some("16:00".to_string()),
-        ).await;
+        )
+        .await;
 
-        assert!(res_fail.is_err(), "Exceeding daily 6h limit on 7th day should trigger violation");
-        assert!(res_fail.unwrap_err().to_string().contains("California Labor Code violation"));
+        assert!(
+            res_fail.is_err(),
+            "Exceeding daily 6h limit on 7th day should trigger violation"
+        );
+        assert!(
+            res_fail
+                .unwrap_err()
+                .to_string()
+                .contains("California Labor Code violation")
+        );
 
-        conn.execute("DELETE FROM time_reports WHERE workspace_id = 'ws-ca-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM users WHERE id = 'u-ca-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-ca-test'", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM time_reports WHERE workspace_id = 'ws-ca-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute("DELETE FROM users WHERE id = 'u-ca-test'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-ca-test'", ())
+            .await
+            .unwrap();
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -816,15 +1004,25 @@ mod tests {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         let conn = database::acquire_connection().await.unwrap();
 
-        let _ = conn.execute("DELETE FROM users WHERE workspace_id IN ('ws-time-a', 'ws-time-b')", ()).await;
-        let _ = conn.execute("DELETE FROM workspaces WHERE id IN ('ws-time-a', 'ws-time-b')", ()).await;
+        let _ = conn
+            .execute(
+                "DELETE FROM users WHERE workspace_id IN ('ws-time-a', 'ws-time-b')",
+                (),
+            )
+            .await;
+        let _ = conn
+            .execute(
+                "DELETE FROM workspaces WHERE id IN ('ws-time-a', 'ws-time-b')",
+                (),
+            )
+            .await;
 
         conn.execute("INSERT INTO workspaces (id, name, modules_active, settings) VALUES ('ws-time-a', 'WS A', '[]', '{\"target_region\":\"SE\"}')", ()).await.unwrap();
         conn.execute("INSERT INTO workspaces (id, name, modules_active, settings) VALUES ('ws-time-b', 'WS B', '[]', '{\"target_region\":\"SE\"}')", ()).await.unwrap();
 
         // Admin of WS A
         conn.execute("INSERT INTO users (id, workspace_id, email, role, preferences) VALUES ('u-admin-a', 'ws-time-a', 'admina@time.se', 'admin', '{}')", ()).await.unwrap();
-        
+
         // User of WS B
         conn.execute("INSERT INTO users (id, workspace_id, email, role, preferences) VALUES ('u-user-b', 'ws-time-b', 'userb@time.se', 'user', '{}')", ()).await.unwrap();
 
@@ -839,13 +1037,24 @@ mod tests {
             "Friday Shift".to_string(),
             Some("08:00".to_string()),
             Some("16:00".to_string()),
-        ).await;
+        )
+        .await;
 
         assert!(res.is_err());
         assert!(matches!(res.unwrap_err(), YntraError::ValidationError(_)));
 
-        conn.execute("DELETE FROM users WHERE workspace_id IN ('ws-time-a', 'ws-time-b')", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id IN ('ws-time-a', 'ws-time-b')", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM users WHERE workspace_id IN ('ws-time-a', 'ws-time-b')",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM workspaces WHERE id IN ('ws-time-a', 'ws-time-b')",
+            (),
+        )
+        .await
+        .unwrap();
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -863,13 +1072,23 @@ mod tests {
             ()
         ).await.unwrap();
 
-        let bytes = get_time_reports_rkyv("u-time-rkyv".to_string(), Some("u-time-rkyv".to_string())).await.unwrap();
-        let rkyv_reports: Vec<TimeReport> = rkyv::from_bytes::<Vec<TimeReport>, rkyv::rancor::Error>(&bytes).unwrap();
+        let bytes =
+            get_time_reports_rkyv("u-time-rkyv".to_string(), Some("u-time-rkyv".to_string()))
+                .await
+                .unwrap();
+        let rkyv_reports: Vec<TimeReport> =
+            rkyv::from_bytes::<Vec<TimeReport>, rkyv::rancor::Error>(&bytes).unwrap();
         assert_eq!(rkyv_reports.len(), 1);
         assert_eq!(rkyv_reports[0].id, "tr-rkyv-1");
 
-        conn.execute("DELETE FROM time_reports WHERE id = 'tr-rkyv-1'", ()).await.unwrap();
-        conn.execute("DELETE FROM users WHERE id = 'u-time-rkyv'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-time-rkyv'", ()).await.unwrap();
+        conn.execute("DELETE FROM time_reports WHERE id = 'tr-rkyv-1'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM users WHERE id = 'u-time-rkyv'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-time-rkyv'", ())
+            .await
+            .unwrap();
     }
 }

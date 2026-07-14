@@ -9,7 +9,10 @@ pub fn start_loopback_listener(tx: mpsc::UnboundedSender<String>) {
         let listener = match TcpListener::bind("127.0.0.1:5173") {
             Ok(l) => l,
             Err(e) => {
-                log::error!("[Desktop OAuth] Failed to bind loopback listener to port 5173: {}", e);
+                log::error!(
+                    "[Desktop OAuth] Failed to bind loopback listener to port 5173: {}",
+                    e
+                );
                 return;
             }
         };
@@ -31,7 +34,7 @@ pub fn start_loopback_listener(tx: mpsc::UnboundedSender<String>) {
                     Err(_) => break,
                 };
                 request_data.extend_from_slice(&buffer[..read_bytes]);
-                
+
                 let req_str = String::from_utf8_lossy(&request_data);
                 if let Some(body_start) = req_str.find("\r\n\r\n") {
                     if req_str.starts_with("POST") {
@@ -94,7 +97,8 @@ Connection: close
                 let _ = stream.write_all(html.as_bytes());
             } else if req.starts_with("POST /token") {
                 log::info!("[Desktop OAuth] Handling POST /token");
-                let response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nOK";
+                let response =
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nOK";
                 let _ = stream.write_all(response.as_bytes());
 
                 if let Some(body_start) = req.find("\r\n\r\n") {
@@ -102,10 +106,14 @@ Connection: close
                     // Removed verbose body print to secure access tokens and reduce console spam
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(body) {
                         if let Some(hash) = json.get("hash").and_then(|h| h.as_str()) {
-                            log::info!("[Desktop OAuth] Token hash extracted successfully. Sending to Dioxus channel...");
+                            log::info!(
+                                "[Desktop OAuth] Token hash extracted successfully. Sending to Dioxus channel..."
+                            );
                             let _ = tx.send(hash.to_string());
                         } else {
-                            log::warn!("[Desktop OAuth] Warning: 'hash' key not found in body JSON");
+                            log::warn!(
+                                "[Desktop OAuth] Warning: 'hash' key not found in body JSON"
+                            );
                         }
                     } else {
                         log::warn!("[Desktop OAuth] Warning: Failed to parse body as JSON");

@@ -51,7 +51,7 @@ pub fn HardwareModal(props: HardwareModalProps) -> Element {
                     },
                     "polling" => rsx! {
                         // Pulsating sonar sensor animation for scanning
-                        div { 
+                        div {
                             class: "flex items-center justify-center",
                             style: "position: relative; width: 80px; height: 80px; margin: 0.5rem 0;",
                             div {
@@ -61,9 +61,9 @@ pub fn HardwareModal(props: HardwareModalProps) -> Element {
                             div {
                                 class: "rounded-full border border-border flex items-center justify-center",
                                 style: "width: 50px; height: 50px; background: var(--primary-color-4);",
-                                components::LucideIcon { 
+                                components::LucideIcon {
                                     name: "reporting",
-                                    class: "h-5 w-5 text-secondary", 
+                                    class: "h-5 w-5 text-secondary",
                                 }
                             }
                         }
@@ -82,9 +82,9 @@ pub fn HardwareModal(props: HardwareModalProps) -> Element {
                         div {
                             class: "rounded-full border border-border flex items-center justify-center",
                             style: "width: 64px; height: 64px; background: var(--primary-color-4); margin: 0.5rem 0;",
-                            components::LucideIcon { 
+                            components::LucideIcon {
                                 name: "reporting",
-                                class: "h-8 w-8 text-secondary", 
+                                class: "h-8 w-8 text-secondary",
                             }
                         }
                         h4 { class: "m-0 font-extrabold text-foreground",
@@ -127,7 +127,7 @@ pub fn HardwareModal(props: HardwareModalProps) -> Element {
                             components::LucideIcon { name: "reporting", class: "h-8 w-8 text-success", }
                         }
                         h4 { class: "m-0 font-extrabold",
-                            style: "color:var(--success);", 
+                            style: "color:var(--success);",
                             "{t(\"login-hw-success\", &props.region)}"
                         }
                     },

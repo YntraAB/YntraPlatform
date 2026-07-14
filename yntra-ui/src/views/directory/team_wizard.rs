@@ -41,8 +41,16 @@ pub fn TeamRegistrationWizard(props: TeamRegistrationWizardProps) -> Element {
     let mut wizard_client_level = use_signal(|| "High Care".to_string());
     let mut wizard_client_email = use_signal(String::new);
 
-    let step1_bg = if *wizard_step.read() == 1 { "var(--accent-color)" } else { "var(--border-color)" };
-    let step2_bg = if *wizard_step.read() == 2 { "var(--accent-color)" } else { "var(--border-color)" };
+    let step1_bg = if *wizard_step.read() == 1 {
+        "var(--accent-color)"
+    } else {
+        "var(--border-color)"
+    };
+    let step2_bg = if *wizard_step.read() == 2 {
+        "var(--accent-color)"
+    } else {
+        "var(--border-color)"
+    };
 
     rsx! {
         if *show_add_team_modal.read() {

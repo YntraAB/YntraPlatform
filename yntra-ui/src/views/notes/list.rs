@@ -1,7 +1,7 @@
-use dioxus::prelude::*;
-use yntra_core::{WorkspaceUser, DailyNote};
-use crate::locales::t;
 use crate::components;
+use crate::locales::t;
+use dioxus::prelude::*;
+use yntra_core::{DailyNote, WorkspaceUser};
 
 #[derive(Props, Clone)]
 pub struct NoteListProps {
@@ -41,7 +41,7 @@ pub fn NoteList(props: NoteListProps) -> Element {
     rsx! {
         div {
             class: "flex flex-col h-full w-full bg-background relative box-border",
-            
+
             // Header bar matching reference NoteList
             div {
                 class: "flex h-16 shrink-0 items-center justify-between border-b border-border px-8 bg-white/[0.02] box-border backdrop-blur-md",
@@ -55,7 +55,7 @@ pub fn NoteList(props: NoteListProps) -> Element {
                         },
                         components::LucideIcon { name: "chevron-left", size: "20" }
                     }
-                    h2 { class: "text-lg font-bold text-foreground m-0", 
+                    h2 { class: "text-lg font-bold text-foreground m-0",
                         "{team_name} {t(\"notes-list-title-suffix\", &locale)}"
                     }
                 }
@@ -65,7 +65,7 @@ pub fn NoteList(props: NoteListProps) -> Element {
                         components::LucideIcon { name: "directory", class: "absolute left-3 h-4 w-4", color: "var(--text-muted)" }
                         input {
                             class: "yntra-input pl-9 text-xs h-8",
-                            
+
                             placeholder: "{t(\"notes-list-search-placeholder\", &locale)}",
                             value: "{note_search_query}",
                             oninput: move |e| note_search_query.set(e.value()),
@@ -124,7 +124,7 @@ pub fn NoteList(props: NoteListProps) -> Element {
                                                 edit_mode.set(false);
                                             },
                                             class: "flex flex-row items-center justify-between border-b border-border px-8 py-5 cursor-pointer bg-white/[0.01] list-item-hover transition-colors duration-150 text-sm",
-                                            
+
                                             // Author column
                                             div {
                                                 class: "shrink-0 font-semibold text-foreground w-40 truncate pr-4 box-border",
@@ -136,7 +136,7 @@ pub fn NoteList(props: NoteListProps) -> Element {
                                                 class: "flex-1 flex items-center gap-2 min-w-0 truncate pr-4 box-border",
                                                 span { class: "font-semibold text-foreground", "{note_subj}" }
                                                 if note_is_enc {
-                                                    span { 
+                                                    span {
                                                         class: "text-[10px] font-bold text-amber-500 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded flex items-center gap-1",
                                                         "🔒 Zero-Copy E2EE"
                                                     }

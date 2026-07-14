@@ -10,21 +10,26 @@ pub async fn get_teams(requester_user_id: String) -> Result<Vec<Team>, YntraErro
 
     let mut stmt = conn.prepare("SELECT id, workspace_id, name, updated_at, sync_status FROM teams WHERE workspace_id = ?1").await?;
 
-    let list = stmt.query_map(crate::params![requester_ws], |row| {
-        Ok(Team {
-            id: row.get(0)?,
-            workspace_id: row.get(1)?,
-            name: row.get(2)?,
-            updated_at: row.get(3)?,
-            sync_status: row.get(4)?,
+    let list = stmt
+        .query_map(crate::params![requester_ws], |row| {
+            Ok(Team {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                name: row.get(2)?,
+                updated_at: row.get(3)?,
+                sync_status: row.get(4)?,
+            })
         })
-    }).await?;
+        .await?;
 
     Ok(list)
 }
 
 #[uniffi::export]
-pub async fn get_events(requester_user_id: String, team_id: Option<String>) -> Result<Vec<TeamEvent>, YntraError> {
+pub async fn get_events(
+    requester_user_id: String,
+    team_id: Option<String>,
+) -> Result<Vec<TeamEvent>, YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     let requester_ws = auth.workspace_id.clone();
@@ -41,27 +46,32 @@ pub async fn get_events(requester_user_id: String, team_id: Option<String>) -> R
     };
 
     let mut stmt = conn.prepare(&query).await?;
-    let list = stmt.query_map(crate::rusqlite::params_from_iter(params), |row| {
-        Ok(TeamEvent {
-            id: row.get(0)?,
-            workspace_id: row.get(1)?,
-            user_id: row.get(2)?,
-            team_id: row.get(3)?,
-            assignee_id: row.get(4)?,
-            title: row.get(5)?,
-            start_time: row.get(6)?,
-            end_time: row.get(7)?,
-            metadata: row.get(8)?,
-            updated_at: row.get(9)?,
-            sync_status: row.get(10)?,
+    let list = stmt
+        .query_map(crate::rusqlite::params_from_iter(params), |row| {
+            Ok(TeamEvent {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                user_id: row.get(2)?,
+                team_id: row.get(3)?,
+                assignee_id: row.get(4)?,
+                title: row.get(5)?,
+                start_time: row.get(6)?,
+                end_time: row.get(7)?,
+                metadata: row.get(8)?,
+                updated_at: row.get(9)?,
+                sync_status: row.get(10)?,
+            })
         })
-    }).await?;
+        .await?;
 
     Ok(list)
 }
 
 #[uniffi::export]
-pub async fn get_events_rkyv(requester_user_id: String, team_id: Option<String>) -> Result<Vec<u8>, YntraError> {
+pub async fn get_events_rkyv(
+    requester_user_id: String,
+    team_id: Option<String>,
+) -> Result<Vec<u8>, YntraError> {
     let list = get_events(requester_user_id, team_id).await?;
     let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&list)
         .map_err(|e| YntraError::SerializationError(e.to_string()))?;
@@ -82,7 +92,9 @@ pub async fn add_event(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let id = uuid::Uuid::new_v4().to_string();
@@ -136,7 +148,9 @@ pub async fn add_event_with_metadata(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let id = uuid::Uuid::new_v4().to_string();
@@ -179,17 +193,23 @@ pub async fn add_event_with_metadata(
 pub async fn delete_event(requester_user_id: String, id: String) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    let event_ws: String = conn.query_row(
-        "SELECT workspace_id FROM events WHERE id = ?1",
-        crate::params![&id],
-        |r| r.get(0)
-    ).await.map_err(|_| YntraError::NotFoundError("Event not found".to_string()))?;
+    let event_ws: String = conn
+        .query_row(
+            "SELECT workspace_id FROM events WHERE id = ?1",
+            crate::params![&id],
+            |r| r.get(0),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Event not found".to_string()))?;
 
     if auth.role != "platform_admin" && auth.workspace_id != event_ws {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
-    conn.execute("DELETE FROM events WHERE id = ?1", crate::params![id]).await?;
+    conn.execute("DELETE FROM events WHERE id = ?1", crate::params![id])
+        .await?;
 
     notify_observers();
     Ok(())
@@ -203,8 +223,15 @@ pub async fn add_team_via_directory(
 ) -> Result<Team, YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if !auth.is_admin {
+        return Err(YntraError::AuthError(
+            "Access denied: administrator privileges required".to_string(),
+        ));
+    }
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let id = uuid::Uuid::new_v4().to_string();
@@ -236,14 +263,19 @@ pub async fn update_event_time(
     let now_ms = crate::infra::time::get_current_time_ms();
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    let event_ws: String = conn.query_row(
-        "SELECT workspace_id FROM events WHERE id = ?1",
-        crate::params![&id],
-        |r| r.get(0)
-    ).await.map_err(|_| YntraError::NotFoundError("Event not found".to_string()))?;
+    let event_ws: String = conn
+        .query_row(
+            "SELECT workspace_id FROM events WHERE id = ?1",
+            crate::params![&id],
+            |r| r.get(0),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Event not found".to_string()))?;
 
     if auth.role != "platform_admin" && auth.workspace_id != event_ws {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     conn.execute(
@@ -271,14 +303,19 @@ pub async fn update_event(
     let now_ms = crate::infra::time::get_current_time_ms();
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    let event_ws: String = conn.query_row(
-        "SELECT workspace_id FROM events WHERE id = ?1",
-        crate::params![&id],
-        |r| r.get(0)
-    ).await.map_err(|_| YntraError::NotFoundError("Event not found".to_string()))?;
+    let event_ws: String = conn
+        .query_row(
+            "SELECT workspace_id FROM events WHERE id = ?1",
+            crate::params![&id],
+            |r| r.get(0),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Event not found".to_string()))?;
 
     if auth.role != "platform_admin" && auth.workspace_id != event_ws {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     conn.execute(
@@ -297,13 +334,30 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_teams_workspace_scoping() {
-        let _lock = database::DB_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _lock = database::DB_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let conn = database::acquire_connection().await.unwrap();
 
         // Cleanup first
-        let _ = conn.execute("DELETE FROM teams WHERE workspace_id IN ('ws-team-1', 'ws-team-2')", ()).await;
-        let _ = conn.execute("DELETE FROM users WHERE workspace_id IN ('ws-team-1', 'ws-team-2')", ()).await;
-        let _ = conn.execute("DELETE FROM workspaces WHERE id IN ('ws-team-1', 'ws-team-2')", ()).await;
+        let _ = conn
+            .execute(
+                "DELETE FROM teams WHERE workspace_id IN ('ws-team-1', 'ws-team-2')",
+                (),
+            )
+            .await;
+        let _ = conn
+            .execute(
+                "DELETE FROM users WHERE workspace_id IN ('ws-team-1', 'ws-team-2')",
+                (),
+            )
+            .await;
+        let _ = conn
+            .execute(
+                "DELETE FROM workspaces WHERE id IN ('ws-team-1', 'ws-team-2')",
+                (),
+            )
+            .await;
 
         // Workspace 1
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-team-1', 'Team WS 1', '[]', '{}')", ()).await.unwrap();
@@ -326,20 +380,43 @@ mod tests {
         assert_eq!(list2[0].name, "Team Beta");
 
         // Cleanup
-        conn.execute("DELETE FROM teams WHERE workspace_id IN ('ws-team-1', 'ws-team-2')", ()).await.unwrap();
-        conn.execute("DELETE FROM users WHERE workspace_id IN ('ws-team-1', 'ws-team-2')", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id IN ('ws-team-1', 'ws-team-2')", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM teams WHERE workspace_id IN ('ws-team-1', 'ws-team-2')",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM users WHERE workspace_id IN ('ws-team-1', 'ws-team-2')",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM workspaces WHERE id IN ('ws-team-1', 'ws-team-2')",
+            (),
+        )
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
     async fn test_event_lifecycle() {
-        let _lock = database::DB_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _lock = database::DB_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let conn = database::acquire_connection().await.unwrap();
 
         // Cleanup first
-        let _ = conn.execute("DELETE FROM events WHERE workspace_id = 'ws-team-3'", ()).await;
-        let _ = conn.execute("DELETE FROM users WHERE workspace_id = 'ws-team-3'", ()).await;
-        let _ = conn.execute("DELETE FROM workspaces WHERE id = 'ws-team-3'", ()).await;
+        let _ = conn
+            .execute("DELETE FROM events WHERE workspace_id = 'ws-team-3'", ())
+            .await;
+        let _ = conn
+            .execute("DELETE FROM users WHERE workspace_id = 'ws-team-3'", ())
+            .await;
+        let _ = conn
+            .execute("DELETE FROM workspaces WHERE id = 'ws-team-3'", ())
+            .await;
 
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-team-3', 'Team WS 3', '[]', '{}')", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-team-user-3', 'ws-team-3', 'user3@team.io', 'employee')", ()).await.unwrap();
@@ -354,7 +431,9 @@ mod tests {
             None,
             None,
             Some("u-team-user-3".to_string()),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         assert_eq!(event.title, "Meeting");
         assert_eq!(event.sync_status, "pending");
@@ -392,30 +471,43 @@ mod tests {
             None,
             Some("u-team-user-3".to_string()),
             "{\"note\":\"important\"}".to_string(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         // Verify in DB
-        let updated_title: String = conn.query_row(
-            "SELECT title FROM events WHERE id = ?1",
-            crate::params![&db_event.id],
-            |r| r.get(0)
-        ).await.unwrap();
+        let updated_title: String = conn
+            .query_row(
+                "SELECT title FROM events WHERE id = ?1",
+                crate::params![&db_event.id],
+                |r| r.get(0),
+            )
+            .await
+            .unwrap();
         assert_eq!(updated_title, "Updated Meeting");
 
         // 3. Delete event
-        delete_event("u-team-user-3".to_string(), db_event.id.clone()).await.unwrap();
+        delete_event("u-team-user-3".to_string(), db_event.id.clone())
+            .await
+            .unwrap();
 
         // Verify deleted
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM events WHERE id = ?1",
-            crate::params![&db_event.id],
-            |r| r.get(0)
-        ).await.unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE id = ?1",
+                crate::params![&db_event.id],
+                |r| r.get(0),
+            )
+            .await
+            .unwrap();
         assert_eq!(count, 0);
 
         // Cleanup
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-team-3'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-team-3'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-team-3'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-team-3'", ())
+            .await
+            .unwrap();
     }
 }
-

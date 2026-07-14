@@ -14,11 +14,15 @@ pub async fn invite_user_via_directory(
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     if !auth.is_admin {
-        return Err(YntraError::AuthError("Access denied: only administrators can invite users".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: only administrators can invite users".to_string(),
+        ));
     }
 
     if auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: cannot invite user to another workspace".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: cannot invite user to another workspace".to_string(),
+        ));
     }
 
     let id = uuid::Uuid::new_v4().to_string();
@@ -110,13 +114,21 @@ pub async fn activate_invitation_code(code: String) -> Result<WorkspaceUser, Ynt
         let mut nfc_badge_uid = None;
         if let Some(ref m_str) = metadata_str {
             if let Ok(meta_val) = serde_json::from_str::<serde_json::Value>(m_str) {
-                siths_card_id = meta_val.get("siths_card_id").and_then(|v| v.as_str()).map(|s| s.to_string());
-                nfc_badge_uid = meta_val.get("nfc_badge_uid").and_then(|v| v.as_str()).map(|s| s.to_string());
+                siths_card_id = meta_val
+                    .get("siths_card_id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                nfc_badge_uid = meta_val
+                    .get("nfc_badge_uid")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
             }
         }
 
         if activated != 0 {
-            return Err(YntraError::InvitationError("Invitation code already activated".to_string()));
+            return Err(YntraError::InvitationError(
+                "Invitation code already activated".to_string(),
+            ));
         }
 
         let now_ms = crate::infra::time::get_current_time_ms();
@@ -213,7 +225,9 @@ pub async fn activate_invitation_code(code: String) -> Result<WorkspaceUser, Ynt
             }
         }
     } else {
-        Err(YntraError::InvitationError("Invalid invitation code".to_string()))
+        Err(YntraError::InvitationError(
+            "Invalid invitation code".to_string(),
+        ))
     }
 }
 
@@ -241,17 +255,21 @@ mod tests {
             "invited@dir.io".to_string(),
             "Invited User".to_string(),
             "user".to_string(),
-        ).await;
+        )
+        .await;
         assert!(user.is_ok());
         let user = user.unwrap();
         assert_eq!(user.email, "invited@dir.io");
 
         // Check user inserted
-        let inserted: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM users WHERE email = 'invited@dir.io'",
-            (),
-            |r| r.get(0),
-        ).await.unwrap_or(0);
+        let inserted: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM users WHERE email = 'invited@dir.io'",
+                (),
+                |r| r.get(0),
+            )
+            .await
+            .unwrap_or(0);
         assert_eq!(inserted, 1);
 
         // 3. Blocked invite by non-admin
@@ -261,9 +279,13 @@ mod tests {
             "bad@dir.io".to_string(),
             "Bad User".to_string(),
             "user".to_string(),
-        ).await;
+        )
+        .await;
         assert!(res_normal.is_err());
-        assert!(matches!(res_normal.err().unwrap(), YntraError::AuthError(_)));
+        assert!(matches!(
+            res_normal.err().unwrap(),
+            YntraError::AuthError(_)
+        ));
 
         // 4. Blocked invite by admin to another workspace
         let res_other_ws = invite_user_via_directory(
@@ -272,13 +294,27 @@ mod tests {
             "bad2@dir.io".to_string(),
             "Bad User 2".to_string(),
             "user".to_string(),
-        ).await;
+        )
+        .await;
         assert!(res_other_ws.is_err());
-        assert!(matches!(res_other_ws.err().unwrap(), YntraError::AuthError(_)));
+        assert!(matches!(
+            res_other_ws.err().unwrap(),
+            YntraError::AuthError(_)
+        ));
 
         // Cleanup
-        conn.execute("DELETE FROM users WHERE email IN ('invited@dir.io', 'admin@dir.io', 'normal@dir.io')", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id IN ('ws-dir-1', 'ws-dir-2')", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM users WHERE email IN ('invited@dir.io', 'admin@dir.io', 'normal@dir.io')",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM workspaces WHERE id IN ('ws-dir-1', 'ws-dir-2')",
+            (),
+        )
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
@@ -290,7 +326,8 @@ mod tests {
 
         // 1. Insert a mock invitation with encrypted workspace key
         let test_key = vec![0u8; 32];
-        let enc_test_key = crate::infra::crypto::encrypt_workspace_key_with_password("CODE123", test_key).unwrap();
+        let enc_test_key =
+            crate::infra::crypto::encrypt_workspace_key_with_password("CODE123", test_key).unwrap();
         conn.execute(
             "INSERT OR REPLACE INTO invitations (code, workspace_id, email, full_name, role, activated, updated_at, encrypted_workspace_key) VALUES ('CODE123', 'ws-dir-inv', 'guest@dir.io', 'Guest User', 'user', 0, 0, ?1)",
             crate::params![enc_test_key],
@@ -303,18 +340,24 @@ mod tests {
         assert_eq!(user.email, "guest@dir.io");
 
         // Verify marked activated = 1 and user created in DB
-        let activated: i64 = conn.query_row(
-            "SELECT activated FROM invitations WHERE code = 'CODE123'",
-            (),
-            |r| r.get(0)
-        ).await.unwrap();
+        let activated: i64 = conn
+            .query_row(
+                "SELECT activated FROM invitations WHERE code = 'CODE123'",
+                (),
+                |r| r.get(0),
+            )
+            .await
+            .unwrap();
         assert_eq!(activated, 1);
 
-        let user_exists: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM users WHERE email = 'guest@dir.io'",
-            (),
-            |r| r.get(0)
-        ).await.unwrap_or(0);
+        let user_exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM users WHERE email = 'guest@dir.io'",
+                (),
+                |r| r.get(0),
+            )
+            .await
+            .unwrap_or(0);
         assert_eq!(user_exists, 1);
 
         // 3. Try activating again (should fail)
@@ -338,9 +381,11 @@ mod tests {
         // 5. Test composite invitation code activation with creator public key
         // Cleanup key cache before run to ensure clean state
         let _ = crate::infra::crypto::set_local_secret("workspace_public_key_ws-dir-inv", "").await;
-        
+
         let test_key_2 = vec![0u8; 32];
-        let enc_test_key_2 = crate::infra::crypto::encrypt_workspace_key_with_password("CODE456", test_key_2).unwrap();
+        let enc_test_key_2 =
+            crate::infra::crypto::encrypt_workspace_key_with_password("CODE456", test_key_2)
+                .unwrap();
         conn.execute(
             "INSERT OR REPLACE INTO invitations (code, workspace_id, email, full_name, role, activated, updated_at, encrypted_workspace_key) VALUES ('CODE456', 'ws-dir-inv', 'guest2@dir.io', 'Guest User 2', 'user', 0, 0, ?1)",
             crate::params![enc_test_key_2],
@@ -352,13 +397,27 @@ mod tests {
         assert!(res_composite.is_ok());
 
         // Verify public key is stored in the local keyring
-        let saved_pk = crate::infra::crypto::get_local_secret("workspace_public_key_ws-dir-inv").await.unwrap();
+        let saved_pk = crate::infra::crypto::get_local_secret("workspace_public_key_ws-dir-inv")
+            .await
+            .unwrap();
         assert_eq!(saved_pk.as_deref(), Some(mock_pk));
 
         // Cleanup
-        conn.execute("DELETE FROM users WHERE email IN ('guest@dir.io', 'guest2@dir.io')", ()).await.unwrap();
-        conn.execute("DELETE FROM invitations WHERE code IN ('CODE123', 'CODE456')", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-dir-inv'", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM users WHERE email IN ('guest@dir.io', 'guest2@dir.io')",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM invitations WHERE code IN ('CODE123', 'CODE456')",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-dir-inv'", ())
+            .await
+            .unwrap();
         let _ = crate::infra::crypto::set_local_secret("workspace_public_key_ws-dir-inv", "").await;
     }
 }

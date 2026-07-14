@@ -26,25 +26,35 @@ pub fn NotificationsSettings(props: NotificationsSettingsProps) -> Element {
 
     // Load initial states from user preferences JSON in the local database
     let mut notif_on = use_signal(|| {
-        let prefs: serde_json::Value = serde_json::from_str(&account_preferences.read()).unwrap_or_default();
-        prefs.get("push_notifications_enabled").and_then(|v| v.as_bool()).unwrap_or(true)
+        let prefs: serde_json::Value =
+            serde_json::from_str(&account_preferences.read()).unwrap_or_default();
+        prefs
+            .get("push_notifications_enabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true)
     });
     let mut notif_type = use_signal(|| {
-        let prefs: serde_json::Value = serde_json::from_str(&account_preferences.read()).unwrap_or_default();
-        prefs.get("push_notifications_type").and_then(|v| v.as_str()).unwrap_or("full_content").to_string()
+        let prefs: serde_json::Value =
+            serde_json::from_str(&account_preferences.read()).unwrap_or_default();
+        prefs
+            .get("push_notifications_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("full_content")
+            .to_string()
     });
 
     let update_notif_setting = {
         let active_user_id = active_user.id.clone();
         let active_user_name = active_user.full_name.clone();
         let active_user_phone = active_user.phone.clone();
-        
+
         move |key: &str, value: serde_json::Value| {
             settings_save_status.set("saving".to_string());
-            
-            let mut prefs: serde_json::Value = serde_json::from_str(&account_preferences.read()).unwrap_or_default();
+
+            let mut prefs: serde_json::Value =
+                serde_json::from_str(&account_preferences.read()).unwrap_or_default();
             prefs[key] = value;
-            
+
             let prefs_str = serde_json::to_string(&prefs).unwrap_or_default();
             account_preferences.set(prefs_str.clone());
 
@@ -54,7 +64,14 @@ pub fn NotificationsSettings(props: NotificationsSettingsProps) -> Element {
             let prefs_val = prefs_str.clone();
             let requester_uid = uid.clone();
             spawn(async move {
-                let _ = yntra_core::update_user_profile(requester_uid.clone(), requester_uid, name_val, phone_val, prefs_val).await;
+                let _ = yntra_core::update_user_profile(
+                    requester_uid.clone(),
+                    requester_uid,
+                    name_val,
+                    phone_val,
+                    prefs_val,
+                )
+                .await;
             });
 
             let current_trig = *db_trigger.read();

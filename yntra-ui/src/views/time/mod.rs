@@ -2,20 +2,20 @@ use dioxus::prelude::*;
 use yntra_core::TimeReport;
 use yntra_core::WorkspaceUser;
 
-pub mod kpi;
-pub mod org_list;
-pub mod member_list;
 pub mod assistant_teams;
-pub mod shift_list;
+pub mod kpi;
+pub mod member_list;
+pub mod org_list;
 pub mod report_modal;
+pub mod shift_list;
 pub mod utils;
 
-use kpi::KpiSummary;
-use org_list::OrganizationList;
-use member_list::MemberList;
 use assistant_teams::AssistantTeamsList;
-use shift_list::ShiftList;
+use kpi::KpiSummary;
+use member_list::MemberList;
+use org_list::OrganizationList;
 use report_modal::TimeReportModal;
+use shift_list::ShiftList;
 
 #[derive(Props, Clone)]
 pub struct TimeViewProps {
@@ -42,8 +42,13 @@ impl PartialEq for TimeViewProps {
 pub fn TimeView(props: TimeViewProps) -> Element {
     let state = use_context::<crate::state::AppState>();
     let active_user = props.active_user.clone();
-    let user_prefs: serde_json::Value = serde_json::from_str(&active_user.preferences).unwrap_or_default();
-    let region = user_prefs.get("language").and_then(|l| l.as_str()).unwrap_or("US").to_string();
+    let user_prefs: serde_json::Value =
+        serde_json::from_str(&active_user.preferences).unwrap_or_default();
+    let region = user_prefs
+        .get("language")
+        .and_then(|l| l.as_str())
+        .unwrap_or("US")
+        .to_string();
     let users = state.users.read().clone().unwrap_or_default();
     let time_reports = state.time_reports.read().clone().unwrap_or_default();
     let workspaces = state.workspaces.read().clone().unwrap_or_default();
@@ -91,7 +96,7 @@ pub fn TimeView(props: TimeViewProps) -> Element {
             } else {
                 r.user_id == active_user.id
             };
-            
+
             let user_ok = if let Some(uid) = selected_user_id.read().as_ref() {
                 r.user_id == *uid
             } else {
@@ -111,7 +116,8 @@ pub fn TimeView(props: TimeViewProps) -> Element {
                 .unwrap_or_else(|| "Unknown".to_string())
                 .to_lowercase();
             let note_str = r.note.clone().unwrap_or_default().to_lowercase();
-            let search_ok = search_q.is_empty() || emp_name.contains(&search_q) || note_str.contains(&search_q);
+            let search_ok =
+                search_q.is_empty() || emp_name.contains(&search_q) || note_str.contains(&search_q);
 
             let status_ok = if status_filter == "all" {
                 true
@@ -158,7 +164,10 @@ pub fn TimeView(props: TimeViewProps) -> Element {
             .filter(|r| is_manager || r.user_id == active_user.id)
             .collect();
         let total = relevant.len();
-        let resolved = relevant.iter().filter(|r| r.status == "approved" || r.status == "rejected").count();
+        let resolved = relevant
+            .iter()
+            .filter(|r| r.status == "approved" || r.status == "rejected")
+            .count();
         (resolved * 100)
             .checked_div(total)
             .map(|v| format!("{}%", v))
@@ -193,7 +202,10 @@ pub fn TimeView(props: TimeViewProps) -> Element {
         .cloned()
         .collect();
 
-    let default_team_id = assistant_teams_list.first().map(|t| t.id.clone()).unwrap_or_default();
+    let default_team_id = assistant_teams_list
+        .first()
+        .map(|t| t.id.clone())
+        .unwrap_or_default();
     let selected_report_team_id = use_signal(|| default_team_id.clone());
 
     rsx! {

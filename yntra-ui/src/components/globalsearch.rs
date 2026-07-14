@@ -203,7 +203,7 @@ pub fn GlobalSearch(props: GlobalSearchProps) -> Element {
                 onclick: move |e| e.stop_propagation(),
 
                 // Search Input Header
-                div { 
+                div {
                     class: "flex items-center border-b border-border gap-3",
                     style: "padding: 0.85rem 1.25rem;",
                     LucideIcon { name: "search", class: "h-4 w-4 text-text-secondary", }
@@ -222,7 +222,7 @@ pub fn GlobalSearch(props: GlobalSearchProps) -> Element {
                 }
 
                 // Results Container
-                div { 
+                div {
                     class: "cmd-results scrollbar-thin",
 
                     // If all are empty, show empty state

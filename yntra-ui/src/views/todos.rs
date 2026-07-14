@@ -15,7 +15,7 @@ pub struct TodosViewProps {
 pub fn TodosView(props: TodosViewProps) -> Element {
     let region = props.auth_region.read().clone();
     let state = use_context::<AppState>();
-    
+
     let mut new_todo_text = use_signal(String::new);
     let mut active_filter = use_signal(|| "all".to_string());
 
@@ -60,7 +60,7 @@ pub fn TodosView(props: TodosViewProps) -> Element {
         div {
             class: "mx-auto w-full max-w-3xl animate-in fade-in slide-in-from-top-4 duration-300",
             style: "padding: 2rem; display: flex; flex-direction: column; gap: 1.5rem; box-sizing: border-box;",
-            
+
 
 
             // Tabs filter
@@ -113,7 +113,7 @@ pub fn TodosView(props: TodosViewProps) -> Element {
                         let todo_id_onclick = item.id.clone();
                         let is_completed = item.completed;
                         let text = item.text.clone();
-                        
+
                         rsx! {
                             div {
                                 key: "{item.id}",

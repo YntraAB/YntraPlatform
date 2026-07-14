@@ -80,8 +80,11 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
     let jobs = jobs_res.read().clone().unwrap_or_default();
 
     let active_job = jobs.first().cloned();
-    let active_job_id = active_job.as_ref().map(|j| j.id.clone()).unwrap_or_default();
-    
+    let active_job_id = active_job
+        .as_ref()
+        .map(|j| j.id.clone())
+        .unwrap_or_default();
+
     let active_job_id_for_inv = active_job_id.clone();
     let uid_for_inv = active_uid_for_inv.clone();
     let inventory_res = use_resource(move || {
@@ -96,7 +99,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
             }
         }
     });
-    
+
     let active_job_id_for_quote = active_job_id.clone();
     let uid_for_quote = active_uid_for_quote.clone();
     let quote_res = use_resource(move || {
@@ -113,7 +116,10 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
     });
 
     let inventories = inventory_res.read().clone().unwrap_or_default();
-    let total_volume: f64 = inventories.iter().map(|i| i.estimated_volume_m3 * i.quantity as f64).sum();
+    let total_volume: f64 = inventories
+        .iter()
+        .map(|i| i.estimated_volume_m3 * i.quantity as f64)
+        .sum();
     let quote = quote_res.read().clone().flatten();
 
     let uid_for_accept = active_uid_for_accept.clone();
@@ -130,7 +136,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
     rsx! {
         // 2. Moving Company Portal Widgets
         div { class: "grid grid-cols-1 gap-6 md:grid-cols-3",
-            
+
             // Left/Main Card: Inbokade Flyttar
             div { class: "md:col-span-2",
                 components::Card {
@@ -252,7 +258,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                     span { class: "text-primary text-base", "{q.total_price} kr" }
                                 }
                             }
-                            
+
                             // Offer acceptance action
                             div { class: "pt-4",
                                 if q.status == "accepted" {
@@ -416,7 +422,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                             }
                                         }
                                     }
-                                    
+
                                     div { class: "border-t border-border/30 pt-3 mt-2 flex items-center justify-between",
                                         span { class: "text-xs font-bold text-muted-foreground", "Total cargo-volym:" }
                                         span { class: "text-sm font-extrabold text-primary", "{total_volume:.1} m³" }

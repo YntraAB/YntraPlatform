@@ -1,7 +1,7 @@
 use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
-use yntra_core::{update_workspace_general, Workspace};
+use yntra_core::{Workspace, update_workspace_general};
 
 // A standard base64 encoder to parse image bytes to data URLs for local-first persistence
 fn base64_encode(bytes: &[u8]) -> String {
@@ -16,8 +16,16 @@ fn base64_encode(bytes: &[u8]) -> String {
         };
         let c1 = CHARSET[((b >> 18) & 63) as usize] as char;
         let c2 = CHARSET[((b >> 12) & 63) as usize] as char;
-        let c3 = if chunk.len() > 1 { CHARSET[((b >> 6) & 63) as usize] as char } else { '=' };
-        let c4 = if chunk.len() > 2 { CHARSET[(b & 63) as usize] as char } else { '=' };
+        let c3 = if chunk.len() > 1 {
+            CHARSET[((b >> 6) & 63) as usize] as char
+        } else {
+            '='
+        };
+        let c4 = if chunk.len() > 2 {
+            CHARSET[(b & 63) as usize] as char
+        } else {
+            '='
+        };
         result.push(c1);
         result.push(c2);
         result.push(c3);
@@ -56,37 +64,69 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
     let mut is_uploading = use_signal(|| false);
 
     // Read settings from workspace settings JSON
-    let settings_val: serde_json::Value = serde_json::from_str(&props.workspace.settings).unwrap_or_default();
-    let modules_val: serde_json::Value = serde_json::from_str(&props.workspace.modules_active).unwrap_or_default();
-    let is_school = modules_val.get("school").and_then(|v| v.as_bool()).unwrap_or(false);
-    
+    let settings_val: serde_json::Value =
+        serde_json::from_str(&props.workspace.settings).unwrap_or_default();
+    let modules_val: serde_json::Value =
+        serde_json::from_str(&props.workspace.modules_active).unwrap_or_default();
+    let is_school = modules_val
+        .get("school")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
     let mut language = use_signal(|| {
-        let raw = settings_val.get("language").and_then(|v| v.as_str()).unwrap_or("en");
+        let raw = settings_val
+            .get("language")
+            .and_then(|v| v.as_str())
+            .unwrap_or("en");
         match raw.to_lowercase().as_str() {
             "sv" | "se" => "sv",
             "no" | "nb" | "nn" => "no",
             "da" | "dk" => "da",
             "fi" => "fi",
             _ => "en",
-        }.to_string()
+        }
+        .to_string()
     });
     let mut timezone = use_signal(|| {
-        settings_val.get("timezone").and_then(|v| v.as_str()).unwrap_or("Europe/Stockholm").to_string()
+        settings_val
+            .get("timezone")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Europe/Stockholm")
+            .to_string()
     });
     let mut week_start = use_signal(|| {
-        settings_val.get("week_start").and_then(|v| v.as_i64()).unwrap_or(1) as i32
+        settings_val
+            .get("week_start")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(1) as i32
     });
     let mut template = use_signal(|| {
-        settings_val.get("template").and_then(|v| v.as_str()).unwrap_or("care").to_string()
+        settings_val
+            .get("template")
+            .and_then(|v| v.as_str())
+            .unwrap_or("care")
+            .to_string()
     });
     let mut grading_system = use_signal(|| {
-        settings_val.get("grading_system").and_then(|v| v.as_str()).unwrap_or("A-F").to_string()
+        settings_val
+            .get("grading_system")
+            .and_then(|v| v.as_str())
+            .unwrap_or("A-F")
+            .to_string()
     });
     let mut late_policy = use_signal(|| {
-        settings_val.get("late_policy").and_then(|v| v.as_str()).unwrap_or("none").to_string()
+        settings_val
+            .get("late_policy")
+            .and_then(|v| v.as_str())
+            .unwrap_or("none")
+            .to_string()
     });
     let mut target_region = use_signal(|| {
-        settings_val.get("target_region").and_then(|v| v.as_str()).unwrap_or("EU").to_string()
+        settings_val
+            .get("target_region")
+            .and_then(|v| v.as_str())
+            .unwrap_or("EU")
+            .to_string()
     });
 
     let state = use_context::<crate::state::AppState>();
@@ -102,7 +142,9 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
                 let ws_id = workspace_id.clone();
                 let requester_uid = user_id.clone();
                 spawn(async move {
-                    let _ = update_workspace_general(requester_uid, ws_id, name_trimmed, color, logo).await;
+                    let _ =
+                        update_workspace_general(requester_uid, ws_id, name_trimmed, color, logo)
+                            .await;
                 });
                 let current_trig = *db_trigger.read();
                 db_trigger.set(current_trig + 1);
@@ -117,7 +159,8 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
         let user_id = state.active_user_id.read().clone();
         move || {
             settings_save_status.set("saving".to_string());
-            let mut settings_map: serde_json::Value = serde_json::from_str(&workspace_settings_raw).unwrap_or_default();
+            let mut settings_map: serde_json::Value =
+                serde_json::from_str(&workspace_settings_raw).unwrap_or_default();
             settings_map["language"] = serde_json::json!((*language.read()).clone());
             settings_map["timezone"] = serde_json::json!((*timezone.read()).clone());
             settings_map["week_start"] = serde_json::json!(*week_start.read());
@@ -125,14 +168,15 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
             settings_map["grading_system"] = serde_json::json!((*grading_system.read()).clone());
             settings_map["late_policy"] = serde_json::json!((*late_policy.read()).clone());
             settings_map["target_region"] = serde_json::json!((*target_region.read()).clone());
-            
+
             let settings_str = serde_json::to_string(&settings_map).unwrap_or_default();
             let ws_id = workspace_id.clone();
             let requester_uid = user_id.clone();
             spawn(async move {
-                let _ = yntra_core::update_workspace_settings(requester_uid, ws_id, settings_str).await;
+                let _ =
+                    yntra_core::update_workspace_settings(requester_uid, ws_id, settings_str).await;
             });
-            
+
             let current_trig = *db_trigger.read();
             db_trigger.set(current_trig + 1);
             settings_save_status.set("saved".to_string());
@@ -142,7 +186,7 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
     rsx! {
         div { class: "space-y-6",
             div { class: "grid grid-cols-1 items-stretch gap-6 md:grid-cols-2",
-                
+
                 // 1. Organization Identity Card
                 components::Card { class: "flex h-full flex-col overflow-hidden border-2 border-border/50 bg-card/40 shadow-sm backdrop-blur-md",
                     components::CardHeader { class: "pb-4",

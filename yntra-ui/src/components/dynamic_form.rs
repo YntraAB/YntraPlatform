@@ -1,17 +1,18 @@
+use crate::components::{Button, Checkbox, Input};
 use dioxus::prelude::*;
-use crate::components::{Input, Checkbox, Button};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct DynamicFormProps {
-    pub fields_schema: String,     // JSON Array of field definitions
-    pub initial_values: String,    // JSON Object of current values
+    pub fields_schema: String,  // JSON Array of field definitions
+    pub initial_values: String, // JSON Object of current values
     pub onsubmit: EventHandler<String>,
     pub oncancel: Option<EventHandler<()>>,
 }
 
 #[component]
 pub fn DynamicForm(props: DynamicFormProps) -> Element {
-    let schema: serde_json::Value = serde_json::from_str(&props.fields_schema).unwrap_or_else(|_| serde_json::Value::Array(Vec::new()));
+    let schema: serde_json::Value = serde_json::from_str(&props.fields_schema)
+        .unwrap_or_else(|_| serde_json::Value::Array(Vec::new()));
     let fields = schema.as_array().cloned().unwrap_or_default();
 
     let mut form_values = use_signal(|| {

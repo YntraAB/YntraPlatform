@@ -1,9 +1,9 @@
 pub mod browser;
-pub mod loopback;
 pub mod errors;
+pub mod loopback;
 pub mod qr;
 
-pub use errors::{use_action_runner, ActionRunner, map_error, UserFriendlyError};
+pub use errors::{ActionRunner, UserFriendlyError, map_error, use_action_runner};
 
 use tokio::sync::mpsc;
 use yntra_core::DatabaseObserver;

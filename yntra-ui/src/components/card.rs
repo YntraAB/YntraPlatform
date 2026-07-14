@@ -126,4 +126,3 @@ pub fn CardFooter(props: CardFooterProps) -> Element {
         }
     }
 }
-

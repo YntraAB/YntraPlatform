@@ -27,7 +27,9 @@ pub fn DevHubDialog(props: DevHubDialogProps) -> Element {
     let mut is_loading = use_signal(|| false);
     let mut error_msg = use_signal(|| Option::<String>::None);
 
-    let submit_disabled = *is_loading.read() || ws_name.read().trim().is_empty() || admin_email.read().trim().is_empty();
+    let submit_disabled = *is_loading.read()
+        || ws_name.read().trim().is_empty()
+        || admin_email.read().trim().is_empty();
 
     let handle_create = move |_| {
         let name = ws_name.read().trim().to_string();

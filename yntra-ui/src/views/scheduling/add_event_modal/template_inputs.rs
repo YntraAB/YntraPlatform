@@ -1,6 +1,6 @@
+use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::WorkspaceTemplateType;
-use crate::locales::t;
 
 #[derive(Props, Clone, PartialEq)]
 pub struct TemplateInputsProps {

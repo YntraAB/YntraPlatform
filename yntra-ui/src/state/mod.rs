@@ -1,18 +1,17 @@
-pub mod resources;
 pub mod oauth;
+pub mod resources;
 
+use crate::locales::get_system_locale;
+use crate::utils::DioxusDbObserver;
 use dioxus::prelude::*;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use yntra_core::{
-    get_users, register_observer, clear_observers,
-    init_wasm_db, init_tracing, start_background_sync,
-    Workspace, WorkspaceUser, Team, TeamEvent, MessageItem, DailyNote, TimeReport,
-    ClientProfile, ReportItem, clear_session_key, is_session_key_set, load_local_workspace_key,
-    TodoItem,
+    ClientProfile, DailyNote, MessageItem, ReportItem, Team, TeamEvent, TimeReport, TodoItem,
+    Workspace, WorkspaceUser, clear_observers, clear_session_key, get_users, init_tracing,
+    init_wasm_db, is_session_key_set, load_local_workspace_key, register_observer,
+    start_background_sync,
 };
-use crate::locales::get_system_locale;
-use crate::utils::DioxusDbObserver;
 
 #[derive(Clone, Copy)]
 pub struct AppState {
@@ -33,18 +32,18 @@ pub struct AppState {
     pub login_error: Signal<Option<String>>,
     pub auth_region: Signal<String>,
     pub active_user_role: Signal<String>,
-    
+
     // View state sub-signals
     pub selected_note_team_id: Signal<String>,
     pub selected_note_id: Signal<Option<String>>,
     pub is_note_composing: Signal<bool>,
     pub selected_client_id: Signal<String>,
-    
+
     // Calendar signals
     pub calendar_year: Signal<i32>,
     pub calendar_month: Signal<u32>,
     pub selected_calendar_date: Signal<String>,
-    
+
     // Form inputs
     pub note_subject: Signal<String>,
     pub note_content: Signal<String>,
@@ -54,7 +53,7 @@ pub struct AppState {
     pub event_recipient: Signal<String>,
     pub event_start: Signal<String>,
     pub event_end: Signal<String>,
-    
+
     pub time_date: Signal<String>,
     pub time_start: Signal<String>,
     pub time_end: Signal<String>,
@@ -64,13 +63,13 @@ pub struct AppState {
     pub time_filter_status: Signal<String>,
     pub selected_time_reports: Signal<Vec<String>>,
     pub time_search_query: Signal<String>,
-    
+
     pub journal_content: Signal<String>,
     pub med_name: Signal<String>,
     pub med_dosage: Signal<String>,
     pub med_frequency: Signal<String>,
     pub med_instructions: Signal<String>,
-    
+
     // Reporting signals
     pub report_tab: Signal<String>,
     pub report_type: Signal<String>,
@@ -82,7 +81,7 @@ pub struct AppState {
     pub report_type_filter: Signal<String>,
     pub selected_report_id: Signal<Option<String>>,
     pub show_report_details_modal: Signal<bool>,
-    
+
     // Directory signals
     pub directory_level: Signal<String>,
     pub selected_directory_workspace: Signal<String>,
@@ -98,21 +97,21 @@ pub struct AppState {
     pub new_client_last_name: Signal<String>,
     pub new_client_personal_number: Signal<String>,
     pub new_client_care_level: Signal<String>,
-    
+
     // Settings signals
     pub settings_tab: Signal<String>,
     pub settings_name: Signal<String>,
     pub settings_brand_color: Signal<String>,
     pub settings_logo_url: Signal<String>,
     pub settings_save_status: Signal<String>,
-    
+
     // Account signals
     pub account_name: Signal<String>,
     pub account_phone: Signal<String>,
     pub account_preferences: Signal<String>,
     pub account_save_status: Signal<String>,
     pub last_synced_user_id: Signal<String>,
-    
+
     // Leave request signals
     pub scheduling_sidebar_tab: Signal<String>,
     pub leave_type: Signal<String>,
@@ -120,13 +119,13 @@ pub struct AppState {
     pub leave_end: Signal<String>,
     pub leave_reason: Signal<String>,
     pub leave_save_status: Signal<String>,
-    
+
     // UI layout / search state signals
     pub globalsearch_open: Signal<bool>,
     pub header_profile_open: Signal<bool>,
     pub time_group_expanded: Signal<bool>,
     pub filter_categories: Signal<Vec<String>>,
-    
+
     // Messaging signals
     pub messaging_view_tab: Signal<String>,
     pub active_message_id: Signal<Option<String>>,
@@ -200,15 +199,24 @@ pub fn use_init_app_state() -> AppState {
                 let logged_in = localStorage.getItem("yntra_logged_in") === "true";
                 let uid = localStorage.getItem("yntra_active_user_id") || "";
                 dioxus.send(JSON.stringify({ logged_in, uid }));
-                "#
+                "#,
             );
             if let Ok(serde_json::Value::Object(obj)) = eval.recv::<serde_json::Value>().await {
-                let has_logged_in = obj.get("logged_in").and_then(|v| v.as_bool()).unwrap_or(false);
-                let uid = obj.get("uid").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let has_logged_in = obj
+                    .get("logged_in")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let uid = obj
+                    .get("uid")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 if has_logged_in && !uid.is_empty() {
-                    if let Some(user) = get_users(uid.clone()).await.ok().and_then(|all_users| {
-                        all_users.into_iter().find(|u| u.id == uid)
-                    }) {
+                    if let Some(user) = get_users(uid.clone())
+                        .await
+                        .ok()
+                        .and_then(|all_users| all_users.into_iter().find(|u| u.id == uid))
+                    {
                         active_uid.set(uid);
                         active_user_role.set(user.role.clone());
                         if user.role == "client" {
@@ -216,7 +224,8 @@ pub fn use_init_app_state() -> AppState {
                         } else {
                             active_sec.set("dashboard".to_string());
                         }
-                        let is_new_invite = user.phone.is_none() || user.phone.as_ref().map(|p| p.is_empty()).unwrap_or(true);
+                        let is_new_invite = user.phone.is_none()
+                            || user.phone.as_ref().map(|p| p.is_empty()).unwrap_or(true);
                         setup_needed.set(is_new_invite);
                         is_logged_in.set(true);
                     }
@@ -229,7 +238,7 @@ pub fn use_init_app_state() -> AppState {
     use_effect(move || {
         let is_login = *logged_in.read();
         let uid = active_user_id.read().clone();
-        
+
         if is_login {
             login_password.set(String::new());
             login_email.set(String::new());
@@ -247,7 +256,8 @@ pub fn use_init_app_state() -> AppState {
             r#"
             localStorage.removeItem("yntra_logged_in");
             localStorage.removeItem("yntra_active_user_id");
-            "#.to_string()
+            "#
+            .to_string()
         };
         let _ = dioxus::document::eval(&js);
     });
@@ -261,7 +271,10 @@ pub fn use_init_app_state() -> AppState {
             spawn(async move {
                 if let Ok(all_users) = get_users(uid.clone()).await {
                     if let Some(user) = all_users.into_iter().find(|u| u.id == uid) {
-                        let ws_id = user.workspace_id.clone().unwrap_or_else(|| "workspace-1".to_string());
+                        let ws_id = user
+                            .workspace_id
+                            .clone()
+                            .unwrap_or_else(|| "workspace-1".to_string());
                         if !is_session_key_set() {
                             let _ = load_local_workspace_key(ws_id).await;
                         }
@@ -364,13 +377,15 @@ pub fn use_init_app_state() -> AppState {
     let globalsearch_open = use_signal(|| false);
     let header_profile_open = use_signal(|| false);
     let time_group_expanded = use_signal(|| true);
-    let filter_categories = use_signal(|| vec![
-        "schedule".to_string(),
-        "bookings".to_string(),
-        "personal".to_string(),
-        "assistance".to_string(),
-        "medical".to_string(),
-    ]);
+    let filter_categories = use_signal(|| {
+        vec![
+            "schedule".to_string(),
+            "bookings".to_string(),
+            "personal".to_string(),
+            "assistance".to_string(),
+            "medical".to_string(),
+        ]
+    });
 
     // Inbox messaging signals
     let messaging_view_tab = use_signal(|| "inbox".to_string()); // inbox / sent / compose
@@ -409,7 +424,11 @@ pub fn use_init_app_state() -> AppState {
     );
 
     let workspace_id = use_memo(move || {
-        workspace.read().as_ref().map(|w| w.id.clone()).unwrap_or_else(|| "workspace-1".to_string())
+        workspace
+            .read()
+            .as_ref()
+            .map(|w| w.id.clone())
+            .unwrap_or_else(|| "workspace-1".to_string())
     });
 
     // Multi-thread channel mapping database notifications to the Dioxus UI thread
@@ -447,15 +466,15 @@ pub fn use_init_app_state() -> AppState {
                         val = rx.recv() => {
                             if let Some(table) = val {
                                 pending_tables.insert(table);
-                                
+
                                 // Coalescing window: sleep first to let subsequent table changes pool in the channel
                                 crate::utils::sleep_ms(50).await;
-                                
+
                                 // Now drain all accumulated changes from the channel in a single batch
                                 while let Ok(table) = rx.try_recv() {
                                     pending_tables.insert(table);
                                 }
-                                
+
                                 let mut update_todos = false;
                                 let mut update_users = false;
                                 let mut update_teams = false;
@@ -560,7 +579,9 @@ pub fn use_init_app_state() -> AppState {
         if settings_name.read().is_empty() && *settings_name.read() != ws_name {
             settings_name.set(ws_name);
         }
-        if *settings_brand_color.read() == "hsl(217.2, 91.2%, 59.8%)" && ws.brand_color != "hsl(217.2, 91.2%, 59.8%)" {
+        if *settings_brand_color.read() == "hsl(217.2, 91.2%, 59.8%)"
+            && ws.brand_color != "hsl(217.2, 91.2%, 59.8%)"
+        {
             settings_brand_color.set(ws.brand_color.clone());
         }
         let ws_logo = ws.logo_url.clone().unwrap_or_default();
@@ -571,12 +592,13 @@ pub fn use_init_app_state() -> AppState {
         let current_uid = active_user_id.read().clone();
         let users_list = users.read().clone().unwrap_or_default();
         if let Some(u) = users_list.iter().find(|u| u.id == current_uid)
-            && current_uid != *last_synced_user_id.read() {
-                account_name.set(u.full_name.clone().unwrap_or_default());
-                account_phone.set(u.phone.clone().unwrap_or_default());
-                account_preferences.set(u.preferences.clone());
-                last_synced_user_id.set(current_uid);
-            }
+            && current_uid != *last_synced_user_id.read()
+        {
+            account_name.set(u.full_name.clone().unwrap_or_default());
+            account_phone.set(u.phone.clone().unwrap_or_default());
+            account_preferences.set(u.preferences.clone());
+            last_synced_user_id.set(current_uid);
+        }
     });
 
     let active_user_id_for_effect = active_user_id;
@@ -584,16 +606,24 @@ pub fn use_init_app_state() -> AppState {
         let uid = active_user_id_for_effect.read().clone();
         let users_list = users.read().clone().unwrap_or_default();
         if let Some(user) = users_list.iter().find(|u| u.id == uid) {
-            let user_prefs: serde_json::Value = serde_json::from_str(&user.preferences).unwrap_or_default();
-            let mut lang_opt = user_prefs.get("language").and_then(|l| l.as_str()).map(|s| s.to_string());
-            
+            let user_prefs: serde_json::Value =
+                serde_json::from_str(&user.preferences).unwrap_or_default();
+            let mut lang_opt = user_prefs
+                .get("language")
+                .and_then(|l| l.as_str())
+                .map(|s| s.to_string());
+
             if lang_opt.is_none() {
                 if let Some(ws) = workspace.read().clone() {
-                    let settings_val: serde_json::Value = serde_json::from_str(&ws.settings).unwrap_or_default();
-                    lang_opt = settings_val.get("language").and_then(|l| l.as_str()).map(|s| s.to_string());
+                    let settings_val: serde_json::Value =
+                        serde_json::from_str(&ws.settings).unwrap_or_default();
+                    lang_opt = settings_val
+                        .get("language")
+                        .and_then(|l| l.as_str())
+                        .map(|s| s.to_string());
                 }
             }
-            
+
             if let Some(lang) = lang_opt {
                 let norm_lang = match lang.to_lowercase().as_str() {
                     "sv" | "se" => "sv",
@@ -623,16 +653,16 @@ pub fn use_init_app_state() -> AppState {
         login_password,
         login_error,
         auth_region,
-        
+
         selected_note_team_id,
         selected_note_id,
         is_note_composing,
         selected_client_id,
-        
+
         calendar_year,
         calendar_month,
         selected_calendar_date,
-        
+
         note_subject,
         note_content,
         event_title,
@@ -641,7 +671,7 @@ pub fn use_init_app_state() -> AppState {
         event_recipient,
         event_start,
         event_end,
-        
+
         time_date,
         time_start,
         time_end,
@@ -651,13 +681,13 @@ pub fn use_init_app_state() -> AppState {
         time_filter_status,
         selected_time_reports,
         time_search_query,
-        
+
         journal_content,
         med_name,
         med_dosage,
         med_frequency,
         med_instructions,
-        
+
         report_tab,
         report_type,
         report_subject,
@@ -668,7 +698,7 @@ pub fn use_init_app_state() -> AppState {
         report_type_filter,
         selected_report_id,
         show_report_details_modal,
-        
+
         directory_level,
         selected_directory_workspace,
         selected_directory_team,
@@ -683,33 +713,33 @@ pub fn use_init_app_state() -> AppState {
         new_client_last_name,
         new_client_personal_number,
         new_client_care_level,
-        
+
         settings_tab,
         settings_name,
         settings_brand_color,
         settings_logo_url,
         settings_save_status,
-        
+
         account_name,
         account_phone,
         account_preferences,
         account_save_status,
         last_synced_user_id,
-        
+
         scheduling_sidebar_tab,
         leave_type,
         leave_start,
         leave_end,
         leave_reason,
         leave_save_status,
-        
+
         active_user_role,
-        
+
         globalsearch_open,
         header_profile_open,
         time_group_expanded,
         filter_categories,
-        
+
         messaging_view_tab,
         active_message_id,
         compose_recipient_id,
@@ -720,7 +750,7 @@ pub fn use_init_app_state() -> AppState {
         trigger_jobs,
         trigger_todos,
         trigger_clients,
-        
+
         workspace,
         users,
         teams,

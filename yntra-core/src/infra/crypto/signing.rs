@@ -1,5 +1,5 @@
-use ed25519_dalek::{Signer, Verifier};
 use crate::infra::errors::YntraError;
+use ed25519_dalek::{Signer, Verifier};
 
 fn construct_role_signature_message(
     user_id: &str,
@@ -24,11 +24,12 @@ fn construct_role_signature_message(
 #[uniffi::export]
 pub fn derive_public_key_from_private_key(private_key_hex: &str) -> Result<String, YntraError> {
     let private_key_bytes = zeroize::Zeroizing::new(
-        const_hex::decode(private_key_hex)
-            .map_err(|e| YntraError::CryptoError(e.to_string()))?
+        const_hex::decode(private_key_hex).map_err(|e| YntraError::CryptoError(e.to_string()))?,
     );
     if private_key_bytes.len() != 32 {
-        return Err(YntraError::CryptoError("Invalid private key length".to_string()));
+        return Err(YntraError::CryptoError(
+            "Invalid private key length".to_string(),
+        ));
     }
     let mut private_key_array = zeroize::Zeroizing::new([0u8; 32]);
     private_key_array.copy_from_slice(&private_key_bytes[..32]);
@@ -45,7 +46,13 @@ pub fn generate_role_signature(
 ) -> Result<String, YntraError> {
     let current_time = chrono::Utc::now().timestamp();
     let expires_at = current_time + 30 * 24 * 60 * 60;
-    generate_role_signature_with_expiration(private_key_hex, user_id, role, workspace_id, expires_at)
+    generate_role_signature_with_expiration(
+        private_key_hex,
+        user_id,
+        role,
+        workspace_id,
+        expires_at,
+    )
 }
 
 #[uniffi::export]
@@ -69,16 +76,17 @@ pub fn generate_role_signature_v2(
     epoch: u64,
 ) -> Result<String, YntraError> {
     let private_key_bytes = zeroize::Zeroizing::new(
-        const_hex::decode(private_key_hex)
-            .map_err(|e| YntraError::CryptoError(e.to_string()))?
+        const_hex::decode(private_key_hex).map_err(|e| YntraError::CryptoError(e.to_string()))?,
     );
-    
+
     let mut private_key_array = zeroize::Zeroizing::new([0u8; 32]);
     if private_key_bytes.len() != 32 {
-        return Err(YntraError::CryptoError("Invalid private key length".to_string()));
+        return Err(YntraError::CryptoError(
+            "Invalid private key length".to_string(),
+        ));
     }
     private_key_array.copy_from_slice(&private_key_bytes[..32]);
-        
+
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key_array);
     let message = construct_role_signature_message(user_id, role, workspace_id, expires_at, epoch);
     let signature = signing_key.sign(&message);
@@ -126,9 +134,9 @@ pub fn verify_role_signature(
         }
         _ => return false,
     };
-    
+
     let current_time = chrono::Utc::now().timestamp();
-        
+
     if current_time > expires_at {
         tracing::warn!("Role signature for user {} has expired", user_id);
         return false;

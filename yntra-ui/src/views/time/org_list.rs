@@ -1,7 +1,7 @@
 use crate::components;
 use dioxus::prelude::*;
-use yntra_core::Workspace;
 use yntra_core::TimeReport;
+use yntra_core::Workspace;
 
 #[derive(Props, Clone)]
 pub struct OrganizationListProps {
@@ -48,7 +48,7 @@ pub fn OrganizationList(props: OrganizationListProps) -> Element {
                             let ws_shifts: Vec<&TimeReport> = time_reports.iter().filter(|r| r.workspace_id == ws_id).collect();
                             let total_hours: f64 = ws_shifts.iter().map(|s| s.hours).sum();
                             let pending_attest = ws_shifts.iter().filter(|s| s.status == "pending_attest").count();
-                            
+
                             rsx! {
                                 div {
                                     key: "{ws_id}",
@@ -57,7 +57,7 @@ pub fn OrganizationList(props: OrganizationListProps) -> Element {
                                         current_level.set("team_overview".to_string());
                                     },
                                     class: "group flex cursor-pointer items-center border-b border-border/30 px-8 py-4 transition-all duration-200 hover:bg-white/[0.02] list-item-hover",
-                                    
+
                                     div { class: "mr-5 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white/[0.04] font-bold text-primary transition-colors group-hover:bg-primary/10",
                                         components::LucideIcon { name: "layout-grid", class: "h-5 w-5" }
                                     }
@@ -66,7 +66,7 @@ pub fn OrganizationList(props: OrganizationListProps) -> Element {
                                         div { class: "mt-0.5 text-[11px] font-medium uppercase tracking-widest text-muted-foreground/60", "Företag" }
                                     }
                                     div { class: "min-w-0 flex-1 pr-4" }
-                                    
+
                                     div { class: "flex w-32 shrink-0 flex-col items-end justify-center pr-4",
                                         div { class: "flex items-baseline gap-1",
                                             span { class: "text-lg font-bold text-foreground", "{total_hours}" }
@@ -74,7 +74,7 @@ pub fn OrganizationList(props: OrganizationListProps) -> Element {
                                         }
                                         span { class: "text-[10px] font-medium uppercase tracking-tighter text-muted-foreground/60", "Totalt klara" }
                                     }
-                                    
+
                                     div { class: "flex w-40 shrink-0 items-center justify-end pr-4",
                                         if pending_attest > 0 {
                                             span { class: "inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide uppercase bg-amber-500/10 border border-amber-500/20 text-amber-400",
@@ -87,7 +87,7 @@ pub fn OrganizationList(props: OrganizationListProps) -> Element {
                                             }
                                         }
                                     }
-                                    
+
                                     div { class: "flex w-8 shrink-0 items-center justify-end text-muted-foreground/30 transition-all group-hover:translate-x-1 group-hover:text-foreground",
                                         components::LucideIcon { name: "chevron-right", class: "h-5 w-5" }
                                     }

@@ -1,5 +1,5 @@
-use dioxus::prelude::*;
 use crate::locales::t;
+use dioxus::prelude::*;
 
 #[derive(Clone)]
 pub struct BreadcrumbItem {
@@ -46,7 +46,7 @@ pub fn get_breadcrumbs(
         let mut directory_level = directory_level;
         let locale_str = locale.to_string();
         let is_plat_admin = active_user_role == "platform_admin";
-        
+
         list.push(BreadcrumbItem {
             label: t("common-home", &locale_str).to_string(),
             onclick: Callback::new(move |_| {
@@ -57,7 +57,11 @@ pub fn get_breadcrumbs(
                 active_message_id.set(None);
                 messaging_view_tab.set("inbox".to_string());
                 selected_directory_team.set(None);
-                let lvl = if is_plat_admin { "workspaces".to_string() } else { "teams".to_string() };
+                let lvl = if is_plat_admin {
+                    "workspaces".to_string()
+                } else {
+                    "teams".to_string()
+                };
                 directory_level.set(lvl);
             }),
         });
@@ -110,7 +114,11 @@ pub fn get_breadcrumbs(
                 active_message_id.set(None);
                 messaging_view_tab.set("inbox".to_string());
                 selected_directory_team.set(None);
-                let lvl = if is_plat_admin { "workspaces".to_string() } else { "teams".to_string() };
+                let lvl = if is_plat_admin {
+                    "workspaces".to_string()
+                } else {
+                    "teams".to_string()
+                };
                 directory_level.set(lvl);
             }),
         });
@@ -179,7 +187,7 @@ pub fn get_breadcrumbs(
         }
         "directory" => {
             let level = directory_level.read().clone();
-            
+
             // Only push Workspace Name if we are in "teams" or "members" level
             if level == "teams" || level == "members" {
                 let ws_id = selected_directory_workspace.read().clone();
@@ -188,7 +196,7 @@ pub fn get_breadcrumbs(
                     .find(|w| w.id == ws_id)
                     .map(|w| w.name.clone())
                     .unwrap_or_else(|| "Workspace".to_string());
-                
+
                 let mut directory_level = directory_level;
                 let mut selected_directory_team = selected_directory_team;
 
@@ -200,25 +208,26 @@ pub fn get_breadcrumbs(
                     }),
                 });
             }
-            
+
             // Push Team Name if we are in "members" level and have a selected team
             if level == "members"
-                && let Some(ref team_id) = *selected_directory_team.read() {
-                    let team_name = teams
-                        .iter()
-                        .find(|t| &t.id == team_id)
-                        .map(|t| t.name.clone())
-                        .unwrap_or_else(|| "Team".to_string());
-                    
-                    let mut directory_level = directory_level;
+                && let Some(ref team_id) = *selected_directory_team.read()
+            {
+                let team_name = teams
+                    .iter()
+                    .find(|t| &t.id == team_id)
+                    .map(|t| t.name.clone())
+                    .unwrap_or_else(|| "Team".to_string());
 
-                    list.push(BreadcrumbItem {
-                        label: team_name,
-                        onclick: Callback::new(move |_| {
-                            directory_level.set("members".to_string());
-                        }),
-                    });
-                }
+                let mut directory_level = directory_level;
+
+                list.push(BreadcrumbItem {
+                    label: team_name,
+                    onclick: Callback::new(move |_| {
+                        directory_level.set("members".to_string());
+                    }),
+                });
+            }
         }
         "scheduling" => {
             let date_str = selected_calendar_date.read().clone();

@@ -1,13 +1,13 @@
-use dioxus::prelude::*;
-use yntra_core::WorkspaceUser;
-use yntra_core::Workspace;
 use crate::components;
+use dioxus::prelude::*;
+use yntra_core::Workspace;
+use yntra_core::WorkspaceUser;
 
-pub mod moving;
 pub mod general;
+pub mod moving;
 
-pub use moving::MovingPortal;
 pub use general::GeneralPortal;
+pub use moving::MovingPortal;
 
 #[derive(Props, Clone)]
 pub struct ClientPortalViewProps {
@@ -32,24 +32,30 @@ pub fn ClientPortalView(props: ClientPortalViewProps) -> Element {
     let workspace = props.workspace.clone();
 
     // Parse the template from workspace settings
-    let settings_val: serde_json::Value = serde_json::from_str(&workspace.settings).unwrap_or_default();
-    let template = settings_val.get("template").and_then(|v| v.as_str()).unwrap_or("general").to_string();
+    let settings_val: serde_json::Value =
+        serde_json::from_str(&workspace.settings).unwrap_or_default();
+    let template = settings_val
+        .get("template")
+        .and_then(|v| v.as_str())
+        .unwrap_or("general")
+        .to_string();
 
     let current_client = clients
         .iter()
         .find(|c| {
             if let Some(ref pn) = c.personal_number
-                && let Some(ref active_pn) = active_user.personal_number {
-                    pn == active_pn
-                } else {
-                    false
-                }
+                && let Some(ref active_pn) = active_user.personal_number
+            {
+                pn == active_pn
+            } else {
+                false
+            }
         })
         .cloned();
 
     rsx! {
         div { class: "space-y-6 animate-in fade-in duration-300",
-            
+
             // Header / Greeting Card
             components::Card {
                 class: "relative overflow-hidden border border-border/80 bg-sidebar p-6 shadow-md rounded-2xl",

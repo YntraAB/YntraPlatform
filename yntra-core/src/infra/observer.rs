@@ -12,7 +12,10 @@ pub trait DatabaseObserver: Send + Sync {
 static MODIFIED_TABLES: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
 
 pub fn set_last_modified_table(table: &str) {
-    if let Ok(mut tables) = MODIFIED_TABLES.get_or_init(|| Mutex::new(std::collections::HashSet::new())).lock() {
+    if let Ok(mut tables) = MODIFIED_TABLES
+        .get_or_init(|| Mutex::new(std::collections::HashSet::new()))
+        .lock()
+    {
         tables.insert(table.to_string());
     }
 }
@@ -39,7 +42,10 @@ pub fn clear_observers() {
 }
 
 pub fn notify_observers() {
-    let tables = if let Ok(mut lock) = MODIFIED_TABLES.get_or_init(|| Mutex::new(std::collections::HashSet::new())).lock() {
+    let tables = if let Ok(mut lock) = MODIFIED_TABLES
+        .get_or_init(|| Mutex::new(std::collections::HashSet::new()))
+        .lock()
+    {
         std::mem::take(&mut *lock)
     } else {
         std::collections::HashSet::new()
@@ -67,7 +73,10 @@ pub fn notify_observers() {
 }
 
 pub fn discard_observers_dirty_state() {
-    if let Ok(mut lock) = MODIFIED_TABLES.get_or_init(|| Mutex::new(std::collections::HashSet::new())).lock() {
+    if let Ok(mut lock) = MODIFIED_TABLES
+        .get_or_init(|| Mutex::new(std::collections::HashSet::new()))
+        .lock()
+    {
         lock.clear();
     }
 }

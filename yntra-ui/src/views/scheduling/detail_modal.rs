@@ -1,8 +1,8 @@
+use super::utils::*;
 use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
-use yntra_core::{Team, WorkspaceUser, TeamEvent, delete_event};
-use super::utils::*;
+use yntra_core::{Team, TeamEvent, WorkspaceUser, delete_event};
 
 #[derive(Props, Clone)]
 pub struct EventDetailModalProps {
@@ -34,28 +34,43 @@ pub fn EventDetailModal(props: EventDetailModalProps) -> Element {
     // Fetch active template type dynamically based on the event's workspace
     let show_val = show_event_detail_modal.read().clone();
     let template_type_res = use_resource(move || {
-        let ws_id = show_val.as_ref().map(|e| e.workspace_id.clone()).unwrap_or_else(|| "workspace-1".to_string());
-        async move {
-            yntra_core::get_workspace_template_type(ws_id).await
-        }
+        let ws_id = show_val
+            .as_ref()
+            .map(|e| e.workspace_id.clone())
+            .unwrap_or_else(|| "workspace-1".to_string());
+        async move { yntra_core::get_workspace_template_type(ws_id).await }
     });
-
-
 
     if let Some(ref ev) = *show_event_detail_modal.read() {
         let ev_id = ev.id.clone();
         let ev_clone = ev.clone();
-        
+
         let category_config = get_event_category_config(&ev.title, &ev.metadata);
         let metadata_obj = parse_metadata(&ev.metadata);
 
-        let template = template_type_res.read().as_ref().and_then(|r| r.as_ref().ok().copied()).unwrap_or(yntra_core::WorkspaceTemplateType::General);
+        let template = template_type_res
+            .read()
+            .as_ref()
+            .and_then(|r| r.as_ref().ok().copied())
+            .unwrap_or(yntra_core::WorkspaceTemplateType::General);
         let course_name: Option<String> = None;
-        
-        let classroom = metadata_obj.classroom.clone().filter(|r| !r.trim().is_empty());
-        let vehicle = metadata_obj.vehicle_id.clone().filter(|v| !v.trim().is_empty());
-        let volume = metadata_obj.cargo_volume.clone().filter(|v| !v.trim().is_empty());
-        let destination = metadata_obj.destination.clone().filter(|d| !d.trim().is_empty());
+
+        let classroom = metadata_obj
+            .classroom
+            .clone()
+            .filter(|r| !r.trim().is_empty());
+        let vehicle = metadata_obj
+            .vehicle_id
+            .clone()
+            .filter(|v| !v.trim().is_empty());
+        let volume = metadata_obj
+            .cargo_volume
+            .clone()
+            .filter(|v| !v.trim().is_empty());
+        let destination = metadata_obj
+            .destination
+            .clone()
+            .filter(|d| !d.trim().is_empty());
 
         let assignee = users
             .iter()
@@ -83,10 +98,10 @@ pub fn EventDetailModal(props: EventDetailModalProps) -> Element {
                 open: show_event_detail_modal.read().is_some(),
                 onclose: move |_| show_event_detail_modal.set(None),
                 title: t("scheduler-shift-details", &props.locale),
-                div { 
+                div {
                     class: "flex flex-col gap-5 text-left",
                     style: "min-width: 380px; box-sizing: border-box; padding: 0.25rem;",
-                    
+
                     // Title and category indicator dot
                     div { class: "flex items-center gap-3 border-b border-border/40 pb-3",
                         span {

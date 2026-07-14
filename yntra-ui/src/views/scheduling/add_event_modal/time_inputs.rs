@@ -1,7 +1,7 @@
-use dioxus::prelude::*;
-use yntra_core::WorkspaceTemplateType;
 use crate::components;
 use crate::locales::t;
+use dioxus::prelude::*;
+use yntra_core::WorkspaceTemplateType;
 
 #[derive(Props, Clone, PartialEq)]
 pub struct TimeInputsProps {

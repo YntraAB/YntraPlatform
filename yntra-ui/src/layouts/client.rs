@@ -1,40 +1,59 @@
-use dioxus::prelude::*;
 use crate::components;
 use crate::locales::t;
 use crate::state::AppState;
 use crate::views;
+use dioxus::prelude::*;
 
 #[component]
 pub fn ClientLayout() -> Element {
     let state = use_context::<AppState>();
-    
-    let active_user = state.users.read().as_ref().and_then(|u_list| u_list.iter().find(|u| u.id == *state.active_user_id.read()).cloned()).unwrap_or_else(|| yntra_core::WorkspaceUser {
-        id: String::new(),
-        workspace_id: None,
-        email: String::new(),
-        full_name: Some("Guest User".to_string()),
-        phone: None,
-        role: "guest".to_string(),
-        preferences: "{}".to_string(),
-        siths_card_id: None,
-        nfc_badge_uid: None,
-        updated_at: 0,
-        sync_status: "synced".to_string(),
-        personal_number: None,
-    });
-    
+
+    let active_user = state
+        .users
+        .read()
+        .as_ref()
+        .and_then(|u_list| {
+            u_list
+                .iter()
+                .find(|u| u.id == *state.active_user_id.read())
+                .cloned()
+        })
+        .unwrap_or_else(|| yntra_core::WorkspaceUser {
+            id: String::new(),
+            workspace_id: None,
+            email: String::new(),
+            full_name: Some("Guest User".to_string()),
+            phone: None,
+            role: "guest".to_string(),
+            preferences: "{}".to_string(),
+            siths_card_id: None,
+            nfc_badge_uid: None,
+            updated_at: 0,
+            sync_status: "synced".to_string(),
+            personal_number: None,
+        });
+
     let theme_mode = {
         let prefs_str = state.account_preferences.read();
         let mut theme = "dark".to_string();
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&prefs_str)
-            && let Some(t) = val.get("theme").and_then(|v| v.as_str()) {
-                theme = t.to_string();
-            }
+            && let Some(t) = val.get("theme").and_then(|v| v.as_str())
+        {
+            theme = t.to_string();
+        }
         theme
     };
 
-    let unread_messages_count = state.messages.read().as_ref()
-        .map(|m_list| m_list.iter().filter(|m| !m.is_read && m.receiver_id == Some(active_user.id.clone())).count())
+    let unread_messages_count = state
+        .messages
+        .read()
+        .as_ref()
+        .map(|m_list| {
+            m_list
+                .iter()
+                .filter(|m| !m.is_read && m.receiver_id == Some(active_user.id.clone()))
+                .count()
+        })
         .unwrap_or(0);
 
     let mut active_section = state.active_section;
@@ -45,7 +64,7 @@ pub fn ClientLayout() -> Element {
     let mut logged_in = state.logged_in;
     let mut header_profile_open = state.header_profile_open;
     let auth_region = state.auth_region;
-    
+
     let workspace = state.workspace.read().clone().unwrap_or_else(|| yntra_core::Workspace {
         id: "workspace-1".to_string(),
         name: "Yntra Operations Ltd".to_string(),
@@ -59,9 +78,9 @@ pub fn ClientLayout() -> Element {
     });
     let db_trigger = state.db_trigger;
     let trigger_jobs = state.trigger_jobs;
-    
+
     let is_client = true;
-    
+
     let show_add_team_modal = state.show_add_team_modal;
     let show_invite_member_modal = state.show_invite_member_modal;
     let show_client_manager_modal = state.show_client_manager_modal;
@@ -73,7 +92,7 @@ pub fn ClientLayout() -> Element {
     let new_client_last_name = state.new_client_last_name;
     let new_client_personal_number = state.new_client_personal_number;
     let new_client_care_level = state.new_client_care_level;
-    
+
     let selected_directory_workspace = state.selected_directory_workspace;
     let compose_recipient_id = state.compose_recipient_id;
     let compose_subject = state.compose_subject;
@@ -141,7 +160,7 @@ pub fn ClientLayout() -> Element {
                     }
                 }
             }
-            
+
             // Right Content Area
             div { class: "flex min-w-0 flex-1 flex-col bg-background/50",
                 // Header Bar
@@ -157,7 +176,7 @@ pub fn ClientLayout() -> Element {
                             }
                         }
                     }
-                    
+
                     // Header Profile trigger (right aligned)
                     div { class: "relative flex items-center gap-3",
                         div {
@@ -195,7 +214,7 @@ pub fn ClientLayout() -> Element {
                         }
                     }
                 }
-                
+
                 // Main View Viewport
                 main { class: "h-full w-full flex-1 overflow-y-auto p-4",
                     components::ErrorBoundary {

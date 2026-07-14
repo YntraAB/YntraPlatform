@@ -51,10 +51,10 @@ pub fn TimeOffModal(props: TimeOffModalProps) -> Element {
             open: *show_time_off_modal.read(),
             onclose: move |_| show_time_off_modal.set(false),
             title: t("reporting-leave_request", &props.locale),
-            div { 
+            div {
                 class: "flex flex-col gap-4 text-left",
                 style: "min-width: 400px; box-sizing: border-box; padding: 0.25rem;",
-                
+
                 // Icon Header Title
                 div { class: "flex items-center gap-2 border-b border-border/40 pb-3",
                     components::LucideIcon { name: "calendar", class: "h-5 w-5 text-primary" }
@@ -178,7 +178,9 @@ pub fn TimeOffModal(props: TimeOffModalProps) -> Element {
                                         .collect::<Vec<_>>();
 
                                     spawn(async move {
+                                        let req_uid = user_id.clone();
                                         let _ = add_report(
+                                            req_uid,
                                             workspace_id.clone(),
                                             user_id.clone(),
                                             "leave_request".to_string(),

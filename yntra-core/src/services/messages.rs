@@ -12,7 +12,10 @@ fn get_message_store_path() -> String {
 #[cfg(not(target_arch = "wasm32"))]
 fn get_message_store_path() -> String {
     let path = if cfg!(test) {
-        std::env::temp_dir().join("yntra_zero_copy_messages_test.db").to_string_lossy().to_string()
+        std::env::temp_dir()
+            .join("yntra_zero_copy_messages_test.db")
+            .to_string_lossy()
+            .to_string()
     } else {
         crate::database::native::get_database_path("yntra_zero_copy_messages.db")
     };
@@ -22,15 +25,19 @@ fn get_message_store_path() -> String {
     path
 }
 
-fn get_message_store() -> &'static crate::ZeroCopyMessageStore {
+pub(crate) fn get_message_store() -> &'static crate::ZeroCopyMessageStore {
     MESSAGE_STORE.get_or_init(|| {
         let path = get_message_store_path();
-        crate::ZeroCopyMessageStore::new(path).expect("Failed to initialize ZeroCopyMessageStore for Messages")
+        crate::ZeroCopyMessageStore::new(path)
+            .expect("Failed to initialize ZeroCopyMessageStore for Messages")
     })
 }
 
 #[uniffi::export]
-pub async fn get_messages(requester_user_id: String, user_id: String) -> Result<Vec<MessageItem>, YntraError> {
+pub async fn get_messages(
+    requester_user_id: String,
+    user_id: String,
+) -> Result<Vec<MessageItem>, YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
@@ -40,23 +47,35 @@ pub async fn get_messages(requester_user_id: String, user_id: String) -> Result<
         conn.query_row(
             "SELECT workspace_id FROM users WHERE id = ?1",
             crate::params![&user_id],
-            |r| r.get(0)
-        ).await.map_err(|_| YntraError::NotFoundError("Target user not found".to_string()))?
+            |r| r.get(0),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Target user not found".to_string()))?
     };
 
     if auth.role != "platform_admin" && requester_user_id != user_id {
         if auth.role == "admin" {
             if auth.workspace_id != target_ws {
-                return Err(YntraError::AuthError("Access denied: target user is in a different workspace".to_string()));
+                return Err(YntraError::AuthError(
+                    "Access denied: target user is in a different workspace".to_string(),
+                ));
             }
         } else {
-            return Err(YntraError::AuthError("Access denied: cannot view messages of other users".to_string()));
+            return Err(YntraError::AuthError(
+                "Access denied: cannot view messages of other users".to_string(),
+            ));
         }
     }
 
     // Determine the teams user_id is in
-    let mut team_stmt = conn.prepare("SELECT team_id FROM team_members WHERE user_id = ?1").await?;
-    let user_teams: Vec<String> = team_stmt.query_map(crate::params![&user_id], |r| r.get(0)).await?.into_iter().collect();
+    let mut team_stmt = conn
+        .prepare("SELECT team_id FROM team_members WHERE user_id = ?1")
+        .await?;
+    let user_teams: Vec<String> = team_stmt
+        .query_map(crate::params![&user_id], |r| r.get(0))
+        .await?
+        .into_iter()
+        .collect();
 
     let store = get_message_store();
     let filtered = store.read_messages_filtered(target_ws, user_id, user_teams)?;
@@ -81,11 +100,15 @@ pub async fn send_message(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     if auth.role != "platform_admin" && requester_user_id != sender_id {
-        return Err(YntraError::AuthError("Access denied: cannot send message as another user".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: cannot send message as another user".to_string(),
+        ));
     }
 
     let store = get_message_store();
@@ -135,26 +158,34 @@ pub async fn mark_message_read(requester_user_id: String, id: String) -> Result<
         }
     }
 
-    let idx = found_idx.ok_or_else(|| YntraError::NotFoundError("Message not found".to_string()))?;
+    let idx =
+        found_idx.ok_or_else(|| YntraError::NotFoundError("Message not found".to_string()))?;
     let msg = &messages[idx];
 
     if auth.role != "platform_admin" && auth.workspace_id != msg.workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let is_recipient = msg.receiver_id.as_deref() == Some(&requester_user_id);
     let mut is_team_member = false;
     if let Some(ref tid) = msg.target_team_id {
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM team_members WHERE team_id = ?1 AND user_id = ?2",
-            crate::params![tid, &requester_user_id],
-            |r| r.get(0)
-        ).await.unwrap_or(0);
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM team_members WHERE team_id = ?1 AND user_id = ?2",
+                crate::params![tid, &requester_user_id],
+                |r| r.get(0),
+            )
+            .await
+            .unwrap_or(0);
         is_team_member = count > 0;
     }
 
     if auth.role != "platform_admin" && auth.role != "admin" && !is_recipient && !is_team_member {
-        return Err(YntraError::AuthError("Access denied: you are not the recipient of this message".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: you are not the recipient of this message".to_string(),
+        ));
     }
 
     // Mutate the message
@@ -172,7 +203,10 @@ pub async fn mark_message_read(requester_user_id: String, id: String) -> Result<
 }
 
 #[uniffi::export]
-pub async fn get_messages_rkyv(requester_user_id: String, user_id: String) -> Result<Vec<u8>, YntraError> {
+pub async fn get_messages_rkyv(
+    requester_user_id: String,
+    user_id: String,
+) -> Result<Vec<u8>, YntraError> {
     let messages = get_messages(requester_user_id, user_id).await?;
     let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&messages)
         .map_err(|e| YntraError::SerializationError(e.to_string()))?;
@@ -188,7 +222,7 @@ mod tests {
     async fn test_get_messages_authorization() {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         let conn = database::acquire_connection().await.unwrap();
-        
+
         // Clear message store first to be safe
         let _ = get_message_store().write_messages(Vec::new());
 
@@ -208,15 +242,17 @@ mod tests {
         // Insert two test users
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('test-msg-user-1', 'workspace-1', 'msg1@yntra.io', 'assistant')", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('test-msg-user-2', 'workspace-1', 'msg2@yntra.io', 'assistant')", ()).await.unwrap();
-        
+
         // Verify user 1 can get their own messages
         let res1 = get_messages("test-msg-user-1".to_string(), "test-msg-user-1".to_string()).await;
         assert!(res1.is_ok());
 
         // Verify user 1 can get their own messages with rkyv
-        let bytes1 = get_messages_rkyv("test-msg-user-1".to_string(), "test-msg-user-1".to_string()).await;
+        let bytes1 =
+            get_messages_rkyv("test-msg-user-1".to_string(), "test-msg-user-1".to_string()).await;
         assert!(bytes1.is_ok());
-        let rkyv_msgs: Vec<MessageItem> = rkyv::from_bytes::<Vec<MessageItem>, rkyv::rancor::Error>(&bytes1.unwrap()).unwrap();
+        let rkyv_msgs: Vec<MessageItem> =
+            rkyv::from_bytes::<Vec<MessageItem>, rkyv::rancor::Error>(&bytes1.unwrap()).unwrap();
         assert_eq!(rkyv_msgs.len(), res1.unwrap().len());
 
         // Verify user 1 cannot get user 2's messages

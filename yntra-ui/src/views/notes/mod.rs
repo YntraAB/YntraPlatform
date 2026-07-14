@@ -1,18 +1,18 @@
 use dioxus::prelude::*;
 use yntra_core::{DailyNote, WorkspaceUser};
 
-mod diff;
-mod teams;
-mod list;
 mod compose;
+mod diff;
 mod edit;
+mod list;
 mod read;
+mod teams;
 
-pub use teams::TeamOverview;
-pub use list::NoteList;
 pub use compose::NoteCompose;
 pub use edit::NoteEdit;
+pub use list::NoteList;
 pub use read::NoteRead;
+pub use teams::TeamOverview;
 
 #[derive(Props, Clone)]
 pub struct NotesViewProps {
@@ -45,7 +45,7 @@ pub fn NotesView(props: NotesViewProps) -> Element {
 
     let active_note_id = props.active_note_id;
     let is_composing = props.is_composing;
-    
+
     let edit_mode = use_signal(|| false);
     let search_query = use_signal(String::new);
     let note_search_query = use_signal(String::new);
@@ -98,7 +98,10 @@ pub fn NotesView(props: NotesViewProps) -> Element {
                 let q = note_search_query.read().to_lowercase();
                 team_notes
                     .iter()
-                    .filter(|n| n.subject.to_lowercase().contains(&q) || n.content.to_lowercase().contains(&q))
+                    .filter(|n| {
+                        n.subject.to_lowercase().contains(&q)
+                            || n.content.to_lowercase().contains(&q)
+                    })
                     .cloned()
                     .collect()
             };

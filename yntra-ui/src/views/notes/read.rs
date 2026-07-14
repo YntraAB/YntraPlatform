@@ -1,8 +1,8 @@
-use dioxus::prelude::*;
-use yntra_core::{WorkspaceUser, DailyNote, delete_note};
-use crate::locales::t;
+use super::diff::{DiffType, get_diff_segments};
 use crate::components;
-use super::diff::{get_diff_segments, DiffType};
+use crate::locales::t;
+use dioxus::prelude::*;
+use yntra_core::{DailyNote, WorkspaceUser, delete_note};
 
 #[derive(Props, Clone)]
 pub struct NoteReadProps {
@@ -59,7 +59,14 @@ pub fn NoteRead(props: NoteReadProps) -> Element {
                 .find(|u| u.id == author_id)
                 .map(|u| u.role.clone())
                 .unwrap_or_else(|| "user".to_string());
-            trust.verify_compliance_proof(proof.to_string(), author_id, author_role, ciphertext_clone.to_string()).unwrap_or(false)
+            trust
+                .verify_compliance_proof(
+                    proof.to_string(),
+                    author_id,
+                    author_role,
+                    ciphertext_clone.to_string(),
+                )
+                .unwrap_or(false)
         } else {
             false
         }
@@ -75,22 +82,30 @@ pub fn NoteRead(props: NoteReadProps) -> Element {
     let is_manager = active_user_role == "platform_admin" || active_user_role == "admin";
     let can_delete = is_author || is_manager;
     let note_id = note.id.clone();
-    
+
     let is_history_expanded = Some(note.id.clone()) == *expanded_note_history_id.read();
 
     // Parse edit history
-    let history_val: serde_json::Value = serde_json::from_str(&note.edit_history)
-        .unwrap_or_else(|_| serde_json::json!([]));
+    let history_val: serde_json::Value =
+        serde_json::from_str(&note.edit_history).unwrap_or_else(|_| serde_json::json!([]));
     let history_arr = history_val.as_array();
     let history_len = history_arr.map(|a| a.len()).unwrap_or(0);
 
-    let date_str = if note.created_at.len() >= 10 { note.created_at[..10].to_string() } else { note.created_at.clone() };
-    let time_str = if note.created_at.len() >= 19 { note.created_at[11..16].to_string() } else { String::new() };
+    let date_str = if note.created_at.len() >= 10 {
+        note.created_at[..10].to_string()
+    } else {
+        note.created_at.clone()
+    };
+    let time_str = if note.created_at.len() >= 19 {
+        note.created_at[11..16].to_string()
+    } else {
+        String::new()
+    };
 
     rsx! {
         div {
             class: "flex flex-col h-full w-full bg-background box-border",
-            
+
             // Header bar matching reference NoteReadPane
             div {
                 class: "flex h-16 shrink-0 items-center justify-between border-b border-border px-8 bg-white/[0.02] box-border backdrop-blur-md",
@@ -101,7 +116,7 @@ pub fn NoteRead(props: NoteReadProps) -> Element {
                         onclick: move |_| active_note_id.set(None),
                         components::LucideIcon { name: "chevron-left", size: "20" }
                     }
-                    h2 { class: "text-lg font-bold text-foreground m-0", 
+                    h2 { class: "text-lg font-bold text-foreground m-0",
                         "{t(\"notes-read-title\", &locale)}"
                     }
                 }
@@ -145,7 +160,7 @@ pub fn NoteRead(props: NoteReadProps) -> Element {
             // Scrollable content area
             div {
                 class: "scrollbar-dark flex-1 overflow-y-auto px-8 py-10 mx-auto w-full max-w-[800px] box-border md:px-24 lg:px-48",
-                
+
                 // Written by and history header card
                 div {
                     class: "flex justify-between items-center border-b border-border mb-8 pb-6",
@@ -255,12 +270,12 @@ pub fn NoteRead(props: NoteReadProps) -> Element {
                     "{note.subject}"
                     if has_enc {
                         if *proof_verified.read() {
-                            span { 
+                            span {
                                 class: "text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded flex items-center gap-1",
                                 "✓ Zero-Copy ZKP Compliance Verified"
                             }
                         } else {
-                            span { 
+                            span {
                                 class: "text-[10px] font-bold text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded flex items-center gap-1",
                                 "⚠ Invalid Compliance Proof"
                             }

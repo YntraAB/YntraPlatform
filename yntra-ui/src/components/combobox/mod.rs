@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 use dioxus_icons::lucide::{Check, ChevronsUpDown};
 use dioxus_primitives::combobox::{
-    self, default_combobox_filter, ComboboxEmptyProps, ComboboxOptionProps,
+    self, ComboboxEmptyProps, ComboboxOptionProps, default_combobox_filter,
 };
 use dioxus_primitives::{dioxus_attributes::attributes, merge_attributes};
 
@@ -63,7 +63,9 @@ pub struct ComboboxProps<T: Clone + PartialEq + 'static = String> {
 
 #[component]
 pub fn Combobox<T: Clone + PartialEq + 'static>(props: ComboboxProps<T>) -> Element {
-    let base = attributes!(div { class: Styles::dx_combobox });
+    let base = attributes!(div {
+        class: Styles::dx_combobox
+    });
     let merged = merge_attributes(vec![base, props.attributes]);
 
     rsx! {
@@ -103,7 +105,9 @@ pub fn Combobox<T: Clone + PartialEq + 'static>(props: ComboboxProps<T>) -> Elem
 
 #[component]
 pub fn ComboboxEmpty(props: ComboboxEmptyProps) -> Element {
-    let base = attributes!(div { class: Styles::dx_combobox_empty });
+    let base = attributes!(div {
+        class: Styles::dx_combobox_empty
+    });
     let merged = merge_attributes(vec![base, props.attributes]);
 
     rsx! {
@@ -116,7 +120,9 @@ pub fn ComboboxEmpty(props: ComboboxEmptyProps) -> Element {
 
 #[component]
 pub fn ComboboxOption<T: Clone + PartialEq + 'static>(props: ComboboxOptionProps<T>) -> Element {
-    let base = attributes!(div { class: Styles::dx_combobox_option });
+    let base = attributes!(div {
+        class: Styles::dx_combobox_option
+    });
     let merged = merge_attributes(vec![base, props.attributes]);
 
     rsx! {

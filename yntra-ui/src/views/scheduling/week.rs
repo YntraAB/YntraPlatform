@@ -1,8 +1,8 @@
+use super::utils::*;
 use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::TeamEvent;
-use super::utils::*;
 
 #[derive(Props, Clone)]
 pub struct WeekViewProps {
@@ -48,7 +48,7 @@ pub fn WeekView(props: WeekViewProps) -> Element {
             class: "scrollbar-dark flex-1 overflow-y-auto border border-border rounded-xl bg-background",
             style: "max-height: 600px;",
             div { class: "flex min-h-full",
-                
+
                 // Time column
                 div { class: "w-16 flex-shrink-0 border-r border-border bg-sidebar",
                     div { class: "h-4 border-b border-border" }
@@ -69,7 +69,7 @@ pub fn WeekView(props: WeekViewProps) -> Element {
                 div {
                     class: "relative grid flex-1 divide-x divide-border",
                     style: "grid-template-columns: repeat(7, minmax(0, 1fr));",
-                    
+
                     // Current time indicator line
                     if props.week_has_today {
                         {
@@ -93,7 +93,7 @@ pub fn WeekView(props: WeekViewProps) -> Element {
                             let cell_date_clone = cell_date.clone();
                             let is_selected = cell_date == selected_date_str;
                             let is_dragged_over = Some(cell_date.clone()) == *dragged_over_cell.read();
-                            
+
                             let day_events: Vec<TeamEvent> = props.scheduled_events
                                 .iter()
                                 .filter(|ev| {
@@ -122,7 +122,7 @@ pub fn WeekView(props: WeekViewProps) -> Element {
                             let cell_date_for_click = cell_date_clone.clone();
                             let cell_date_for_drop = cell_date_clone.clone();
                             let cell_date_for_enter = cell_date_clone.clone();
-                            
+
                             rsx! {
                                 div {
                                     key: "{cell_date}",
@@ -219,7 +219,7 @@ pub fn WeekView(props: WeekViewProps) -> Element {
                                                         show_event_detail_modal.set(Some(ev_c.clone()));
                                                     }
                                                 },
-                                                
+
                                                 // Drag area wrapper
                                                 div { class: "absolute inset-0 z-10 px-2 py-1 flex flex-col justify-start overflow-hidden",
                                                     div { class: "font-semibold truncate flex justify-between items-center gap-1.5 w-full",
@@ -268,9 +268,9 @@ pub fn WeekView(props: WeekViewProps) -> Element {
                                                 }
 
                                                 // Hover Information Popup (Side placement)
-                                                div { 
+                                                div {
                                                     class: "pointer-events-none absolute left-full top-0 z-[100] ml-2 hidden w-64 rounded-xl border border-border bg-background/95 p-4 shadow-2xl backdrop-blur-md duration-200 animate-in fade-in zoom-in-95 group-hover:block",
-                                                    
+
                                                     div { class: "mb-2 flex items-center justify-between text-[10px] text-muted-foreground",
                                                         span {
                                                             class: "rounded px-2 py-0.5 font-bold uppercase tracking-wider",

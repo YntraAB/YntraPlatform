@@ -1,6 +1,6 @@
+use dioxus::document::eval;
 use dioxus::prelude::*;
 use serde_json::Value;
-use dioxus::document::eval;
 
 #[derive(Props, Clone, PartialEq)]
 pub struct VisualEffectHandlerProps {
@@ -38,7 +38,11 @@ fn hex_to_hsl(hex: &str) -> Option<(u16, u8, u8)> {
 
     if max != min {
         let d = max - min;
-        s = if l > 0.5 { d / (2.0 - max - min) } else { d / (max + min) };
+        s = if l > 0.5 {
+            d / (2.0 - max - min)
+        } else {
+            d / (max + min)
+        };
         if max == r {
             h = (g - b) / d + (if g < b { 6.0 } else { 0.0 });
         } else if max == g {
@@ -60,13 +64,16 @@ fn hex_to_hsl(hex: &str) -> Option<(u16, u8, u8)> {
 pub fn VisualEffectHandler(props: VisualEffectHandlerProps) -> Element {
     use_effect(move || {
         let prefs_str = props.account_preferences.read();
-        
+
         // Parse preferences
         let mut accent_color = props.workspace_brand_color.clone();
         let mut theme_mode = "dark".to_string();
 
         if let Ok(val) = serde_json::from_str::<Value>(&prefs_str) {
-            let accent_key = val.get("accent").or_else(|| val.get("accent_color")).and_then(|v| v.as_str());
+            let accent_key = val
+                .get("accent")
+                .or_else(|| val.get("accent_color"))
+                .and_then(|v| v.as_str());
             if let Some(color) = accent_key {
                 if color != "primary" && !color.is_empty() {
                     accent_color = color.to_string();
@@ -89,9 +96,17 @@ pub fn VisualEffectHandler(props: VisualEffectHandlerProps) -> Element {
             let primary_coords = format!("{} {}% {}%", h, s, l);
             let foreground_coords = if l > 60 { "0 0% 0%" } else { "0 0% 100%" };
             let accent_color_str = format!("hsl({} {}% {}%)", h, s, l);
-            let primary_foreground_color_str = if l > 60 { "hsl(0 0% 0%)" } else { "hsl(0 0% 100%)" };
-            
-            let hover_l = if l > 50 { l.saturating_sub(10) } else { l.saturating_add(10) };
+            let primary_foreground_color_str = if l > 60 {
+                "hsl(0 0% 0%)"
+            } else {
+                "hsl(0 0% 100%)"
+            };
+
+            let hover_l = if l > 50 {
+                l.saturating_sub(10)
+            } else {
+                l.saturating_add(10)
+            };
             let accent_color_hover_str = format!("hsl({} {}% {}%)", h, s, hover_l);
             let accent_color_soft_str = format!("hsla({}, {}%, {}%, 0.15)", h, s, l);
 
@@ -106,7 +121,14 @@ pub fn VisualEffectHandler(props: VisualEffectHandlerProps) -> Element {
                 document.documentElement.style.setProperty('--accent-color-soft', '{}');
                 document.documentElement.style.setProperty('--focused-border-color', '{}');
                 "#,
-                primary_coords, primary_coords, foreground_coords, primary_foreground_color_str, accent_color_str, accent_color_hover_str, accent_color_soft_str, accent_color_str
+                primary_coords,
+                primary_coords,
+                foreground_coords,
+                primary_foreground_color_str,
+                accent_color_str,
+                accent_color_hover_str,
+                accent_color_soft_str,
+                accent_color_str
             ));
         } else {
             js.push_str(&format!(

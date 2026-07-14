@@ -1,8 +1,8 @@
+use super::utils::*;
 use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::TeamEvent;
-use super::utils::*;
 
 #[derive(Props, Clone)]
 pub struct UnscheduledBucketProps {
@@ -58,7 +58,7 @@ pub fn UnscheduledBucket(props: UnscheduledBucketProps) -> Element {
                     }
                 }
             },
-            
+
             // Header
             div { class: "p-4 border-b border-border flex items-center justify-between bg-background/50",
                 h3 { class: "font-semibold text-xs uppercase tracking-widest text-muted-foreground flex items-center gap-2 m-0 select-none",
@@ -69,7 +69,7 @@ pub fn UnscheduledBucket(props: UnscheduledBucketProps) -> Element {
                     "{props.unscheduled_events.len()}"
                 }
             }
-            
+
             // Event List
             div { class: "flex-1 overflow-y-auto p-3 flex flex-col gap-2 scrollbar-dark",
                 if props.unscheduled_events.is_empty() {
@@ -110,7 +110,7 @@ pub fn UnscheduledBucket(props: UnscheduledBucketProps) -> Element {
                             },
                             class: "p-3 rounded-lg border border-border bg-muted cursor-grab active:cursor-grabbing transition-all duration-200 shadow-sm hover:border-primary/50 hover:shadow-md hover:bg-background select-none",
                             style: "border-left: 4px solid {item.3.color}; {item.4}",
-                            
+
                             div { class: "text-sm font-semibold text-foreground truncate flex justify-between items-center gap-1.5",
                                 span { "{item.2}" }
                                 if is_editing {
@@ -136,7 +136,7 @@ pub fn UnscheduledBucket(props: UnscheduledBucketProps) -> Element {
                                     }
                                 }
                             }
-                            div { 
+                            div {
                                 class: "text-[10px] font-bold uppercase mt-1 tracking-wider",
                                 style: "color: {item.3.color};",
                                 "{t(item.3.label_key, &props.locale)}"
@@ -145,7 +145,7 @@ pub fn UnscheduledBucket(props: UnscheduledBucketProps) -> Element {
                     }
                 }
             }
-            
+
             // Bottom Add Button
             if props.is_admin {
                 div { class: "p-4 border-t border-border bg-background/30",

@@ -2,10 +2,10 @@
 // WebAssembly database adapter for yntra-core using JS worker bridge
 
 use crate::YntraError;
-use wasm_bindgen::prelude::*;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use wasm_bindgen::prelude::*;
 
 // A wrapper to make WASM futures Send.
 // Safety: Since WebAssembly (wasm32-unknown-unknown) is single-threaded in the browser,
@@ -35,16 +35,25 @@ impl<F: Future> Future for SendFuture<F> {
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_name = yntra_execute_sql, catch)]
-    async fn js_execute_sql_internal(query_type: &str, sql: &str, params: JsValue) -> Result<JsValue, JsValue>;
+    async fn js_execute_sql_internal(
+        query_type: &str,
+        sql: &str,
+        params: JsValue,
+    ) -> Result<JsValue, JsValue>;
 }
 
-async fn js_execute_sql(query_type: &str, sql: &str, params: JsValue) -> Result<JsValue, YntraError> {
+async fn js_execute_sql(
+    query_type: &str,
+    sql: &str,
+    params: JsValue,
+) -> Result<JsValue, YntraError> {
     let fut = js_execute_sql_internal(query_type, sql, params);
     let send_fut = SendFuture::new(fut);
     match send_fut.await {
         Ok(js_val) => Ok(js_val),
         Err(js_err) => {
-            let err_msg = js_err.as_string()
+            let err_msg = js_err
+                .as_string()
                 .unwrap_or_else(|| "Unknown JavaScript error during SQL execution".to_string());
             Err(YntraError::DbError(err_msg))
         }
@@ -101,7 +110,9 @@ pub struct DbConnection {
 impl Drop for DbConnection {
     fn drop(&mut self) {
         let guard = self._guard.take();
-        let was_in_tx = self.in_transaction.load(std::sync::atomic::Ordering::SeqCst);
+        let was_in_tx = self
+            .in_transaction
+            .load(std::sync::atomic::Ordering::SeqCst);
         if was_in_tx {
             wasm_bindgen_futures::spawn_local(async move {
                 let _ = js_execute_sql("execute", "ROLLBACK", wasm_bindgen::JsValue::null()).await;
@@ -116,28 +127,36 @@ impl Drop for DbConnection {
 impl DbConnection {
     pub async fn begin_transaction(&self) -> Result<(), YntraError> {
         self.execute("BEGIN IMMEDIATE TRANSACTION", ()).await?;
-        self.in_transaction.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.in_transaction
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
 
     pub async fn commit(&self) -> Result<(), YntraError> {
         self.execute("COMMIT", ()).await?;
-        self.in_transaction.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.in_transaction
+            .store(false, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
 
     pub async fn rollback(&self) -> Result<(), YntraError> {
         self.execute("ROLLBACK", ()).await?;
-        self.in_transaction.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.in_transaction
+            .store(false, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
 
     /// Executes a SQL write statement.
     /// Note: Parameters and results are passed directly as JsValue objects over the WASM/JS boundary
     /// avoiding intermediate JSON string serialization.
-    pub async fn execute<P: IntoWasmParams>(&self, sql: &str, params: P) -> Result<u64, YntraError> {
+    pub async fn execute<P: IntoWasmParams>(
+        &self,
+        sql: &str,
+        params: P,
+    ) -> Result<u64, YntraError> {
         if let Some(in_tx) = super::check_transaction_sql(sql) {
-            self.in_transaction.store(in_tx, std::sync::atomic::Ordering::SeqCst);
+            self.in_transaction
+                .store(in_tx, std::sync::atomic::Ordering::SeqCst);
         }
         let params_wasm = params.into_wasm_params();
         let params_val = serde_wasm_bindgen::to_value(&params_wasm)
@@ -145,13 +164,17 @@ impl DbConnection {
         let result_val = js_execute_sql("execute", sql, params_val).await?;
         let res: ExecuteResult = serde_wasm_bindgen::from_value(result_val)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        
-        let is_rollback = sql.trim_start().len() >= 8 && sql.trim_start()[..8].eq_ignore_ascii_case("ROLLBACK");
+
+        let is_rollback =
+            sql.trim_start().len() >= 8 && sql.trim_start()[..8].eq_ignore_ascii_case("ROLLBACK");
         if is_rollback {
             crate::infra::observer::discard_observers_dirty_state();
         } else {
             super::track_write(sql);
-            if !self.in_transaction.load(std::sync::atomic::Ordering::SeqCst) {
+            if !self
+                .in_transaction
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
                 crate::infra::observer::notify_observers();
             }
         }
@@ -162,17 +185,22 @@ impl DbConnection {
     pub async fn execute_batch(&self, sql: &str) -> Result<(), YntraError> {
         for stmt in super::parser::split_sql_statements(sql) {
             if let Some(in_tx) = super::check_transaction_sql(stmt) {
-                self.in_transaction.store(in_tx, std::sync::atomic::Ordering::SeqCst);
+                self.in_transaction
+                    .store(in_tx, std::sync::atomic::Ordering::SeqCst);
             }
         }
         js_execute_sql("execute_batch", sql, JsValue::UNDEFINED).await?;
-        
-        let is_rollback = sql.trim_start().len() >= 8 && sql.trim_start()[..8].eq_ignore_ascii_case("ROLLBACK");
+
+        let is_rollback =
+            sql.trim_start().len() >= 8 && sql.trim_start()[..8].eq_ignore_ascii_case("ROLLBACK");
         if is_rollback {
             crate::infra::observer::discard_observers_dirty_state();
         } else {
             super::track_write_batch(sql);
-            if !self.in_transaction.load(std::sync::atomic::Ordering::SeqCst) {
+            if !self
+                .in_transaction
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
                 crate::infra::observer::notify_observers();
             }
         }
@@ -180,7 +208,9 @@ impl DbConnection {
     }
 
     pub async fn prepare(&self, sql: &str) -> Result<Statement, YntraError> {
-        Ok(Statement { sql: sql.to_string() })
+        Ok(Statement {
+            sql: sql.to_string(),
+        })
     }
 
     pub async fn query_row<T, P, F>(&self, sql: &str, params: P, f: F) -> Result<T, YntraError>
@@ -197,7 +227,9 @@ impl DbConnection {
         if array.length() == 0 {
             return Err(YntraError::NoRowsReturned);
         }
-        let row = Row { value: array.get(0) };
+        let row = Row {
+            value: array.get(0),
+        };
         f(&row)
     }
 }
@@ -259,11 +291,18 @@ impl Row {
     pub fn get<T: serde::de::DeserializeOwned>(&self, idx: i32) -> Result<T, YntraError> {
         let array = js_sys::Array::from(&self.value);
         if idx < 0 || idx >= array.length() as i32 {
-            return Err(YntraError::DbError(format!("Column index out of bounds: {}", idx)));
+            return Err(YntraError::DbError(format!(
+                "Column index out of bounds: {}",
+                idx
+            )));
         }
         let val = array.get(idx as u32);
-        serde_wasm_bindgen::from_value(val)
-            .map_err(|e| YntraError::DbError(format!("Failed to deserialize column at index {}: {}", idx, e)))
+        serde_wasm_bindgen::from_value(val).map_err(|e| {
+            YntraError::DbError(format!(
+                "Failed to deserialize column at index {}: {}",
+                idx, e
+            ))
+        })
     }
 }
 
@@ -274,5 +313,3 @@ where
 {
     iter.into_iter().map(|x| x.to_value()).collect()
 }
-
-

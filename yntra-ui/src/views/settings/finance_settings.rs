@@ -21,11 +21,13 @@ pub fn FinanceSettings(props: FinanceSettingsProps) -> Element {
     let mut db_trigger = props.db_trigger;
     let workspace = props.workspace.clone();
 
-    let block_settings_val: serde_json::Value = serde_json::from_str(&workspace.block_settings).unwrap_or_default();
+    let block_settings_val: serde_json::Value =
+        serde_json::from_str(&workspace.block_settings).unwrap_or_default();
 
     // Local state for school_finance display name
     let mut display_name = use_signal(|| {
-        block_settings_val.get("finance")
+        block_settings_val
+            .get("finance")
             .and_then(|sf| sf.get("display_name"))
             .and_then(|n| n.as_str())
             .unwrap_or("Finance")
@@ -39,23 +41,29 @@ pub fn FinanceSettings(props: FinanceSettingsProps) -> Element {
         let user_id = state.active_user_id.read().clone();
         move |new_name: String| {
             settings_save_status.set("saving".to_string());
-            
-            let mut settings_map: serde_json::Value = serde_json::from_str(&ws_block_settings_raw).unwrap_or_default();
-            
+
+            let mut settings_map: serde_json::Value =
+                serde_json::from_str(&ws_block_settings_raw).unwrap_or_default();
+
             if !settings_map.is_object() {
                 settings_map = serde_json::json!({});
             }
-            
+
             settings_map["finance"] = serde_json::json!({
                 "display_name": new_name
             });
-            
+
             let settings_str = serde_json::to_string(&settings_map).unwrap_or_default();
             let ws_id = ws_id.clone();
             let settings_str_clone = settings_str.clone();
             let requester_uid = user_id.clone();
             spawn(async move {
-                let _ = yntra_core::update_workspace_block_settings(requester_uid, ws_id, settings_str_clone).await;
+                let _ = yntra_core::update_workspace_block_settings(
+                    requester_uid,
+                    ws_id,
+                    settings_str_clone,
+                )
+                .await;
             });
 
             let current_trig = *db_trigger.read();
@@ -67,7 +75,7 @@ pub fn FinanceSettings(props: FinanceSettingsProps) -> Element {
     rsx! {
         div { class: "space-y-6",
             div { class: "grid grid-cols-1 gap-6 md:grid-cols-2",
-                
+
                 // 1. Module Name Rebranding Card
                 components::Card { class: "border-2 border-border/50 bg-card/40 shadow-sm backdrop-blur-sm",
                     components::CardHeader {

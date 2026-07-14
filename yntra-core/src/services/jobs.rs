@@ -1,10 +1,9 @@
 #![allow(unused)]
 
-use crate::{JobTicket, YntraError};
-use uuid::Uuid;
 use crate::database;
 use crate::infra::observer::notify_observers;
-
+use crate::{JobTicket, YntraError};
+use uuid::Uuid;
 
 fn is_staff(auth: &crate::AuthContext) -> bool {
     auth.role == "platform_admin"
@@ -16,7 +15,10 @@ fn is_staff(auth: &crate::AuthContext) -> bool {
 fn validate_job_status(status: &str) -> Result<(), YntraError> {
     match status {
         "pending" | "assigned" | "in_progress" | "completed" | "cancelled" => Ok(()),
-        _ => Err(YntraError::ValidationError(format!("Invalid job ticket status: {}", status))),
+        _ => Err(YntraError::ValidationError(format!(
+            "Invalid job ticket status: {}",
+            status
+        ))),
     }
 }
 
@@ -26,39 +28,43 @@ pub async fn get_job_tickets(requester_user_id: String) -> Result<Vec<JobTicket>
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" {
-        return Err(YntraError::AuthError("Access denied: insufficient permissions".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: insufficient permissions".to_string(),
+        ));
     }
 
     let mut stmt = conn.prepare(
         "SELECT id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status FROM job_tickets WHERE workspace_id = ?1",
     ).await?;
 
-    let list = stmt.query_map(crate::params![auth.workspace_id], |row| {
-        Ok(JobTicket {
-            id: row.get(0)?,
-            workspace_id: row.get(1)?,
-            title: row.get(2)?,
-            description: row.get(3)?,
-            location_address: row.get(4)?,
-            priority: row.get(5)?,
-            status: row.get(6)?,
-            assigned_user_id: row.get(7)?,
-            scheduled_date: row.get(8)?,
-            checklist_json: row.get(9)?,
-            completion_report: row.get(10)?,
-            created_at: row.get(11)?,
-            updated_at: row.get(12)?,
-            sync_status: row.get(13)?,
-            origin_address: None,
-            destination_address: None,
-            origin_floor: 0,
-            destination_floor: 0,
-            origin_has_elevator: false,
-            destination_has_elevator: false,
-            origin_parking_permit_needed: false,
-            destination_parking_permit_needed: false,
+    let list = stmt
+        .query_map(crate::params![auth.workspace_id], |row| {
+            Ok(JobTicket {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                title: row.get(2)?,
+                description: row.get(3)?,
+                location_address: row.get(4)?,
+                priority: row.get(5)?,
+                status: row.get(6)?,
+                assigned_user_id: row.get(7)?,
+                scheduled_date: row.get(8)?,
+                checklist_json: row.get(9)?,
+                completion_report: row.get(10)?,
+                created_at: row.get(11)?,
+                updated_at: row.get(12)?,
+                sync_status: row.get(13)?,
+                origin_address: None,
+                destination_address: None,
+                origin_floor: 0,
+                destination_floor: 0,
+                origin_has_elevator: false,
+                destination_has_elevator: false,
+                origin_parking_permit_needed: false,
+                destination_parking_permit_needed: false,
+            })
         })
-    }).await?;
+        .await?;
 
     Ok(list)
 }
@@ -87,13 +93,13 @@ pub async fn create_job_ticket(
     let id = Uuid::new_v4().to_string();
     let created_at = crate::infra::time::get_current_datetime_str();
     let now_ms = crate::infra::time::get_current_time_ms();
-    
+
     let status = if assigned_user_id.is_some() {
         "assigned".to_string()
     } else {
         "pending".to_string()
     };
-        
+
     let job = JobTicket {
         id: id.clone(),
         workspace_id: workspace_id.clone(),
@@ -123,11 +129,15 @@ pub async fn create_job_ticket(
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     if auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: requester belongs to a different workspace".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: requester belongs to a different workspace".to_string(),
+        ));
     }
 
     if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" {
-        return Err(YntraError::AuthError("Access denied: insufficient permissions".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: insufficient permissions".to_string(),
+        ));
     }
 
     conn.execute(
@@ -153,27 +163,38 @@ pub async fn create_job_ticket(
 }
 
 #[uniffi::export]
-pub async fn update_job_status(requester_user_id: String, job_id: String, status: String) -> Result<(), YntraError> {
+pub async fn update_job_status(
+    requester_user_id: String,
+    job_id: String,
+    status: String,
+) -> Result<(), YntraError> {
     let now_ms = crate::infra::time::get_current_time_ms();
 
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    
+
     validate_job_status(&status)?;
 
-    let (job_ws, assigned_uid): (String, Option<String>) = conn.query_row(
-        "SELECT workspace_id, assigned_user_id FROM job_tickets WHERE id = ?1",
-        crate::params![&job_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
-    ).await.map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
+    let (job_ws, assigned_uid): (String, Option<String>) = conn
+        .query_row(
+            "SELECT workspace_id, assigned_user_id FROM job_tickets WHERE id = ?1",
+            crate::params![&job_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
 
     if auth.workspace_id != job_ws {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let is_assigned_worker = assigned_uid.as_ref() == Some(&auth.user_id);
     if !is_staff(&auth) && !is_assigned_worker {
-        return Err(YntraError::AuthError("Access denied: only staff or the assigned worker can update job status".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: only staff or the assigned worker can update job status".to_string(),
+        ));
     }
 
     conn.execute(
@@ -194,20 +215,28 @@ pub async fn submit_job_completion(
 
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    
-    let (job_ws, assigned_uid): (String, Option<String>) = conn.query_row(
-        "SELECT workspace_id, assigned_user_id FROM job_tickets WHERE id = ?1",
-        crate::params![&job_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
-    ).await.map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
+
+    let (job_ws, assigned_uid): (String, Option<String>) = conn
+        .query_row(
+            "SELECT workspace_id, assigned_user_id FROM job_tickets WHERE id = ?1",
+            crate::params![&job_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
 
     if auth.workspace_id != job_ws {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let is_assigned_worker = assigned_uid.as_ref() == Some(&auth.user_id);
     if !is_staff(&auth) && !is_assigned_worker {
-        return Err(YntraError::AuthError("Access denied: only staff or the assigned worker can submit job completion".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: only staff or the assigned worker can submit job completion"
+                .to_string(),
+        ));
     }
 
     conn.execute(
@@ -216,7 +245,6 @@ pub async fn submit_job_completion(
     ).await?;
     Ok(())
 }
-
 
 #[uniffi::export]
 pub async fn get_job_tickets_rkyv(requester_user_id: String) -> Result<Vec<u8>, YntraError> {
@@ -254,8 +282,17 @@ mod tests {
             Some("u-job-user1".to_string()),
             "2026-07-05".to_string(),
             "[]".to_string(),
-            None, None, 0, 0, false, false, false, false,
-        ).await.unwrap();
+            None,
+            None,
+            0,
+            0,
+            false,
+            false,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
 
         // Retrieve tickets as user 1 (should see job1)
         let list1 = get_job_tickets("u-job-user1".to_string()).await.unwrap();
@@ -263,8 +300,11 @@ mod tests {
         assert_eq!(list1[0].id, job1.id);
 
         // Retrieve tickets as user 1 with rkyv
-        let bytes = get_job_tickets_rkyv("u-job-user1".to_string()).await.unwrap();
-        let rkyv_list: Vec<JobTicket> = rkyv::from_bytes::<Vec<JobTicket>, rkyv::rancor::Error>(&bytes).unwrap();
+        let bytes = get_job_tickets_rkyv("u-job-user1".to_string())
+            .await
+            .unwrap();
+        let rkyv_list: Vec<JobTicket> =
+            rkyv::from_bytes::<Vec<JobTicket>, rkyv::rancor::Error>(&bytes).unwrap();
         assert_eq!(rkyv_list.len(), 1);
         assert_eq!(rkyv_list[0].id, job1.id);
 
@@ -273,8 +313,23 @@ mod tests {
         assert_eq!(list2.len(), 0);
 
         // Cleanup
-        conn.execute("DELETE FROM job_tickets WHERE workspace_id IN ('ws-job-1', 'ws-job-2')", ()).await.unwrap();
-        conn.execute("DELETE FROM users WHERE workspace_id IN ('ws-job-1', 'ws-job-2')", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id IN ('ws-job-1', 'ws-job-2')", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM job_tickets WHERE workspace_id IN ('ws-job-1', 'ws-job-2')",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM users WHERE workspace_id IN ('ws-job-1', 'ws-job-2')",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM workspaces WHERE id IN ('ws-job-1', 'ws-job-2')",
+            (),
+        )
+        .await
+        .unwrap();
     }
 }

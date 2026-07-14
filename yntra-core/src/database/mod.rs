@@ -1,12 +1,12 @@
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native;
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::{acquire_connection, DbConnection, Statement, Row, Rows};
+pub use native::{DbConnection, Row, Rows, Statement, acquire_connection};
 
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
 #[cfg(target_arch = "wasm32")]
-pub use wasm::{acquire_connection, DbConnection, Statement, Row, Rows};
+pub use wasm::{DbConnection, Row, Rows, Statement, acquire_connection};
 
 pub mod schema;
 pub use schema::setup_schema;
@@ -14,8 +14,10 @@ pub use schema::setup_schema;
 pub mod parser;
 pub mod sync;
 pub mod zero_copy;
-pub use zero_copy::{ZeroCopyStore, ZeroCopyMessageStore, ZeroCopyNoteStore, ZeroCopyAuditStore, P2PMeshSyncRouter, EdgeSyncLoop, ZkCryptoTrust};
-
+pub use zero_copy::{
+    EdgeSyncLoop, P2PMeshSyncRouter, ZeroCopyAuditStore, ZeroCopyMessageStore, ZeroCopyNoteStore,
+    ZeroCopyStore, ZkCryptoTrust,
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub static DB_TEST_LOCK: DbTestLock = DbTestLock {
@@ -29,13 +31,14 @@ pub struct DbTestLock {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl DbTestLock {
-    pub fn lock(&self) -> Result<std::sync::MutexGuard<'_, ()>, std::sync::PoisonError<std::sync::MutexGuard<'_, ()>>> {
+    pub fn lock(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, ()>, std::sync::PoisonError<std::sync::MutexGuard<'_, ()>>>
+    {
         let mutex = self.inner.get_or_init(|| std::sync::Mutex::new(()));
         match mutex.lock() {
             Ok(guard) => Ok(guard),
-            Err(poisoned) => {
-                Ok(poisoned.into_inner())
-            }
+            Err(poisoned) => Ok(poisoned.into_inner()),
         }
     }
 }
@@ -90,17 +93,20 @@ pub fn check_transaction_sql(sql: &str) -> Option<bool> {
     None
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_check_transaction_sql_comments() {
-        assert_eq!(check_transaction_sql("-- test\nBEGIN IMMEDIATE TRANSACTION;"), Some(true));
+        assert_eq!(
+            check_transaction_sql("-- test\nBEGIN IMMEDIATE TRANSACTION;"),
+            Some(true)
+        );
         assert_eq!(check_transaction_sql("/* comment */ COMMIT;"), Some(false));
-        assert_eq!(check_transaction_sql("   -- comment\n   ROLLBACK;"), Some(false));
+        assert_eq!(
+            check_transaction_sql("   -- comment\n   ROLLBACK;"),
+            Some(false)
+        );
     }
 }
-
-

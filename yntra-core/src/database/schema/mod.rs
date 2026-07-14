@@ -1,9 +1,9 @@
-use crate::YntraError;
 use super::DbConnection;
+use crate::YntraError;
 
-mod tables;
 mod migrations;
 mod seeds;
+mod tables;
 
 pub async fn setup_schema(conn: &DbConnection) -> Result<(), YntraError> {
     // 0. Enable WAL mode
@@ -21,16 +21,21 @@ pub async fn setup_schema(conn: &DbConnection) -> Result<(), YntraError> {
     .map_err(|e| YntraError::DbError(e.to_string()))?;
 
     // 2. Set up initial tables and migrations if version is 0
-    let mut current_version: i32 = conn.query_row("PRAGMA user_version", (), |r| r.get(0)).await.unwrap_or(0);
+    let mut current_version: i32 = conn
+        .query_row("PRAGMA user_version", (), |r| r.get(0))
+        .await
+        .unwrap_or(0);
     let mut is_fresh = false;
     if current_version == 0 {
-        let has_users_table = conn.query_row(
-            "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='users'",
-            (),
-            |r| r.get::<i64>(0),
-        )
-        .await
-        .unwrap_or(0) > 0;
+        let has_users_table = conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='users'",
+                (),
+                |r| r.get::<i64>(0),
+            )
+            .await
+            .unwrap_or(0)
+            > 0;
 
         if has_users_table {
             // The database is not fresh but user_version was 0.
@@ -48,7 +53,8 @@ pub async fn setup_schema(conn: &DbConnection) -> Result<(), YntraError> {
     // Run migrations incrementally
     let latest_version = migrations::run_schema_migrations(conn, current_version).await?;
     if latest_version != current_version {
-        conn.execute(&format!("PRAGMA user_version = {}", latest_version), ()).await?;
+        conn.execute(&format!("PRAGMA user_version = {}", latest_version), ())
+            .await?;
     }
 
     // If the database was fresh, seed mock data now that the schema is fully migrated
@@ -62,7 +68,12 @@ pub async fn setup_schema(conn: &DbConnection) -> Result<(), YntraError> {
     // In debug mode, automatically clear creator_public_key for workspace-1 to recover from previous runs
     #[cfg(debug_assertions)]
     {
-        let _ = conn.execute("UPDATE workspaces SET creator_public_key = NULL WHERE id = 'workspace-1'", ()).await;
+        let _ = conn
+            .execute(
+                "UPDATE workspaces SET creator_public_key = NULL WHERE id = 'workspace-1'",
+                (),
+            )
+            .await;
     }
 
     Ok(())
@@ -72,7 +83,11 @@ fn obfuscate_salt(salt_hex: &str) -> String {
     use zeroize::Zeroize;
     let mut bytes = const_hex::decode(salt_hex).unwrap_or_default();
     let xor_key = b"YntraSaltObfuscationKey2026";
-    let mut obfuscated: Vec<u8> = bytes.iter().enumerate().map(|(i, &b)| b ^ xor_key[i % xor_key.len()]).collect();
+    let mut obfuscated: Vec<u8> = bytes
+        .iter()
+        .enumerate()
+        .map(|(i, &b)| b ^ xor_key[i % xor_key.len()])
+        .collect();
     let result = format!("obf:{}", const_hex::encode(&obfuscated));
     bytes.zeroize();
     obfuscated.zeroize();
@@ -87,7 +102,11 @@ fn deobfuscate_salt(obfuscated_str: &str) -> Option<String> {
     let body = &obfuscated_str[4..];
     let mut bytes = const_hex::decode(body).ok()?;
     let xor_key = b"YntraSaltObfuscationKey2026";
-    let mut deobfuscated: Vec<u8> = bytes.iter().enumerate().map(|(i, &b)| b ^ xor_key[i % xor_key.len()]).collect();
+    let mut deobfuscated: Vec<u8> = bytes
+        .iter()
+        .enumerate()
+        .map(|(i, &b)| b ^ xor_key[i % xor_key.len()])
+        .collect();
     let result = const_hex::encode(&deobfuscated);
     bytes.zeroize();
     deobfuscated.zeroize();
@@ -107,7 +126,9 @@ async fn initialize_salt_from_db(conn: &DbConnection) -> Result<(), YntraError> 
     let salt = match existing_salt {
         Some(s) => {
             if s.starts_with("obf:") {
-                deobfuscate_salt(&s).ok_or_else(|| YntraError::CryptoError("Failed to deobfuscate system salt".to_string()))?
+                deobfuscate_salt(&s).ok_or_else(|| {
+                    YntraError::CryptoError("Failed to deobfuscate system salt".to_string())
+                })?
             } else {
                 let obf = obfuscate_salt(&s);
                 conn.execute(
@@ -126,7 +147,7 @@ async fn initialize_salt_from_db(conn: &DbConnection) -> Result<(), YntraError> 
                 let hex_salt = const_hex::encode(&random_bytes);
                 use zeroize::Zeroize;
                 random_bytes.zeroize();
-                
+
                 let obf = obfuscate_salt(&hex_salt);
                 conn.execute(
                     "INSERT OR REPLACE INTO system_settings (key, value) VALUES ('system_salt', ?1)",
@@ -134,12 +155,15 @@ async fn initialize_salt_from_db(conn: &DbConnection) -> Result<(), YntraError> 
                 )
                 .await
                 .map_err(|e| YntraError::DbError(format!("Failed to save system salt: {}", e)))?;
-                
+
                 hex_salt
             } else {
                 use zeroize::Zeroize;
                 random_bytes.zeroize();
-                return Err(YntraError::CryptoError(format!("Failed to generate random salt: {:?}", res.err())));
+                return Err(YntraError::CryptoError(format!(
+                    "Failed to generate random salt: {:?}",
+                    res.err()
+                )));
             }
         }
     };
@@ -168,17 +192,22 @@ mod tests {
         let conn = crate::database::acquire_connection().await.unwrap();
 
         // Ensure database settings starts clean of system_salt
-        conn.execute("DELETE FROM system_settings WHERE key = 'system_salt'", ()).await.unwrap();
+        conn.execute("DELETE FROM system_settings WHERE key = 'system_salt'", ())
+            .await
+            .unwrap();
 
         // 1. Fresh initialization (generates random salt)
         initialize_salt_from_db(&conn).await.unwrap();
 
         // Get value from settings
-        let stored: String = conn.query_row(
-            "SELECT value FROM system_settings WHERE key = 'system_salt'",
-            (),
-            |r| r.get(0)
-        ).await.unwrap();
+        let stored: String = conn
+            .query_row(
+                "SELECT value FROM system_settings WHERE key = 'system_salt'",
+                (),
+                |r| r.get(0),
+            )
+            .await
+            .unwrap();
         assert!(stored.starts_with("obf:"));
 
         // 2. Subsequent load

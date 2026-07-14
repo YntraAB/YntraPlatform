@@ -1,13 +1,13 @@
-use dioxus::prelude::*;
 use crate::components;
 use crate::state::AppState;
+use dioxus::prelude::*;
 
 #[component]
 pub fn WorkspacesList(is_platform_admin: bool) -> Element {
     let state = use_context::<AppState>();
     let mut devhub_open = use_signal(|| false);
     let mut refresh_trigger = use_signal(|| 0);
-    
+
     let workspaces_res = use_resource(move || {
         let _trig = refresh_trigger.read();
         let uid = state.active_user_id.read().clone();
@@ -51,7 +51,7 @@ pub fn WorkspacesList(is_platform_admin: bool) -> Element {
                             let ws_id_open = ws_id.clone();
                             let ws_id_delete = ws_id.clone();
                             let ws_name = ws.name.clone();
-                            
+
                             let ws_teams_count = teams.iter().filter(|t| t.workspace_id == ws_id).count();
                             let ws_members_count = users.iter().filter(|u| u.workspace_id.as_ref() == Some(&ws_id)).count();
 
@@ -63,7 +63,7 @@ pub fn WorkspacesList(is_platform_admin: bool) -> Element {
                                         directory_level.set("teams".to_string());
                                     },
                                     class: "group flex cursor-pointer items-center border-b border-border px-8 py-3.5 transition-colors hover:bg-white/[0.02] list-item-hover",
-                                    
+
                                     div {
                                         class: "mr-4 flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] bg-white/[0.04] text-primary transition-colors",
                                         components::LucideIcon { name: "directory", class: "h-5 w-5" }
@@ -135,7 +135,7 @@ pub fn WorkspacesList(is_platform_admin: bool) -> Element {
                 }
             }
         }
-        
+
         if *devhub_open.read() {
             components::DevHubDialog {
                 open: *devhub_open.read(),

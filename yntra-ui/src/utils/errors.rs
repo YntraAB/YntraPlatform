@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use dioxus_primitives::toast::{use_toast, ToastOptions};
+use dioxus_primitives::toast::{ToastOptions, use_toast};
 use std::future::Future;
 
 pub struct UserFriendlyError {
@@ -13,21 +13,24 @@ pub fn map_error(err: &yntra_core::YntraError) -> UserFriendlyError {
             log::error!("Authentication error occurred: {}", detail);
             UserFriendlyError {
                 title: "Access Denied".to_string(),
-                description: "You do not have the required permissions to perform this action.".to_string(),
+                description: "You do not have the required permissions to perform this action."
+                    .to_string(),
             }
         }
         yntra_core::YntraError::DbError(detail) => {
             log::error!("Database error occurred: {}", detail);
             UserFriendlyError {
                 title: "Database Error".to_string(),
-                description: "Failed to read or write local data. Please reload the app.".to_string(),
+                description: "Failed to read or write local data. Please reload the app."
+                    .to_string(),
             }
         }
         yntra_core::YntraError::NetworkError(detail) => {
             log::error!("Network error occurred: {}", detail);
             UserFriendlyError {
                 title: "Network Connection Failed".to_string(),
-                description: "Unable to reach remote servers. Please check your connection.".to_string(),
+                description: "Unable to reach remote servers. Please check your connection."
+                    .to_string(),
             }
         }
         yntra_core::YntraError::ValidationError(detail) => {
@@ -48,7 +51,9 @@ pub fn map_error(err: &yntra_core::YntraError) -> UserFriendlyError {
             log::error!("Sync error: {}", detail);
             UserFriendlyError {
                 title: "Sync Failed".to_string(),
-                description: "Failed to synchronize changes with the remote server. Please try again.".to_string(),
+                description:
+                    "Failed to synchronize changes with the remote server. Please try again."
+                        .to_string(),
             }
         }
         yntra_core::YntraError::ConstraintError(detail) => {
@@ -83,7 +88,8 @@ pub fn map_error(err: &yntra_core::YntraError) -> UserFriendlyError {
             log::error!("Query returned no rows");
             UserFriendlyError {
                 title: "Record Not Found".to_string(),
-                description: "The requested record was not found in the local database.".to_string(),
+                description: "The requested record was not found in the local database."
+                    .to_string(),
             }
         }
     }
@@ -165,7 +171,7 @@ where
         if let Some(task) = current_task_mut.read().clone() {
             task.cancel();
         }
-        
+
         let mut status_mut = status;
         status_mut.set(ActionStatus::Loading);
         let fut = action_fn();

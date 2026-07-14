@@ -1,8 +1,8 @@
+use super::ChecklistItem;
 use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::JobTicket;
-use super::ChecklistItem;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct MoveInventoryItem {
@@ -63,8 +63,14 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
     } else {
         serde_json::from_str("{\"todos\":true,\"notes\":true,\"reporting\":true}").unwrap()
     };
-    let todos_enabled = modules_active_val.get("todos").and_then(|v| v.as_bool()).unwrap_or(true);
-    let reporting_enabled = modules_active_val.get("reporting").and_then(|v| v.as_bool()).unwrap_or(true);
+    let todos_enabled = modules_active_val
+        .get("todos")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let reporting_enabled = modules_active_val
+        .get("reporting")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
 
     let job_id_status = job.id.clone();
     let job_id_submit = job.id.clone();
@@ -74,7 +80,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
     let job_description = job.description.clone();
     let job_location = job.location_address.clone();
     let checklist = checklist_state.read().clone();
-    
+
     let checklist_header = t("jobs-checklist-header", &region);
     let report_placeholder = t("jobs-report-placeholder", &region);
 
@@ -85,12 +91,15 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
         _ => "background: rgba(156, 163, 175, 0.15); color: hsl(217.9, 10.6%, 64.9%);",
     };
 
-    let total_vol: f64 = inventories.iter().map(|i| i.estimated_volume_m3 * i.quantity as f64).sum();
+    let total_vol: f64 = inventories
+        .iter()
+        .map(|i| i.estimated_volume_m3 * i.quantity as f64)
+        .sum();
 
     rsx! {
         components::Card {
             class: "p-6 flex flex-col gap-5",
-            
+
             // Header: Title & Badges
             div { class: "border-b border-border",
             style: "padding-bottom: 1rem;",
@@ -110,7 +119,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                 p { class: "text-sm text-muted-foreground",
                 style: "margin: 0.5rem 0 0 0; line-height: 1.4;", "{job_description}" }
             }
-            
+
             // Location panel
             if let (Some(ref origin), Some(ref dest)) = (job.origin_address.clone(), job.destination_address.clone()) {
                 div { class: "flex flex-col gap-3 border border-border p-4 rounded-lg",
@@ -162,7 +171,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                         components::LucideIcon { name: "check-square", size: "16" }
                         "{checklist_header}"
                     }
-                    
+
                     div { class: "flex flex-col",
                     style: "gap: 0.65rem;",
                         {checklist.iter().enumerate().map(|(idx, item)| {

@@ -1,11 +1,8 @@
 use dioxus::prelude::*;
 use yntra_core::{
-    get_notes, get_reports, get_teams,
-    get_users, get_workspace, get_workspaces,
-    get_clients, get_messages, get_time_reports, get_events,
-    get_todos, TodoItem,
-    Workspace, WorkspaceUser, Team, TeamEvent, MessageItem, DailyNote, TimeReport,
-    ClientProfile, ReportItem,
+    ClientProfile, DailyNote, MessageItem, ReportItem, Team, TeamEvent, TimeReport, TodoItem,
+    Workspace, WorkspaceUser, get_clients, get_events, get_messages, get_notes, get_reports,
+    get_teams, get_time_reports, get_todos, get_users, get_workspace, get_workspaces,
 };
 
 pub fn init_resources(
@@ -35,10 +32,11 @@ pub fn init_resources(
     Resource<Vec<TodoItem>>,
 ) {
     let workspace = use_resource(move || {
+        let uid = active_user_id.read().clone();
         let _trig = trigger_workspaces.read();
         let mut bg_err = background_error;
         async move {
-            match get_workspace().await {
+            match get_workspace(uid).await {
                 Ok(w) => w,
                 Err(e) => {
                     bg_err.set(Some(e));
@@ -60,7 +58,8 @@ pub fn init_resources(
 
     let modules_active = use_memo(move || {
         if let Some(ws) = workspace.read().as_ref() {
-            let val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
+            let val: serde_json::Value =
+                serde_json::from_str(&ws.modules_active).unwrap_or_default();
             val
         } else {
             serde_json::Value::Null
@@ -68,30 +67,58 @@ pub fn init_resources(
     });
 
     let scheduling_enabled = use_memo(move || {
-        modules_active.read().get("scheduling").and_then(|v| v.as_bool()).unwrap_or(true)
+        modules_active
+            .read()
+            .get("scheduling")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true)
     });
 
     let messaging_enabled = use_memo(move || {
-        modules_active.read().get("messaging").and_then(|v| v.as_bool()).unwrap_or(true)
+        modules_active
+            .read()
+            .get("messaging")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true)
     });
 
     let notes_enabled = use_memo(move || {
-        modules_active.read().get("notes").and_then(|v| v.as_bool()).unwrap_or(true)
+        modules_active
+            .read()
+            .get("notes")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true)
     });
 
     let time_enabled = use_memo(move || {
-        modules_active.read().get("time").and_then(|v| v.as_bool()).unwrap_or(true)
+        modules_active
+            .read()
+            .get("time")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true)
     });
 
     let assistance_enabled = use_memo(move || {
         let val = modules_active.read();
-        val.get("assistance").and_then(|v| v.as_bool()).unwrap_or(true)
-            || val.get("journals").and_then(|v| v.as_bool()).unwrap_or(false)
-            || val.get("medications").and_then(|v| v.as_bool()).unwrap_or(false)
+        val.get("assistance")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true)
+            || val
+                .get("journals")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            || val
+                .get("medications")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
     });
 
     let reporting_enabled = use_memo(move || {
-        modules_active.read().get("reporting").and_then(|v| v.as_bool()).unwrap_or(true)
+        modules_active
+            .read()
+            .get("reporting")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true)
     });
 
     let users = use_resource(move || {
@@ -236,7 +263,7 @@ pub fn init_resources(
                 } catch(e) {
                     dioxus.send([]);
                 }
-                "#
+                "#,
             );
             let anon_ids = match eval.recv::<Vec<String>>().await {
                 Ok(ids) => ids,
@@ -271,7 +298,11 @@ pub fn init_resources(
         let _trig = trigger_todos.read();
         let uid = active_user_id.read().clone();
         let mut bg_err = background_error;
-        let ws_id = workspace.read().as_ref().map(|w| w.id.clone()).unwrap_or_else(|| "workspace-1".to_string());
+        let ws_id = workspace
+            .read()
+            .as_ref()
+            .map(|w| w.id.clone())
+            .unwrap_or_else(|| "workspace-1".to_string());
         async move {
             match get_todos(uid, ws_id).await {
                 Ok(list) => list,

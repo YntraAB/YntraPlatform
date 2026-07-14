@@ -11,7 +11,9 @@ pub async fn get_dynamic_entities(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let mut stmt = conn
@@ -49,8 +51,9 @@ fn validate_entity_data(data_json: &str, schema_json: &str) -> Result<(), YntraE
     let fields: Vec<FieldDefinition> = serde_json::from_str(schema_json)
         .map_err(|e| YntraError::ValidationError(format!("Invalid fields_schema JSON: {}", e)))?;
 
-    let data_val: serde_json::Value = serde_json::from_str(data_json)
-        .map_err(|e| YntraError::ValidationError(format!("Invalid dynamic entity data JSON: {}", e)))?;
+    let data_val: serde_json::Value = serde_json::from_str(data_json).map_err(|e| {
+        YntraError::ValidationError(format!("Invalid dynamic entity data JSON: {}", e))
+    })?;
 
     let data_map = data_val.as_object().ok_or_else(|| {
         YntraError::ValidationError("Entity data must be a JSON object".to_string())
@@ -119,7 +122,9 @@ pub async fn save_dynamic_entity(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != entity.workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     // Retrieve fields_schema for the block to perform validation
@@ -140,7 +145,11 @@ pub async fn save_dynamic_entity(
     }
 
     let now_ms = crate::infra::time::get_current_time_ms();
-    let created_at = if entity.created_at == 0 { now_ms } else { entity.created_at };
+    let created_at = if entity.created_at == 0 {
+        now_ms
+    } else {
+        entity.created_at
+    };
 
     conn.execute(
         "INSERT OR REPLACE INTO entities (id, workspace_id, block_id, entity_type, data, created_at, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending')",
@@ -178,7 +187,9 @@ pub async fn delete_dynamic_entity(
         .map_err(|_| YntraError::NotFoundError("Entity not found".to_string()))?;
 
     if auth.role != "platform_admin" && auth.workspace_id != entity_ws {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     conn.execute("DELETE FROM entities WHERE id = ?1", crate::params![&id])
@@ -197,8 +208,10 @@ pub async fn update_block_schema(
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    if !auth.is_admin {
-        return Err(YntraError::AuthError("Access denied: administrator privileges required".to_string()));
+    if auth.role != "platform_admin" {
+        return Err(YntraError::AuthError(
+            "Access denied: platform administrator privileges required".to_string(),
+        ));
     }
 
     conn.execute(
@@ -253,7 +266,9 @@ mod tests {
             sync_status: "pending".to_string(),
         };
 
-        save_dynamic_entity("u-dyn-user".to_string(), entity).await.unwrap();
+        save_dynamic_entity("u-dyn-user".to_string(), entity)
+            .await
+            .unwrap();
 
         // 2. Get dynamic entities
         let list = get_dynamic_entities(
@@ -269,7 +284,9 @@ mod tests {
         assert!(list[0].data.contains("Truck A"));
 
         // 3. Delete dynamic entity
-        delete_dynamic_entity("u-dyn-user".to_string(), "entity-1".to_string()).await.unwrap();
+        delete_dynamic_entity("u-dyn-user".to_string(), "entity-1".to_string())
+            .await
+            .unwrap();
 
         // 4. Verify deleted
         let list_after = get_dynamic_entities(
@@ -282,10 +299,21 @@ mod tests {
         assert_eq!(list_after.len(), 0);
 
         // Cleanup
-        conn.execute("DELETE FROM entities WHERE workspace_id = 'ws-dyn-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM blocks WHERE id = 'block-dyn-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-dyn-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-dyn-test'", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM entities WHERE workspace_id = 'ws-dyn-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute("DELETE FROM blocks WHERE id = 'block-dyn-test'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-dyn-test'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-dyn-test'", ())
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -334,7 +362,11 @@ mod tests {
             updated_at: 0,
             sync_status: "pending".to_string(),
         };
-        assert!(save_dynamic_entity("u-val-user".to_string(), valid_entity).await.is_ok());
+        assert!(
+            save_dynamic_entity("u-val-user".to_string(), valid_entity)
+                .await
+                .is_ok()
+        );
 
         // Case B: Missing required field ("is_active") should fail
         let missing_required = DynamicEntity {
@@ -382,9 +414,20 @@ mod tests {
         assert!(matches!(res.unwrap_err(), YntraError::ValidationError(_)));
 
         // Cleanup
-        let _ = conn.execute("DELETE FROM entities WHERE workspace_id = 'ws-val-test'", ()).await;
-        let _ = conn.execute("DELETE FROM blocks WHERE id = 'block-val-test'", ()).await;
-        let _ = conn.execute("DELETE FROM users WHERE workspace_id = 'ws-val-test'", ()).await;
-        let _ = conn.execute("DELETE FROM workspaces WHERE id = 'ws-val-test'", ()).await;
+        let _ = conn
+            .execute(
+                "DELETE FROM entities WHERE workspace_id = 'ws-val-test'",
+                (),
+            )
+            .await;
+        let _ = conn
+            .execute("DELETE FROM blocks WHERE id = 'block-val-test'", ())
+            .await;
+        let _ = conn
+            .execute("DELETE FROM users WHERE workspace_id = 'ws-val-test'", ())
+            .await;
+        let _ = conn
+            .execute("DELETE FROM workspaces WHERE id = 'ws-val-test'", ())
+            .await;
     }
 }

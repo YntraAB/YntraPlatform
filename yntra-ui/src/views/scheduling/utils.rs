@@ -65,9 +65,20 @@ pub fn get_month_name(month: u32) -> &'static str {
 
 pub fn get_event_category(title: &str) -> &'static str {
     let lower = title.to_lowercase();
-    if lower.contains("medicin") || lower.contains("medication") || lower.contains("assistans") || lower.contains("assistance") || lower.contains("vård") || lower.contains("care") {
+    if lower.contains("medicin")
+        || lower.contains("medication")
+        || lower.contains("assistans")
+        || lower.contains("assistance")
+        || lower.contains("vård")
+        || lower.contains("care")
+    {
         "assistance_time"
-    } else if lower.contains("ledig") || lower.contains("leave") || lower.contains("vab") || lower.contains("sjuk") || lower.contains("sick") {
+    } else if lower.contains("ledig")
+        || lower.contains("leave")
+        || lower.contains("vab")
+        || lower.contains("sjuk")
+        || lower.contains("sick")
+    {
         "unauthorized_absence"
     } else if lower.contains("möte") || lower.contains("meeting") {
         "meeting"
@@ -80,7 +91,7 @@ pub fn get_event_category(title: &str) -> &'static str {
     }
 }
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct TimeRange {
@@ -106,11 +117,11 @@ pub struct EventMetadata {
     pub active_times: Option<Vec<TimeRange>>,
     #[serde(rename = "break")]
     pub r#break: Option<BreakInfo>,
-    
+
     // School Extensions
     pub course_id: Option<String>,
     pub classroom: Option<String>,
-    
+
     // Moving Extensions
     pub vehicle_id: Option<String>,
     pub cargo_volume: Option<String>,
@@ -130,51 +141,239 @@ pub struct CategoryConfig {
 }
 
 pub const CATEGORIES: &[CategoryConfig] = &[
-    CategoryConfig { id: "assistance_time", label_key: "scheduler-categories-assistance-time", color: "#3B82F6", bg_color: "rgba(59, 130, 246, 0.15)", icon: "user" },
-    CategoryConfig { id: "on_call", label_key: "scheduler-categories-on-call", color: "#F59E0B", bg_color: "rgba(245, 158, 11, 0.15)", icon: "radio" },
-    CategoryConfig { id: "travel_time", label_key: "scheduler-categories-travel-time", color: "#10B981", bg_color: "rgba(16, 185, 129, 0.15)", icon: "clock" },
-    CategoryConfig { id: "introduction", label_key: "scheduler-categories-introduction", color: "#8B5CF6", bg_color: "rgba(139, 92, 246, 0.15)", icon: "book-open" },
-    CategoryConfig { id: "meeting", label_key: "scheduler-categories-meeting", color: "#EC4899", bg_color: "rgba(236, 72, 153, 0.15)", icon: "users" },
-    CategoryConfig { id: "administrative_hours", label_key: "scheduler-categories-administrative-hours", color: "#6366F1", bg_color: "rgba(99, 102, 241, 0.15)", icon: "file-text" },
-    CategoryConfig { id: "training", label_key: "scheduler-categories-training", color: "#F97316", bg_color: "rgba(249, 115, 22, 0.15)", icon: "graduation-cap" },
-    CategoryConfig { id: "escort_service", label_key: "scheduler-categories-escort-service", color: "#06B6D4", bg_color: "rgba(6, 182, 212, 0.15)", icon: "accessibility" },
-    CategoryConfig { id: "respite_care", label_key: "scheduler-categories-respite-care", color: "#14B8A6", bg_color: "rgba(20, 184, 166, 0.15)", icon: "home" },
-    CategoryConfig { id: "unauthorized_absence", label_key: "scheduler-categories-unauthorized-absence", color: "#EF4444", bg_color: "rgba(239, 68, 68, 0.15)", icon: "x-circle" },
-    CategoryConfig { id: "involuntary_leave", label_key: "scheduler-categories-involuntary-leave", color: "#F43F5E", bg_color: "rgba(244, 63, 94, 0.15)", icon: "alert-circle" },
-    CategoryConfig { id: "other_time", label_key: "scheduler-categories-other-time", color: "#84CC16", bg_color: "rgba(132, 204, 22, 0.15)", icon: "plus" },
-    CategoryConfig { id: "customer_staff_note", label_key: "scheduler-categories-customer-staff-note", color: "#D946EF", bg_color: "rgba(217, 70, 239, 0.15)", icon: "message-square" },
-    CategoryConfig { id: "severance_pay", label_key: "scheduler-categories-severance-pay", color: "#6B7280", bg_color: "rgba(107, 114, 128, 0.15)", icon: "banknote" },
-    CategoryConfig { id: "other", label_key: "scheduler-categories-other", color: "#9CA3AF", bg_color: "rgba(156, 163, 175, 0.15)", icon: "more-horizontal" },
+    CategoryConfig {
+        id: "assistance_time",
+        label_key: "scheduler-categories-assistance-time",
+        color: "#3B82F6",
+        bg_color: "rgba(59, 130, 246, 0.15)",
+        icon: "user",
+    },
+    CategoryConfig {
+        id: "on_call",
+        label_key: "scheduler-categories-on-call",
+        color: "#F59E0B",
+        bg_color: "rgba(245, 158, 11, 0.15)",
+        icon: "radio",
+    },
+    CategoryConfig {
+        id: "travel_time",
+        label_key: "scheduler-categories-travel-time",
+        color: "#10B981",
+        bg_color: "rgba(16, 185, 129, 0.15)",
+        icon: "clock",
+    },
+    CategoryConfig {
+        id: "introduction",
+        label_key: "scheduler-categories-introduction",
+        color: "#8B5CF6",
+        bg_color: "rgba(139, 92, 246, 0.15)",
+        icon: "book-open",
+    },
+    CategoryConfig {
+        id: "meeting",
+        label_key: "scheduler-categories-meeting",
+        color: "#EC4899",
+        bg_color: "rgba(236, 72, 153, 0.15)",
+        icon: "users",
+    },
+    CategoryConfig {
+        id: "administrative_hours",
+        label_key: "scheduler-categories-administrative-hours",
+        color: "#6366F1",
+        bg_color: "rgba(99, 102, 241, 0.15)",
+        icon: "file-text",
+    },
+    CategoryConfig {
+        id: "training",
+        label_key: "scheduler-categories-training",
+        color: "#F97316",
+        bg_color: "rgba(249, 115, 22, 0.15)",
+        icon: "graduation-cap",
+    },
+    CategoryConfig {
+        id: "escort_service",
+        label_key: "scheduler-categories-escort-service",
+        color: "#06B6D4",
+        bg_color: "rgba(6, 182, 212, 0.15)",
+        icon: "accessibility",
+    },
+    CategoryConfig {
+        id: "respite_care",
+        label_key: "scheduler-categories-respite-care",
+        color: "#14B8A6",
+        bg_color: "rgba(20, 184, 166, 0.15)",
+        icon: "home",
+    },
+    CategoryConfig {
+        id: "unauthorized_absence",
+        label_key: "scheduler-categories-unauthorized-absence",
+        color: "#EF4444",
+        bg_color: "rgba(239, 68, 68, 0.15)",
+        icon: "x-circle",
+    },
+    CategoryConfig {
+        id: "involuntary_leave",
+        label_key: "scheduler-categories-involuntary-leave",
+        color: "#F43F5E",
+        bg_color: "rgba(244, 63, 94, 0.15)",
+        icon: "alert-circle",
+    },
+    CategoryConfig {
+        id: "other_time",
+        label_key: "scheduler-categories-other-time",
+        color: "#84CC16",
+        bg_color: "rgba(132, 204, 22, 0.15)",
+        icon: "plus",
+    },
+    CategoryConfig {
+        id: "customer_staff_note",
+        label_key: "scheduler-categories-customer-staff-note",
+        color: "#D946EF",
+        bg_color: "rgba(217, 70, 239, 0.15)",
+        icon: "message-square",
+    },
+    CategoryConfig {
+        id: "severance_pay",
+        label_key: "scheduler-categories-severance-pay",
+        color: "#6B7280",
+        bg_color: "rgba(107, 114, 128, 0.15)",
+        icon: "banknote",
+    },
+    CategoryConfig {
+        id: "other",
+        label_key: "scheduler-categories-other",
+        color: "#9CA3AF",
+        bg_color: "rgba(156, 163, 175, 0.15)",
+        icon: "more-horizontal",
+    },
 ];
 
 pub const CARE_CATEGORIES: &[CategoryConfig] = CATEGORIES;
 
 pub const SCHOOL_CATEGORIES: &[CategoryConfig] = &[
-    CategoryConfig { id: "lectures", label_key: "scheduler-categories-lectures", color: "#3B82F6", bg_color: "rgba(59, 130, 246, 0.15)", icon: "graduation-cap" },
-    CategoryConfig { id: "lab_slots", label_key: "scheduler-categories-lab-slots", color: "#10B981", bg_color: "rgba(16, 185, 129, 0.15)", icon: "flask" },
-    CategoryConfig { id: "grading_hours", label_key: "scheduler-categories-grading-hours", color: "#F59E0B", bg_color: "rgba(245, 158, 11, 0.15)", icon: "file-text" },
-    CategoryConfig { id: "exam_invigilation", label_key: "scheduler-categories-exam-invigilation", color: "#8B5CF6", bg_color: "rgba(139, 92, 246, 0.15)", icon: "eye" },
-    CategoryConfig { id: "meeting", label_key: "scheduler-categories-meeting", color: "#EC4899", bg_color: "rgba(236, 72, 153, 0.15)", icon: "users" },
-    CategoryConfig { id: "other", label_key: "scheduler-categories-other", color: "#9CA3AF", bg_color: "rgba(156, 163, 175, 0.15)", icon: "more-horizontal" },
+    CategoryConfig {
+        id: "lectures",
+        label_key: "scheduler-categories-lectures",
+        color: "#3B82F6",
+        bg_color: "rgba(59, 130, 246, 0.15)",
+        icon: "graduation-cap",
+    },
+    CategoryConfig {
+        id: "lab_slots",
+        label_key: "scheduler-categories-lab-slots",
+        color: "#10B981",
+        bg_color: "rgba(16, 185, 129, 0.15)",
+        icon: "flask",
+    },
+    CategoryConfig {
+        id: "grading_hours",
+        label_key: "scheduler-categories-grading-hours",
+        color: "#F59E0B",
+        bg_color: "rgba(245, 158, 11, 0.15)",
+        icon: "file-text",
+    },
+    CategoryConfig {
+        id: "exam_invigilation",
+        label_key: "scheduler-categories-exam-invigilation",
+        color: "#8B5CF6",
+        bg_color: "rgba(139, 92, 246, 0.15)",
+        icon: "eye",
+    },
+    CategoryConfig {
+        id: "meeting",
+        label_key: "scheduler-categories-meeting",
+        color: "#EC4899",
+        bg_color: "rgba(236, 72, 153, 0.15)",
+        icon: "users",
+    },
+    CategoryConfig {
+        id: "other",
+        label_key: "scheduler-categories-other",
+        color: "#9CA3AF",
+        bg_color: "rgba(156, 163, 175, 0.15)",
+        icon: "more-horizontal",
+    },
 ];
 
 pub const MOVING_CATEGORIES: &[CategoryConfig] = &[
-    CategoryConfig { id: "packing", label_key: "scheduler-categories-packing", color: "#8B5CF6", bg_color: "rgba(139, 92, 246, 0.15)", icon: "package" },
-    CategoryConfig { id: "loading", label_key: "scheduler-categories-loading", color: "#3B82F6", bg_color: "rgba(59, 130, 246, 0.15)", icon: "truck" },
-    CategoryConfig { id: "transport", label_key: "scheduler-categories-transport", color: "#10B981", bg_color: "rgba(16, 185, 129, 0.15)", icon: "navigation" },
-    CategoryConfig { id: "unloading", label_key: "scheduler-categories-unloading", color: "#EC4899", bg_color: "rgba(236, 72, 153, 0.15)", icon: "arrow-down-circle" },
-    CategoryConfig { id: "vehicle_maintenance", label_key: "scheduler-categories-vehicle-maintenance", color: "#F59E0B", bg_color: "rgba(245, 158, 11, 0.15)", icon: "tool" },
-    CategoryConfig { id: "other", label_key: "scheduler-categories-other", color: "#9CA3AF", bg_color: "rgba(156, 163, 175, 0.15)", icon: "more-horizontal" },
+    CategoryConfig {
+        id: "packing",
+        label_key: "scheduler-categories-packing",
+        color: "#8B5CF6",
+        bg_color: "rgba(139, 92, 246, 0.15)",
+        icon: "package",
+    },
+    CategoryConfig {
+        id: "loading",
+        label_key: "scheduler-categories-loading",
+        color: "#3B82F6",
+        bg_color: "rgba(59, 130, 246, 0.15)",
+        icon: "truck",
+    },
+    CategoryConfig {
+        id: "transport",
+        label_key: "scheduler-categories-transport",
+        color: "#10B981",
+        bg_color: "rgba(16, 185, 129, 0.15)",
+        icon: "navigation",
+    },
+    CategoryConfig {
+        id: "unloading",
+        label_key: "scheduler-categories-unloading",
+        color: "#EC4899",
+        bg_color: "rgba(236, 72, 153, 0.15)",
+        icon: "arrow-down-circle",
+    },
+    CategoryConfig {
+        id: "vehicle_maintenance",
+        label_key: "scheduler-categories-vehicle-maintenance",
+        color: "#F59E0B",
+        bg_color: "rgba(245, 158, 11, 0.15)",
+        icon: "tool",
+    },
+    CategoryConfig {
+        id: "other",
+        label_key: "scheduler-categories-other",
+        color: "#9CA3AF",
+        bg_color: "rgba(156, 163, 175, 0.15)",
+        icon: "more-horizontal",
+    },
 ];
 
 pub const GENERAL_CATEGORIES: &[CategoryConfig] = &[
-    CategoryConfig { id: "meeting", label_key: "scheduler-categories-meeting", color: "#EC4899", bg_color: "rgba(236, 72, 153, 0.15)", icon: "users" },
-    CategoryConfig { id: "administrative_hours", label_key: "scheduler-categories-administrative-hours", color: "#6366F1", bg_color: "rgba(99, 102, 241, 0.15)", icon: "file-text" },
-    CategoryConfig { id: "training", label_key: "scheduler-categories-training", color: "#F97316", bg_color: "rgba(249, 115, 22, 0.15)", icon: "graduation-cap" },
-    CategoryConfig { id: "other", label_key: "scheduler-categories-other", color: "#9CA3AF", bg_color: "rgba(156, 163, 175, 0.15)", icon: "more-horizontal" },
+    CategoryConfig {
+        id: "meeting",
+        label_key: "scheduler-categories-meeting",
+        color: "#EC4899",
+        bg_color: "rgba(236, 72, 153, 0.15)",
+        icon: "users",
+    },
+    CategoryConfig {
+        id: "administrative_hours",
+        label_key: "scheduler-categories-administrative-hours",
+        color: "#6366F1",
+        bg_color: "rgba(99, 102, 241, 0.15)",
+        icon: "file-text",
+    },
+    CategoryConfig {
+        id: "training",
+        label_key: "scheduler-categories-training",
+        color: "#F97316",
+        bg_color: "rgba(249, 115, 22, 0.15)",
+        icon: "graduation-cap",
+    },
+    CategoryConfig {
+        id: "other",
+        label_key: "scheduler-categories-other",
+        color: "#9CA3AF",
+        bg_color: "rgba(156, 163, 175, 0.15)",
+        icon: "more-horizontal",
+    },
 ];
 
-pub fn get_categories_for_template(template: yntra_core::WorkspaceTemplateType) -> &'static [CategoryConfig] {
+pub fn get_categories_for_template(
+    template: yntra_core::WorkspaceTemplateType,
+) -> &'static [CategoryConfig] {
     match template {
         yntra_core::WorkspaceTemplateType::Care => CARE_CATEGORIES,
         yntra_core::WorkspaceTemplateType::School => SCHOOL_CATEGORIES,
@@ -280,7 +479,7 @@ pub fn parse_date(date_str: &str) -> (i32, u32, u32) {
 pub fn add_days_to_date(date_str: &str, days: i32) -> String {
     let (mut y, mut m, mut d) = parse_date(date_str);
     let mut total_days = d as i32 + days;
-    
+
     if days > 0 {
         while total_days > get_days_in_month(y, m) as i32 {
             total_days -= get_days_in_month(y, m) as i32;
@@ -302,8 +501,6 @@ pub fn add_days_to_date(date_str: &str, days: i32) -> String {
         }
         d = total_days as u32;
     }
-    
+
     format!("{:04}-{:02}-{:02}", y, m, d)
 }
-
-

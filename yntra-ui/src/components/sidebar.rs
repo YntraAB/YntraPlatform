@@ -23,7 +23,11 @@ pub struct SidebarItemProps {
 
 #[component]
 pub fn SidebarItem(props: SidebarItemProps) -> Element {
-    let active_class = if props.active { "bg-muted text-foreground" } else { "text-muted-foreground hover:bg-muted hover:text-foreground" };
+    let active_class = if props.active {
+        "bg-muted text-foreground"
+    } else {
+        "text-muted-foreground hover:bg-muted hover:text-foreground"
+    };
     rsx! {
         div {
             class: "flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-150 mb-1 {active_class}",

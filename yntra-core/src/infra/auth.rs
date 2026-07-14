@@ -1,12 +1,15 @@
-use crate::database::DbConnection;
 use crate::YntraError;
-use std::sync::{OnceLock, RwLock};
+use crate::database::DbConnection;
 use std::collections::HashMap;
+use std::sync::{OnceLock, RwLock};
 
 static AUTH_CONTEXT_CACHE: OnceLock<RwLock<HashMap<String, AuthContext>>> = OnceLock::new();
 
 pub fn invalidate_auth_context_cache() {
-    if let Ok(mut cache) = AUTH_CONTEXT_CACHE.get_or_init(|| RwLock::new(HashMap::new())).write() {
+    if let Ok(mut cache) = AUTH_CONTEXT_CACHE
+        .get_or_init(|| RwLock::new(HashMap::new()))
+        .write()
+    {
         cache.clear();
     }
 }
@@ -25,11 +28,11 @@ fn extract_auth_epoch(settings_str: &str) -> u64 {
     let bytes = settings_str.as_bytes();
     let mut i = 0;
     let len = bytes.len();
-    
+
     let mut depth = 0;
     let mut in_string = false;
     let mut escaped = false;
-    
+
     while i < len {
         let c = bytes[i];
         if in_string {
@@ -46,7 +49,10 @@ fn extract_auth_epoch(settings_str: &str) -> u64 {
                     in_string = true;
                     // Check if this is the key "auth_epoch" at depth 1
                     if depth == 1 {
-                        if i + 12 <= len && &bytes[i + 1..i + 11] == b"auth_epoch" && bytes[i + 11] == b'"' {
+                        if i + 12 <= len
+                            && &bytes[i + 1..i + 11] == b"auth_epoch"
+                            && bytes[i + 11] == b'"'
+                        {
                             // Verify that this is followed by a colon ':' (making it a JSON key)
                             let mut next_idx = i + 12;
                             while next_idx < len && bytes[next_idx].is_ascii_whitespace() {
@@ -93,33 +99,41 @@ fn extract_auth_epoch(settings_str: &str) -> u64 {
 
 impl AuthContext {
     pub async fn authorize(conn: &DbConnection, user_id: &str) -> Result<Self, YntraError> {
-        if let Ok(cache) = AUTH_CONTEXT_CACHE.get_or_init(|| RwLock::new(HashMap::new())).read() {
+        if let Ok(cache) = AUTH_CONTEXT_CACHE
+            .get_or_init(|| RwLock::new(HashMap::new()))
+            .read()
+        {
             if let Some(cached) = cache.get(user_id) {
                 return Ok(cached.clone());
             }
         }
 
         // Single JOIN query to retrieve role, workspace_id, role_signature, creator_public_key and settings in one round-trip.
-        let row_result = conn.query_row(
-            "SELECT u.role, u.workspace_id, u.role_signature, w.creator_public_key, w.settings \
+        let row_result = conn
+            .query_row(
+                "SELECT u.role, u.workspace_id, u.role_signature, w.creator_public_key, w.settings \
              FROM users u \
              LEFT JOIN workspaces w ON u.workspace_id = w.id \
              WHERE u.id = ?1",
-            crate::params![user_id],
-            |r| {
-                let role: String = r.get(0)?;
-                let ws_id: Option<String> = r.get(1)?;
-                let role_sig: Option<String> = r.get(2)?;
-                let creator_pk: Option<String> = r.get(3)?;
-                let ws_settings: Option<String> = r.get(4)?;
-                Ok((role, ws_id, role_sig, creator_pk, ws_settings))
-            }
-        ).await;
+                crate::params![user_id],
+                |r| {
+                    let role: String = r.get(0)?;
+                    let ws_id: Option<String> = r.get(1)?;
+                    let role_sig: Option<String> = r.get(2)?;
+                    let creator_pk: Option<String> = r.get(3)?;
+                    let ws_settings: Option<String> = r.get(4)?;
+                    Ok((role, ws_id, role_sig, creator_pk, ws_settings))
+                },
+            )
+            .await;
 
         let (role, ws_id, role_sig, creator_pk, ws_settings) = match row_result {
             Ok(data) => data,
             Err(e) if e.is_no_row_returned() => {
-                return Err(YntraError::NotFoundError(format!("Requester user '{}' not found", user_id)));
+                return Err(YntraError::NotFoundError(format!(
+                    "Requester user '{}' not found",
+                    user_id
+                )));
             }
             Err(e) => {
                 return Err(e);
@@ -127,7 +141,10 @@ impl AuthContext {
         };
 
         let ws_id = ws_id.ok_or_else(|| {
-            YntraError::AuthError(format!("User '{}' is not assigned to any workspace", user_id))
+            YntraError::AuthError(format!(
+                "User '{}' is not assigned to any workspace",
+                user_id
+            ))
         })?;
 
         // Parse auth_epoch from workspace settings (zero-allocation parsing)
@@ -141,7 +158,10 @@ impl AuthContext {
             // In test and debug configurations, we allow bypassing it if the setup did not configure a public key,
             // to avoid breaking local dev mode / test runs with unconfigured mock workspaces.
             let is_signature_required = if cfg!(test) || cfg!(debug_assertions) {
-                creator_pk.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false)
+                creator_pk
+                    .as_ref()
+                    .map(|s| !s.trim().is_empty())
+                    .unwrap_or(false)
             } else {
                 true
             };
@@ -152,18 +172,25 @@ impl AuthContext {
                 })?;
 
                 if pk.trim().is_empty() {
-                    return Err(YntraError::AuthError(format!("Cryptographic signature verification is required for role '{}', but workspace public key is empty", role)));
+                    return Err(YntraError::AuthError(format!(
+                        "Cryptographic signature verification is required for role '{}', but workspace public key is empty",
+                        role
+                    )));
                 }
 
                 // Validate public key format (SOTA)
                 let pk_bytes = const_hex::decode(&pk).map_err(|_| {
-                    YntraError::AuthError("Workspace public key format is not valid hex".to_string())
+                    YntraError::AuthError(
+                        "Workspace public key format is not valid hex".to_string(),
+                    )
                 })?;
                 let pk_array: [u8; 32] = pk_bytes.as_slice().try_into().map_err(|_| {
                     YntraError::AuthError("Workspace public key length is invalid".to_string())
                 })?;
                 if ed25519_dalek::VerifyingKey::from_bytes(&pk_array).is_err() {
-                    return Err(YntraError::AuthError("Workspace public key is not a valid Ed25519 key".to_string()));
+                    return Err(YntraError::AuthError(
+                        "Workspace public key is not a valid Ed25519 key".to_string(),
+                    ));
                 }
 
                 // Secure the Root of Trust using the system keyring as a secure public key cache (TOFU - Trust On First Use)
@@ -172,7 +199,9 @@ impl AuthContext {
 
                 // 1. Check in-memory key cache first (SOTA)
                 let cached_key = {
-                    let cache = crate::infra::crypto::get_auth_key_cache().read().unwrap_or_else(|e| e.into_inner());
+                    let cache = crate::infra::crypto::get_auth_key_cache()
+                        .read()
+                        .unwrap_or_else(|e| e.into_inner());
                     cache.get(&ws_id).cloned()
                 };
 
@@ -184,7 +213,9 @@ impl AuthContext {
                 } else {
                     // Re-check the in-memory cache first in case another thread populated it during the initial check/lock handoff
                     let recheck_key = {
-                        let cache = crate::infra::crypto::get_auth_key_cache().read().unwrap_or_else(|e| e.into_inner());
+                        let cache = crate::infra::crypto::get_auth_key_cache()
+                            .read()
+                            .unwrap_or_else(|e| e.into_inner());
                         cache.get(&ws_id).cloned()
                     };
 
@@ -193,18 +224,24 @@ impl AuthContext {
                             return Err(YntraError::AuthError("Workspace public key mismatch detected. Local database tampering suspected.".to_string()));
                         }
                         verified_pk = secure_pk;
-                    } else if let Some(secure_pk) = crate::infra::crypto::get_local_secret(&key_setting).await? {
+                    } else if let Some(secure_pk) =
+                        crate::infra::crypto::get_local_secret(&key_setting).await?
+                    {
                         // Fall back to keyring (cold path)
                         if secure_pk != pk {
                             return Err(YntraError::AuthError("Workspace public key mismatch detected. Local database tampering suspected.".to_string()));
                         }
                         // Cache it in-memory
-                        let mut cache = crate::infra::crypto::get_auth_key_cache().write().unwrap_or_else(|e| e.into_inner());
+                        let mut cache = crate::infra::crypto::get_auth_key_cache()
+                            .write()
+                            .unwrap_or_else(|e| e.into_inner());
                         cache.insert(ws_id.clone(), secure_pk);
                     } else {
                         // Re-check cache one more time before doing expensive private-key derivation or writing to keyring
                         let final_check = {
-                            let cache = crate::infra::crypto::get_auth_key_cache().read().unwrap_or_else(|e| e.into_inner());
+                            let cache = crate::infra::crypto::get_auth_key_cache()
+                                .read()
+                                .unwrap_or_else(|e| e.into_inner());
                             cache.get(&ws_id).cloned()
                         };
                         if let Some(secure_pk) = final_check {
@@ -215,7 +252,9 @@ impl AuthContext {
                         } else {
                             // If not cached, check if we hold the creator's private key locally
                             let priv_setting = format!("creator_private_key_{}", ws_id);
-                            if let Some(priv_hex_raw) = crate::infra::crypto::get_local_secret(&priv_setting).await? {
+                            if let Some(priv_hex_raw) =
+                                crate::infra::crypto::get_local_secret(&priv_setting).await?
+                            {
                                 let priv_hex = zeroize::Zeroizing::new(priv_hex_raw);
                                 let derived_pk = crate::infra::crypto::derive_public_key_from_private_key(&priv_hex)
                                     .map_err(|e| YntraError::AuthError(format!("Failed to derive public key from local private key: {:?}", e)))?;
@@ -223,14 +262,17 @@ impl AuthContext {
                                     return Err(YntraError::AuthError("Workspace public key mismatch with creator private key. Local database tampering suspected.".to_string()));
                                 }
                                 // Cache the verified public key in the secure keyring and memory cache
-                                crate::infra::crypto::set_local_secret(&key_setting, &derived_pk).await?;
+                                crate::infra::crypto::set_local_secret(&key_setting, &derived_pk)
+                                    .await?;
                                 verified_pk = derived_pk;
                             } else {
                                 // Trust on first use for collaborators/invited users
                                 crate::infra::crypto::set_local_secret(&key_setting, &pk).await?;
                             }
                             // Cache the verified public key in memory cache
-                            let mut cache = crate::infra::crypto::get_auth_key_cache().write().unwrap_or_else(|e| e.into_inner());
+                            let mut cache = crate::infra::crypto::get_auth_key_cache()
+                                .write()
+                                .unwrap_or_else(|e| e.into_inner());
                             cache.insert(ws_id.clone(), verified_pk.clone());
                         }
                     }
@@ -239,7 +281,9 @@ impl AuthContext {
                 // Epoch rollback prevention logic (SOTA)
                 // 1. Check in-memory epoch cache first
                 let cached_epoch = {
-                    let cache = crate::infra::crypto::get_auth_epoch_cache().read().unwrap_or_else(|e| e.into_inner());
+                    let cache = crate::infra::crypto::get_auth_epoch_cache()
+                        .read()
+                        .unwrap_or_else(|e| e.into_inner());
                     cache.get(&ws_id).cloned()
                 };
 
@@ -249,8 +293,12 @@ impl AuthContext {
                     }
                     if current_epoch > mem_epoch {
                         // Update keyring first (source of truth), then update the volatile cache on success
-                        let active_epoch = crate::infra::crypto::set_local_epoch_if_greater(&ws_id, current_epoch).await?;
-                        let mut cache = crate::infra::crypto::get_auth_epoch_cache().write().unwrap_or_else(|e| e.into_inner());
+                        let active_epoch =
+                            crate::infra::crypto::set_local_epoch_if_greater(&ws_id, current_epoch)
+                                .await?;
+                        let mut cache = crate::infra::crypto::get_auth_epoch_cache()
+                            .write()
+                            .unwrap_or_else(|e| e.into_inner());
                         let current_cached = cache.get(&ws_id).cloned().unwrap_or(0);
                         if active_epoch > current_cached {
                             cache.insert(ws_id.clone(), active_epoch);
@@ -258,11 +306,15 @@ impl AuthContext {
                     }
                 } else {
                     // Cold path: fetch and/or set from keyring securely (guaranteeing CAS/integrity)
-                    let active_epoch = crate::infra::crypto::set_local_epoch_if_greater(&ws_id, current_epoch).await?;
-                    
+                    let active_epoch =
+                        crate::infra::crypto::set_local_epoch_if_greater(&ws_id, current_epoch)
+                            .await?;
+
                     // Re-check cache for rollback after async call
                     let recheck_epoch = {
-                        let cache = crate::infra::crypto::get_auth_epoch_cache().read().unwrap_or_else(|e| e.into_inner());
+                        let cache = crate::infra::crypto::get_auth_epoch_cache()
+                            .read()
+                            .unwrap_or_else(|e| e.into_inner());
                         cache.get(&ws_id).cloned()
                     };
                     if let Some(mem_epoch) = recheck_epoch {
@@ -270,8 +322,10 @@ impl AuthContext {
                             return Err(YntraError::AuthError("Workspace auth epoch rollback detected. Local database tampering suspected.".to_string()));
                         }
                     }
-                    
-                    let mut cache = crate::infra::crypto::get_auth_epoch_cache().write().unwrap_or_else(|e| e.into_inner());
+
+                    let mut cache = crate::infra::crypto::get_auth_epoch_cache()
+                        .write()
+                        .unwrap_or_else(|e| e.into_inner());
                     let current_cached = cache.get(&ws_id).cloned().unwrap_or(0);
                     if active_epoch > current_cached {
                         cache.insert(ws_id.clone(), active_epoch);
@@ -291,7 +345,9 @@ impl AuthContext {
                 } else if signature_parts.len() == 2 {
                     0
                 } else {
-                    return Err(YntraError::AuthError("Role signature format is invalid".to_string()));
+                    return Err(YntraError::AuthError(
+                        "Role signature format is invalid".to_string(),
+                    ));
                 };
 
                 if signature_epoch < current_epoch {
@@ -306,7 +362,7 @@ impl AuthContext {
                     user_id,
                     &role,
                     &ws_id,
-                    &signature_str
+                    &signature_str,
                 );
 
                 if !is_valid {
@@ -323,7 +379,10 @@ impl AuthContext {
             is_admin,
             workspace_settings: ws_settings,
         };
-        if let Ok(mut cache) = AUTH_CONTEXT_CACHE.get_or_init(|| RwLock::new(HashMap::new())).write() {
+        if let Ok(mut cache) = AUTH_CONTEXT_CACHE
+            .get_or_init(|| RwLock::new(HashMap::new()))
+            .write()
+        {
             cache.insert(user_id.to_string(), auth.clone());
         }
         Ok(auth)
@@ -341,25 +400,39 @@ mod tests {
         let conn = database::acquire_connection().await.unwrap();
 
         // Cleanup key cache before run to ensure clean state
-        let _ = crate::infra::crypto::set_local_secret("workspace_public_key_workspace-auth-1", "").await;
+        let _ = crate::infra::crypto::set_local_secret("workspace_public_key_workspace-auth-1", "")
+            .await;
 
         // Setup test admin user with workspace public key and valid role signature
         let creator_pk = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
         let creator_sk = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings, creator_public_key) VALUES ('workspace-auth-1', 'Auth WS', '[]', '{}', ?1)", crate::params![creator_pk]).await.unwrap();
-        let valid_sig = crate::infra::crypto::generate_role_signature(creator_sk, "user-auth-admin", "admin", "workspace-auth-1").unwrap();
+        let valid_sig = crate::infra::crypto::generate_role_signature(
+            creator_sk,
+            "user-auth-admin",
+            "admin",
+            "workspace-auth-1",
+        )
+        .unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, role_signature) VALUES ('user-auth-admin', 'workspace-auth-1', 'admin@auth.io', 'admin', ?1)", crate::params![valid_sig]).await.unwrap();
 
-        let auth = AuthContext::authorize(&conn, "user-auth-admin").await.unwrap();
+        let auth = AuthContext::authorize(&conn, "user-auth-admin")
+            .await
+            .unwrap();
         assert_eq!(auth.user_id, "user-auth-admin");
         assert_eq!(auth.role, "admin");
         assert_eq!(auth.workspace_id, "workspace-auth-1");
         assert!(auth.is_admin);
 
         // Cleanup
-        conn.execute("DELETE FROM users WHERE id = 'user-auth-admin'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'workspace-auth-1'", ()).await.unwrap();
-        let _ = crate::infra::crypto::set_local_secret("workspace_public_key_workspace-auth-1", "").await;
+        conn.execute("DELETE FROM users WHERE id = 'user-auth-admin'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'workspace-auth-1'", ())
+            .await
+            .unwrap();
+        let _ = crate::infra::crypto::set_local_secret("workspace_public_key_workspace-auth-1", "")
+            .await;
     }
 
     #[tokio::test]
@@ -368,25 +441,39 @@ mod tests {
         let conn = database::acquire_connection().await.unwrap();
 
         // Cleanup key cache before run to ensure clean state
-        let _ = crate::infra::crypto::set_local_secret("workspace_public_key_workspace-auth-2", "").await;
+        let _ = crate::infra::crypto::set_local_secret("workspace_public_key_workspace-auth-2", "")
+            .await;
 
         // Setup test standard user with workspace public key and valid role signature
         let creator_pk = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
         let creator_sk = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings, creator_public_key) VALUES ('workspace-auth-2', 'Auth WS 2', '[]', '{}', ?1)", crate::params![creator_pk]).await.unwrap();
-        let valid_sig = crate::infra::crypto::generate_role_signature(creator_sk, "user-auth-normal", "user", "workspace-auth-2").unwrap();
+        let valid_sig = crate::infra::crypto::generate_role_signature(
+            creator_sk,
+            "user-auth-normal",
+            "user",
+            "workspace-auth-2",
+        )
+        .unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, role_signature) VALUES ('user-auth-normal', 'workspace-auth-2', 'normal@auth.io', 'user', ?1)", crate::params![valid_sig]).await.unwrap();
 
-        let auth = AuthContext::authorize(&conn, "user-auth-normal").await.unwrap();
+        let auth = AuthContext::authorize(&conn, "user-auth-normal")
+            .await
+            .unwrap();
         assert_eq!(auth.user_id, "user-auth-normal");
         assert_eq!(auth.role, "user");
         assert_eq!(auth.workspace_id, "workspace-auth-2");
         assert!(!auth.is_admin);
 
         // Cleanup
-        conn.execute("DELETE FROM users WHERE id = 'user-auth-normal'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'workspace-auth-2'", ()).await.unwrap();
-        let _ = crate::infra::crypto::set_local_secret("workspace_public_key_workspace-auth-2", "").await;
+        conn.execute("DELETE FROM users WHERE id = 'user-auth-normal'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'workspace-auth-2'", ())
+            .await
+            .unwrap();
+        let _ = crate::infra::crypto::set_local_secret("workspace_public_key_workspace-auth-2", "")
+            .await;
     }
 
     #[tokio::test]
@@ -409,7 +496,9 @@ mod tests {
         let conn = database::acquire_connection().await.unwrap();
 
         // Cleanup key cache before run to ensure clean state
-        let _ = crate::infra::crypto::set_local_secret("workspace_public_key_workspace-auth-sig", "").await;
+        let _ =
+            crate::infra::crypto::set_local_secret("workspace_public_key_workspace-auth-sig", "")
+                .await;
 
         // 1. Setup workspace with a creator public key
         let creator_pk = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
@@ -418,7 +507,13 @@ mod tests {
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings, creator_public_key) VALUES ('workspace-auth-sig', 'Auth Sig WS', '[]', '{}', ?1)", crate::params![creator_pk]).await.unwrap();
 
         // 2. Generate a valid signature for an admin role
-        let valid_sig = crate::infra::crypto::generate_role_signature(creator_sk, "user-auth-sig-admin", "admin", "workspace-auth-sig").unwrap();
+        let valid_sig = crate::infra::crypto::generate_role_signature(
+            creator_sk,
+            "user-auth-sig-admin",
+            "admin",
+            "workspace-auth-sig",
+        )
+        .unwrap();
 
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, role_signature) VALUES ('user-auth-sig-admin', 'workspace-auth-sig', 'admin-sig@auth.io', 'admin', ?1)", crate::params![valid_sig]).await.unwrap();
 
@@ -431,15 +526,28 @@ mod tests {
         let auth_fail = AuthContext::authorize(&conn, "user-auth-sig-tampered").await;
         assert!(auth_fail.is_err());
         if let Err(YntraError::AuthError(msg)) = auth_fail {
-            assert!(msg.contains("verification failed") || msg.contains("format is invalid"), "Expected verification or format failure, got: {}", msg);
+            assert!(
+                msg.contains("verification failed") || msg.contains("format is invalid"),
+                "Expected verification or format failure, got: {}",
+                msg
+            );
         } else {
             panic!("Expected AuthError");
         }
 
         // Cleanup
-        conn.execute("DELETE FROM users WHERE id IN ('user-auth-sig-admin', 'user-auth-sig-tampered')", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'workspace-auth-sig'", ()).await.unwrap();
-        let _ = crate::infra::crypto::set_local_secret("workspace_public_key_workspace-auth-sig", "").await;
+        conn.execute(
+            "DELETE FROM users WHERE id IN ('user-auth-sig-admin', 'user-auth-sig-tampered')",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'workspace-auth-sig'", ())
+            .await
+            .unwrap();
+        let _ =
+            crate::infra::crypto::set_local_secret("workspace_public_key_workspace-auth-sig", "")
+                .await;
     }
 
     #[tokio::test]
@@ -454,8 +562,12 @@ mod tests {
         let user_id = "user-auth-epoch-admin";
 
         // Clean cache before starting
-        let _ = crate::infra::crypto::set_local_secret(&format!("workspace_public_key_{}", ws_id), "").await;
-        let _ = crate::infra::crypto::set_local_secret(&format!("workspace_auth_epoch_{}", ws_id), "").await;
+        let _ =
+            crate::infra::crypto::set_local_secret(&format!("workspace_public_key_{}", ws_id), "")
+                .await;
+        let _ =
+            crate::infra::crypto::set_local_secret(&format!("workspace_auth_epoch_{}", ws_id), "")
+                .await;
 
         conn.execute(
             "INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings, creator_public_key) VALUES (?1, 'Auth Epoch WS', '[]', '{\"auth_epoch\": 2}', ?2)",
@@ -463,16 +575,25 @@ mod tests {
         ).await.unwrap();
 
         // 2. Try to authorize with a legacy signature (epoch 0, implicitly) -> should fail because workspace current epoch is 2
-        let legacy_sig = crate::infra::crypto::generate_role_signature(creator_sk, user_id, "admin", ws_id).unwrap();
+        let legacy_sig =
+            crate::infra::crypto::generate_role_signature(creator_sk, user_id, "admin", ws_id)
+                .unwrap();
         conn.execute(
             "INSERT OR REPLACE INTO users (id, workspace_id, email, role, role_signature) VALUES (?1, ?2, 'admin@epoch.io', 'admin', ?3)",
             crate::params![user_id, ws_id, legacy_sig]
         ).await.unwrap();
 
         let auth_res = AuthContext::authorize(&conn, user_id).await;
-        assert!(auth_res.is_err(), "Legacy signature (epoch 0) should be rejected when workspace epoch is 2");
+        assert!(
+            auth_res.is_err(),
+            "Legacy signature (epoch 0) should be rejected when workspace epoch is 2"
+        );
         if let Err(YntraError::AuthError(msg)) = auth_res {
-            assert!(msg.contains("outdated"), "Expected outdated epoch error, got: {}", msg);
+            assert!(
+                msg.contains("outdated"),
+                "Expected outdated epoch error, got: {}",
+                msg
+            );
         } else {
             panic!("Expected AuthError");
         }
@@ -483,46 +604,83 @@ mod tests {
             .unwrap_or_default()
             .as_secs() as i64;
         let expires_at = current_time + 3600;
-        let valid_epoch_sig = crate::infra::crypto::generate_role_signature_v2(creator_sk, user_id, "admin", ws_id, expires_at, 2).unwrap();
+        let valid_epoch_sig = crate::infra::crypto::generate_role_signature_v2(
+            creator_sk, user_id, "admin", ws_id, expires_at, 2,
+        )
+        .unwrap();
         conn.execute(
             "UPDATE users SET role_signature = ?1 WHERE id = ?2",
-            crate::params![valid_epoch_sig, user_id]
-        ).await.unwrap();
+            crate::params![valid_epoch_sig, user_id],
+        )
+        .await
+        .unwrap();
 
         let auth_res = AuthContext::authorize(&conn, user_id).await;
-        assert!(auth_res.is_ok(), "Signature matching epoch 2 should succeed, got error: {:?}", auth_res.err());
+        assert!(
+            auth_res.is_ok(),
+            "Signature matching epoch 2 should succeed, got error: {:?}",
+            auth_res.err()
+        );
 
         // Verify the epoch has been cached to 2 in local secret storage
-        let cached_epoch = crate::infra::crypto::get_local_secret(&format!("workspace_auth_epoch_{}", ws_id)).await.unwrap();
+        let cached_epoch =
+            crate::infra::crypto::get_local_secret(&format!("workspace_auth_epoch_{}", ws_id))
+                .await
+                .unwrap();
         assert_eq!(cached_epoch.as_deref(), Some("2"));
 
         // 4. Simulate Database Tampering Rollback Attack (Database epoch is modified back to 1)
         conn.execute(
             "UPDATE workspaces SET settings = '{\"auth_epoch\": 1}' WHERE id = ?1",
-            crate::params![ws_id]
-        ).await.unwrap();
+            crate::params![ws_id],
+        )
+        .await
+        .unwrap();
 
         // Regenerate role signature for epoch 1
-        let rolled_sig = crate::infra::crypto::generate_role_signature_v2(creator_sk, user_id, "admin", ws_id, expires_at, 1).unwrap();
+        let rolled_sig = crate::infra::crypto::generate_role_signature_v2(
+            creator_sk, user_id, "admin", ws_id, expires_at, 1,
+        )
+        .unwrap();
         conn.execute(
             "UPDATE users SET role_signature = ?1 WHERE id = ?2",
-            crate::params![rolled_sig, user_id]
-        ).await.unwrap();
+            crate::params![rolled_sig, user_id],
+        )
+        .await
+        .unwrap();
 
         // Auth should fail with a rollback mismatch detection error!
         let auth_res = AuthContext::authorize(&conn, user_id).await;
-        assert!(auth_res.is_err(), "Rolled back database epoch should be rejected");
+        assert!(
+            auth_res.is_err(),
+            "Rolled back database epoch should be rejected"
+        );
         if let Err(YntraError::AuthError(msg)) = auth_res {
-            assert!(msg.contains("rollback detected"), "Expected rollback error, got: {}", msg);
+            assert!(
+                msg.contains("rollback detected"),
+                "Expected rollback error, got: {}",
+                msg
+            );
         } else {
             panic!("Expected AuthError");
         }
 
         // Cleanup
-        conn.execute("DELETE FROM users WHERE id = ?1", crate::params![user_id]).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
-        let _ = crate::infra::crypto::set_local_secret(&format!("workspace_public_key_{}", ws_id), "").await;
-        let _ = crate::infra::crypto::set_local_secret(&format!("workspace_auth_epoch_{}", ws_id), "").await;
+        conn.execute("DELETE FROM users WHERE id = ?1", crate::params![user_id])
+            .await
+            .unwrap();
+        conn.execute(
+            "DELETE FROM workspaces WHERE id = ?1",
+            crate::params![ws_id],
+        )
+        .await
+        .unwrap();
+        let _ =
+            crate::infra::crypto::set_local_secret(&format!("workspace_public_key_{}", ws_id), "")
+                .await;
+        let _ =
+            crate::infra::crypto::set_local_secret(&format!("workspace_auth_epoch_{}", ws_id), "")
+                .await;
     }
 
     #[test]

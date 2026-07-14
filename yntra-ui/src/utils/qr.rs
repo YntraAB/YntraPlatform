@@ -6,7 +6,7 @@ pub fn render_qr_svg(data: &str) -> Element {
         let size = qr.size();
         let border = 2;
         let total_size = size + border * 2;
-        
+
         let mut rects = Vec::new();
         for y in 0..size {
             for x in 0..size {
@@ -24,7 +24,7 @@ pub fn render_qr_svg(data: &str) -> Element {
                 }
             }
         }
-        
+
         rsx! {
             svg {
                 view_box: "0 0 {total_size} {total_size}",

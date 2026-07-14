@@ -1,5 +1,5 @@
-use totp_rs::{Algorithm, TOTP, Secret};
 use chrono::Utc;
+use totp_rs::{Algorithm, Secret, TOTP};
 use zeroize::Zeroize;
 
 #[uniffi::export]
@@ -16,7 +16,9 @@ pub fn verify_user_totp(mut secret: String, mut code: String) -> bool {
     res
 }
 
-static LAST_VERIFIED_STEPS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, u64>>> = std::sync::OnceLock::new();
+static LAST_VERIFIED_STEPS: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, u64>>,
+> = std::sync::OnceLock::new();
 
 fn verify_totp(secret: String, code: &str, timestamp: u64) -> bool {
     let secret_bytes_res = Secret::Encoded(secret.clone()).to_bytes();
@@ -59,7 +61,10 @@ fn verify_totp(secret: String, code: &str, timestamp: u64) -> bool {
             hasher.update(secret.as_bytes());
             const_hex::encode(hasher.finalize())
         };
-        let mut cache = LAST_VERIFIED_STEPS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new())).lock().unwrap();
+        let mut cache = LAST_VERIFIED_STEPS
+            .get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+            .lock()
+            .unwrap();
         if let Some(&last_step) = cache.get(&secret_hash) {
             if step <= last_step {
                 return false;
@@ -75,7 +80,7 @@ fn verify_totp(secret: String, code: &str, timestamp: u64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use totp_rs::{Algorithm, TOTP, Secret};
+    use totp_rs::{Algorithm, Secret, TOTP};
 
     #[test]
     fn test_totp_generation_and_verification() {
@@ -83,13 +88,7 @@ mod tests {
         assert!(!secret_str.is_empty());
 
         let secret_bytes = Secret::Encoded(secret_str.clone()).to_bytes().unwrap();
-        let totp = TOTP::new(
-            Algorithm::SHA1,
-            6,
-            1,
-            30,
-            secret_bytes,
-        ).unwrap();
+        let totp = TOTP::new(Algorithm::SHA1, 6, 1, 30, secret_bytes).unwrap();
 
         let timestamp = 1700000000;
         let code = totp.generate(timestamp);
@@ -110,4 +109,3 @@ mod tests {
         assert!(!verify_totp(secret_str.clone(), "000000", timestamp));
     }
 }
-

@@ -54,10 +54,10 @@ pub fn Dropdown(props: DropdownProps) -> Element {
                     style: "position: fixed; inset: 0; z-index: 999; cursor: default;",
                     onclick: move |_| ontoggle.call(()),
                 }
-                div { 
-                    class: "{menu_class}", 
+                div {
+                    class: "{menu_class}",
                     "data-state": "open",
-                    {children} 
+                    {children}
                 }
             }
         }

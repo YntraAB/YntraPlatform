@@ -27,7 +27,10 @@ pub fn ReportsList(props: ReportsListProps) -> Element {
     let mut type_filter_open = use_signal(|| false);
 
     let total_reports = reports.len();
-    let pending_reports = reports.iter().filter(|r| r.status != "resolved" && r.status != "reviewed").count();
+    let pending_reports = reports
+        .iter()
+        .filter(|r| r.status != "resolved" && r.status != "reviewed")
+        .count();
     let resolved_reports = reports.iter().filter(|r| r.status == "resolved").count();
     let current_status_filter = report_status_filter.read().clone();
     let current_type_filter = report_type_filter.read().clone();
@@ -78,7 +81,7 @@ pub fn ReportsList(props: ReportsListProps) -> Element {
             // Filters Toolbar
             div { class: "flex gap-3 justify-end items-center mb-2",
                 span { class: "text-xs font-bold text-muted-foreground uppercase mr-2", { t("reporting-filters-label", &region) } }
-                
+
                 {
                     let current_status_label = match current_status_filter.as_str() {
                         "pending" => t("reporting-status-pending", &region),
@@ -223,7 +226,7 @@ pub fn ReportsList(props: ReportsListProps) -> Element {
                                     let content: serde_json::Value = serde_json::from_str(&r_content).unwrap_or_default();
                                     let sub = content.get("subject").and_then(|v| v.as_str()).map(|s| s.to_string()).unwrap_or_else(|| t("reporting-no-subject", &region));
                                     let date_str = content.get("date_of_incident").and_then(|v| v.as_str()).unwrap_or("");
-                                    
+
                                     let type_badge_label = match r_type.as_str() {
                                         "complaint" => t("reporting-types-complaint", &region),
                                         "work_injury" => t("reporting-types-work-injury", &region),

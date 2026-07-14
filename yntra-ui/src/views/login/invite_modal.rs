@@ -58,7 +58,8 @@ pub fn InviteModal(props: InviteModalProps) -> Element {
                     } else {
                         a_sec.set("dashboard".to_string());
                     }
-                    let is_new_invite = user.phone.is_none() || user.phone.as_ref().map(|p| p.is_empty()).unwrap_or(true);
+                    let is_new_invite = user.phone.is_none()
+                        || user.phone.as_ref().map(|p| p.is_empty()).unwrap_or(true);
                     n_setup.set(is_new_invite);
                     log_in.set(true);
                     s_invite.set(false);

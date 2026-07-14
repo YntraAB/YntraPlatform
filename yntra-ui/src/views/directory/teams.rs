@@ -1,6 +1,6 @@
-use dioxus::prelude::*;
 use crate::components;
 use crate::state::AppState;
+use dioxus::prelude::*;
 
 #[component]
 pub fn TeamsList(
@@ -118,7 +118,7 @@ pub fn TeamsList(
                                         directory_level.set("members".to_string());
                                     },
                                     class: "group flex cursor-pointer items-center border-b border-border px-8 py-3.5 transition-colors hover:bg-white/[0.02] list-item-hover",
-                                    
+
                                     div {
                                         class: "mr-4 flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] bg-white/[0.04] font-bold text-primary transition-colors",
                                         "{t_name.chars().next().unwrap_or('T')}"

@@ -64,19 +64,20 @@ async fn run_real_hardware_auth_native(ctx: pcsc::Context, session_id: String, _
     use pcsc::*;
     let mut readers_buf = [0; 2048];
 
-    let update_status = |status: &str, progress: f64| {
-        let session_id = session_id.clone();
-        let status = status.to_string();
-        async move {
-            if let Ok(conn) = database::acquire_connection().await {
-                let _ = conn.execute(
+    let update_status =
+        |status: &str, progress: f64| {
+            let session_id = session_id.clone();
+            let status = status.to_string();
+            async move {
+                if let Ok(conn) = database::acquire_connection().await {
+                    let _ = conn.execute(
                     "UPDATE bankid_auth_sessions SET status = ?1, progress = ?2 WHERE id = ?3",
                     crate::params![status, progress, session_id],
                 ).await;
+                }
+                notify_observers();
             }
-            notify_observers();
-        }
-    };
+        };
 
     let set_success = |uid: String| {
         let session_id = session_id.clone();
@@ -116,11 +117,15 @@ async fn run_real_hardware_auth_native(ctx: pcsc::Context, session_id: String, _
 
         let mut is_active = false;
         if let Ok(conn) = database::acquire_connection().await {
-            if let Ok(mut stmt) = conn.prepare("SELECT status FROM bankid_auth_sessions WHERE id = ?1").await {
+            if let Ok(mut stmt) = conn
+                .prepare("SELECT status FROM bankid_auth_sessions WHERE id = ?1")
+                .await
+            {
                 if let Ok(mut rows) = stmt.query(crate::params![&session_id]).await {
                     if let Ok(Some(row)) = rows.next().await {
                         let status: String = row.get(0).unwrap_or_default();
-                        is_active = status == "connecting" || status == "polling" || status == "reading";
+                        is_active =
+                            status == "connecting" || status == "polling" || status == "reading";
                     }
                 }
             }
@@ -149,15 +154,21 @@ async fn run_real_hardware_auth_native(ctx: pcsc::Context, session_id: String, _
 
                 match extract_unique_card_id(&card) {
                     Ok(unique_id) => {
-                        tracing::info!("[Real Smart Card] Unique card identifier read: {}", unique_id);
+                        tracing::info!(
+                            "[Real Smart Card] Unique card identifier read: {}",
+                            unique_id
+                        );
 
                         let challenge_opt = {
                             if let Ok(conn) = database::acquire_connection().await {
                                 conn.query_row(
                                     "SELECT challenge FROM bankid_auth_sessions WHERE id = ?1",
                                     crate::params![&session_id],
-                                    |r| r.get::<Option<String>>(0)
-                                ).await.ok().flatten()
+                                    |r| r.get::<Option<String>>(0),
+                                )
+                                .await
+                                .ok()
+                                .flatten()
                             } else {
                                 None
                             }
@@ -165,7 +176,7 @@ async fn run_real_hardware_auth_native(ctx: pcsc::Context, session_id: String, _
 
                         let user_pubkey = {
                             if let Ok(conn) = database::acquire_connection().await {
-                                 conn.query_row(
+                                conn.query_row(
                                      "SELECT metadata ->> 'siths_public_key' FROM users WHERE metadata ->> 'siths_card_id' = ?1",
                                      crate::params![&unique_id],
                                      |r| r.get::<Option<String>>(0)
@@ -177,17 +188,27 @@ async fn run_real_hardware_auth_native(ctx: pcsc::Context, session_id: String, _
 
                         let user_exists = user_pubkey.is_some();
                         if user_exists {
-                            if let (Some(challenge_hex), Some(pubkey_hex)) = (challenge_opt, user_pubkey) {
+                            if let (Some(challenge_hex), Some(pubkey_hex)) =
+                                (challenge_opt, user_pubkey)
+                            {
                                 #[cfg(debug_assertions)]
                                 {
-                                    let challenge_bytes = const_hex::decode(&challenge_hex).unwrap_or_default();
-                                    let seed_val = if unique_id.contains("ALICE") || unique_id.contains("alice") { 1 } else { 2 };
-                                    let signing_key = ed25519_dalek::SigningKey::from_bytes(&[seed_val; 32]);
-                                    
+                                    let challenge_bytes =
+                                        const_hex::decode(&challenge_hex).unwrap_or_default();
+                                    let seed_val = if unique_id.contains("ALICE")
+                                        || unique_id.contains("alice")
+                                    {
+                                        1
+                                    } else {
+                                        2
+                                    };
+                                    let signing_key =
+                                        ed25519_dalek::SigningKey::from_bytes(&[seed_val; 32]);
+
                                     use ed25519_dalek::Signer;
                                     let signature = signing_key.sign(&challenge_bytes);
                                     let sig_hex = const_hex::encode(signature.to_bytes());
-                                    
+
                                     match crate::services::auth::bankid::verify_hardware_auth_signature(session_id.clone(), pubkey_hex, sig_hex).await {
                                         Ok(_) => {
                                             break;
@@ -218,7 +239,7 @@ async fn run_real_hardware_auth_native(ctx: pcsc::Context, session_id: String, _
                             {
                                 let mut resolved_user_info = None;
                                 if let Ok(conn) = database::acquire_connection().await {
-                                     if let Ok(mut stmt) = conn.prepare("SELECT id, metadata ->> 'siths_public_key' FROM users WHERE metadata ->> 'siths_card_id' IS NOT NULL AND metadata ->> 'siths_card_id' != ''").await {
+                                    if let Ok(mut stmt) = conn.prepare("SELECT id, metadata ->> 'siths_public_key' FROM users WHERE metadata ->> 'siths_card_id' IS NOT NULL AND metadata ->> 'siths_card_id' != ''").await {
                                         if let Ok(mut rows) = stmt.query(()).await {
                                             if let Ok(Some(row)) = rows.next().await {
                                                 resolved_user_info = Some((row.get::<String>(0).unwrap(), row.get::<Option<String>>(1).unwrap()));
@@ -227,15 +248,23 @@ async fn run_real_hardware_auth_native(ctx: pcsc::Context, session_id: String, _
                                     }
                                 }
                                 if let Some((uid, pubkey_opt)) = resolved_user_info {
-                                    tracing::warn!("[Real Smart Card Debug Fallback] Mapping card ID {} to user ID {}", unique_id, uid);
-                                    if let (Some(challenge_hex), Some(pubkey_opt_hex)) = (challenge_opt, pubkey_opt) {
-                                        let challenge_bytes = const_hex::decode(&challenge_hex).unwrap_or_default();
-                                        let signing_key = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
-                                        
+                                    tracing::warn!(
+                                        "[Real Smart Card Debug Fallback] Mapping card ID {} to user ID {}",
+                                        unique_id,
+                                        uid
+                                    );
+                                    if let (Some(challenge_hex), Some(pubkey_opt_hex)) =
+                                        (challenge_opt, pubkey_opt)
+                                    {
+                                        let challenge_bytes =
+                                            const_hex::decode(&challenge_hex).unwrap_or_default();
+                                        let signing_key =
+                                            ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+
                                         use ed25519_dalek::Signer;
                                         let signature = signing_key.sign(&challenge_bytes);
                                         let sig_hex = const_hex::encode(signature.to_bytes());
-                                        
+
                                         if let Ok(_) = crate::services::auth::bankid::verify_hardware_auth_signature(session_id.clone(), pubkey_opt_hex, sig_hex).await {
                                             break;
                                         }
@@ -245,7 +274,8 @@ async fn run_real_hardware_auth_native(ctx: pcsc::Context, session_id: String, _
                                 }
                             }
 
-                            set_error(&format!("login-hw-error-card-unregistered:{}", unique_id)).await;
+                            set_error(&format!("login-hw-error-card-unregistered:{}", unique_id))
+                                .await;
                             break;
                         }
                     }

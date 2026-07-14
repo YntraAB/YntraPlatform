@@ -36,7 +36,9 @@ impl From<libsql::Error> for YntraError {
                     YntraError::DbError(format!("SQLite error ({}): {}", code, msg))
                 }
             }
-            libsql::Error::ConnectionFailed(msg) => YntraError::DbError(format!("Connection failed: {}", msg)),
+            libsql::Error::ConnectionFailed(msg) => {
+                YntraError::DbError(format!("Connection failed: {}", msg))
+            }
             libsql::Error::Misuse(msg) => YntraError::DbError(format!("API misuse: {}", msg)),
             _ => YntraError::DbError(err.to_string()),
         }
@@ -55,10 +57,14 @@ mod tests {
 
     #[test]
     fn test_libsql_error_conversion() {
-        let constraint_err = libsql::Error::SqliteFailure(19, "UNIQUE constraint failed: table.col".to_string());
+        let constraint_err =
+            libsql::Error::SqliteFailure(19, "UNIQUE constraint failed: table.col".to_string());
         let yntra_constraint = YntraError::from(constraint_err);
         assert!(matches!(yntra_constraint, YntraError::ConstraintError(_)));
-        assert_eq!(yntra_constraint.to_string(), "Constraint violation: UNIQUE constraint failed: table.col");
+        assert_eq!(
+            yntra_constraint.to_string(),
+            "Constraint violation: UNIQUE constraint failed: table.col"
+        );
 
         let db_err = libsql::Error::SqliteFailure(1, "some other sqlite error".to_string());
         let yntra_db = YntraError::from(db_err);
@@ -75,4 +81,3 @@ mod tests {
         assert!(yntra_misuse.to_string().contains("API misuse"));
     }
 }
-

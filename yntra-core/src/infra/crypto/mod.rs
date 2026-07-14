@@ -1,15 +1,15 @@
-pub mod signing;
 pub mod keychain;
+pub mod signing;
 
-pub use signing::*;
 pub use keychain::*;
+pub use signing::*;
 
-use chacha20poly1305::{XChaCha20Poly1305, Key, XNonce};
-use chacha20poly1305::aead::{Aead, KeyInit};
-use std::sync::{Mutex, OnceLock, RwLock};
-use std::collections::HashMap;
-use zeroize::Zeroize;
 use crate::infra::errors::YntraError;
+use chacha20poly1305::aead::{Aead, KeyInit};
+use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock, RwLock};
+use zeroize::Zeroize;
 
 #[derive(Clone, Zeroize)]
 #[zeroize(drop)]
@@ -22,10 +22,10 @@ static SYSTEM_SALT: OnceLock<zeroize::Zeroizing<Vec<u8>>> = OnceLock::new();
 
 static AUTH_KEY_CACHE: OnceLock<RwLock<HashMap<String, String>>> = OnceLock::new();
 static AUTH_EPOCH_CACHE: OnceLock<RwLock<HashMap<String, u64>>> = OnceLock::new();
-static WORKSPACE_KEY_CACHE: OnceLock<RwLock<HashMap<String, zeroize::Zeroizing<[u8; 32]>>>> = OnceLock::new();
+static WORKSPACE_KEY_CACHE: OnceLock<RwLock<HashMap<String, zeroize::Zeroizing<[u8; 32]>>>> =
+    OnceLock::new();
 #[cfg(not(target_arch = "wasm32"))]
 static KEYRING_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
-
 
 pub fn get_auth_key_cache() -> &'static RwLock<HashMap<String, String>> {
     AUTH_KEY_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
@@ -44,7 +44,6 @@ pub(crate) fn get_keyring_lock() -> &'static Mutex<()> {
     KEYRING_MUTEX.get_or_init(|| Mutex::new(()))
 }
 
-
 fn bytes_to_string(bytes: Vec<u8>) -> Result<String, YntraError> {
     match String::from_utf8(bytes) {
         Ok(s) => Ok(s),
@@ -58,14 +57,14 @@ fn bytes_to_string(bytes: Vec<u8>) -> Result<String, YntraError> {
 
 pub fn stretch_key_new(key: &[u8]) -> Result<[u8; 32], YntraError> {
     let system_salt = get_system_salt_ref()?;
-    
+
     // Secure 32-byte key derivation using BLAKE3 KDF
     let mut hasher = blake3::Hasher::new_derive_key("Yntra key stretching v1");
     hasher.update(&(system_salt.len() as u64).to_be_bytes());
     hasher.update(system_salt);
     hasher.update(&(key.len() as u64).to_be_bytes());
     hasher.update(key);
-    
+
     let mut derived = [0u8; 32];
     hasher.finalize_xof().fill(&mut derived);
     hasher.zeroize();
@@ -85,7 +84,7 @@ pub fn initialize_system_salt(mut salt: String) -> bool {
             b
         }
     };
-    
+
     match SYSTEM_SALT.set(zeroize::Zeroizing::new(bytes)) {
         Ok(_) => true,
         Err(mut rejected_salt) => {
@@ -100,7 +99,8 @@ pub(crate) fn get_system_salt_ref() -> Result<&'static [u8], YntraError> {
         return Ok(&salt[..]);
     }
     ensure_system_salt_initialized()?;
-    SYSTEM_SALT.get()
+    SYSTEM_SALT
+        .get()
         .map(|s| &s[..])
         .ok_or_else(|| YntraError::CryptoError("system_salt_uninitialized".to_string()))
 }
@@ -109,7 +109,7 @@ fn ensure_system_salt_initialized() -> Result<(), YntraError> {
     if SYSTEM_SALT.get().is_some() {
         return Ok(());
     }
-    
+
     let mut salt_buf = String::new();
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -118,7 +118,7 @@ fn ensure_system_salt_initialized() -> Result<(), YntraError> {
             salt.zeroize();
         }
     }
-    
+
     if cfg!(test) {
         let mut rand_bytes = [0u8; 32];
         let res = getrandom::fill(&mut rand_bytes);
@@ -128,7 +128,9 @@ fn ensure_system_salt_initialized() -> Result<(), YntraError> {
         rand_bytes.zeroize();
         if res.is_err() {
             salt_buf.zeroize();
-            return Err(YntraError::CryptoError("Failed to generate secure random salt for tests".to_string()));
+            return Err(YntraError::CryptoError(
+                "Failed to generate secure random salt for tests".to_string(),
+            ));
         }
     } else {
         #[cfg(not(target_arch = "wasm32"))]
@@ -141,13 +143,16 @@ fn ensure_system_salt_initialized() -> Result<(), YntraError> {
                 }
             }
         }
-        
+
         if salt_buf.is_empty() {
             salt_buf.zeroize();
-            return Err(YntraError::CryptoError("Cryptographic system salt was not initialized. Database setup must run first.".to_string()));
+            return Err(YntraError::CryptoError(
+                "Cryptographic system salt was not initialized. Database setup must run first."
+                    .to_string(),
+            ));
         }
     }
-    
+
     let bytes = match const_hex::decode(&salt_buf) {
         Ok(b) => {
             salt_buf.zeroize();
@@ -159,7 +164,7 @@ fn ensure_system_salt_initialized() -> Result<(), YntraError> {
             b
         }
     };
-    
+
     match SYSTEM_SALT.set(zeroize::Zeroizing::new(bytes)) {
         Ok(_) => {}
         Err(mut rejected) => {
@@ -182,7 +187,7 @@ pub fn set_session_key(mut key_bytes: Vec<u8>) -> bool {
     if let Some(mut old_sk) = lock.take() {
         old_sk.zeroize();
     }
-    
+
     let mut key_arr = [0u8; 32];
     if key_bytes.len() == 32 {
         key_arr.copy_from_slice(&key_bytes);
@@ -191,15 +196,13 @@ pub fn set_session_key(mut key_bytes: Vec<u8>) -> bool {
         key_arr.copy_from_slice(hash.as_bytes());
     }
     key_bytes.zeroize();
-    
-    *lock = Some(SessionKeys {
-        new_key: key_arr,
-    });
-    
+
+    *lock = Some(SessionKeys { new_key: key_arr });
+
     if let Ok(mut cache) = get_workspace_key_cache().write() {
         cache.clear();
     }
-    
+
     true
 }
 
@@ -244,7 +247,7 @@ pub fn clear_session_key() {
     if let Some(mut old_sk) = lock.take() {
         old_sk.zeroize();
     }
-    
+
     if let Ok(mut cache) = get_workspace_key_cache().write() {
         cache.clear();
     }
@@ -286,9 +289,11 @@ fn get_encryption_keys_internal(
         };
         if lock.is_none() && is_poisoned {
             hasher.zeroize();
-            return Err(YntraError::CryptoError("session_key_lock_poisoned".to_string()));
+            return Err(YntraError::CryptoError(
+                "session_key_lock_poisoned".to_string(),
+            ));
         }
-        
+
         if let Some(ref sk) = *lock {
             session_key_bytes.copy_from_slice(&sk.new_key);
         } else {
@@ -342,7 +347,10 @@ pub fn encrypt_fields(data: Vec<String>, workspace_id: &str) -> Result<Vec<Strin
 }
 
 #[uniffi::export]
-pub fn decrypt_fields(encrypted_data: Vec<String>, workspace_id: &str) -> Result<Vec<String>, YntraError> {
+pub fn decrypt_fields(
+    encrypted_data: Vec<String>,
+    workspace_id: &str,
+) -> Result<Vec<String>, YntraError> {
     let cipher = WorkspaceCipher::new(workspace_id)?;
     let mut decrypted = Vec::with_capacity(encrypted_data.len());
     for item in encrypted_data {
@@ -351,7 +359,10 @@ pub fn decrypt_fields(encrypted_data: Vec<String>, workspace_id: &str) -> Result
     Ok(decrypted)
 }
 
-pub fn encrypt_opt_field(data: Option<String>, workspace_id: &str) -> Result<Option<String>, YntraError> {
+pub fn encrypt_opt_field(
+    data: Option<String>,
+    workspace_id: &str,
+) -> Result<Option<String>, YntraError> {
     let cipher = WorkspaceCipher::new(workspace_id)?;
     cipher.encrypt_opt(data)
 }
@@ -377,24 +388,25 @@ pub fn decrypt_opt_field(encrypted_data: Option<String>, workspace_id: &str) -> 
 pub fn hash_anonymous_reporter(user_id: &str, workspace_id: &str) -> Result<String, YntraError> {
     let salt = get_system_salt_ref()?;
     let client_pepper = get_local_client_pepper()?;
-    
-    let mut hasher = blake3::Hasher::new_derive_key("Yntra whistleblower reporter anonymity hash v2");
+
+    let mut hasher =
+        blake3::Hasher::new_derive_key("Yntra whistleblower reporter anonymity hash v2");
     hasher.update(&(salt.len() as u64).to_be_bytes());
     hasher.update(salt);
-    
+
     hasher.update(&(workspace_id.len() as u64).to_be_bytes());
     hasher.update(workspace_id.as_bytes());
-    
+
     hasher.update(&(user_id.len() as u64).to_be_bytes());
     hasher.update(user_id.as_bytes());
-    
+
     hasher.update(&(client_pepper.len() as u64).to_be_bytes());
     hasher.update(client_pepper.as_bytes());
-    
+
     let mut output = [0u8; 32];
     hasher.finalize_xof().fill(&mut output);
     hasher.zeroize();
-    
+
     Ok(format!("anon_hash:{}", hex_encode(&output)))
 }
 
@@ -407,12 +419,10 @@ impl WorkspaceCipher {
         let key_res = get_encryption_keys_internal(workspace_id);
         let session_key = match key_res {
             Ok(k) => Some(k),
-            Err(YntraError::CryptoError(ref msg)) if msg == "session_key_missing" => {
-                None
-            }
+            Err(YntraError::CryptoError(ref msg)) if msg == "session_key_missing" => None,
             Err(e) => return Err(e),
         };
-        
+
         Ok(Self { session_key })
     }
 
@@ -421,25 +431,29 @@ impl WorkspaceCipher {
             Some(k) => k,
             None => return Err(YntraError::CryptoError("session_key_missing".to_string())),
         };
-        
+
         let mut nonce_bytes = [0u8; 24];
         getrandom::fill(&mut nonce_bytes).map_err(|e| {
             tracing::error!("Failed to generate random nonce: {:?}", e);
             YntraError::CryptoError("Failed to generate random nonce".to_string())
         })?;
         let zeroizing_nonce = zeroize::Zeroizing::new(nonce_bytes);
-        
+
         let key = Key::from_slice(&key_bytes[..]);
         let cipher = XChaCha20Poly1305::new(key);
         let nonce = XNonce::from_slice(&zeroizing_nonce[..]);
-        
+
         let result = if let Ok(ct) = cipher.encrypt(nonce, data.as_bytes()) {
-            Ok(format!("enc:{}:{}", hex_encode(&zeroizing_nonce[..]), hex_encode(&ct)))
+            Ok(format!(
+                "enc:{}:{}",
+                hex_encode(&zeroizing_nonce[..]),
+                hex_encode(&ct)
+            ))
         } else {
             tracing::error!("XChaCha20Poly1305 encryption failed");
             Err(YntraError::CryptoError("encryption_failed".to_string()))
         };
-        
+
         result
     }
 
@@ -447,9 +461,9 @@ impl WorkspaceCipher {
         if !encrypted_data.starts_with("enc:") {
             return Err(YntraError::CryptoError("not_encrypted".to_string()));
         }
-        
+
         let body = &encrypted_data[4..];
-        
+
         let mut parts = body.splitn(3, ':');
         match (parts.next(), parts.next(), parts.next()) {
             (Some(p1), Some(p2), None) => {
@@ -458,28 +472,29 @@ impl WorkspaceCipher {
                     return Err(YntraError::CryptoError("invalid_nonce".to_string()));
                 }
                 let zeroizing_nonce = zeroize::Zeroizing::new(nonce_bytes);
-                
+
                 let ct = match hex_decode(p2) {
                     Some(b) => b,
                     None => {
                         return Err(YntraError::CryptoError("invalid_ciphertext".to_string()));
                     }
                 };
-                
+
                 let key_bytes = match &self.session_key {
                     Some(k) => k,
                     None => {
                         return Err(YntraError::CryptoError("session_key_missing".to_string()));
                     }
                 };
-                
+
                 let key = Key::from_slice(&key_bytes[..]);
                 let cipher = XChaCha20Poly1305::new(key);
                 let nonce = XNonce::from_slice(&zeroizing_nonce[..]);
-                
-                let pt = cipher.decrypt(nonce, ct.as_slice())
+
+                let pt = cipher
+                    .decrypt(nonce, ct.as_slice())
                     .map_err(|_| YntraError::CryptoError("decryption_failed".to_string()))?;
-                
+
                 bytes_to_string(pt)
             }
             _ => Err(YntraError::CryptoError("invalid_format".to_string())),
@@ -498,9 +513,7 @@ impl WorkspaceCipher {
     }
 
     pub fn decrypt_opt(&self, encrypted_data: Option<String>) -> Option<String> {
-        encrypted_data.and_then(|d| {
-            self.decrypt(&d).ok()
-        })
+        encrypted_data.and_then(|d| self.decrypt(&d).ok())
     }
 }
 
@@ -524,20 +537,20 @@ mod tests {
     fn test_chacha_encryption_decryption() {
         let _test_lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         set_session_key("test-session-key".to_string().into_bytes());
-        
+
         let plaintext = "Sensitive whistleblowing report text";
         let workspace_id = "test-workspace-123";
         let encrypted = encrypt_field(plaintext, workspace_id).unwrap();
         assert!(encrypted.starts_with("enc:"));
-        
+
         let body = &encrypted[4..];
         let parts: Vec<&str> = body.split(':').collect();
         assert_eq!(parts.len(), 2);
         assert_eq!(parts[0].len(), 48);
-        
+
         let decrypted = decrypt_field(&encrypted, workspace_id).unwrap();
         assert_eq!(plaintext, decrypted);
-        
+
         clear_session_key();
     }
 
@@ -547,10 +560,14 @@ mod tests {
         let plaintext = "Highly sensitive user data";
         let workspace_id = "test-workspace-456";
 
-        set_session_key("my-super-secret-user-password-or-pin".to_string().into_bytes());
+        set_session_key(
+            "my-super-secret-user-password-or-pin"
+                .to_string()
+                .into_bytes(),
+        );
 
         let encrypted = encrypt_field(plaintext, workspace_id).unwrap();
-        
+
         let decrypted = decrypt_field(&encrypted, workspace_id).unwrap();
         assert_eq!(plaintext, decrypted);
 
@@ -558,7 +575,11 @@ mod tests {
         let decrypted_without_key_res = decrypt_field(&encrypted, workspace_id);
         assert!(decrypted_without_key_res.is_err());
 
-        set_session_key("my-super-secret-user-password-or-pin".to_string().into_bytes());
+        set_session_key(
+            "my-super-secret-user-password-or-pin"
+                .to_string()
+                .into_bytes(),
+        );
         let decrypted_with_key_again = decrypt_field(&encrypted, workspace_id).unwrap();
         assert_eq!(plaintext, decrypted_with_key_again);
 
@@ -582,7 +603,9 @@ mod tests {
             panic!("Expected CryptoError(session_key_lock_poisoned)");
         }
 
-        assert!(set_session_key("my-new-session-key".to_string().into_bytes()));
+        assert!(set_session_key(
+            "my-new-session-key".to_string().into_bytes()
+        ));
 
         let lock = match SESSION_KEY.lock() {
             Ok(g) => g,
@@ -594,11 +617,13 @@ mod tests {
     #[test]
     fn test_system_salt_duplicate_initialization() {
         let _test_lock = crate::database::DB_TEST_LOCK.lock().unwrap();
-        let initial_salt = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20".to_string();
-        
+        let initial_salt =
+            "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20".to_string();
+
         let _ = initialize_system_salt(initial_salt);
-        
-        let duplicate_salt = "303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f".to_string();
+
+        let duplicate_salt =
+            "303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f".to_string();
         let second_res = initialize_system_salt(duplicate_salt);
         assert!(!second_res);
     }

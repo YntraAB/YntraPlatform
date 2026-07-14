@@ -16,7 +16,6 @@ fn parse_template(json_str: &str) -> Value {
     serde_json::from_str(json_str).unwrap_or_else(|_| serde_json::Value::Array(Vec::new()))
 }
 
-
 pub fn get_care_roles(care_subtype: &str, is_scandi: bool) -> Value {
     if is_scandi {
         match care_subtype {
@@ -53,22 +52,29 @@ pub fn get_default_roles_json(
             let subtype = care_subtype.as_deref().unwrap_or("aldreomsorg");
             get_care_roles(subtype, is_scandi)
         }
-        _ => return Err(crate::YntraError::NotFoundError(format!("Unknown workspace type: {}", workspace_type))),
+        _ => {
+            return Err(crate::YntraError::NotFoundError(format!(
+                "Unknown workspace type: {}",
+                workspace_type
+            )));
+        }
     };
 
-    serde_json::to_string(&val)
-        .map_err(|e| crate::YntraError::DbError(format!("Failed to serialize role template: {}", e)))
+    serde_json::to_string(&val).map_err(|e| {
+        crate::YntraError::DbError(format!("Failed to serialize role template: {}", e))
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-
     #[test]
     fn test_care_subtypes_loading() {
-        let lss = get_default_roles_json("assistance".to_string(), Some("lss".to_string()), false).unwrap();
-        let hvb = get_default_roles_json("assistance".to_string(), Some("hvb".to_string()), false).unwrap();
+        let lss = get_default_roles_json("assistance".to_string(), Some("lss".to_string()), false)
+            .unwrap();
+        let hvb = get_default_roles_json("assistance".to_string(), Some("hvb".to_string()), false)
+            .unwrap();
 
         assert!(lss.to_lowercase().contains("lss"));
         assert!(hvb.to_lowercase().contains("hvb"));
@@ -80,4 +86,3 @@ mod tests {
         assert!(err.is_err());
     }
 }
-

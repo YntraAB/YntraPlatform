@@ -180,7 +180,7 @@ pub fn Tabs(props: LegacyTabsProps) -> Element {
                     let tab_val = tab.value.clone();
                     let label = tab.label.clone();
                     let icon_name = tab.icon.clone();
-                    
+
                     rsx! {
                         button {
                             key: "{tab_val}",

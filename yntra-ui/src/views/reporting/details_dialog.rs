@@ -1,7 +1,7 @@
-use dioxus::prelude::*;
-use yntra_core::{ReportItem, WorkspaceUser, update_report_status};
 use crate::components;
 use crate::locales::t;
+use dioxus::prelude::*;
+use yntra_core::{ReportItem, WorkspaceUser, update_report_status};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct ReportDetailsDialogProps {
@@ -30,7 +30,10 @@ pub fn ReportDetailsDialog(props: ReportDetailsDialogProps) -> Element {
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .unwrap_or_else(|| t("reporting-no-subject", &region));
-    let desc = content_val.get("description").and_then(|v| v.as_str()).unwrap_or("");
+    let desc = content_val
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let date_val = content_val
         .get("date_of_incident")
         .and_then(|v| v.as_str())
@@ -53,9 +56,14 @@ pub fn ReportDetailsDialog(props: ReportDetailsDialogProps) -> Element {
         "deviation" => t("reporting-types-deviation", &region),
         "whistleblower" => t("reporting-types-whistleblower", &region),
         _ => rep_type.clone(),
-    }.to_uppercase();
+    }
+    .to_uppercase();
 
-    let details_title = format!("{}{}", t("reporting-details-title-prefix", &region), display_type_caps);
+    let details_title = format!(
+        "{}{}",
+        t("reporting-details-title-prefix", &region),
+        display_type_caps
+    );
 
     rsx! {
         components::Dialog {

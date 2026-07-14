@@ -161,7 +161,9 @@ pub fn ReportSubmitForm(props: ReportSubmitFormProps) -> Element {
                                 let is_anon = *report_is_anonymous.read();
                                 let date_val = report_date.read().clone();
                                 spawn(async move {
+                                    let req_uid = user_id.clone();
                                     if let Ok(report) = add_report(
+                                        req_uid,
                                         workspace_id,
                                         user_id,
                                         r_type,

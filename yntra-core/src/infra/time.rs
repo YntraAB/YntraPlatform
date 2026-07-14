@@ -1,4 +1,4 @@
-use chrono::{Utc};
+use chrono::Utc;
 
 pub fn get_current_time_ms() -> i64 {
     Utc::now().timestamp_millis()
@@ -21,7 +21,10 @@ unsafe impl<F> Send for SendFuture<F> {}
 #[cfg(target_arch = "wasm32")]
 impl<F: std::future::Future> std::future::Future for SendFuture<F> {
     type Output = F::Output;
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
         unsafe {
             let mut_self = self.get_unchecked_mut();
             let inner = std::pin::Pin::new_unchecked(&mut mut_self.0);
@@ -73,4 +76,3 @@ mod tests {
         assert_eq!(&hm[2..3], ":");
     }
 }
-

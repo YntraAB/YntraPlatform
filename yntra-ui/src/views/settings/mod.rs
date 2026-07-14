@@ -4,19 +4,19 @@ use yntra_core::{Workspace, WorkspaceUser};
 
 mod account;
 mod blocks;
+mod finance_settings;
 mod general;
 mod notifications;
 mod scheduler;
 mod two_factor;
-mod finance_settings;
 
 pub use account::AccountSettings;
 pub use blocks::BlockSettings;
+pub use finance_settings::FinanceSettings;
 pub use general::GeneralSettings;
 pub use notifications::NotificationsSettings;
 pub use scheduler::SchedulerSettings;
 pub use two_factor::TwoFactorSettings;
-pub use finance_settings::FinanceSettings;
 
 #[derive(Props, Clone)]
 pub struct SettingsViewProps {
@@ -130,7 +130,7 @@ pub fn SettingsView(props: SettingsViewProps) -> Element {
                     div {
                         h1 {
                             class: "text-3xl font-bold tracking-tight text-foreground m-0",
-                            
+
                             if is_admin {
                                 "{props.settings_name}"
                             } else {
@@ -190,7 +190,7 @@ pub fn SettingsView(props: SettingsViewProps) -> Element {
                         let tab_val = tab.value.clone();
                         let label = tab.label.clone();
                         let icon_name = tab.icon.clone();
-                        
+
                         rsx! {
                             button {
                                 key: "{tab_val}",

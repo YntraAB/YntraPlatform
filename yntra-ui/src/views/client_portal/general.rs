@@ -1,6 +1,6 @@
+use crate::components;
 use dioxus::prelude::*;
 use yntra_core::get_job_tickets;
-use crate::components;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub struct ChecklistItem {
@@ -36,7 +36,7 @@ pub fn GeneralPortal(props: GeneralPortalProps) -> Element {
     rsx! {
         // 3. General Operations Portal Widgets
         div { class: "grid grid-cols-1 gap-6 md:grid-cols-3",
-            
+
             // Left/Main Card: Aktiva Uppdrag
             div { class: "md:col-span-2",
                 components::Card {

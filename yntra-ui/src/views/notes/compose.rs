@@ -1,7 +1,7 @@
+use crate::components;
+use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::{WorkspaceUser, add_note};
-use crate::locales::t;
-use crate::components;
 
 #[derive(Props, Clone)]
 pub struct NoteComposeProps {
@@ -36,7 +36,7 @@ pub fn NoteCompose(props: NoteComposeProps) -> Element {
     rsx! {
         div {
             class: "flex flex-col h-full w-full bg-background box-border",
-            
+
             // Header bar matching reference NoteComposePane
             div {
                 class: "flex h-16 shrink-0 items-center justify-between border-b border-border px-8 bg-white/[0.02] box-border backdrop-blur-md",
@@ -47,7 +47,7 @@ pub fn NoteCompose(props: NoteComposeProps) -> Element {
                         onclick: move |_| is_composing.set(false),
                         components::LucideIcon { name: "chevron-left", size: "20" }
                     }
-                    h2 { class: "text-lg font-bold text-foreground m-0", 
+                    h2 { class: "text-lg font-bold text-foreground m-0",
                         "{t(\"notes-compose-title\", &locale)} {team_name}"
                     }
                 }
@@ -109,7 +109,7 @@ pub fn NoteCompose(props: NoteComposeProps) -> Element {
             // Compose content editor area
             div {
                 class: "scrollbar-dark flex-1 overflow-y-auto px-8 py-10 flex flex-col gap-8 mx-auto w-full max-w-[800px] box-border md:px-24 lg:px-48",
-                
+
                 // Subject input
                 div {
                     class: "flex flex-col border-b border-border pb-2 transition-colors",

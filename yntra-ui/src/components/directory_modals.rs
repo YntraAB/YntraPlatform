@@ -53,21 +53,23 @@ pub fn MemberDetailDialog(props: MemberDetailDialogProps) -> Element {
                 u.full_name.clone().unwrap_or_else(|| "No Name".to_string()),
                 role_name.to_string(),
                 Some(u.email.clone()),
-                u.phone.clone().unwrap_or_else(|| "Not specified".to_string()),
+                u.phone
+                    .clone()
+                    .unwrap_or_else(|| "Not specified".to_string()),
                 "Not specified".to_string(),
-                false
+                false,
             )
         }
-        DirectoryMember::Client(c) => {
-            (
-                format!("{} {}", c.first_name, c.last_name),
-                c.personal_number.clone().unwrap_or_else(|| "Not specified".to_string()),
-                None,
-                "Not specified".to_string(),
-                "Not specified".to_string(),
-                true
-            )
-        }
+        DirectoryMember::Client(c) => (
+            format!("{} {}", c.first_name, c.last_name),
+            c.personal_number
+                .clone()
+                .unwrap_or_else(|| "Not specified".to_string()),
+            None,
+            "Not specified".to_string(),
+            "Not specified".to_string(),
+            true,
+        ),
     };
 
     rsx! {
@@ -197,7 +199,10 @@ pub fn EditMemberDialog(props: EditMemberDialogProps) -> Element {
         _ => String::new(),
     });
     let mut client_level = use_signal(|| match &member {
-        DirectoryMember::Client(c) => c.care_level.clone().unwrap_or_else(|| "High Care".to_string()),
+        DirectoryMember::Client(c) => c
+            .care_level
+            .clone()
+            .unwrap_or_else(|| "High Care".to_string()),
         _ => "High Care".to_string(),
     });
 
@@ -215,14 +220,15 @@ pub fn EditMemberDialog(props: EditMemberDialogProps) -> Element {
                     let phone_val = caregiver_phone.read().trim().to_string();
                     let role_val = caregiver_role.read().clone();
                     let requester_uid = state.active_user_id.read().clone();
-                    
+
                     yntra_core::update_user_via_directory(
                         requester_uid,
                         u.id.clone(),
                         Some(name_val),
                         Some(phone_val),
                         role_val,
-                    ).await
+                    )
+                    .await
                 }
                 DirectoryMember::Client(c) => {
                     let first = client_first.read().trim().to_string();
@@ -238,7 +244,8 @@ pub fn EditMemberDialog(props: EditMemberDialogProps) -> Element {
                         last,
                         Some(ssn),
                         Some(lvl),
-                    ).await
+                    )
+                    .await
                 }
             };
 
@@ -254,8 +261,6 @@ pub fn EditMemberDialog(props: EditMemberDialogProps) -> Element {
             is_loading.set(false);
         });
     };
-
-
 
     rsx! {
         components::Dialog {

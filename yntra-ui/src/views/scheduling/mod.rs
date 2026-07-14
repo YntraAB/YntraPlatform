@@ -1,20 +1,20 @@
-pub mod month;
-pub mod week;
-pub mod day;
+pub mod add_event_modal;
 pub mod agenda;
+pub mod day;
+pub mod detail_modal;
+pub mod month;
+pub mod sidebar;
+pub mod time_off_modal;
 pub mod unscheduled;
 pub mod utils;
-pub mod sidebar;
-pub mod add_event_modal;
-pub mod time_off_modal;
-pub mod detail_modal;
+pub mod week;
 
-pub use month::MonthView;
-pub use week::WeekView;
-pub use day::DayView;
 pub use agenda::AgendaView;
+pub use day::DayView;
+pub use month::MonthView;
 pub use unscheduled::UnscheduledBucket;
 pub use utils::*;
+pub use week::WeekView;
 
 use crate::components;
 use crate::locales::t;
@@ -22,10 +22,10 @@ use dioxus::prelude::*;
 use yntra_core::TeamEvent;
 use yntra_core::WorkspaceUser;
 
-use sidebar::SchedulingSidebar;
 use add_event_modal::AddEventModal;
-use time_off_modal::TimeOffModal;
 use detail_modal::EventDetailModal;
+use sidebar::SchedulingSidebar;
+use time_off_modal::TimeOffModal;
 
 #[derive(Props, Clone)]
 pub struct SchedulingViewProps {
@@ -101,7 +101,6 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
 
     let is_admin = active_user.role == "platform_admin" || active_user.role == "admin";
 
-
     // Setup initial select defaults if empty
     let effect_teams = teams.clone();
     let effect_users = users.clone();
@@ -112,7 +111,8 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
         if event_assignee.read().is_empty() && !effect_users.is_empty() {
             event_assignee.set(effect_users[0].id.clone());
         }
-        let clients: Vec<&WorkspaceUser> = effect_users.iter().filter(|u| u.role == "client").collect();
+        let clients: Vec<&WorkspaceUser> =
+            effect_users.iter().filter(|u| u.role == "client").collect();
         if event_recipient.read().is_empty() && !clients.is_empty() {
             event_recipient.set(clients[0].id.clone());
         }
@@ -140,7 +140,7 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
             };
             let _config = get_event_category_config(&ev.title, &ev.metadata);
             let matches_category = filter_categories.read().contains(&"schedule".to_string());
-            
+
             matches_team && matches_assignee && matches_category
         })
         .cloned()
@@ -174,17 +174,29 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
     let curr_year = *calendar_year.read();
     let curr_month = *calendar_month.read();
 
-    let prev_year = if curr_month == 1 { curr_year - 1 } else { curr_year };
+    let prev_year = if curr_month == 1 {
+        curr_year - 1
+    } else {
+        curr_year
+    };
     let prev_month = if curr_month == 1 { 12 } else { curr_month - 1 };
 
-    let next_year = if curr_month == 12 { curr_year + 1 } else { curr_year };
+    let next_year = if curr_month == 12 {
+        curr_year + 1
+    } else {
+        curr_year
+    };
     let next_month = if curr_month == 12 { 1 } else { curr_month + 1 };
 
     let days_in_prev = get_days_in_month(prev_year, prev_month);
     let days_in_curr = get_days_in_month(curr_year, curr_month);
     let first_day_wd = get_first_day_of_week(curr_year, curr_month);
 
-    let leading_days = if first_day_wd == 0 { 6 } else { first_day_wd - 1 };
+    let leading_days = if first_day_wd == 0 {
+        6
+    } else {
+        first_day_wd - 1
+    };
 
     let mut cells = Vec::new();
 
@@ -254,9 +266,15 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
                 let last = &week_cells[6];
                 format!(
                     "{} {} - {} {}, {}",
-                    get_month_name(first.month).chars().take(3).collect::<String>(),
+                    get_month_name(first.month)
+                        .chars()
+                        .take(3)
+                        .collect::<String>(),
                     first.day,
-                    get_month_name(last.month).chars().take(3).collect::<String>(),
+                    get_month_name(last.month)
+                        .chars()
+                        .take(3)
+                        .collect::<String>(),
                     last.day,
                     first.year
                 )
@@ -264,9 +282,7 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
                 selected_date_str.clone()
             }
         }
-        "agenda" => {
-            t("scheduler-upcoming-events", &props.locale)
-        }
+        "agenda" => t("scheduler-upcoming-events", &props.locale),
         _ => {
             format!("{} {}", get_month_name(curr_month), curr_year)
         }
@@ -274,7 +290,7 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
 
     rsx! {
         div { class: "flex h-full flex-1 overflow-hidden bg-background",
-            
+
             // Renders sidebar
             if *calendar_view_mode.read() != "timetable" {
                 SchedulingSidebar {
@@ -299,7 +315,7 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
 
             // Main View Area (with Unscheduled drawer and Calendar pane)
             div { class: "flex-1 min-w-0 flex overflow-hidden",
-                
+
                 // Collapsible Unscheduled Bucket Drawer
                 if *calendar_view_mode.read() != "timetable" {
                     UnscheduledBucket {
@@ -316,7 +332,7 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
 
                 // Main content: calendar grid and controls
                 div { class: "flex flex-col flex-1 min-w-0 bg-background",
-                    
+
                     // Toolbar Header
                     div { class: "flex items-center justify-between border-b border-border px-4 py-3 bg-background/95 backdrop-blur-sm z-30 sticky top-0",
                         // Left side: Navigation and Date range display
@@ -396,7 +412,7 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
                                     components::LucideIcon { name: "chevron-right", class: "h-5 w-5 text-muted-foreground" }
                                 }
                             }
-                            
+
                             div { class: "flex items-center gap-2 select-none",
                                 components::LucideIcon { name: "calendar", class: "h-5 w-5 text-primary" }
                                 span { class: "font-bold text-foreground text-base", "{date_range_header}" }
@@ -461,7 +477,7 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
 
                             // Zoom Controls
                             if *calendar_view_mode.read() == "day" || *calendar_view_mode.read() == "week" {
-                                div { 
+                                div {
                                     class: "flex items-center rounded-lg border border-border/50 bg-secondary/30 px-2 py-1 gap-1.5 select-none",
                                     span { class: "text-muted-foreground/60 font-bold uppercase text-[9px] mr-1", "Zoom: {zoom_level.read():.0}%" }
                                     button {
@@ -502,7 +518,7 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
                             rsx! {
                                 div { class: "flex border-b border-border sticky top-[61px] z-20 bg-background/95 backdrop-blur-sm select-none",
                                     div { class: "w-16 flex-shrink-0 border-r border-border bg-sidebar" }
-                                    div { 
+                                    div {
                                         class: "grid flex-1 divide-x divide-border",
                                         style: "grid-template-columns: repeat(7, minmax(0, 1fr));",
                                         for cell in week_cells.iter() {
@@ -512,7 +528,7 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
                                                 let is_weekend = cell.day % 2 == 0;
                                                 let cell_label_class = if is_today { "text-primary font-bold" } else { "text-muted-foreground/80" };
                                                 let cell_bg = if is_weekend { "bg-muted/30 dark:bg-[#0F1115]" } else { "" };
-                                                
+
                                                 rsx! {
                                                     div {
                                                         key: "{date_str}",
@@ -678,5 +694,3 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
         }
     }
 }
-
-

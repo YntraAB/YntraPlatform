@@ -19,7 +19,17 @@ pub fn parse_date(date_str: &str) -> Option<(i32, i32, i32)> {
     let year = parts[0].parse::<i32>().ok()?;
     let month = parts[1].parse::<i32>().ok()?;
     let day = parts[2].parse::<i32>().ok()?;
-    if year < 1970 || month < 1 || month > 12 || day < 1 || day > 31 {
+    if year < 1970 || month < 1 || month > 12 || day < 1 {
+        return None;
+    }
+    let leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+    let max_days = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => if leap { 29 } else { 28 },
+        _ => return None,
+    };
+    if day > max_days {
         return None;
     }
     Some((year, month, day))
@@ -52,7 +62,7 @@ pub fn get_report_interval(
 ) -> Option<(i32, i32)> {
     let (y, m, d) = parse_date(date_str)?;
     let day_start_min = date_to_days(y, m, d) * 1440;
-    
+
     if let (Some(s_str), Some(e_str)) = (start_time, end_time) {
         let s_min = parse_time_to_minutes(s_str)?;
         let e_min = parse_time_to_minutes(e_str)?;
@@ -79,11 +89,11 @@ pub fn resolve_fallback_interval_for_day(
 ) -> (i32, i32) {
     let duration_min = (hours * 60.0) as i32;
     let mut candidate_start = day_start_min + 8 * 60; // Start at 08:00
-    
+
     loop {
         let candidate_end = candidate_start + duration_min;
         let mut conflict = false;
-        
+
         // 1. Check for overlaps with ANY shift
         for &(estart, eend) in all_existing_intervals {
             if candidate_start < eend && estart < candidate_end {
@@ -92,7 +102,7 @@ pub fn resolve_fallback_interval_for_day(
                 break;
             }
         }
-        
+
         // 2. Check if it satisfies mandatory daily rest relative to adjacent shifts
         if !conflict && mandatory_rest_min > 0 {
             for &(estart, eend) in all_existing_intervals {
@@ -108,7 +118,7 @@ pub fn resolve_fallback_interval_for_day(
                 }
             }
         }
-        
+
         if !conflict {
             return (candidate_start, candidate_end);
         }
@@ -318,21 +328,21 @@ pub fn check_weekly_rest_for_week(
 ) -> Result<(), YntraError> {
     let week_start_min = week_start_days * 1440;
     let week_end_min = (week_start_days + 7) * 1440;
-    
+
     // Early exit: if the worker has no shifts in the target week, they are automatically compliant.
-    let has_shifts_in_target_week = sorted_intervals.iter().any(|&(s, e)| {
-        s < week_end_min && e > week_start_min
-    });
+    let has_shifts_in_target_week = sorted_intervals
+        .iter()
+        .any(|&(s, e)| s < week_end_min && e > week_start_min);
     if !has_shifts_in_target_week {
         return Ok(());
     }
-    
+
     let start_days = week_start_days - 15 * 7;
     let end_days = week_start_days + 16 * 7;
-    
+
     let window_start_min = start_days * 1440;
     let window_end_min = end_days * 1440;
-    
+
     let mut intervals = Vec::new();
     intervals.push((window_start_min - 1, window_start_min - 1));
     for &(s, e) in sorted_intervals {
@@ -342,39 +352,44 @@ pub fn check_weekly_rest_for_week(
     }
     intervals.push((window_end_min + 1, window_end_min + 1));
     intervals.sort_by_key(|x| x.0);
-    
+
     let mut has_compliant_rest = false;
-    
+
     for idx in 0..intervals.len().saturating_sub(1) {
         let gap_start = intervals[idx].1;
         let gap_end = intervals[idx + 1].0;
-        
+
         let overlap_start = gap_start.max(week_start_min);
         let overlap_end = gap_end.min(week_end_min);
-        
+
         if overlap_start < overlap_end {
             let gap_dst = adjust_duration_for_dst(gap_start, gap_end, target_region);
             let gap_duration = gap_end - gap_start + gap_dst;
-            
+
             let overlap_dst = adjust_duration_for_dst(overlap_start, overlap_end, target_region);
             let overlap_duration = overlap_end - overlap_start + overlap_dst;
-            
+
             // Overlap with the calendar week must be at least 12 hours (720 mins) OR it must span across the week transition (gap starts in this week and ends in the next)
             // and the total consecutive rest period must satisfy the weekly rest limit
-            let is_transition_span = gap_start < week_end_min && gap_end >= week_end_min;
-            if (overlap_duration >= 12 * 60 || is_transition_span) && gap_duration >= weekly_rest_limit_min {
+            let is_transition_span = (gap_start < week_end_min && gap_end >= week_end_min)
+                || (gap_start < week_start_min && gap_end >= week_start_min);
+            if (overlap_duration >= 12 * 60 || is_transition_span)
+                && gap_duration >= weekly_rest_limit_min
+            {
                 has_compliant_rest = true;
                 break;
             }
         }
     }
-    
+
     if !has_compliant_rest {
         return Err(YntraError::ValidationError(format!(
             "Weekly rest period violation under {}: does not satisfy mandatory {:.1}h consecutive weekly rest period in the 7-day period starting at {}.",
-            law_name, (weekly_rest_limit_min as f64 / 60.0), format_date_from_days(week_start_days)
+            law_name,
+            (weekly_rest_limit_min as f64 / 60.0),
+            format_date_from_days(week_start_days)
         )));
     }
-    
+
     Ok(())
 }

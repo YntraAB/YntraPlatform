@@ -1,41 +1,52 @@
-use dioxus::prelude::*;
+use crate::components;
 use crate::state::AppState;
 use crate::views;
-use crate::components;
+use dioxus::prelude::*;
 
 pub mod breadcrumbs;
-pub mod sidebar;
 pub mod header;
+pub mod sidebar;
 
-use sidebar::LayoutSidebar;
 use header::LayoutHeader;
+use sidebar::LayoutSidebar;
 
 #[component]
 pub fn EmployeeLayout() -> Element {
     let state = use_context::<AppState>();
-    
-    let active_user = state.users.read().as_ref().and_then(|u_list| u_list.iter().find(|u| u.id == *state.active_user_id.read()).cloned()).unwrap_or_else(|| yntra_core::WorkspaceUser {
-        id: String::new(),
-        workspace_id: None,
-        email: String::new(),
-        full_name: Some("Guest User".to_string()),
-        phone: None,
-        role: "guest".to_string(),
-        preferences: "{}".to_string(),
-        siths_card_id: None,
-        nfc_badge_uid: None,
-        updated_at: 0,
-        sync_status: "synced".to_string(),
-        personal_number: None,
-    });
-    
+
+    let active_user = state
+        .users
+        .read()
+        .as_ref()
+        .and_then(|u_list| {
+            u_list
+                .iter()
+                .find(|u| u.id == *state.active_user_id.read())
+                .cloned()
+        })
+        .unwrap_or_else(|| yntra_core::WorkspaceUser {
+            id: String::new(),
+            workspace_id: None,
+            email: String::new(),
+            full_name: Some("Guest User".to_string()),
+            phone: None,
+            role: "guest".to_string(),
+            preferences: "{}".to_string(),
+            siths_card_id: None,
+            nfc_badge_uid: None,
+            updated_at: 0,
+            sync_status: "synced".to_string(),
+            personal_number: None,
+        });
+
     let theme_mode = {
         let prefs_str = state.account_preferences.read();
         let mut theme = "dark".to_string();
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&prefs_str)
-            && let Some(t) = val.get("theme").and_then(|v| v.as_str()) {
-                theme = t.to_string();
-            }
+            && let Some(t) = val.get("theme").and_then(|v| v.as_str())
+        {
+            theme = t.to_string();
+        }
         theme
     };
 
@@ -89,13 +100,19 @@ pub fn EmployeeLayout() -> Element {
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
 
-
-
     let current_role = active_user.role.clone();
     let is_client = current_role == "client";
 
-    let unread_messages_count = state.messages.read().as_ref()
-        .map(|m_list| m_list.iter().filter(|m| !m.is_read && m.receiver_id == Some(active_user.id.clone())).count())
+    let unread_messages_count = state
+        .messages
+        .read()
+        .as_ref()
+        .map(|m_list| {
+            m_list
+                .iter()
+                .filter(|m| !m.is_read && m.receiver_id == Some(active_user.id.clone()))
+                .count()
+        })
         .unwrap_or(0);
 
     let active_section = state.active_section;
@@ -106,7 +123,7 @@ pub fn EmployeeLayout() -> Element {
     let auth_region = state.auth_region;
     let header_profile_open = state.header_profile_open;
     let logged_in = state.logged_in;
-    
+
     let selected_note_id = state.selected_note_id;
     let is_note_composing = state.is_note_composing;
     let messaging_view_tab = state.messaging_view_tab;
@@ -117,7 +134,7 @@ pub fn EmployeeLayout() -> Element {
     let calendar_month = state.calendar_month;
     let selected_calendar_date = state.selected_calendar_date;
     let scheduling_sidebar_tab = state.scheduling_sidebar_tab;
-    
+
     let event_title = state.event_title;
     let event_team = state.event_team;
     let event_assignee = state.event_assignee;
@@ -166,11 +183,9 @@ pub fn EmployeeLayout() -> Element {
     let compose_status = state.compose_status;
     let active_user_id = state.active_user_id;
 
-
-
     rsx! {
         div { class: "flex h-screen overflow-hidden bg-background {theme_mode}",
-            
+
             // 1. Sidebar Navigation
             LayoutSidebar {
                 workspace: workspace.clone(),
@@ -194,7 +209,7 @@ pub fn EmployeeLayout() -> Element {
 
             // 2. Main Content Frame
             div { class: "flex min-w-0 flex-1 flex-col",
-                
+
                 // Top Header
                 LayoutHeader {
                     active_user: active_user.clone(),
@@ -466,7 +481,8 @@ pub fn EmployeeLayout() -> Element {
 fn get_block_use_custom_ui(workspace: &yntra_core::Workspace, block_id: &str) -> bool {
     let block_settings_val: serde_json::Value =
         serde_json::from_str(&workspace.block_settings).unwrap_or_default();
-    block_settings_val.get(block_id)
+    block_settings_val
+        .get(block_id)
         .and_then(|b| b.get("use_custom_ui"))
         .and_then(|v| v.as_bool())
         .unwrap_or(true)

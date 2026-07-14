@@ -95,7 +95,7 @@ pub fn TwoFactorModal(props: TwoFactorModalProps) -> Element {
                             let user_opt = two_factor_user.read().clone();
                             if let Some(user) = user_opt {
                                 let code_str = two_factor_code.read().join("");
-                                
+
                                 let totp_secret = {
                                     let prefs: serde_json::Value = serde_json::from_str(&user.preferences).unwrap_or_default();
                                     let raw_sec = prefs.get("totp_secret")

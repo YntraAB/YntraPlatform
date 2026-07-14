@@ -1,8 +1,8 @@
-use dioxus::prelude::*;
+use super::{WorkspaceRole, WorkspaceRolePermissions};
 use crate::components;
 use crate::locales::t;
 use crate::state::AppState;
-use super::{WorkspaceRole, WorkspaceRolePermissions};
+use dioxus::prelude::*;
 
 #[component]
 pub fn RoleManagerDialog(
@@ -13,18 +13,42 @@ pub fn RoleManagerDialog(
     let state = use_context::<AppState>();
     let region = state.auth_region.read().clone();
     let mut db_trigger = state.db_trigger;
-    let workspace_id = state.workspace.read().as_ref().map(|w| w.id.clone()).unwrap_or_else(|| "workspace-1".to_string());
+    let workspace_id = state
+        .workspace
+        .read()
+        .as_ref()
+        .map(|w| w.id.clone())
+        .unwrap_or_else(|| "workspace-1".to_string());
 
     // Parse workspace modules to conditionally show permissions
     let ws_read = state.workspace.read();
-    let modules_active_str = ws_read.as_ref().map(|w| w.modules_active.clone()).unwrap_or_default();
-    let modules_active: serde_json::Value = serde_json::from_str(&modules_active_str).unwrap_or_default();
-    
-    let is_school = modules_active.get("school").and_then(|v| v.as_bool()).unwrap_or(false);
-    let is_assistance = modules_active.get("assistance").and_then(|v| v.as_bool()).unwrap_or(false)
-        || modules_active.get("journals").and_then(|v| v.as_bool()).unwrap_or(false)
-        || modules_active.get("medications").and_then(|v| v.as_bool()).unwrap_or(false);
-    let is_moving_company = modules_active.get("moving_company").and_then(|v| v.as_bool()).unwrap_or(false);
+    let modules_active_str = ws_read
+        .as_ref()
+        .map(|w| w.modules_active.clone())
+        .unwrap_or_default();
+    let modules_active: serde_json::Value =
+        serde_json::from_str(&modules_active_str).unwrap_or_default();
+
+    let is_school = modules_active
+        .get("school")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let is_assistance = modules_active
+        .get("assistance")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+        || modules_active
+            .get("journals")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        || modules_active
+            .get("medications")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+    let is_moving_company = modules_active
+        .get("moving_company")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     // Form inputs state
     let mut editing_role_id = use_signal(|| Option::<String>::None);
@@ -138,12 +162,12 @@ pub fn RoleManagerDialog(
                                         }
                                     }
                                     div { class: "flex flex-col gap-4 mt-2 overflow-y-auto max-h-[300px] pr-2 border-t border-b border-border py-4",
-                                        
+
                                         // Section: General Operations
                                         div { class: "flex flex-col gap-2.5",
                                             div { class: "text-[11px] font-bold text-muted-foreground/60 uppercase border-b border-border",
                                             style: "padding-bottom:0.25rem;", "General Operations" }
-                                            
+
                                             label { class: "flex items-center gap-2 cursor-pointer",
                                                 input {
                                                     r#type: "checkbox",
@@ -183,7 +207,7 @@ pub fn RoleManagerDialog(
                                         div { class: "flex flex-col gap-2.5 mt-2",
                                             div { class: "text-[11px] font-bold text-muted-foreground/60 uppercase border-b border-border",
                                             style: "padding-bottom:0.25rem;", "System Administration" }
-                                            
+
                                             label { class: "flex items-center gap-2 cursor-pointer",
                                                 input {
                                                     r#type: "checkbox",
@@ -246,7 +270,7 @@ pub fn RoleManagerDialog(
                                             div { class: "flex flex-col gap-2.5 mt-2",
                                                 div { class: "text-[11px] font-bold text-muted-foreground/60 uppercase border-b border-border",
                                                 style: "padding-bottom:0.25rem;", "School Administration" }
-                                                
+
                                                 label { class: "flex items-center gap-2 cursor-pointer",
                                                     input {
                                                         r#type: "checkbox",
@@ -321,7 +345,7 @@ pub fn RoleManagerDialog(
                                             div { class: "flex flex-col gap-2.5 mt-2",
                                                 div { class: "text-[11px] font-bold text-muted-foreground/60 uppercase border-b border-border",
                                                 style: "padding-bottom:0.25rem;", "Care & Assistance" }
-                                                
+
                                                 label { class: "flex items-center gap-2 cursor-pointer",
                                                     input {
                                                         r#type: "checkbox",
@@ -385,7 +409,7 @@ pub fn RoleManagerDialog(
                                             div { class: "flex flex-col gap-2.5 mt-2",
                                                 div { class: "text-[11px] font-bold text-muted-foreground/60 uppercase border-b border-border",
                                                 style: "padding-bottom:0.25rem;", "Logistics & Moving" }
-                                                
+
                                                 label { class: "flex items-center gap-2 cursor-pointer",
                                                     input {
                                                         r#type: "checkbox",
@@ -434,11 +458,11 @@ pub fn RoleManagerDialog(
                                                         let current_id = editing_role_id.read().clone().unwrap_or_default();
                                                         let mut roles = custom_roles_1.clone();
                                                         roles.retain(|r| r.id != current_id);
-                                                        
+
                                                         let mut new_settings = settings_val_1.clone();
                                                         new_settings["roles"] = serde_json::to_value(&roles).unwrap();
                                                         let settings_str = serde_json::to_string(&new_settings).unwrap_or_default();
-                                                        
+
                                                         let ws_id = workspace_id.clone();
                                                         let requester_uid = state.active_user_id.read().clone();
                                                         spawn(async move {
@@ -470,7 +494,7 @@ pub fn RoleManagerDialog(
                                                     if !name_val.is_empty() {
                                                         let mut roles = custom_roles_2.clone();
                                                         let perms = role_form_permissions.read().clone();
-                                                        
+
                                                         if is_new {
                                                             let new_role = WorkspaceRole {
                                                                 id: uuid::Uuid::new_v4().to_string(),
@@ -485,11 +509,11 @@ pub fn RoleManagerDialog(
                                                                 r.permissions = perms;
                                                             }
                                                         }
-                                                        
+
                                                         let mut new_settings = settings_val_2.clone();
                                                         new_settings["roles"] = serde_json::to_value(&roles).unwrap();
                                                         let settings_str = serde_json::to_string(&new_settings).unwrap_or_default();
-                                                        
+
                                                         let ws_id = workspace_id.clone();
                                                         let requester_uid = state.active_user_id.read().clone();
                                                         spawn(async move {

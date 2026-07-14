@@ -31,8 +31,12 @@ fn json_to_libsql_value(v: &serde_json::Value) -> libsql::Value {
             }
         }
         serde_json::Value::String(s) => libsql::Value::Text(s.clone()),
-        serde_json::Value::Array(a) => libsql::Value::Text(serde_json::to_string(a).unwrap_or_default()),
-        serde_json::Value::Object(o) => libsql::Value::Text(serde_json::to_string(o).unwrap_or_default()),
+        serde_json::Value::Array(a) => {
+            libsql::Value::Text(serde_json::to_string(a).unwrap_or_default())
+        }
+        serde_json::Value::Object(o) => {
+            libsql::Value::Text(serde_json::to_string(o).unwrap_or_default())
+        }
     }
 }
 
@@ -57,15 +61,26 @@ async fn seed_table(
     }
 
     let cols_str = columns.join(", ");
-    let vals_str = columns.iter().map(|col| format!(":{}", col)).collect::<Vec<_>>().join(", ");
-    let sql = format!("{} INTO {} ({}) VALUES ({})", insert_op, table, cols_str, vals_str);
+    let vals_str = columns
+        .iter()
+        .map(|col| format!(":{}", col))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "{} INTO {} ({}) VALUES ({})",
+        insert_op, table, cols_str, vals_str
+    );
 
     for record in records {
         let mut map = serde_json::Map::new();
         for col in columns {
             let val = match record.get(*col) {
-                Some(serde_json::Value::Object(o)) => serde_json::Value::String(serde_json::to_string(o).unwrap_or_default()),
-                Some(serde_json::Value::Array(a)) => serde_json::Value::String(serde_json::to_string(a).unwrap_or_default()),
+                Some(serde_json::Value::Object(o)) => {
+                    serde_json::Value::String(serde_json::to_string(o).unwrap_or_default())
+                }
+                Some(serde_json::Value::Array(a)) => {
+                    serde_json::Value::String(serde_json::to_string(a).unwrap_or_default())
+                }
                 Some(v) => v.clone(),
                 None => serde_json::Value::Null,
             };
@@ -108,7 +123,8 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
                 "ui_config",
             ],
             blocks,
-        ).await?;
+        )
+        .await?;
     }
 
     // 2. Check if workspaces already exist
@@ -124,9 +140,18 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
                 conn,
                 "INSERT",
                 "workspaces",
-                &["id", "name", "brand_color", "logo_url", "block_settings", "modules_active", "settings"],
+                &[
+                    "id",
+                    "name",
+                    "brand_color",
+                    "logo_url",
+                    "block_settings",
+                    "modules_active",
+                    "settings",
+                ],
                 workspaces,
-            ).await?;
+            )
+            .await?;
         }
 
         // Seed Users
@@ -135,9 +160,19 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
                 conn,
                 "INSERT OR IGNORE",
                 "users",
-                &["id", "workspace_id", "email", "full_name", "role", "preferences", "updated_at", "sync_status"],
+                &[
+                    "id",
+                    "workspace_id",
+                    "email",
+                    "full_name",
+                    "role",
+                    "preferences",
+                    "updated_at",
+                    "sync_status",
+                ],
                 users,
-            ).await?;
+            )
+            .await?;
 
             // Generate role signatures for all seeded users so they pass cryptographic validation
             let mut cached_pk = None;
@@ -159,8 +194,16 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
         }
 
         // Seed cryptographic credentials for users
-        let alice_pub = const_hex::encode(ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]).verifying_key().to_bytes());
-        let bob_pub = const_hex::encode(ed25519_dalek::SigningKey::from_bytes(&[2u8; 32]).verifying_key().to_bytes());
+        let alice_pub = const_hex::encode(
+            ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])
+                .verifying_key()
+                .to_bytes(),
+        );
+        let bob_pub = const_hex::encode(
+            ed25519_dalek::SigningKey::from_bytes(&[2u8; 32])
+                .verifying_key()
+                .to_bytes(),
+        );
 
         let alice_meta = format!(
             r#"{{"siths_card_id":"SITHS-ALICE-123","siths_public_key":"{}","nfc_badge_uid":"NFC-ALICE-999"}}"#,
@@ -174,12 +217,14 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
         conn.execute(
             "UPDATE users SET metadata = ?1 WHERE id = 'user-1'",
             crate::params![alice_meta],
-        ).await?;
+        )
+        .await?;
 
         conn.execute(
             "UPDATE users SET metadata = ?1 WHERE id = 'user-2'",
             crate::params![bob_meta],
-        ).await?;
+        )
+        .await?;
 
         // Seed Teams
         if let Some(teams) = data["teams"].as_array() {
@@ -189,7 +234,8 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
                 "teams",
                 &["id", "workspace_id", "name", "updated_at", "sync_status"],
                 teams,
-            ).await?;
+            )
+            .await?;
         }
 
         // Seed Team Members
@@ -198,9 +244,16 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
                 conn,
                 "INSERT OR IGNORE",
                 "team_members",
-                &["team_id", "user_id", "workspace_id", "updated_at", "sync_status"],
+                &[
+                    "team_id",
+                    "user_id",
+                    "workspace_id",
+                    "updated_at",
+                    "sync_status",
+                ],
                 team_members,
-            ).await?;
+            )
+            .await?;
         }
 
         // Seed Invitations
@@ -217,7 +270,9 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
                 }
                 inv_obj.insert(
                     "metadata".to_string(),
-                    serde_json::Value::String(serde_json::to_string(&metadata_map).unwrap_or_default()),
+                    serde_json::Value::String(
+                        serde_json::to_string(&metadata_map).unwrap_or_default(),
+                    ),
                 );
                 modified_invitations.push(serde_json::Value::Object(inv_obj));
             }
@@ -226,9 +281,18 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
                 conn,
                 "INSERT OR IGNORE",
                 "invitations",
-                &["code", "workspace_id", "email", "full_name", "role", "activated", "metadata"],
+                &[
+                    "code",
+                    "workspace_id",
+                    "email",
+                    "full_name",
+                    "role",
+                    "activated",
+                    "metadata",
+                ],
                 &modified_invitations,
-            ).await?;
+            )
+            .await?;
         }
 
         // Seed Jobs (Move / Logistics Module)
@@ -244,12 +308,24 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
                     "INSERT",
                     "job_tickets",
                     &[
-                        "id", "workspace_id", "title", "description", "location_address", "priority", "status",
-                        "assigned_user_id", "scheduled_date", "checklist_json", "completion_report",
-                        "created_at", "updated_at", "sync_status"
+                        "id",
+                        "workspace_id",
+                        "title",
+                        "description",
+                        "location_address",
+                        "priority",
+                        "status",
+                        "assigned_user_id",
+                        "scheduled_date",
+                        "checklist_json",
+                        "completion_report",
+                        "created_at",
+                        "updated_at",
+                        "sync_status",
                     ],
                     job_tickets,
-                ).await?;
+                )
+                .await?;
             }
         }
     }
@@ -271,7 +347,11 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
                     if let Ok(content) = std::fs::read_to_string(path) {
                         for line in content.lines() {
                             if let Some(stripped) = line.strip_prefix("ADMIN_EMAIL=") {
-                                email = stripped.trim().trim_matches('"').trim_matches('\'').to_string();
+                                email = stripped
+                                    .trim()
+                                    .trim_matches('"')
+                                    .trim_matches('\'')
+                                    .to_string();
                                 break;
                             }
                         }
@@ -297,7 +377,8 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
         conn.execute(
             "UPDATE users SET role = 'platform_admin' WHERE email = :email",
             crate::named_params![":email" => &admin_email],
-        ).await?;
+        )
+        .await?;
     }
 
     Ok(())

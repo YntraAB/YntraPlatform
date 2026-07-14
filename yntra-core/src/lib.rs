@@ -4,54 +4,54 @@ pub mod models;
 pub mod services;
 
 // Re-export error type and observer callback
+pub use database::sync::*;
+pub use database::zero_copy::{
+    EdgeSyncLoop, P2PMeshSyncRouter, ZeroCopyAuditStore, ZeroCopyMessageStore, ZeroCopyNoteStore,
+    ZeroCopyStore, ZkCryptoTrust, create_peer_note_store, create_peer_store,
+};
+pub use infra::auth::AuthContext;
 pub use infra::errors::*;
 pub use infra::observer::*;
-pub use database::sync::*;
-pub use database::zero_copy::{ZeroCopyStore, ZeroCopyMessageStore, ZeroCopyNoteStore, ZeroCopyAuditStore, P2PMeshSyncRouter, EdgeSyncLoop, ZkCryptoTrust, create_peer_store, create_peer_note_store};
-pub use infra::auth::AuthContext;
 pub use models::*;
 
 // Re-export all FFI service functions at the crate root
-pub use services::todos::*;
-pub use services::workspaces::*;
-pub use services::users::*;
-pub use services::teams::*;
+pub use services::audit::*;
+pub use services::auth::*;
+pub use services::blocks::*;
+pub use services::clients::*;
+pub use services::directory::*;
+pub use services::dynamic_entities::*;
+pub use services::jobs::*;
 pub use services::messages::*;
 pub use services::notes::*;
-pub use services::time_reports::*;
-pub use services::clients::*;
-pub use services::blocks::*;
 pub use services::reports::*;
-pub use services::directory::*;
-pub use services::auth::*;
-pub use services::jobs::*;
-pub use services::audit::*;
 pub use services::role_templates::*;
-pub use services::dynamic_entities::*;
-
+pub use services::teams::*;
+pub use services::time_reports::*;
+pub use services::todos::*;
+pub use services::users::*;
+pub use services::workspaces::*;
 
 // Support absolute paths inside submodules that import modules re-exported at the root
-pub use infra::errors;
-pub use infra::observer;
-pub use infra::crypto::{
-    set_session_key, clear_session_key, encrypt_field, decrypt_field, is_session_key_set, load_local_workspace_key,
-    register_secure_storage_provider, SecureStorageProvider
-};
 #[cfg(target_arch = "wasm32")]
 pub use database::schema::setup_schema;
+pub use infra::crypto::{
+    SecureStorageProvider, clear_session_key, decrypt_field, encrypt_field, is_session_key_set,
+    load_local_workspace_key, register_secure_storage_provider, set_session_key,
+};
+pub use infra::errors;
+pub use infra::observer;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use database::native::set_database_directory;
-
-
 
 // Setup UniFFI scaffolding for mobile bindings generation
 uniffi::setup_scaffolding!();
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod rusqlite {
-    pub use libsql::params_from_iter;
     pub use libsql::Error;
+    pub use libsql::params_from_iter;
 
     pub trait ToLibsqlValue {
         fn to_value(&self) -> libsql::Value;
@@ -223,7 +223,6 @@ macro_rules! named_params {
         serde_json::Value::Object(map)
     }};
 }
-
 
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn init_wasm_db() -> Result<(), YntraError> {

@@ -1,12 +1,10 @@
 use dioxus::prelude::*;
-use dioxus_primitives::color_picker::{
-    self, Color, ColorAreaProps, ColorPickerContext,
-};
-use dioxus_primitives::popover;
-use dioxus_primitives::use_controlled;
+use dioxus_primitives::color_picker::{self, Color, ColorAreaProps, ColorPickerContext};
 use dioxus_primitives::label::Label;
+use dioxus_primitives::popover;
 use dioxus_primitives::slider::*;
-use palette::{encoding, FromColor, Hsv, IntoColor, RgbHue, Srgb};
+use dioxus_primitives::use_controlled;
+use palette::{FromColor, Hsv, IntoColor, RgbHue, Srgb, encoding};
 
 use crate::components::input::Input;
 
@@ -492,13 +490,19 @@ pub struct HexColorPickerProps {
 pub fn HexColorPicker(props: HexColorPickerProps) -> Element {
     // Parse the incoming hex string to HSV
     let initial_hsv = {
-        let parsed = props.value.parse::<Color>().unwrap_or_else(|_| "#3b82f6".parse().unwrap());
+        let parsed = props
+            .value
+            .parse::<Color>()
+            .unwrap_or_else(|_| "#3b82f6".parse().unwrap());
         parsed.into_format::<f64>().into_color()
     };
 
     let mut color_sig = use_signal(|| initial_hsv);
     use_effect(move || {
-        let parsed = props.value.parse::<Color>().unwrap_or_else(|_| "#3b82f6".parse().unwrap());
+        let parsed = props
+            .value
+            .parse::<Color>()
+            .unwrap_or_else(|_| "#3b82f6".parse().unwrap());
         color_sig.set(parsed.into_format::<f64>().into_color());
     });
 

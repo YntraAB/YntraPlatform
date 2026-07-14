@@ -1,7 +1,7 @@
+use crate::components;
+use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::{WorkspaceUser, update_note};
-use crate::locales::t;
-use crate::components;
 
 #[derive(Props, Clone)]
 pub struct NoteEditProps {
@@ -31,7 +31,11 @@ pub fn NoteEdit(props: NoteEditProps) -> Element {
     let initial_content = edit_content.read().clone();
     let parts: Vec<String> = initial_content.split(':').map(|s| s.to_string()).collect();
     let was_encrypted = parts.len() == 3 && parts[0] == "zero_copy_enc";
-    let ciphertext = if was_encrypted { parts[2].clone() } else { String::new() };
+    let ciphertext = if was_encrypted {
+        parts[2].clone()
+    } else {
+        String::new()
+    };
 
     let mut is_decrypted = use_signal(|| !was_encrypted);
     let mut passkey_seed_input = use_signal(|| "my_passkey_seed".to_string());
@@ -41,7 +45,7 @@ pub fn NoteEdit(props: NoteEditProps) -> Element {
     rsx! {
         div {
             class: "flex flex-col h-full w-full bg-background box-border",
-            
+
             // Header bar matching reference NoteComposePane
             div {
                 class: "flex h-16 shrink-0 items-center justify-between border-b border-border px-8 bg-white/[0.02] box-border backdrop-blur-md",
@@ -52,7 +56,7 @@ pub fn NoteEdit(props: NoteEditProps) -> Element {
                         onclick: move |_| edit_mode.set(false),
                         components::LucideIcon { name: "chevron-left", size: "20" }
                     }
-                    h2 { class: "text-lg font-bold text-foreground m-0", 
+                    h2 { class: "text-lg font-bold text-foreground m-0",
                         "{t(\"notes-read-title\", &locale)}"
                     }
                 }
@@ -109,7 +113,7 @@ pub fn NoteEdit(props: NoteEditProps) -> Element {
             // Edit content editor area
             div {
                 class: "scrollbar-dark flex-1 overflow-y-auto px-8 py-10 flex flex-col gap-8 mx-auto w-full max-w-[800px] box-border md:px-24 lg:px-48",
-                
+
                 if !*is_decrypted.read() {
                     div {
                         class: "flex flex-col gap-4 p-6 border border-amber-500/30 bg-amber-500/5 rounded-xl text-sm box-border my-auto",

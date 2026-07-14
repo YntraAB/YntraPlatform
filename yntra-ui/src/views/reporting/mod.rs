@@ -48,8 +48,13 @@ pub fn ReportingView(props: ReportingViewProps) -> Element {
     let show_report_details_modal = props.show_report_details_modal;
 
     let is_manager = active_user.role == "platform_admin" || active_user.role == "admin";
-    let user_prefs: serde_json::Value = serde_json::from_str(&active_user.preferences).unwrap_or_default();
-    let region = user_prefs.get("language").and_then(|l| l.as_str()).unwrap_or("US").to_string();
+    let user_prefs: serde_json::Value =
+        serde_json::from_str(&active_user.preferences).unwrap_or_default();
+    let region = user_prefs
+        .get("language")
+        .and_then(|l| l.as_str())
+        .unwrap_or("US")
+        .to_string();
     let current_tab = report_tab.read().clone();
 
     let has_details_report = selected_report_id.read().clone();
@@ -77,7 +82,7 @@ pub fn ReportingView(props: ReportingViewProps) -> Element {
                 }
             }
 
-            div { class: "login-tabs w-80 mb-6", 
+            div { class: "login-tabs w-80 mb-6",
                 button {
                     class: if current_tab == "send" { "login-tab-btn active" } else { "login-tab-btn" },
                     onclick: move |_| report_tab.set("send".to_string()),

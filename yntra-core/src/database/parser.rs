@@ -60,9 +60,10 @@ fn has_write_keyword(sql: &str) -> bool {
     let needles: &[&[u8]] = &[b"INSERT", b"UPDATE", b"DELETE"];
     for needle in needles {
         if bytes.windows(needle.len()).any(|window| {
-            window.iter().zip(*needle).all(|(&h, &n)| {
-                h.to_ascii_uppercase() == n
-            })
+            window
+                .iter()
+                .zip(*needle)
+                .all(|(&h, &n)| h.to_ascii_uppercase() == n)
         }) {
             return true;
         }
@@ -80,7 +81,9 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
     let trimmed = sql.trim_start();
     let is_simple = if trimmed.len() >= 6 {
         let prefix = &trimmed[..6];
-        prefix.eq_ignore_ascii_case("INSERT") || prefix.eq_ignore_ascii_case("UPDATE") || prefix.eq_ignore_ascii_case("DELETE")
+        prefix.eq_ignore_ascii_case("INSERT")
+            || prefix.eq_ignore_ascii_case("UPDATE")
+            || prefix.eq_ignore_ascii_case("DELETE")
     } else {
         false
     };
@@ -93,7 +96,9 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
                     if w.eq_ignore_ascii_case("INTO") {
                         if let Some(target) = words.next() {
                             let raw_name = target.split('(').next().unwrap_or("");
-                            let name = raw_name.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
+                            let name = raw_name.trim_matches(|c| {
+                                c == '`' || c == '"' || c == '[' || c == ']' || c == '\''
+                            });
                             return Some(name.to_lowercase());
                         }
                         break;
@@ -110,14 +115,18 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
                             return None;
                         }
                     }
-                    let name = final_target.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
+                    let name = final_target.trim_matches(|c| {
+                        c == '`' || c == '"' || c == '[' || c == ']' || c == '\''
+                    });
                     return Some(name.to_lowercase());
                 }
             } else if first.eq_ignore_ascii_case("DELETE") {
                 while let Some(w) = words.next() {
                     if w.eq_ignore_ascii_case("FROM") {
                         if let Some(target) = words.next() {
-                            let name = target.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
+                            let name = target.trim_matches(|c| {
+                                c == '`' || c == '"' || c == '[' || c == ']' || c == '\''
+                            });
                             return Some(name.to_lowercase());
                         }
                         break;
@@ -140,7 +149,7 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
     } else {
         sql.trim()
     };
-    
+
     // Scan past Common Table Expressions (CTEs)
     if trimmed.len() >= 4 && trimmed[..4].eq_ignore_ascii_case("WITH") {
         let mut rest = trimmed[4..].trim_start();
@@ -148,7 +157,7 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
             rest = rest[9..].trim_start();
         }
         let mut byte_idx = trimmed.len() - rest.len();
-        
+
         // Loop to skip each CTE definition
         loop {
             // Find the top-level "AS" for the current CTE
@@ -156,7 +165,7 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
             let mut in_single_quote = false;
             let mut in_double_quote = false;
             let mut found_as_idx = None;
-            
+
             let mut chars = trimmed[byte_idx..].char_indices().peekable();
             while let Some((c_idx, c)) = chars.next() {
                 let current_byte_idx = byte_idx + c_idx;
@@ -181,15 +190,19 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
                         _ if paren_count == 0 => {
                             // Check if this starts "AS"
                             if trimmed[current_byte_idx..].len() >= 2 {
-                                let word = &trimmed[current_byte_idx..current_byte_idx+2];
+                                let word = &trimmed[current_byte_idx..current_byte_idx + 2];
                                 if word.eq_ignore_ascii_case("AS") {
                                     // Check word boundaries
                                     let prev_char = trimmed[..current_byte_idx].chars().next_back();
-                                    let next_char = trimmed[current_byte_idx+2..].chars().next();
-                                    
-                                    let prev_ok = prev_char.map(|pc| pc.is_whitespace() || pc == ')' || pc == ']').unwrap_or(true);
-                                    let next_ok = next_char.map(|nc| nc.is_whitespace() || nc == '(').unwrap_or(true);
-                                    
+                                    let next_char = trimmed[current_byte_idx + 2..].chars().next();
+
+                                    let prev_ok = prev_char
+                                        .map(|pc| pc.is_whitespace() || pc == ')' || pc == ']')
+                                        .unwrap_or(true);
+                                    let next_ok = next_char
+                                        .map(|nc| nc.is_whitespace() || nc == '(')
+                                        .unwrap_or(true);
+
                                     if prev_ok && next_ok {
                                         found_as_idx = Some(current_byte_idx);
                                         byte_idx = current_byte_idx + 2;
@@ -202,11 +215,11 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
                     }
                 }
             }
-            
+
             if found_as_idx.is_none() {
                 break; // invalid CTE syntax, break out
             }
-            
+
             // Skip whitespace to the opening parenthesis '(' of the CTE query
             let rest = trimmed[byte_idx..].trim_start();
             byte_idx = trimmed.len() - rest.len();
@@ -214,13 +227,13 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
                 break; // invalid CTE syntax
             }
             byte_idx += 1; // skip '('
-            
+
             // balance parentheses of the CTE query (starts at paren_count = 1)
             let mut cte_paren_count = 1;
             in_single_quote = false;
             in_double_quote = false;
             let mut closed_idx = None;
-            
+
             let mut chars = trimmed[byte_idx..].char_indices();
             while let Some((c_idx, c)) = chars.next() {
                 let current_byte_idx = byte_idx + c_idx;
@@ -250,18 +263,18 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
                     }
                 }
             }
-            
+
             let c_idx = match closed_idx {
                 Some(i) => i,
                 None => break, // unbalanced parentheses, break out
             };
-            
+
             byte_idx = c_idx + 1; // skip ')'
-            
+
             // Peek at next non-whitespace char
             let rest = trimmed[byte_idx..].trim_start();
             byte_idx = trimmed.len() - rest.len();
-            
+
             if rest.starts_with(',') {
                 byte_idx += 1; // skip comma and loop to parse next CTE
             } else {
@@ -271,7 +284,7 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
             }
         }
     }
- 
+
     let mut words = trimmed.split_whitespace();
     if let Some(first) = words.next() {
         if first.eq_ignore_ascii_case("INSERT") {
@@ -279,7 +292,9 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
                 if w.eq_ignore_ascii_case("INTO") {
                     if let Some(target) = words.next() {
                         let raw_name = target.split('(').next().unwrap_or("");
-                        let name = raw_name.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
+                        let name = raw_name.trim_matches(|c| {
+                            c == '`' || c == '"' || c == '[' || c == ']' || c == '\''
+                        });
                         return Some(name.to_lowercase());
                     }
                     break;
@@ -296,14 +311,16 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
                         return None;
                     }
                 }
-                let name = final_target.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']');
+                let name =
+                    final_target.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']');
                 return Some(name.to_lowercase());
             }
         } else if first.eq_ignore_ascii_case("DELETE") {
             while let Some(w) = words.next() {
                 if w.eq_ignore_ascii_case("FROM") {
                     if let Some(target) = words.next() {
-                        let name = target.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']');
+                        let name =
+                            target.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']');
                         return Some(name.to_lowercase());
                     }
                     break;
@@ -366,7 +383,9 @@ impl<'a> Iterator for SqlStatementSplitter<'a> {
                     '/' if self.char_indices.peek().map(|&(_, nc)| nc) == Some('*') => {
                         self.char_indices.next(); // consume '*'
                         while let Some((_, nc)) = self.char_indices.next() {
-                            if nc == '*' && self.char_indices.peek().map(|&(_, nnc)| nnc) == Some('/') {
+                            if nc == '*'
+                                && self.char_indices.peek().map(|&(_, nnc)| nnc) == Some('/')
+                            {
                                 self.char_indices.next(); // consume '/'
                                 break;
                             }
@@ -375,7 +394,11 @@ impl<'a> Iterator for SqlStatementSplitter<'a> {
                     ';' => {
                         let stmt = &self.sql[self.start_idx..idx];
                         let trimmed = stmt.trim();
-                        self.start_idx = self.char_indices.peek().map(|&(next_idx, _)| next_idx).unwrap_or(self.sql.len());
+                        self.start_idx = self
+                            .char_indices
+                            .peek()
+                            .map(|&(next_idx, _)| next_idx)
+                            .unwrap_or(self.sql.len());
                         if !trimmed.is_empty() {
                             return Some(trimmed);
                         }
@@ -384,7 +407,7 @@ impl<'a> Iterator for SqlStatementSplitter<'a> {
                 }
             }
         }
-        
+
         if self.start_idx < self.sql.len() {
             let stmt = &self.sql[self.start_idx..];
             self.start_idx = self.sql.len();
@@ -393,7 +416,7 @@ impl<'a> Iterator for SqlStatementSplitter<'a> {
                 return Some(trimmed);
             }
         }
-        
+
         None
     }
 }
@@ -411,7 +434,10 @@ mod tests {
         let sql = "INSERT INTO messages (body) VALUES ('hello; world'); UPDATE todos SET text = 'a;b'; DELETE FROM notes";
         let res: Vec<&str> = split_sql_statements(sql).collect();
         assert_eq!(res.len(), 3);
-        assert_eq!(res[0], "INSERT INTO messages (body) VALUES ('hello; world')");
+        assert_eq!(
+            res[0],
+            "INSERT INTO messages (body) VALUES ('hello; world')"
+        );
         assert_eq!(res[1], "UPDATE todos SET text = 'a;b'");
         assert_eq!(res[2], "DELETE FROM notes");
     }
@@ -427,29 +453,59 @@ mod tests {
 
     #[test]
     fn test_extract_table_name_inserts() {
-        assert_eq!(extract_table_name("INSERT INTO todos (id, text) VALUES (1, 'hello')"), Some("todos".to_string()));
-        assert_eq!(extract_table_name("INSERT INTO [todos] (id) VALUES (1)"), Some("todos".to_string()));
-        assert_eq!(extract_table_name("INSERT INTO `todos` VALUES (1)"), Some("todos".to_string()));
-        assert_eq!(extract_table_name("  INSERT   INTO   \"todos\" ..."), Some("todos".to_string()));
+        assert_eq!(
+            extract_table_name("INSERT INTO todos (id, text) VALUES (1, 'hello')"),
+            Some("todos".to_string())
+        );
+        assert_eq!(
+            extract_table_name("INSERT INTO [todos] (id) VALUES (1)"),
+            Some("todos".to_string())
+        );
+        assert_eq!(
+            extract_table_name("INSERT INTO `todos` VALUES (1)"),
+            Some("todos".to_string())
+        );
+        assert_eq!(
+            extract_table_name("  INSERT   INTO   \"todos\" ..."),
+            Some("todos".to_string())
+        );
     }
 
     #[test]
     fn test_extract_table_name_updates() {
-        assert_eq!(extract_table_name("UPDATE users SET name = 'Alice'"), Some("users".to_string()));
-        assert_eq!(extract_table_name("UPDATE [users] SET x = 1"), Some("users".to_string()));
-        assert_eq!(extract_table_name("UPDATE `users` SET x = 1"), Some("users".to_string()));
+        assert_eq!(
+            extract_table_name("UPDATE users SET name = 'Alice'"),
+            Some("users".to_string())
+        );
+        assert_eq!(
+            extract_table_name("UPDATE [users] SET x = 1"),
+            Some("users".to_string())
+        );
+        assert_eq!(
+            extract_table_name("UPDATE `users` SET x = 1"),
+            Some("users".to_string())
+        );
     }
 
     #[test]
     fn test_extract_table_name_deletes() {
-        assert_eq!(extract_table_name("DELETE FROM messages WHERE id = 1"), Some("messages".to_string()));
-        assert_eq!(extract_table_name("DELETE FROM [messages]"), Some("messages".to_string()));
+        assert_eq!(
+            extract_table_name("DELETE FROM messages WHERE id = 1"),
+            Some("messages".to_string())
+        );
+        assert_eq!(
+            extract_table_name("DELETE FROM [messages]"),
+            Some("messages".to_string())
+        );
     }
 
     #[test]
     fn test_extract_table_name_ctes() {
         let sql_cte_update = "WITH cte AS (SELECT id FROM users WHERE age > 10) UPDATE profiles SET status = 1 WHERE user_id IN (SELECT id FROM cte)";
-        assert_eq!(extract_table_name(sql_cte_update), Some("profiles".to_string()));
+        assert_eq!(
+            extract_table_name(sql_cte_update),
+            Some("profiles".to_string())
+        );
 
         let sql_cte_insert = "WITH RECURSIVE temp_ids(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM temp_ids WHERE n<5) INSERT INTO logs (val) SELECT n FROM temp_ids";
         assert_eq!(extract_table_name(sql_cte_insert), Some("logs".to_string()));
@@ -458,10 +514,16 @@ mod tests {
     #[test]
     fn test_extract_table_name_comments() {
         let sql_comment_update = "-- inline comment here\nUPDATE users SET active = 1";
-        assert_eq!(extract_table_name(sql_comment_update), Some("users".to_string()));
+        assert_eq!(
+            extract_table_name(sql_comment_update),
+            Some("users".to_string())
+        );
 
         let sql_block_comment = "/* block comment */ INSERT INTO notes VALUES (1)";
-        assert_eq!(extract_table_name(sql_block_comment), Some("notes".to_string()));
+        assert_eq!(
+            extract_table_name(sql_block_comment),
+            Some("notes".to_string())
+        );
     }
 
     #[test]

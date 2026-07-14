@@ -1,5 +1,5 @@
-use crate::database;
 use crate::YntraError;
+use crate::database;
 
 pub fn parse_loro_state(state: &str) -> (i64, &str) {
     if state.starts_with("loro:") {
@@ -16,17 +16,26 @@ pub fn parse_loro_state(state: &str) -> (i64, &str) {
     }
 }
 
-pub fn apply_diff_to_loro(text: &loro::LoroText, old_str: &str, new_str: &str) -> Result<(), YntraError> {
+pub fn apply_diff_to_loro(
+    text: &loro::LoroText,
+    old_str: &str,
+    new_str: &str,
+) -> Result<(), YntraError> {
     let old_chars: Vec<char> = old_str.chars().collect();
     let new_chars: Vec<char> = new_str.chars().collect();
 
     let mut common_prefix = 0;
-    while common_prefix < old_chars.len() && common_prefix < new_chars.len() && old_chars[common_prefix] == new_chars[common_prefix] {
+    while common_prefix < old_chars.len()
+        && common_prefix < new_chars.len()
+        && old_chars[common_prefix] == new_chars[common_prefix]
+    {
         common_prefix += 1;
     }
 
     let mut common_suffix = 0;
-    while common_suffix < (old_chars.len() - common_prefix) && common_suffix < (new_chars.len() - common_prefix) {
+    while common_suffix < (old_chars.len() - common_prefix)
+        && common_suffix < (new_chars.len() - common_prefix)
+    {
         let old_idx = old_chars.len() - 1 - common_suffix;
         let new_idx = new_chars.len() - 1 - common_suffix;
         if old_chars[old_idx] == new_chars[new_idx] {
@@ -40,34 +49,47 @@ pub fn apply_diff_to_loro(text: &loro::LoroText, old_str: &str, new_str: &str) -
     let ins_len = new_chars.len() - common_prefix - common_suffix;
 
     if del_len > 0 {
-        text.delete(common_prefix, del_len).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+        text.delete(common_prefix, del_len)
+            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
     }
     if ins_len > 0 {
-        let ins_str: String = new_chars[common_prefix..(common_prefix + ins_len)].iter().collect();
-        text.insert(common_prefix, &ins_str).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+        let ins_str: String = new_chars[common_prefix..(common_prefix + ins_len)]
+            .iter()
+            .collect();
+        text.insert(common_prefix, &ins_str)
+            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
     }
     Ok(())
 }
 
-pub async fn get_merged_loro_doc(conn: &database::DbConnection, note_id: &str) -> Result<loro::LoroDoc, YntraError> {
+pub async fn get_merged_loro_doc(
+    conn: &database::DbConnection,
+    note_id: &str,
+) -> Result<loro::LoroDoc, YntraError> {
     let doc = loro::LoroDoc::new();
-    
+
     // Fetch base note content snapshot
-    let base_content: String = conn.query_row(
-        "SELECT content FROM notes WHERE id = ?1",
-        crate::params![note_id],
-        |r| r.get(0)
-    ).await.map_err(|_| YntraError::NotFoundError(format!("Note not found: {}", note_id)))?;
-    
+    let base_content: String = conn
+        .query_row(
+            "SELECT content FROM notes WHERE id = ?1",
+            crate::params![note_id],
+            |r| r.get(0),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError(format!("Note not found: {}", note_id)))?;
+
     let (last_merged_seq, hex_or_plain) = parse_loro_state(&base_content);
     if base_content.starts_with("loro:") {
         if let Some(bytes) = crate::infra::crypto::hex_decode(hex_or_plain) {
-            doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            doc.import(&bytes)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         }
     } else {
-        doc.get_text("content").insert(0, hex_or_plain).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+        doc.get_text("content")
+            .insert(0, hex_or_plain)
+            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
     }
-    
+
     // Fetch and import only newer append-only updates
     let mut stmt = conn.prepare(
         "SELECT update_data FROM note_updates WHERE note_id = ?1 AND seq > ?2 ORDER BY seq ASC, created_at ASC"
@@ -76,10 +98,11 @@ pub async fn get_merged_loro_doc(conn: &database::DbConnection, note_id: &str) -
     while let Some(row) = rows.next().await? {
         let update_data_hex: String = row.get(0)?;
         if let Some(bytes) = crate::infra::crypto::hex_decode(&update_data_hex) {
-            doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            doc.import(&bytes)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         }
     }
-    
+
     Ok(doc)
 }
 
@@ -93,7 +116,10 @@ mod tests {
         let doc1 = loro::LoroDoc::new();
         let text1 = doc1.get_text("content");
         text1.insert(0, "Hello").unwrap();
-        let state1 = format!("loro:{}", crate::infra::crypto::hex_encode(&doc1.export(loro::ExportMode::Snapshot).unwrap()));
+        let state1 = format!(
+            "loro:{}",
+            crate::infra::crypto::hex_encode(&doc1.export(loro::ExportMode::Snapshot).unwrap())
+        );
 
         // Create concurrent update state from doc1's state
         let doc2 = loro::LoroDoc::new();
@@ -102,14 +128,20 @@ mod tests {
         doc2.import(&bytes1).unwrap();
         let text2 = doc2.get_text("content");
         text2.insert(5, " World").unwrap();
-        let state2 = format!("loro:{}", crate::infra::crypto::hex_encode(&doc2.export(loro::ExportMode::Snapshot).unwrap()));
+        let state2 = format!(
+            "loro:{}",
+            crate::infra::crypto::hex_encode(&doc2.export(loro::ExportMode::Snapshot).unwrap())
+        );
 
         // Create another concurrent update state from doc1's state
         let doc3 = loro::LoroDoc::new();
         doc3.import(&bytes1).unwrap();
         let text3 = doc3.get_text("content");
         text3.insert(0, "CRDT ").unwrap();
-        let state3 = format!("loro:{}", crate::infra::crypto::hex_encode(&doc3.export(loro::ExportMode::Snapshot).unwrap()));
+        let state3 = format!(
+            "loro:{}",
+            crate::infra::crypto::hex_encode(&doc3.export(loro::ExportMode::Snapshot).unwrap())
+        );
 
         // Merge state2 and state3
         let state2_c = state2.clone();
@@ -133,31 +165,49 @@ mod tests {
         let (seq1, hex_or_plain1) = parse_loro_state(&state1);
         if state1.starts_with("loro:") {
             if let Some(bytes) = crate::infra::crypto::hex_decode(hex_or_plain1) {
-                doc1.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                doc1.import(&bytes)
+                    .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             }
         } else {
-            doc1.get_text("content").insert(0, hex_or_plain1).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            doc1.get_text("content")
+                .insert(0, hex_or_plain1)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         }
 
         let doc2 = loro::LoroDoc::new();
         let (seq2, hex_or_plain2) = parse_loro_state(&state2);
         if state2.starts_with("loro:") {
             if let Some(bytes) = crate::infra::crypto::hex_decode(hex_or_plain2) {
-                doc2.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                doc2.import(&bytes)
+                    .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             }
         } else {
-            doc2.get_text("content").insert(0, hex_or_plain2).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            doc2.get_text("content")
+                .insert(0, hex_or_plain2)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         }
 
-        let bytes2 = doc2.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        doc1.import(&bytes2).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+        let bytes2 = doc2
+            .export(loro::ExportMode::Snapshot)
+            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+        doc1.import(&bytes2)
+            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
 
-        let merged_bytes = doc1.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+        let merged_bytes = doc1
+            .export(loro::ExportMode::Snapshot)
+            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         let max_seq = seq1.max(seq2);
         if max_seq >= 0 {
-            Ok(format!("loro:{}:{}", max_seq, crate::infra::crypto::hex_encode(&merged_bytes)))
+            Ok(format!(
+                "loro:{}:{}",
+                max_seq,
+                crate::infra::crypto::hex_encode(&merged_bytes)
+            ))
         } else {
-            Ok(format!("loro:{}", crate::infra::crypto::hex_encode(&merged_bytes)))
+            Ok(format!(
+                "loro:{}",
+                crate::infra::crypto::hex_encode(&merged_bytes)
+            ))
         }
     }
 
@@ -166,7 +216,10 @@ mod tests {
         let doc1 = loro::LoroDoc::new();
         let text1 = doc1.get_text("content");
         text1.insert(0, "LoroState").unwrap();
-        let state1 = format!("loro:{}", crate::infra::crypto::hex_encode(&doc1.export(loro::ExportMode::Snapshot).unwrap()));
+        let state1 = format!(
+            "loro:{}",
+            crate::infra::crypto::hex_encode(&doc1.export(loro::ExportMode::Snapshot).unwrap())
+        );
 
         let state2 = "PlaintextState".to_string();
 
@@ -177,7 +230,7 @@ mod tests {
         let doc_final_1_2 = loro::LoroDoc::new();
         doc_final_1_2.import(&merged_bytes_1_2).unwrap();
         let text_final_1_2 = doc_final_1_2.get_text("content").to_string();
-        
+
         assert!(text_final_1_2.contains("LoroState"));
         assert!(text_final_1_2.contains("PlaintextState"));
 
@@ -197,10 +250,10 @@ mod tests {
     fn test_apply_diff_to_loro() {
         let doc = loro::LoroDoc::new();
         let text = doc.get_text("content");
-        
+
         // Initial insert
         text.insert(0, "Hello World").unwrap();
-        
+
         // Test insertion in middle
         apply_diff_to_loro(&text, "Hello World", "Hello CRDT World").unwrap();
         assert_eq!(text.to_string(), "Hello CRDT World");
@@ -225,7 +278,7 @@ mod tests {
         let doc_emoji = loro::LoroDoc::new();
         let text_emoji = doc_emoji.get_text("content");
         text_emoji.insert(0, "😅Hello World").unwrap();
-        
+
         apply_diff_to_loro(&text_emoji, "😅Hello World", "😅Hello CRDT World").unwrap();
         assert_eq!(text_emoji.to_string(), "😅Hello CRDT World");
 

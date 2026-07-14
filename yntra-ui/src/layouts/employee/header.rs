@@ -1,8 +1,8 @@
 use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
-use yntra_core::WorkspaceUser;
 use yntra_core::Workspace;
+use yntra_core::WorkspaceUser;
 
 #[derive(Props, Clone)]
 pub struct LayoutHeaderProps {
@@ -28,7 +28,7 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
     let active_user_role = state.active_user_role.read().clone();
     let locale = state.auth_region.read().clone();
     let teams = state.teams.read().clone().unwrap_or_default();
-    
+
     let section = state.active_section.read().clone();
     let mut notes = Vec::new();
     if section == "notes" {
@@ -42,7 +42,7 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
     if section == "directory" {
         workspaces = state.workspaces.read().clone().unwrap_or_default();
     }
-    
+
     let breadcrumbs = super::breadcrumbs::get_breadcrumbs(
         state.active_section,
         state.selected_note_team_id,
@@ -78,17 +78,48 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
     let mut header_template_open = use_signal(|| false);
 
     let active_template_label = {
-        let modules_val: serde_json::Value = serde_json::from_str(&props.workspace.modules_active).unwrap_or_default();
-        let is_school = modules_val.get("school").and_then(|v| v.as_bool()).unwrap_or(false)
-            || modules_val.get("academics").and_then(|v| v.as_bool()).unwrap_or(false)
-            || modules_val.get("attendance").and_then(|v| v.as_bool()).unwrap_or(false)
-            || modules_val.get("finance").and_then(|v| v.as_bool()).unwrap_or(false)
-            || modules_val.get("library").and_then(|v| v.as_bool()).unwrap_or(false)
-            || modules_val.get("timetable").and_then(|v| v.as_bool()).unwrap_or(false);
-        let is_assistance = modules_val.get("assistance").and_then(|v| v.as_bool()).unwrap_or(false)
-            || modules_val.get("journals").and_then(|v| v.as_bool()).unwrap_or(false)
-            || modules_val.get("medications").and_then(|v| v.as_bool()).unwrap_or(false);
-        let is_moving_company = modules_val.get("moving_company").and_then(|v| v.as_bool()).unwrap_or(false);
+        let modules_val: serde_json::Value =
+            serde_json::from_str(&props.workspace.modules_active).unwrap_or_default();
+        let is_school = modules_val
+            .get("school")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+            || modules_val
+                .get("academics")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            || modules_val
+                .get("attendance")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            || modules_val
+                .get("finance")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            || modules_val
+                .get("library")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            || modules_val
+                .get("timetable")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+        let is_assistance = modules_val
+            .get("assistance")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+            || modules_val
+                .get("journals")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            || modules_val
+                .get("medications")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+        let is_moving_company = modules_val
+            .get("moving_company")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         if is_school {
             "Dev: School".to_string()
@@ -383,7 +414,7 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                         }
                     }
                 }
-                
+
                 // Header User Profile trigger
                 div { class: "relative flex items-center gap-3",
                     div {
@@ -405,7 +436,7 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                         }
                         components::LucideIcon { name: "chevron-down", class: "h-4 w-4 text-muted-foreground" }
                     }
-                    
+
                     // Floating profile menu dropdown
                     if *header_profile_open.read() {
                         div { class: "absolute right-0 top-12 z-50 w-48 rounded-xl border border-border bg-sidebar py-2 shadow-2xl",

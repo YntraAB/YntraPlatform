@@ -1,18 +1,19 @@
+use crate::components::LucideIcon;
 use dioxus::prelude::*;
 use yntra_core::DynamicEntity;
-use crate::components::LucideIcon;
 
 #[derive(Props, Clone, PartialEq)]
 pub struct DynamicListProps {
     pub entities: Vec<DynamicEntity>,
-    pub ui_config: String,          // JSON Array defining columns
+    pub ui_config: String, // JSON Array defining columns
     pub onedit: EventHandler<DynamicEntity>,
     pub ondelete: EventHandler<String>,
 }
 
 #[component]
 pub fn DynamicList(props: DynamicListProps) -> Element {
-    let ui_config_val: serde_json::Value = serde_json::from_str(&props.ui_config).unwrap_or_else(|_| serde_json::Value::Array(Vec::new()));
+    let ui_config_val: serde_json::Value = serde_json::from_str(&props.ui_config)
+        .unwrap_or_else(|_| serde_json::Value::Array(Vec::new()));
     let columns = ui_config_val.as_array().cloned().unwrap_or_default();
 
     rsx! {

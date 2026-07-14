@@ -1,9 +1,9 @@
 pub mod bankid;
 pub mod hardware;
-pub mod totp;
 pub mod supabase;
+pub mod totp;
 
 pub use bankid::*;
 pub use hardware::*;
-pub use totp::*;
 pub use supabase::*;
+pub use totp::*;

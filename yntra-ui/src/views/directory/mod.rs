@@ -1,25 +1,25 @@
 use dioxus::prelude::*;
 use yntra_core::{Workspace, WorkspaceUser};
 
-mod workspaces;
-mod teams;
 mod members;
 mod role_manager;
-mod template_manager;
 mod team_wizard;
+mod teams;
+mod template_manager;
+mod workspaces;
 
-pub use workspaces::WorkspacesList;
-pub use teams::TeamsList;
 pub use members::MembersList;
 pub use role_manager::RoleManagerDialog;
+pub use teams::TeamsList;
 pub use template_manager::TemplateManagerDialog;
+pub use workspaces::WorkspacesList;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct WorkspaceRolePermissions {
     pub can_manage_schedule: bool,
     pub can_manage_notes: bool,
     pub can_approve_time_reports: bool,
-    
+
     // School module
     #[serde(default)]
     pub can_manage_students: bool,
@@ -33,7 +33,7 @@ pub struct WorkspaceRolePermissions {
     pub can_manage_billing: bool,
     #[serde(default)]
     pub can_manage_library: bool,
-    
+
     // Care module
     #[serde(default)]
     pub can_manage_clients: bool,
@@ -45,7 +45,7 @@ pub struct WorkspaceRolePermissions {
     pub can_view_medications: bool,
     #[serde(default)]
     pub can_manage_medications: bool,
-    
+
     // Moving company module
     #[serde(default)]
     pub can_manage_jobs: bool,
@@ -125,15 +125,21 @@ pub fn DirectoryView(props: DirectoryViewProps) -> Element {
     let _selected_directory_workspace = props.selected_directory_workspace;
     let selected_directory_team = props.selected_directory_team;
 
-    let user_prefs: serde_json::Value = serde_json::from_str(&active_user.preferences).unwrap_or_default();
-    let region = user_prefs.get("language").and_then(|l| l.as_str()).unwrap_or("US").to_string();
+    let user_prefs: serde_json::Value =
+        serde_json::from_str(&active_user.preferences).unwrap_or_default();
+    let region = user_prefs
+        .get("language")
+        .and_then(|l| l.as_str())
+        .unwrap_or("US")
+        .to_string();
 
     let current_dir_level = directory_level.read().clone();
     let current_team = selected_directory_team.read().clone();
     let team_id_unwrap = current_team.clone().unwrap_or_else(|| "team-1".to_string());
 
     // Parse Custom Workspace Roles
-    let settings_val: serde_json::Value = serde_json::from_str(&workspace.settings).unwrap_or_default();
+    let settings_val: serde_json::Value =
+        serde_json::from_str(&workspace.settings).unwrap_or_default();
     let custom_roles: Vec<WorkspaceRole> = settings_val
         .get("roles")
         .and_then(|v| serde_json::from_value(v.clone()).ok())

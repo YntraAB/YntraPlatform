@@ -1,7 +1,7 @@
-use dioxus::prelude::*;
-use yntra_core::{Team, DailyNote};
-use crate::locales::t;
 use crate::components;
+use crate::locales::t;
+use dioxus::prelude::*;
+use yntra_core::{DailyNote, Team};
 
 #[derive(Props, Clone)]
 pub struct TeamOverviewProps {
@@ -60,7 +60,7 @@ pub fn TeamOverview(props: TeamOverviewProps) -> Element {
     rsx! {
         div {
             class: "flex flex-col h-full w-full bg-background box-border",
-            
+
             // Header bar matching reference TeamOverview
             div {
                 class: "flex h-16 shrink-0 items-center justify-between border-b border-border px-8 bg-white/[0.02] box-border backdrop-blur-md",
@@ -71,7 +71,7 @@ pub fn TeamOverview(props: TeamOverviewProps) -> Element {
                         components::LucideIcon { name: "directory", class: "absolute left-3 h-4 w-4", color: "var(--text-muted)" }
                         input {
                             class: "yntra-input pl-9 text-xs h-8",
-                            
+
                             placeholder: "{t(\"notes-teams-search-placeholder\", &locale)}",
                             value: "{search_query}",
                             oninput: move |e| search_query.set(e.value()),
@@ -96,10 +96,10 @@ pub fn TeamOverview(props: TeamOverviewProps) -> Element {
                             {
                                 let team_id = team.id.clone();
                                 let team_name = team.name.clone();
-                                
+
                                 // Count notes in this team
                                 let notes_count = *notes_count_by_team.get(&team_id).unwrap_or(&0);
-                                
+
                                 // Find latest updated note timestamp
                                 let latest_note = latest_note_by_team.get(&team_id).copied();
 
@@ -113,7 +113,7 @@ pub fn TeamOverview(props: TeamOverviewProps) -> Element {
                                             edit_mode.set(false);
                                         },
                                         class: "flex flex-row items-center justify-between border-b border-border px-8 py-4 cursor-pointer bg-white/[0.01] list-item-hover transition-colors duration-155",
-                                        
+
                                         // Left icon and details
                                         div {
                                             class: "flex items-center gap-4 flex-1 min-w-0",

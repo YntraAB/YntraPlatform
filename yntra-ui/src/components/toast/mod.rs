@@ -103,7 +103,7 @@ pub fn ToastProvider(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dioxus_primitives::toast::{use_toast, ToastOptions};
+    use dioxus_primitives::toast::{ToastOptions, use_toast};
 
     #[component]
     fn TriggerToast() -> Element {

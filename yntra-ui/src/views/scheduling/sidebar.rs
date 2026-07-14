@@ -1,10 +1,10 @@
+use super::utils::*;
 use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
+use yntra_core::Team;
 use yntra_core::TeamEvent;
 use yntra_core::WorkspaceUser;
-use yntra_core::Team;
-use super::utils::*;
 
 #[derive(Props, Clone)]
 pub struct SchedulingSidebarProps {
@@ -56,17 +56,29 @@ pub fn SchedulingSidebar(props: SchedulingSidebarProps) -> Element {
         let curr_month = *calendar_month.read();
         let selected_date_str = selected_calendar_date.read().clone();
 
-        let prev_year = if curr_month == 1 { curr_year - 1 } else { curr_year };
+        let prev_year = if curr_month == 1 {
+            curr_year - 1
+        } else {
+            curr_year
+        };
         let prev_month = if curr_month == 1 { 12 } else { curr_month - 1 };
 
-        let next_year = if curr_month == 12 { curr_year + 1 } else { curr_year };
+        let next_year = if curr_month == 12 {
+            curr_year + 1
+        } else {
+            curr_year
+        };
         let next_month = if curr_month == 12 { 1 } else { curr_month + 1 };
 
         let days_in_prev = get_days_in_month(prev_year, prev_month);
         let days_in_curr = get_days_in_month(curr_year, curr_month);
         let first_day_wd = get_first_day_of_week(curr_year, curr_month);
 
-        let leading_days = if first_day_wd == 0 { 6 } else { first_day_wd - 1 };
+        let leading_days = if first_day_wd == 0 {
+            6
+        } else {
+            first_day_wd - 1
+        };
 
         let mut list = Vec::new();
 
@@ -114,13 +126,13 @@ pub fn SchedulingSidebar(props: SchedulingSidebarProps) -> Element {
     };
 
     rsx! {
-        div { 
+        div {
             class: "scrollbar-dark w-72 shrink-0 overflow-y-auto border-r border-border bg-sidebar p-4 flex flex-col gap-6",
             style: "box-sizing: border-box;",
-            
+
             // MiniCalendar Widget Card
             div { class: "rounded-lg bg-sidebar p-1 flex flex-col gap-3",
-                
+
                 // Month navigation header
                 div { class: "flex items-center justify-between mb-2",
                     button {
@@ -191,7 +203,7 @@ pub fn SchedulingSidebar(props: SchedulingSidebarProps) -> Element {
                                         selected_calendar_date.set(cell_date_clone.clone());
                                     },
                                     class: "relative mx-auto flex h-8 w-8 items-center justify-center rounded-full text-xs transition-all duration-150 border-0 bg-transparent cursor-pointer {cell_btn_class}",
-                                    
+
                                     span { "{cell.day}" }
                                     if has_cell_events && !is_selected {
                                         span { class: "absolute bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-primary" }
@@ -290,7 +302,7 @@ pub fn SchedulingSidebar(props: SchedulingSidebarProps) -> Element {
                                     move |_| show_event_detail_modal.set(Some(ev_c.clone()))
                                 },
                                 class: "cursor-pointer rounded-lg bg-secondary/50 p-3 transition-colors hover:bg-muted border border-border/40 select-none",
-                                
+
                                 div { class: "font-medium text-sm text-foreground truncate", "{item.0.title}" }
                                 div { class: "text-xs text-muted-foreground mt-1",
                                     "{item.1} · {item.2}"

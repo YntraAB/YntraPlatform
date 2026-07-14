@@ -10,10 +10,10 @@ pub fn normalize_swedish_pnum(pnum: &str, current_year: i32) -> Option<String> {
     let is_over_100 = clean.contains('+');
     let yy = digits_only[0..2].parse::<i32>().ok()?;
     let mm_dd_xxxx = &digits_only[2..10];
-    
+
     let current_year_short = current_year % 100;
     let current_century = current_year / 100 * 100;
-    
+
     let mut year = current_century + yy;
     if yy > current_year_short {
         year -= 100;
@@ -27,7 +27,10 @@ pub fn normalize_swedish_pnum(pnum: &str, current_year: i32) -> Option<String> {
 pub fn personal_numbers_match(p1: &str, p2: &str) -> bool {
     use chrono::Datelike;
     let current_year = chrono::Utc::now().year();
-    if let (Some(n1), Some(n2)) = (normalize_swedish_pnum(p1, current_year), normalize_swedish_pnum(p2, current_year)) {
+    if let (Some(n1), Some(n2)) = (
+        normalize_swedish_pnum(p1, current_year),
+        normalize_swedish_pnum(p2, current_year),
+    ) {
         return n1 == n2;
     }
     let d1: String = p1.chars().filter(|c| c.is_ascii_digit()).collect();

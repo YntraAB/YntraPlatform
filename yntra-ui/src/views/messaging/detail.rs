@@ -34,19 +34,19 @@ pub fn MessageDetail(props: MessageDetailProps) -> Element {
         .find(|u| u.id == active_msg_sender_id)
         .and_then(|u| u.full_name.clone())
         .unwrap_or_else(|| "Workspace System".to_string());
-    
+
     let receiver_id = active_message.receiver_id.clone().unwrap_or_default();
     let active_msg_receiver_name = users
         .iter()
         .find(|u| u.id == receiver_id)
         .and_then(|u| u.full_name.clone())
         .unwrap_or_else(|| "Workspace Colleague".to_string());
-    
+
     let active_msg_subject = active_message
         .subject
         .clone()
         .unwrap_or_else(|| "No Subject".to_string());
-    
+
     let active_msg_body = active_message.body.clone().unwrap_or_default();
     let active_msg_created_at = active_message.created_at.clone();
 
@@ -83,7 +83,7 @@ pub fn MessageDetail(props: MessageDetailProps) -> Element {
                     }
                 }
             }
-            
+
             div { class: "flex-1 overflow-y-auto px-8 py-6 max-w-3xl flex flex-col gap-6",
                 div { class: "flex flex-col gap-1 border-b border-border pb-4",
                     div { class: "text-sm text-muted-foreground",

@@ -50,7 +50,10 @@ pub fn TimeReportModal(props: TimeReportModalProps) -> Element {
     let locale = props.locale;
 
     let mut selected_team_id = use_signal(|| {
-        teams.first().map(|t| t.id.clone()).unwrap_or_else(|| "team-1".to_string())
+        teams
+            .first()
+            .map(|t| t.id.clone())
+            .unwrap_or_else(|| "team-1".to_string())
     });
     let mut report_date = use_signal(|| {
         let now_str = yntra_core::infra::time::get_current_datetime_str();

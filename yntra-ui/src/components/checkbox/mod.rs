@@ -37,10 +37,11 @@ pub fn Checkbox(props: CheckboxProps) -> Element {
     });
 
     let onchange = props.onchange;
-    let on_checked_change = Callback::new(move |val: dioxus_primitives::checkbox::CheckboxState| {
-        let is_checked = matches!(val, dioxus_primitives::checkbox::CheckboxState::Checked);
-        onchange.call(is_checked);
-    });
+    let on_checked_change =
+        Callback::new(move |val: dioxus_primitives::checkbox::CheckboxState| {
+            let is_checked = matches!(val, dioxus_primitives::checkbox::CheckboxState::Checked);
+            onchange.call(is_checked);
+        });
 
     rsx! {
         div {

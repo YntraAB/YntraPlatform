@@ -1,8 +1,8 @@
+use super::utils::*;
 use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::TeamEvent;
-use super::utils::*;
 
 #[derive(Props, Clone)]
 pub struct AgendaViewProps {
@@ -42,7 +42,7 @@ pub fn AgendaView(props: AgendaViewProps) -> Element {
         } else {
             "2026-06-30".to_string()
         };
-        
+
         let is_today = date_part == "2026-06-30";
 
         if let Some(group) = groups.iter_mut().find(|g| g.date_str == date_part) {
@@ -88,7 +88,7 @@ pub fn AgendaView(props: AgendaViewProps) -> Element {
                     for group in groups.iter() {
                         div {
                             key: "{group.date_str}",
-                            
+
                             // Date Header
                             div { class: "mb-3 flex items-center gap-3",
                                 div {
@@ -129,7 +129,7 @@ pub fn AgendaView(props: AgendaViewProps) -> Element {
                                             }
                                         },
                                         class: "flex cursor-pointer items-center gap-4 rounded-lg border border-border bg-muted p-3 transition-all duration-150 hover:border-primary/50 hover:bg-background",
-                                        
+
                                         // Time
                                         div { class: "w-20 shrink-0 text-right font-medium",
                                             div { class: "text-sm text-foreground", "{item.3}" }

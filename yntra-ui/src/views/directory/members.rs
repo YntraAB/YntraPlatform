@@ -1,10 +1,9 @@
-use dioxus::prelude::*;
+use super::WorkspaceRole;
 use crate::components;
 use crate::state::AppState;
-use super::WorkspaceRole;
+use dioxus::prelude::*;
 use yntra_core::{
-    add_client_via_directory, invite_user_via_directory,
-    WorkspaceUser, ClientProfile
+    ClientProfile, WorkspaceUser, add_client_via_directory, invite_user_via_directory,
 };
 
 #[derive(Props, Clone)]
@@ -29,7 +28,7 @@ pub fn MembersList(props: MembersListProps) -> Element {
     let team_id_unwrap = props.team_id_unwrap.clone();
     let custom_roles = props.custom_roles.clone();
     let state = use_context::<AppState>();
-    
+
     let workspace_opt = state.workspace.read();
     let workspace = workspace_opt.as_ref().cloned().unwrap_or_else(|| yntra_core::Workspace {
         id: "workspace-1".to_string(),
@@ -64,8 +63,6 @@ pub fn MembersList(props: MembersListProps) -> Element {
     let mut selected_member = use_signal(|| Option::<components::DirectoryMember>::None);
     let mut selected_member_to_edit = use_signal(|| Option::<components::DirectoryMember>::None);
 
-
-
     let _is_admin = active_user.role == "platform_admin" || active_user.role == "admin";
 
     // Filtering lists
@@ -76,12 +73,22 @@ pub fn MembersList(props: MembersListProps) -> Element {
         .cloned()
         .collect();
 
-    let platform_admins: Vec<WorkspaceUser> = team_users.iter().filter(|u| u.role == "platform_admin").cloned().collect();
-    let admins: Vec<WorkspaceUser> = team_users.iter().filter(|u| u.role == "admin").cloned().collect();
-    let assistants: Vec<WorkspaceUser> = team_users.iter().filter(|u| u.role != "platform_admin" && u.role != "admin").cloned().collect();
+    let platform_admins: Vec<WorkspaceUser> = team_users
+        .iter()
+        .filter(|u| u.role == "platform_admin")
+        .cloned()
+        .collect();
+    let admins: Vec<WorkspaceUser> = team_users
+        .iter()
+        .filter(|u| u.role == "admin")
+        .cloned()
+        .collect();
+    let assistants: Vec<WorkspaceUser> = team_users
+        .iter()
+        .filter(|u| u.role != "platform_admin" && u.role != "admin")
+        .cloned()
+        .collect();
     let first_client = team_clients.first().cloned();
-
-
 
     rsx! {
         div { class: "relative flex h-full flex-1 flex-col bg-background",

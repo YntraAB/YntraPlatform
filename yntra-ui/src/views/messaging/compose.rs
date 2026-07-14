@@ -31,7 +31,11 @@ pub fn MessageCompose(props: MessageComposeProps) -> Element {
 
     let compose_recipient_label = if let Some(rec_id) = compose_recipient_id.read().clone() {
         if let Some(recipient) = eligible_recipients.iter().find(|r| r.id == rec_id) {
-            format!("{} ({})", recipient.full_name.clone().unwrap_or_default(), recipient.role)
+            format!(
+                "{} ({})",
+                recipient.full_name.clone().unwrap_or_default(),
+                recipient.role
+            )
         } else {
             t("messages-recipient-placeholder", &region)
         }
@@ -57,7 +61,7 @@ pub fn MessageCompose(props: MessageComposeProps) -> Element {
                     "{t(\"messages-cancel\", &region)}"
                 }
             }
-            
+
             div { class: "flex-1 overflow-y-auto px-8 py-6 max-w-2xl flex flex-col gap-5",
                 div { class: "flex flex-col gap-1.5",
                     label { class: "text-xs font-bold text-muted-foreground", "{t(\"messages-to\", &region)}" }

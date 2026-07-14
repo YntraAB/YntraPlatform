@@ -1,9 +1,12 @@
 use crate::database;
 use crate::observer::notify_observers;
-use crate::{ReportItem, YntraError};
+use crate::{MessageItem, ReportItem, YntraError};
 
 #[uniffi::export]
-pub async fn get_reports(requester_user_id: String, anonymous_report_ids: Vec<String>) -> Result<Vec<ReportItem>, YntraError> {
+pub async fn get_reports(
+    requester_user_id: String,
+    anonymous_report_ids: Vec<String>,
+) -> Result<Vec<ReportItem>, YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     let ws_id = auth.workspace_id.clone();
@@ -25,7 +28,9 @@ pub async fn get_reports(requester_user_id: String, anonymous_report_ids: Vec<St
                 vec![requester_user_id, ws_id],
             )
         } else {
-            let placeholders: Vec<String> = (0..anonymous_report_ids.len()).map(|i| format!("?{}", i + 3)).collect();
+            let placeholders: Vec<String> = (0..anonymous_report_ids.len())
+                .map(|i| format!("?{}", i + 3))
+                .collect();
             let query = format!(
                 "SELECT id, workspace_id, user_id, type, is_anonymous, content, status, created_at, updated_at, sync_status FROM reports WHERE (user_id = ?1 OR (id IN ({}) AND is_anonymous = 1)) AND workspace_id = ?2 ORDER BY created_at DESC",
                 placeholders.join(", ")
@@ -38,45 +43,49 @@ pub async fn get_reports(requester_user_id: String, anonymous_report_ids: Vec<St
 
     let mut stmt = conn.prepare(&query).await?;
 
-    let mut ciphers: std::collections::HashMap<String, crate::infra::crypto::WorkspaceCipher> = std::collections::HashMap::new();
+    let mut ciphers: std::collections::HashMap<String, crate::infra::crypto::WorkspaceCipher> =
+        std::collections::HashMap::new();
 
-    let list = stmt.query_map(crate::rusqlite::params_from_iter(params), move |row| {
-        let is_anon_int: i32 = row.get(4)?;
-        let ws_id: String = row.get(1)?;
-        let raw_content: String = row.get(5)?;
-        
-        if !ciphers.contains_key(&ws_id) {
-            let c = crate::infra::crypto::WorkspaceCipher::new(&ws_id)?;
-            ciphers.insert(ws_id.clone(), c);
-        }
-        let cipher = ciphers.get(&ws_id).unwrap();
-        let decrypted = cipher.decrypt(&raw_content).unwrap_or(raw_content);
-        
-        let user_id: String = if is_anon_int != 0 {
-            "anonymous".to_string()
-        } else {
-            row.get(2)?
-        };
+    let list = stmt
+        .query_map(crate::rusqlite::params_from_iter(params), move |row| {
+            let is_anon_int: i32 = row.get(4)?;
+            let ws_id: String = row.get(1)?;
+            let raw_content: String = row.get(5)?;
 
-        Ok(ReportItem {
-            id: row.get(0)?,
-            workspace_id: ws_id,
-            user_id,
-            type_name: row.get(3)?,
-            is_anonymous: is_anon_int != 0,
-            content: decrypted,
-            status: row.get(6)?,
-            created_at: row.get(7)?,
-            updated_at: row.get(8)?,
-            sync_status: row.get(9)?,
+            if !ciphers.contains_key(&ws_id) {
+                let c = crate::infra::crypto::WorkspaceCipher::new(&ws_id)?;
+                ciphers.insert(ws_id.clone(), c);
+            }
+            let cipher = ciphers.get(&ws_id).unwrap();
+            let decrypted = cipher.decrypt(&raw_content).unwrap_or(raw_content);
+
+            let user_id: String = if is_anon_int != 0 {
+                "anonymous".to_string()
+            } else {
+                row.get(2)?
+            };
+
+            Ok(ReportItem {
+                id: row.get(0)?,
+                workspace_id: ws_id,
+                user_id,
+                type_name: row.get(3)?,
+                is_anonymous: is_anon_int != 0,
+                content: decrypted,
+                status: row.get(6)?,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
+                sync_status: row.get(9)?,
+            })
         })
-    }).await?;
+        .await?;
 
     Ok(list)
 }
 
 #[uniffi::export]
 pub async fn add_report(
+    requester_user_id: String,
     workspace_id: String,
     user_id: String,
     report_type: String,
@@ -85,6 +94,21 @@ pub async fn add_report(
     description: String,
     date_of_incident: String,
 ) -> Result<ReportItem, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    if !is_anonymous && auth.user_id != user_id {
+        return Err(YntraError::AuthError(
+            "Access denied: cannot submit report on behalf of another user".to_string(),
+        ));
+    }
+
     let id = uuid::Uuid::new_v4().to_string();
     let created_at = crate::infra::time::get_current_datetime_str();
     let content_json = serde_json::json!({
@@ -96,7 +120,6 @@ pub async fn add_report(
 
     let encrypted_content = crate::infra::crypto::encrypt_field(&content_json, &workspace_id)?;
     let now_ms = crate::infra::time::get_current_time_ms();
-    let conn = database::acquire_connection().await?;
 
     let db_user_id = if is_anonymous {
         let anon_user_id = format!("anonymous_{}", workspace_id);
@@ -113,7 +136,11 @@ pub async fn add_report(
     let item = ReportItem {
         id: id.clone(),
         workspace_id: workspace_id.clone(),
-        user_id: if is_anonymous { "anonymous".to_string() } else { user_id.clone() },
+        user_id: if is_anonymous {
+            "anonymous".to_string()
+        } else {
+            user_id.clone()
+        },
         type_name: report_type.clone(),
         is_anonymous,
         content: encrypted_content.clone(),
@@ -140,7 +167,9 @@ pub async fn add_report(
 
     let mut stmt =
         conn.prepare("SELECT id FROM users WHERE role = 'platform_admin' OR (role = 'admin' AND workspace_id = ?1)").await?;
-    let admin_ids_iter = stmt.query_map(crate::params![&workspace_id], |row| row.get::<String>(0)).await?;
+    let admin_ids_iter = stmt
+        .query_map(crate::params![&workspace_id], |row| row.get::<String>(0))
+        .await?;
     let mut admin_ids = Vec::new();
     for admin_id in admin_ids_iter {
         admin_ids.push(admin_id);
@@ -155,7 +184,11 @@ pub async fn add_report(
             report_type, subject
         );
 
-        let sender_id_param = if is_anonymous { None } else { Some(user_id.clone()) };
+        let sender_id_param = if is_anonymous {
+            None
+        } else {
+            Some(user_id.clone())
+        };
         let _ = conn.execute(
             "INSERT INTO messages (id, workspace_id, sender_id, receiver_id, target_team_id, subject, body, is_read, created_at, updated_at, sync_status)
              VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, 0, ?7, ?8, 'pending')",
@@ -170,6 +203,26 @@ pub async fn add_report(
                 &now_ms
             ],
         ).await;
+
+        // Also write to ZeroCopyMessageStore to keep inbox and DB synchronized
+        let store = crate::services::messages::get_message_store();
+        if let Ok(mut messages) = store.read_all_messages() {
+            let msg_item = MessageItem {
+                id: msg_id,
+                workspace_id: item.workspace_id.clone(),
+                sender_id: sender_id_param,
+                receiver_id: Some(admin_id),
+                target_team_id: None,
+                subject: Some(subject),
+                body: Some(body),
+                is_read: false,
+                created_at: msg_created_at,
+                updated_at: now_ms,
+                sync_status: "pending".to_string(),
+            };
+            messages.push(msg_item);
+            let _ = store.write_messages(messages);
+        }
     }
 
     notify_observers();
@@ -177,29 +230,41 @@ pub async fn add_report(
 }
 
 #[uniffi::export]
-pub async fn update_report_status(requester_user_id: String, report_id: String, status: String) -> Result<(), YntraError> {
+pub async fn update_report_status(
+    requester_user_id: String,
+    report_id: String,
+    status: String,
+) -> Result<(), YntraError> {
     let now_ms = crate::infra::time::get_current_time_ms();
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     if auth.role != "admin" && auth.role != "platform_admin" {
-        return Err(YntraError::AuthError("Access denied: only admins can update report status".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: only admins can update report status".to_string(),
+        ));
     }
 
-    let report_ws: String = conn.query_row(
-        "SELECT workspace_id FROM reports WHERE id = ?1",
-        crate::params![&report_id],
-        |r| r.get(0)
-    ).await.map_err(|_| YntraError::NotFoundError("Report not found".to_string()))?;
+    let report_ws: String = conn
+        .query_row(
+            "SELECT workspace_id FROM reports WHERE id = ?1",
+            crate::params![&report_id],
+            |r| r.get(0),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Report not found".to_string()))?;
 
     if auth.role != "platform_admin" && auth.workspace_id != report_ws {
-        return Err(YntraError::AuthError("Access denied: report belongs to a different workspace".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: report belongs to a different workspace".to_string(),
+        ));
     }
 
     conn.execute(
         "UPDATE reports SET status = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
         crate::params![status, now_ms, report_id],
-    ).await?;
+    )
+    .await?;
 
     notify_observers();
     Ok(())
@@ -216,10 +281,30 @@ mod tests {
         let conn = database::acquire_connection().await.unwrap();
 
         // Clear existing dirty state from previous failed runs
-        let _ = conn.execute("DELETE FROM reports WHERE workspace_id IN ('ws-rep-1', 'ws-rep-2')", ()).await;
-        let _ = conn.execute("DELETE FROM messages WHERE workspace_id IN ('ws-rep-1', 'ws-rep-2')", ()).await;
-        let _ = conn.execute("DELETE FROM users WHERE workspace_id IN ('ws-rep-1', 'ws-rep-2')", ()).await;
-        let _ = conn.execute("DELETE FROM workspaces WHERE id IN ('ws-rep-1', 'ws-rep-2')", ()).await;
+        let _ = conn
+            .execute(
+                "DELETE FROM reports WHERE workspace_id IN ('ws-rep-1', 'ws-rep-2')",
+                (),
+            )
+            .await;
+        let _ = conn
+            .execute(
+                "DELETE FROM messages WHERE workspace_id IN ('ws-rep-1', 'ws-rep-2')",
+                (),
+            )
+            .await;
+        let _ = conn
+            .execute(
+                "DELETE FROM users WHERE workspace_id IN ('ws-rep-1', 'ws-rep-2')",
+                (),
+            )
+            .await;
+        let _ = conn
+            .execute(
+                "DELETE FROM workspaces WHERE id IN ('ws-rep-1', 'ws-rep-2')",
+                (),
+            )
+            .await;
 
         // 1. Setup workspace structure and users
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-rep-1', 'Rep WS 1', '[]', '{}')", ()).await.unwrap();
@@ -235,6 +320,7 @@ mod tests {
 
         // 2. Add reports
         let r1 = add_report(
+            "u-rep-user1".to_string(),
             "ws-rep-1".to_string(),
             "u-rep-user1".to_string(),
             "whistleblow".to_string(),
@@ -242,9 +328,12 @@ mod tests {
             "Subject 1".to_string(),
             "Desc 1".to_string(),
             "2026-07-05".to_string(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         let r2 = add_report(
+            "u-rep-user1".to_string(),
             "ws-rep-1".to_string(),
             "u-rep-user1".to_string(),
             "whistleblow".to_string(),
@@ -252,17 +341,23 @@ mod tests {
             "Subject 2".to_string(),
             "Desc 2".to_string(),
             "2026-07-05".to_string(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         // Verify dummy user has 'anonymous' role
-        let dummy_role: String = conn.query_row(
-            "SELECT role FROM users WHERE id = 'anonymous_ws-rep-1'",
-            (),
-            |row| row.get(0),
-        ).await.unwrap();
+        let dummy_role: String = conn
+            .query_row(
+                "SELECT role FROM users WHERE id = 'anonymous_ws-rep-1'",
+                (),
+                |row| row.get(0),
+            )
+            .await
+            .unwrap();
         assert_eq!(dummy_role, "anonymous");
 
         let r3 = add_report(
+            "u-rep-user2".to_string(),
             "ws-rep-2".to_string(),
             "u-rep-user2".to_string(),
             "compliance".to_string(),
@@ -270,14 +365,18 @@ mod tests {
             "Subject 3".to_string(),
             "Desc 3".to_string(),
             "2026-07-05".to_string(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         // 3. Verify get_reports scoping:
 
         // A. Standard user 1 (should only see their own, and for r2 (anonymous), the author is still "anonymous" to them or they see it)
         // Wait, standard user query: WHERE user_id = requester_user_id.
         // Wait, r2 is anonymous, but in database user_id = 'u-rep-user1'. So they see both r1 and r2!
-        let list_user = get_reports("u-rep-user1".to_string(), vec![r2.id.clone()]).await.unwrap();
+        let list_user = get_reports("u-rep-user1".to_string(), vec![r2.id.clone()])
+            .await
+            .unwrap();
         assert_eq!(list_user.len(), 2);
         // r2 is anonymous, so its returned user_id is masked to "anonymous"
         let anon_rep = list_user.iter().find(|r| r.id == r2.id).unwrap();
@@ -288,21 +387,45 @@ mod tests {
         assert_eq!(non_anon_rep.user_id, "u-rep-user1");
 
         // B. Admin 1 (should see all reports in ws-rep-1, meaning r1 and r2, but not r3)
-        let list_admin = get_reports("u-rep-admin1".to_string(), vec![]).await.unwrap();
+        let list_admin = get_reports("u-rep-admin1".to_string(), vec![])
+            .await
+            .unwrap();
         assert_eq!(list_admin.len(), 2);
         assert!(list_admin.iter().any(|r| r.id == r1.id));
         assert!(list_admin.iter().any(|r| r.id == r2.id));
         assert!(!list_admin.iter().any(|r| r.id == r3.id));
 
         // C. Platform admin (should see all reports across workspaces: r1, r2, r3)
-        let list_padmin = get_reports("u-rep-padmin".to_string(), vec![]).await.unwrap();
+        let list_padmin = get_reports("u-rep-padmin".to_string(), vec![])
+            .await
+            .unwrap();
         assert_eq!(list_padmin.len(), 3);
 
         // Cleanup
-        conn.execute("DELETE FROM reports WHERE workspace_id IN ('ws-rep-1', 'ws-rep-2')", ()).await.unwrap();
-        conn.execute("DELETE FROM messages WHERE workspace_id IN ('ws-rep-1', 'ws-rep-2')", ()).await.unwrap();
-        conn.execute("DELETE FROM users WHERE workspace_id IN ('ws-rep-1', 'ws-rep-2')", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id IN ('ws-rep-1', 'ws-rep-2')", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM reports WHERE workspace_id IN ('ws-rep-1', 'ws-rep-2')",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM messages WHERE workspace_id IN ('ws-rep-1', 'ws-rep-2')",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM users WHERE workspace_id IN ('ws-rep-1', 'ws-rep-2')",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM workspaces WHERE id IN ('ws-rep-1', 'ws-rep-2')",
+            (),
+        )
+        .await
+        .unwrap();
         crate::infra::crypto::clear_session_key();
     }
 
@@ -324,6 +447,7 @@ mod tests {
 
         // User 2 logs a standard non-anonymous report
         let rep_user2 = add_report(
+            user2_id.to_string(),
             ws_id.to_string(),
             user2_id.to_string(),
             "compliance".to_string(),
@@ -331,19 +455,43 @@ mod tests {
             "User 2 Report".to_string(),
             "Sensitive user 2 details".to_string(),
             "2026-07-05".to_string(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         // User 1 tries to retrieve User 2's report by specifying its UUID in anonymous_report_ids
-        let retrieved = get_reports(user1_id.to_string(), vec![rep_user2.id.clone()]).await.unwrap();
+        let retrieved = get_reports(user1_id.to_string(), vec![rep_user2.id.clone()])
+            .await
+            .unwrap();
 
         // The returned list must NOT contain User 2's non-anonymous report
         assert!(retrieved.is_empty() || !retrieved.iter().any(|r| r.id == rep_user2.id));
 
         // Clean up
-        conn.execute("DELETE FROM reports WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
-        conn.execute("DELETE FROM messages WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
-        conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute(
+            "DELETE FROM reports WHERE workspace_id = ?1",
+            crate::params![ws_id],
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM messages WHERE workspace_id = ?1",
+            crate::params![ws_id],
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM users WHERE workspace_id = ?1",
+            crate::params![ws_id],
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM workspaces WHERE id = ?1",
+            crate::params![ws_id],
+        )
+        .await
+        .unwrap();
         crate::infra::crypto::clear_session_key();
     }
 }

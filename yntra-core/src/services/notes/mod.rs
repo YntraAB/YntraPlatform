@@ -4,26 +4,38 @@ use crate::{DailyNote, EditHistoryEntry, YntraError};
 
 pub mod crdt;
 
-use crdt::{parse_loro_state, apply_diff_to_loro, get_merged_loro_doc};
+use crdt::{apply_diff_to_loro, get_merged_loro_doc, parse_loro_state};
 
 pub fn verify_zkp_if_encrypted(content: &str, user_id: &str, role: &str) -> Result<(), YntraError> {
     if content.starts_with("zero_copy_enc:") {
         let parts: Vec<&str> = content.split(':').collect();
         if parts.len() != 3 {
-            return Err(YntraError::CryptoError("Invalid encrypted payload format".to_string()));
+            return Err(YntraError::CryptoError(
+                "Invalid encrypted payload format".to_string(),
+            ));
         }
         let proof = parts[1];
         let ciphertext = parts[2];
         let trust = crate::ZkCryptoTrust::new();
-        if !trust.verify_compliance_proof(proof.to_string(), user_id.to_string(), role.to_string(), ciphertext.to_string()).unwrap_or(false) {
-            return Err(YntraError::CryptoError("Validation failed: Zero-Knowledge compliance proof is invalid".to_string()));
+        if !trust
+            .verify_compliance_proof(
+                proof.to_string(),
+                user_id.to_string(),
+                role.to_string(),
+                ciphertext.to_string(),
+            )
+            .unwrap_or(false)
+        {
+            return Err(YntraError::CryptoError(
+                "Validation failed: Zero-Knowledge compliance proof is invalid".to_string(),
+            ));
         }
     }
     Ok(())
 }
 
-use std::sync::OnceLock;
 use crate::ZeroCopyNoteStore;
+use std::sync::OnceLock;
 
 #[cfg(target_arch = "wasm32")]
 fn get_note_store_path() -> String {
@@ -33,7 +45,10 @@ fn get_note_store_path() -> String {
 #[cfg(not(target_arch = "wasm32"))]
 fn get_note_store_path() -> String {
     if cfg!(test) {
-        std::env::temp_dir().join("yntra_zero_copy_notes.db").to_string_lossy().to_string()
+        std::env::temp_dir()
+            .join("yntra_zero_copy_notes.db")
+            .to_string_lossy()
+            .to_string()
     } else {
         crate::database::native::get_database_path("yntra_zero_copy_notes.db")
     }
@@ -41,14 +56,19 @@ fn get_note_store_path() -> String {
 
 pub fn get_note_store() -> ZeroCopyNoteStore {
     static NOTE_STORE: OnceLock<ZeroCopyNoteStore> = OnceLock::new();
-    NOTE_STORE.get_or_init(|| {
-        let path = get_note_store_path();
-        ZeroCopyNoteStore::new(path).expect("Failed to initialize ZeroCopyNoteStore")
-    }).clone()
+    NOTE_STORE
+        .get_or_init(|| {
+            let path = get_note_store_path();
+            ZeroCopyNoteStore::new(path).expect("Failed to initialize ZeroCopyNoteStore")
+        })
+        .clone()
 }
 
 #[uniffi::export]
-pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Result<Vec<DailyNote>, YntraError> {
+pub async fn get_notes(
+    requester_user_id: String,
+    team_id: Option<String>,
+) -> Result<Vec<DailyNote>, YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     let ws_id = auth.workspace_id.clone();
@@ -110,7 +130,7 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
 
     let mut stmt = conn.prepare(&query).await?;
     let mut rows = stmt.query(params).await?;
-    
+
     let mut raw_notes = Vec::new();
     while let Some(row) = rows.next().await? {
         let id: String = row.get(0)?;
@@ -125,8 +145,21 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
         let sync_status: String = row.get(9)?;
         let content_plain: Option<String> = row.get(10)?;
         let max_seq: i64 = row.get(11)?;
-        
-        raw_notes.push((id, workspace_id, team_id, author_id, subject, base_content, edit_history, created_at, updated_at, sync_status, content_plain, max_seq));
+
+        raw_notes.push((
+            id,
+            workspace_id,
+            team_id,
+            author_id,
+            subject,
+            base_content,
+            edit_history,
+            created_at,
+            updated_at,
+            sync_status,
+            content_plain,
+            max_seq,
+        ));
     }
 
     if raw_notes.is_empty() {
@@ -139,9 +172,23 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
         "SELECT seq, update_data FROM note_updates WHERE note_id = ?1 AND seq > ?2 ORDER BY seq ASC, created_at ASC"
     ).await?;
 
-    for (id, workspace_id, team_id, author_id, subject, base_content, edit_history, created_at, updated_at, sync_status, content_plain, max_seq) in raw_notes {
+    for (
+        id,
+        workspace_id,
+        team_id,
+        author_id,
+        subject,
+        base_content,
+        edit_history,
+        created_at,
+        updated_at,
+        sync_status,
+        content_plain,
+        max_seq,
+    ) in raw_notes
+    {
         let (last_merged_seq, hex_or_plain) = parse_loro_state(&base_content);
-        
+
         let has_unmerged = max_seq > last_merged_seq;
 
         let content = if let Some(plain) = content_plain.filter(|_| !has_unmerged) {
@@ -150,20 +197,26 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
             let doc = loro::LoroDoc::new();
             if base_content.starts_with("loro:") {
                 if let Some(bytes) = crate::infra::crypto::hex_decode(hex_or_plain) {
-                    doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                    doc.import(&bytes)
+                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
                 }
             } else {
-                doc.get_text("content").insert(0, hex_or_plain).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                doc.get_text("content")
+                    .insert(0, hex_or_plain)
+                    .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             }
 
             let mut final_max_seq = last_merged_seq;
             if has_unmerged {
-                let mut rows_updates = stmt_updates.query(crate::params![&id, last_merged_seq]).await?;
+                let mut rows_updates = stmt_updates
+                    .query(crate::params![&id, last_merged_seq])
+                    .await?;
                 while let Some(row_up) = rows_updates.next().await? {
                     let seq: i64 = row_up.get(0)?;
                     let update_data_hex: String = row_up.get(1)?;
                     if let Some(bytes) = crate::infra::crypto::hex_decode(&update_data_hex) {
-                        doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                        doc.import(&bytes)
+                            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
                     }
                     if seq > final_max_seq {
                         final_max_seq = seq;
@@ -174,9 +227,15 @@ pub async fn get_notes(requester_user_id: String, team_id: Option<String>) -> Re
             let plain = doc.get_text("content").to_string();
 
             // Cache merged state to avoid future LoroDoc execution on next read
-            let snapshot_bytes = doc.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            let loro_content = format!("loro:{}:{}", final_max_seq, crate::infra::crypto::hex_encode(&snapshot_bytes));
-            
+            let snapshot_bytes = doc
+                .export(loro::ExportMode::Snapshot)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            let loro_content = format!(
+                "loro:{}:{}",
+                final_max_seq,
+                crate::infra::crypto::hex_encode(&snapshot_bytes)
+            );
+
             repairs.push((loro_content, plain.clone(), id.clone()));
 
             plain
@@ -223,32 +282,44 @@ pub async fn add_note(
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     verify_zkp_if_encrypted(&content, &auth.user_id, &auth.role)?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
     if auth.role != "platform_admin" && requester_user_id != author_id {
-        return Err(YntraError::AuthError("Access denied: cannot create note as another user".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: cannot create note as another user".to_string(),
+        ));
     }
 
     if auth.role != "admin" && auth.role != "platform_admin" {
-        let is_member: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM team_members WHERE team_id = ?1 AND user_id = ?2",
-            crate::params![&team_id, &author_id],
-            |r| r.get(0)
-        ).await.unwrap_or(0);
+        let is_member: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM team_members WHERE team_id = ?1 AND user_id = ?2",
+                crate::params![&team_id, &author_id],
+                |r| r.get(0),
+            )
+            .await
+            .unwrap_or(0);
         if is_member == 0 {
-            return Err(YntraError::AuthError("Access denied: you are not a member of this team".to_string()));
+            return Err(YntraError::AuthError(
+                "Access denied: you are not a member of this team".to_string(),
+            ));
         }
     }
 
     let id = uuid::Uuid::new_v4().to_string();
     let created_at = crate::infra::time::get_current_datetime_str();
     let now_ms = crate::infra::time::get_current_time_ms();
-    
+
     // Create Loro doc for the content
     let doc = loro::LoroDoc::new();
     let text = doc.get_text("content");
-    text.insert(0, &content).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-    let loro_bytes = doc.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    text.insert(0, &content)
+        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    let loro_bytes = doc
+        .export(loro::ExportMode::Snapshot)
+        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
     let loro_content = format!("loro:0:{}", crate::infra::crypto::hex_encode(&loro_bytes));
 
     let mut item = DailyNote {
@@ -486,37 +557,61 @@ pub async fn update_note(
 pub async fn delete_note(requester_user_id: String, note_id: String) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
 
-    let note_row: Option<(String, Option<String>)> = conn.query_row(
-        "SELECT workspace_id, author_id FROM notes WHERE id = ?1",
-        crate::params![&note_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
-    ).await.ok();
+    let note_row: Option<(String, Option<String>)> = conn
+        .query_row(
+            "SELECT workspace_id, author_id FROM notes WHERE id = ?1",
+            crate::params![&note_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .await
+        .ok();
 
     if let Some((note_ws_id, author_id)) = note_row {
         let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
         if auth.role != "platform_admin" && note_ws_id != auth.workspace_id {
-            return Err(YntraError::AuthError("Access denied: note is in a different workspace".to_string()));
+            return Err(YntraError::AuthError(
+                "Access denied: note is in a different workspace".to_string(),
+            ));
         }
 
         let is_author = author_id.as_deref() == Some(&requester_user_id);
         if !is_author && !auth.is_admin {
-            return Err(YntraError::AuthError("Access denied: only the author or an administrator can delete this note".to_string()));
+            return Err(YntraError::AuthError(
+                "Access denied: only the author or an administrator can delete this note"
+                    .to_string(),
+            ));
         }
     } else {
-        return Err(YntraError::NotFoundError(format!("Note not found: {}", note_id)));
+        return Err(YntraError::NotFoundError(format!(
+            "Note not found: {}",
+            note_id
+        )));
     }
 
     conn.begin_transaction().await?;
     let res = async {
-        conn.execute("DELETE FROM note_updates WHERE note_id = ?1", crate::params![&note_id]).await?;
-        conn.execute("DELETE FROM notes WHERE id = ?1", crate::params![&note_id]).await?;
+        conn.execute(
+            "DELETE FROM note_updates WHERE note_id = ?1",
+            crate::params![&note_id],
+        )
+        .await?;
+        conn.execute("DELETE FROM notes WHERE id = ?1", crate::params![&note_id])
+            .await?;
         Ok(())
-    }.await;
+    }
+    .await;
 
     match res {
         Ok(_) => {
             conn.commit().await?;
+
+            // Delete from ZeroCopyNoteStore
+            let note_store = get_note_store();
+            let mut all_notes = note_store.read_all_notes().unwrap_or_default();
+            all_notes.retain(|n| n.id != note_id);
+            let _ = note_store.write_notes(all_notes);
+
             notify_observers();
             Ok(())
         }
@@ -533,46 +628,139 @@ pub fn merge_loro_notes(state1: String, state2: String) -> Result<String, YntraE
     let (seq1, hex_or_plain1) = parse_loro_state(&state1);
     if state1.starts_with("loro:") {
         if let Some(bytes) = crate::infra::crypto::hex_decode(hex_or_plain1) {
-            doc1.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            doc1.import(&bytes)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         }
     } else {
-        doc1.get_text("content").insert(0, hex_or_plain1).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+        doc1.get_text("content")
+            .insert(0, hex_or_plain1)
+            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
     }
 
     let doc2 = loro::LoroDoc::new();
     let (seq2, hex_or_plain2) = parse_loro_state(&state2);
     if state2.starts_with("loro:") {
         if let Some(bytes) = crate::infra::crypto::hex_decode(hex_or_plain2) {
-            doc2.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            doc2.import(&bytes)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         }
     } else {
-        doc2.get_text("content").insert(0, hex_or_plain2).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+        doc2.get_text("content")
+            .insert(0, hex_or_plain2)
+            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
     }
 
-    let bytes2 = doc2.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-    doc1.import(&bytes2).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    let bytes2 = doc2
+        .export(loro::ExportMode::Snapshot)
+        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    doc1.import(&bytes2)
+        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
 
-    let merged_bytes = doc1.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    let merged_bytes = doc1
+        .export(loro::ExportMode::Snapshot)
+        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
     let max_seq = seq1.max(seq2);
     if max_seq >= 0 {
-        Ok(format!("loro:{}:{}", max_seq, crate::infra::crypto::hex_encode(&merged_bytes)))
+        Ok(format!(
+            "loro:{}:{}",
+            max_seq,
+            crate::infra::crypto::hex_encode(&merged_bytes)
+        ))
     } else {
-        Ok(format!("loro:{}", crate::infra::crypto::hex_encode(&merged_bytes)))
+        Ok(format!(
+            "loro:{}",
+            crate::infra::crypto::hex_encode(&merged_bytes)
+        ))
     }
 }
 
 #[uniffi::export]
-pub async fn get_note_loro_state(note_id: String) -> Result<Vec<u8>, YntraError> {
+pub async fn get_note_loro_state(
+    requester_user_id: String,
+    note_id: String,
+) -> Result<Vec<u8>, YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let (note_ws_id, team_id): (String, String) = conn
+        .query_row(
+            "SELECT workspace_id, team_id FROM notes WHERE id = ?1",
+            crate::params![&note_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError(format!("Note not found: {}", note_id)))?;
+
+    if auth.role != "platform_admin" && note_ws_id != auth.workspace_id {
+        return Err(YntraError::AuthError(
+            "Access denied: note belongs to a different workspace".to_string(),
+        ));
+    }
+
+    if auth.role != "admin" && auth.role != "platform_admin" {
+        let is_member: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM team_members WHERE team_id = ?1 AND user_id = ?2",
+                crate::params![&team_id, &requester_user_id],
+                |r| r.get(0),
+            )
+            .await
+            .unwrap_or(0);
+        if is_member == 0 {
+            return Err(YntraError::AuthError(
+                "Access denied: you do not have permission to access this note".to_string(),
+            ));
+        }
+    }
+
     let doc = get_merged_loro_doc(&conn, &note_id).await?;
-    let bytes = doc.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    let bytes = doc
+        .export(loro::ExportMode::Snapshot)
+        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
     Ok(bytes)
 }
 
 #[uniffi::export]
-pub async fn apply_note_loro_update(note_id: String, update_bytes: Vec<u8>) -> Result<(), YntraError> {
-    let now_ms = crate::infra::time::get_current_time_ms();
+pub async fn apply_note_loro_update(
+    requester_user_id: String,
+    note_id: String,
+    update_bytes: Vec<u8>,
+) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let (note_ws_id, team_id): (String, String) = conn
+        .query_row(
+            "SELECT workspace_id, team_id FROM notes WHERE id = ?1",
+            crate::params![&note_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError(format!("Note not found: {}", note_id)))?;
+
+    if auth.role != "platform_admin" && note_ws_id != auth.workspace_id {
+        return Err(YntraError::AuthError(
+            "Access denied: note belongs to a different workspace".to_string(),
+        ));
+    }
+
+    if auth.role != "admin" && auth.role != "platform_admin" {
+        let is_member: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM team_members WHERE team_id = ?1 AND user_id = ?2",
+                crate::params![&team_id, &requester_user_id],
+                |r| r.get(0),
+            )
+            .await
+            .unwrap_or(0);
+        if is_member == 0 {
+            return Err(YntraError::AuthError(
+                "Access denied: you do not have permission to edit this note".to_string(),
+            ));
+        }
+    }
+
+    let now_ms = crate::infra::time::get_current_time_ms();
 
     conn.begin_transaction().await?;
 
@@ -582,6 +770,33 @@ pub async fn apply_note_loro_update(note_id: String, update_bytes: Vec<u8>) -> R
         doc.import(&update_bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
         
         let loro_bytes = doc.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+
+        let (author_id, team_id, workspace_id): (String, String, String) = conn.query_row(
+            "SELECT author_id, team_id, workspace_id FROM notes WHERE id = ?1",
+            crate::params![&note_id],
+            |r| {
+                let author_id: Option<String> = r.get(0)?;
+                let team_id: String = r.get(1)?;
+                let workspace_id: String = r.get(2)?;
+                Ok((author_id.unwrap_or_default(), team_id, workspace_id))
+            }
+        ).await.map_err(|_| YntraError::NotFoundError(format!("Note not found: {}", note_id)))?;
+
+        // Ensure the dummy 'remote_<workspace_id>' user exists to satisfy the FOREIGN KEY constraint on note_updates
+        let remote_client_id = format!("remote_{}", workspace_id);
+        let remote_email = format!("remote-{}@yntra.io", workspace_id);
+        let user_exists: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM users WHERE id = ?1",
+            crate::params![&remote_client_id],
+            |r| r.get(0)
+        ).await.unwrap_or(0);
+        if user_exists == 0 {
+            conn.execute(
+                "INSERT INTO users (id, workspace_id, email, role, preferences, updated_at, sync_status)
+                 VALUES (?1, ?2, ?3, 'remote', '{}', ?4, 'synced')",
+                crate::params![&remote_client_id, &workspace_id, &remote_email, &now_ms],
+            ).await?;
+        }
 
         // 2. Append update to the event-sourced updates table
         let update_id = uuid::Uuid::new_v4().to_string();
@@ -594,25 +809,55 @@ pub async fn apply_note_loro_update(note_id: String, update_bytes: Vec<u8>) -> R
         let update_data_hex = crate::infra::crypto::hex_encode(&update_bytes);
         conn.execute(
             "INSERT INTO note_updates (id, note_id, client_id, seq, update_data, created_at)
-             VALUES (?1, ?2, 'remote', ?3, ?4, ?5)",
-            crate::params![&update_id, &note_id, &next_seq, &update_data_hex, &now_ms],
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            crate::params![&update_id, &note_id, &remote_client_id, &next_seq, &update_data_hex, &now_ms],
         ).await?;
 
         // 3. Update the database projection cache
         let plain_text = doc.get_text("content").to_string();
-        let (author_id, _workspace_id): (String, String) = conn.query_row(
-            "SELECT author_id, workspace_id FROM notes WHERE id = ?1",
-            crate::params![&note_id],
-            |r| Ok((r.get(0)?, r.get(1)?))
-        ).await.unwrap_or_else(|_| ("".to_string(), "".to_string()));
 
-        let author_role: String = conn.query_row(
-            "SELECT role FROM users WHERE id = ?1",
-            crate::params![&author_id],
-            |r| r.get(0)
-        ).await.unwrap_or_else(|_| "user".to_string());
+        if plain_text.starts_with("zero_copy_enc:") {
+            let parts: Vec<&str> = plain_text.split(':').collect();
+            if parts.len() != 3 {
+                return Err(YntraError::CryptoError("Invalid encrypted payload format".to_string()));
+            }
+            let proof = parts[1];
+            let ciphertext = parts[2];
+            let trust = crate::ZkCryptoTrust::new();
 
-        verify_zkp_if_encrypted(&plain_text, &author_id, &author_role)?;
+            // Fetch candidate users authorized to edit/update this note
+            let mut stmt_candidates = conn.prepare(
+                "SELECT id, role FROM users WHERE id = ?1 \
+                 UNION \
+                 SELECT u.id, u.role FROM team_members tm JOIN users u ON tm.user_id = u.id WHERE tm.team_id = ?2 \
+                 UNION \
+                 SELECT id, role FROM users WHERE role = 'platform_admin' OR (role = 'admin' AND workspace_id = ?3)"
+            ).await?;
+            let mut rows = stmt_candidates.query(crate::params![&author_id, &team_id, &workspace_id]).await?;
+            let mut candidates = Vec::new();
+            while let Some(row) = rows.next().await? {
+                let uid: String = row.get(0)?;
+                let urole: String = row.get(1)?;
+                candidates.push((uid, urole));
+            }
+
+            let mut validated = false;
+            for (uid, urole) in candidates {
+                if trust.verify_compliance_proof(
+                    proof.to_string(),
+                    uid,
+                    urole,
+                    ciphertext.to_string(),
+                ).unwrap_or(false) {
+                    validated = true;
+                    break;
+                }
+            }
+
+            if !validated {
+                return Err(YntraError::CryptoError("Validation failed: Zero-Knowledge compliance proof is invalid for all authorized updaters".to_string()));
+            }
+        }
         let loro_content = format!("loro:{}:{}", next_seq, crate::infra::crypto::hex_encode(&loro_bytes));
         conn.execute(
             "UPDATE notes SET content = ?1, content_plain = ?2, updated_at = ?3, sync_status = 'pending' WHERE id = ?4",
@@ -625,7 +870,7 @@ pub async fn apply_note_loro_update(note_id: String, update_bytes: Vec<u8>) -> R
     match res {
         Ok(_) => {
             conn.commit().await?;
-            
+
             // Reconstruct the updated DailyNote and write to ZeroCopyNoteStore (source of truth)
             if let Ok(mut stmt) = conn.prepare("SELECT id, workspace_id, team_id, author_id, subject, content_plain, edit_history, created_at, updated_at FROM notes WHERE id = ?1").await {
                 if let Ok(mut rows) = stmt.query(crate::params![&note_id]).await {
@@ -676,12 +921,12 @@ pub async fn apply_note_loro_update(note_id: String, update_bytes: Vec<u8>) -> R
 #[uniffi::export]
 pub async fn merge_unmerged_notes() -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
-    
+
     // Find candidate notes that have at least one update in note_updates, fetching max_seq as a subquery
     let mut stmt = conn.prepare(
         "SELECT id, content, (SELECT IFNULL(MAX(seq), -1) FROM note_updates WHERE note_updates.note_id = notes.id) FROM notes WHERE EXISTS (SELECT 1 FROM note_updates WHERE note_updates.note_id = notes.id)"
     ).await?;
-    
+
     let mut rows = stmt.query(()).await?;
     let mut candidates = Vec::new();
     while let Some(row) = rows.next().await? {
@@ -690,7 +935,7 @@ pub async fn merge_unmerged_notes() -> Result<(), YntraError> {
         let max_seq: i64 = row.get(2)?;
         candidates.push((id, content, max_seq));
     }
-    
+
     let mut repairs = Vec::new();
     let mut stmt_updates = conn.prepare(
         "SELECT seq, update_data FROM note_updates WHERE note_id = ?1 AND seq > ?2 ORDER BY seq ASC, created_at ASC"
@@ -698,38 +943,50 @@ pub async fn merge_unmerged_notes() -> Result<(), YntraError> {
 
     for (id, base_content, max_seq) in candidates {
         let (last_merged_seq, hex_or_plain) = parse_loro_state(&base_content);
-        
+
         if max_seq > last_merged_seq {
             let doc = loro::LoroDoc::new();
             if base_content.starts_with("loro:") {
                 if let Some(bytes) = crate::infra::crypto::hex_decode(hex_or_plain) {
-                    doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                    doc.import(&bytes)
+                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
                 }
             } else {
-                doc.get_text("content").insert(0, hex_or_plain).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                doc.get_text("content")
+                    .insert(0, hex_or_plain)
+                    .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             }
-            
-            let mut rows_updates = stmt_updates.query(crate::params![&id, last_merged_seq]).await?;
+
+            let mut rows_updates = stmt_updates
+                .query(crate::params![&id, last_merged_seq])
+                .await?;
             let mut final_max_seq = last_merged_seq;
             while let Some(row_up) = rows_updates.next().await? {
                 let seq: i64 = row_up.get(0)?;
                 let update_data_hex: String = row_up.get(1)?;
                 if let Some(bytes) = crate::infra::crypto::hex_decode(&update_data_hex) {
-                    doc.import(&bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                    doc.import(&bytes)
+                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
                 }
                 if seq > final_max_seq {
                     final_max_seq = seq;
                 }
             }
-            
+
             let plain = doc.get_text("content").to_string();
-            let snapshot_bytes = doc.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            let loro_content = format!("loro:{}:{}", final_max_seq, crate::infra::crypto::hex_encode(&snapshot_bytes));
-            
+            let snapshot_bytes = doc
+                .export(loro::ExportMode::Snapshot)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            let loro_content = format!(
+                "loro:{}:{}",
+                final_max_seq,
+                crate::infra::crypto::hex_encode(&snapshot_bytes)
+            );
+
             repairs.push((loro_content, plain, id));
         }
     }
-    
+
     if !repairs.is_empty() {
         conn.begin_transaction().await?;
         for (loro_content, plain, id) in repairs {
@@ -740,12 +997,15 @@ pub async fn merge_unmerged_notes() -> Result<(), YntraError> {
         }
         conn.commit().await?;
     }
-    
+
     Ok(())
 }
 
 #[uniffi::export]
-pub async fn get_notes_rkyv(requester_user_id: String, team_id: Option<String>) -> Result<Vec<u8>, YntraError> {
+pub async fn get_notes_rkyv(
+    requester_user_id: String,
+    team_id: Option<String>,
+) -> Result<Vec<u8>, YntraError> {
     let notes = get_notes(requester_user_id, team_id).await?;
     let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&notes)
         .map_err(|e| YntraError::SerializationError(e.to_string()))?;
@@ -755,8 +1015,8 @@ pub async fn get_notes_rkyv(requester_user_id: String, team_id: Option<String>) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database;
     use crate::ZkCryptoTrust;
+    use crate::database;
 
     #[tokio::test]
     async fn test_note_zkp_compliance_verification() {
@@ -770,8 +1030,15 @@ mod tests {
         conn.execute("INSERT OR REPLACE INTO team_members (team_id, user_id, workspace_id) VALUES ('team-notes-test', 'u-notes-user', 'ws-notes-test')", ()).await.unwrap();
 
         // Clear notes tables
-        let _ = conn.execute("DELETE FROM notes WHERE id LIKE 'test-note-%'", ()).await;
-        let _ = conn.execute("DELETE FROM note_updates WHERE note_id LIKE 'test-note-%'", ()).await;
+        let _ = conn
+            .execute("DELETE FROM notes WHERE id LIKE 'test-note-%'", ())
+            .await;
+        let _ = conn
+            .execute(
+                "DELETE FROM note_updates WHERE note_id LIKE 'test-note-%'",
+                (),
+            )
+            .await;
 
         let requester = "u-notes-user".to_string();
         let workspace = "ws-notes-test".to_string();
@@ -787,15 +1054,20 @@ mod tests {
             author.clone(),
             subject.clone(),
             "Plaintext unencrypted note".to_string(),
-        ).await;
+        )
+        .await;
         assert!(note_plain.is_ok());
 
         // 2. Encrypted content with VALID compliance proof -> Succeeds
         let trust = ZkCryptoTrust::new();
         let seed = "super_secure_seed".to_string();
         let sensitive_info = "Sensitive database credential".to_string();
-        let ciphertext = trust.encrypt_workspace_field(seed.clone(), sensitive_info).unwrap();
-        let valid_proof = trust.generate_compliance_proof(ciphertext.clone(), author.clone(), "user".to_string()).unwrap();
+        let ciphertext = trust
+            .encrypt_workspace_field(seed.clone(), sensitive_info)
+            .unwrap();
+        let valid_proof = trust
+            .generate_compliance_proof(ciphertext.clone(), author.clone(), "user".to_string())
+            .unwrap();
         let valid_content = format!("zero_copy_enc:{}:{}", valid_proof, ciphertext);
 
         let note_valid_enc = add_note(
@@ -805,7 +1077,8 @@ mod tests {
             author.clone(),
             subject.clone(),
             valid_content.clone(),
-        ).await;
+        )
+        .await;
         assert!(note_valid_enc.is_ok());
 
         // 3. Encrypted content with INVALID compliance proof -> Fails with CryptoError
@@ -820,10 +1093,13 @@ mod tests {
             author.clone(),
             subject.clone(),
             invalid_content.clone(),
-        ).await;
+        )
+        .await;
         assert!(note_invalid_enc.is_err());
         match note_invalid_enc {
-            Err(YntraError::CryptoError(msg)) => assert!(msg.contains("Zero-Knowledge compliance proof is invalid")),
+            Err(YntraError::CryptoError(msg)) => {
+                assert!(msg.contains("Zero-Knowledge compliance proof is invalid"))
+            }
             _ => panic!("Expected CryptoError when saving note with invalid ZK compliance proof"),
         }
 
@@ -835,7 +1111,8 @@ mod tests {
             "User Name".to_string(),
             "Updated Subject".to_string(),
             invalid_content.clone(),
-        ).await;
+        )
+        .await;
         assert!(update_res.is_err());
 
         // 5. Update note with VALID proof -> Succeeds
@@ -845,7 +1122,166 @@ mod tests {
             "User Name".to_string(),
             "Updated Subject".to_string(),
             valid_content.clone(),
-        ).await;
+        )
+        .await;
         assert!(update_ok.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_delete_note_removes_from_cache() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        // Setup test workspace, team, user, and member relations
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-notes-test-del', 'Notes WS', '[]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-notes-user-del', 'ws-notes-test-del', 'notes@user.com', 'user')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO teams (id, workspace_id, name) VALUES ('team-notes-test-del', 'ws-notes-test-del', 'Notes Team')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO team_members (team_id, user_id, workspace_id) VALUES ('team-notes-test-del', 'u-notes-user-del', 'ws-notes-test-del')", ()).await.unwrap();
+
+        let note = add_note(
+            "u-notes-user-del".to_string(),
+            "ws-notes-test-del".to_string(),
+            "team-notes-test-del".to_string(),
+            "u-notes-user-del".to_string(),
+            "Delete Test Subject".to_string(),
+            "Plaintext note body".to_string(),
+        )
+        .await
+        .unwrap();
+
+        // Verify it was added to SQLite and ZeroCopyNoteStore
+        let note_in_db: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM notes WHERE id = ?1",
+                crate::params![&note.id],
+                |r| r.get(0),
+            )
+            .await
+            .unwrap_or(0);
+        assert_eq!(note_in_db, 1);
+
+        let note_store = get_note_store();
+        let cached_note = note_store.read_note_zero_copy(note.id.clone()).unwrap();
+        assert!(cached_note.is_some());
+        assert_eq!(cached_note.unwrap().subject, "Delete Test Subject");
+
+        // Now call delete_note
+        delete_note("u-notes-user-del".to_string(), note.id.clone())
+            .await
+            .unwrap();
+
+        // Verify it was deleted from SQLite
+        let note_in_db_post: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM notes WHERE id = ?1",
+                crate::params![&note.id],
+                |r| r.get(0),
+            )
+            .await
+            .unwrap_or(0);
+        assert_eq!(note_in_db_post, 0);
+
+        // Verify it was deleted from ZeroCopyNoteStore
+        let cached_note_post = note_store.read_note_zero_copy(note.id.clone()).unwrap();
+        assert!(cached_note_post.is_none());
+
+        // Cleanup
+        conn.execute(
+            "DELETE FROM team_members WHERE workspace_id = 'ws-notes-test-del'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM teams WHERE workspace_id = 'ws-notes-test-del'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM users WHERE workspace_id = 'ws-notes-test-del'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-notes-test-del'", ())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_apply_note_loro_update_collaborative() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let ws_id = "ws-notes-collab";
+        let _ = conn.execute("DELETE FROM team_members WHERE workspace_id = ?1", crate::params![ws_id]).await;
+        let _ = conn.execute("DELETE FROM teams WHERE workspace_id = ?1", crate::params![ws_id]).await;
+        let _ = conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await;
+        let _ = conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await;
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Notes Collab WS', '[]', '{}')", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-notes-author', ?1, 'author@collab.com', 'user')", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-notes-editor', ?1, 'editor@collab.com', 'user')", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO teams (id, workspace_id, name) VALUES ('team-collab', ?1, 'Collab Team')", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO team_members (team_id, user_id, workspace_id) VALUES ('team-collab', 'u-notes-author', ?1)", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO team_members (team_id, user_id, workspace_id) VALUES ('team-collab', 'u-notes-editor', ?1)", crate::params![ws_id]).await.unwrap();
+
+        // Clear notes tables
+        let _ = conn.execute("DELETE FROM notes WHERE workspace_id = ?1", crate::params![ws_id]).await;
+        let _ = conn.execute("DELETE FROM note_updates WHERE note_id IN (SELECT id FROM notes WHERE workspace_id = ?1)", crate::params![ws_id]).await;
+
+        crate::infra::crypto::set_session_key("collab-test-session-key".to_string().into_bytes());
+
+        // 1. Author creates a note
+        let note = add_note(
+            "u-notes-author".to_string(),
+            ws_id.to_string(),
+            "team-collab".to_string(),
+            "u-notes-author".to_string(),
+            "Collab Note".to_string(),
+            "Initial Content".to_string(),
+        ).await.unwrap();
+
+        // 2. Editor user creates a collaborative Loro update containing encrypted text with their own ZKP proof
+        let original_loro_bytes = get_note_loro_state("u-notes-author".to_string(), note.id.clone()).await.unwrap();
+        let doc = loro::LoroDoc::new();
+        doc.import(&original_loro_bytes).unwrap();
+
+        // Editor modifies the content and encrypts it
+        let trust = ZkCryptoTrust::new();
+        let seed = "collab_secure_seed".to_string();
+        let new_text = "Sensitive editor data".to_string();
+        let ciphertext = trust.encrypt_workspace_field(seed, new_text.clone()).unwrap();
+        let editor_proof = trust.generate_compliance_proof(ciphertext.clone(), "u-notes-editor".to_string(), "user".to_string()).unwrap();
+        let encrypted_content = format!("zero_copy_enc:{}:{}", editor_proof, ciphertext);
+
+        // Apply diff to editor's doc
+        let editor_text = doc.get_text("content");
+        let old_content = editor_text.to_string();
+        apply_diff_to_loro(&editor_text, &old_content, &encrypted_content).unwrap();
+
+        // Export the update bytes for editor's edit
+        let update_bytes = doc.export(loro::ExportMode::Snapshot).unwrap();
+
+        // 3. Apply the Loro update. This should succeed under the new collaborative validation logic!
+        let apply_res = apply_note_loro_update("u-notes-editor".to_string(), note.id.clone(), update_bytes).await;
+        assert!(apply_res.is_ok(), "apply_note_loro_update failed: {:?}", apply_res.err());
+
+        // Verify database projection is updated and decrypted content is accessible
+        let projected_plain: String = conn.query_row(
+            "SELECT content_plain FROM notes WHERE id = ?1",
+            crate::params![&note.id],
+            |r| r.get(0),
+        ).await.unwrap();
+        assert_eq!(projected_plain, encrypted_content);
+
+        // Cleanup
+        let _ = conn.execute("DELETE FROM note_updates WHERE note_id = ?1", crate::params![&note.id]).await;
+        let _ = conn.execute("DELETE FROM notes WHERE workspace_id = ?1", crate::params![ws_id]).await;
+        conn.execute("DELETE FROM team_members WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM teams WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
     }
 }

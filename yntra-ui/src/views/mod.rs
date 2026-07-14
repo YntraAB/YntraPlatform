@@ -1,32 +1,31 @@
 pub mod client_portal;
 pub mod dashboard;
 pub mod directory;
+pub mod jobs;
 pub mod login;
 pub mod messaging;
 pub mod notes;
+pub mod p2p_playground;
 pub mod reporting;
 pub mod scheduling;
 pub mod settings;
 pub mod setup;
 pub mod time;
-pub mod jobs;
 pub mod todos;
-pub mod p2p_playground;
 
 pub use client_portal::ClientPortalView;
 pub use dashboard::DashboardView;
 pub use directory::DirectoryView;
+pub use jobs::JobsView;
 pub use login::LoginView;
 pub use messaging::MessagingView;
 pub use notes::NotesView;
+pub use p2p_playground::P2PPlaygroundView;
 pub use reporting::ReportingView;
 pub use scheduling::SchedulingView;
 pub use settings::SettingsView;
 pub use setup::SetupView;
 pub use time::TimeView;
-pub use jobs::JobsView;
 pub use todos::TodosView;
-pub use p2p_playground::P2PPlaygroundView;
 pub mod dynamic_block;
 pub use dynamic_block::DynamicBlockView;
-

@@ -43,7 +43,8 @@ pub fn ImageCropperDialog(props: ImageCropperDialogProps) -> Element {
 
         spawn(async move {
             is_saving.set(true);
-            let mut js = document::eval(r#"
+            let mut js = document::eval(
+                r#"
                 const imgData = await dioxus.recv();
                 const zoom = await dioxus.recv();
                 const x = await dioxus.recv();
@@ -82,12 +83,18 @@ pub fn ImageCropperDialog(props: ImageCropperDialogProps) -> Element {
                 
                 const croppedDataUrl = canvas.toDataURL('image/png');
                 dioxus.send(croppedDataUrl);
-            "#);
+            "#,
+            );
 
             js.send(serde_json::Value::String(img_data)).unwrap();
-            js.send(serde_json::Value::Number(serde_json::Number::from_f64(cur_z).unwrap())).unwrap();
-            js.send(serde_json::Value::Number(serde_json::Number::from(cur_px))).unwrap();
-            js.send(serde_json::Value::Number(serde_json::Number::from(cur_py))).unwrap();
+            js.send(serde_json::Value::Number(
+                serde_json::Number::from_f64(cur_z).unwrap(),
+            ))
+            .unwrap();
+            js.send(serde_json::Value::Number(serde_json::Number::from(cur_px)))
+                .unwrap();
+            js.send(serde_json::Value::Number(serde_json::Number::from(cur_py)))
+                .unwrap();
 
             if let Ok(cropped_url) = js.recv::<String>().await {
                 oncrop.call(cropped_url);

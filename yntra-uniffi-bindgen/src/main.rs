@@ -35,7 +35,9 @@ fn main() {
     let workspace_root = match find_workspace_root() {
         Some(root) => root,
         None => {
-            eprintln!("Error: Could not find workspace root (containing Cargo.toml with [workspace]).");
+            eprintln!(
+                "Error: Could not find workspace root (containing Cargo.toml with [workspace])."
+            );
             std::process::exit(1);
         }
     };
@@ -75,7 +77,10 @@ fn main() {
 
     let out_dir = workspace_root.join("generated_bindings");
     if let Err(e) = fs::create_dir_all(&out_dir) {
-        eprintln!("Error: Failed to create output directory '{:?}': {}", out_dir, e);
+        eprintln!(
+            "Error: Failed to create output directory '{:?}': {}",
+            out_dir, e
+        );
         std::process::exit(1);
     }
 
@@ -130,9 +135,10 @@ fn find_workspace_root() -> Option<PathBuf> {
         let cargo_toml = dir.join("Cargo.toml");
         if cargo_toml.exists()
             && let Ok(content) = fs::read_to_string(&cargo_toml)
-                && content.contains("[workspace]") {
-                    return Some(dir);
-                }
+            && content.contains("[workspace]")
+        {
+            return Some(dir);
+        }
         if !dir.pop() {
             break;
         }
@@ -151,7 +157,9 @@ fn compile_core(workspace_root: &Path, release: bool) -> Result<(), String> {
         cmd.arg("--release");
     }
 
-    let status = cmd.status().map_err(|e| format!("Failed to start cargo build: {}", e))?;
+    let status = cmd
+        .status()
+        .map_err(|e| format!("Failed to start cargo build: {}", e))?;
     if !status.success() {
         return Err("Cargo build of yntra-core failed".to_string());
     }
@@ -168,7 +176,9 @@ fn check_wasm_compatibility(workspace_root: &Path) -> Result<(), String> {
     cmd.arg("-p");
     cmd.arg("yntra-core");
 
-    let status = cmd.status().map_err(|e| format!("Failed to start cargo check for WASM: {}", e))?;
+    let status = cmd
+        .status()
+        .map_err(|e| format!("Failed to start cargo check for WASM: {}", e))?;
     if !status.success() {
         return Err("WASM target compatibility check failed. Ensure no native-only libraries or APIs are used in non-WASM configs.".to_string());
     }
@@ -181,7 +191,12 @@ fn find_library_path(workspace_root: &Path, release: bool) -> Result<PathBuf, St
         "windows" => "yntra_core.dll",
         "macos" => "libyntra_core.dylib",
         "linux" => "libyntra_core.so",
-        other => return Err(format!("Unsupported OS for auto bindings generation: {}", other)),
+        other => {
+            return Err(format!(
+                "Unsupported OS for auto bindings generation: {}",
+                other
+            ));
+        }
     };
     let path = workspace_root.join("target").join(profile).join(filename);
     if !path.exists() {
@@ -206,7 +221,9 @@ fn generate_bindings(
     cmd.arg("--out-dir");
     cmd.arg(out_dir);
 
-    let status = cmd.status().map_err(|e| format!("Failed to run bindgen for {}: {}", language, e))?;
+    let status = cmd
+        .status()
+        .map_err(|e| format!("Failed to run bindgen for {}: {}", language, e))?;
     if !status.success() {
         return Err(format!("Bindings generation failed for {}", language));
     }
@@ -224,9 +241,10 @@ fn get_max_mtime(dir: &Path) -> Option<SystemTime> {
                 }
             } else if path.is_file()
                 && let Ok(metadata) = entry.metadata()
-                    && let Ok(modified) = metadata.modified() {
-                        max_time = Some(max_time.map_or(modified, |mt| std::cmp::max(mt, modified)));
-                    }
+                && let Ok(modified) = metadata.modified()
+            {
+                max_time = Some(max_time.map_or(modified, |mt| std::cmp::max(mt, modified)));
+            }
         }
     }
     max_time
@@ -235,11 +253,14 @@ fn get_max_mtime(dir: &Path) -> Option<SystemTime> {
 fn install_hooks(workspace_root: &Path) -> Result<(), String> {
     let git_dir = workspace_root.join(".git");
     if !git_dir.exists() {
-        return Err("Not a git repository (could not find .git directory at workspace root)".to_string());
+        return Err(
+            "Not a git repository (could not find .git directory at workspace root)".to_string(),
+        );
     }
 
     let hooks_dir = git_dir.join("hooks");
-    fs::create_dir_all(&hooks_dir).map_err(|e| format!("Failed to create git hooks directory: {}", e))?;
+    fs::create_dir_all(&hooks_dir)
+        .map_err(|e| format!("Failed to create git hooks directory: {}", e))?;
 
     let pre_commit_path = hooks_dir.join("pre-commit");
 
@@ -260,7 +281,8 @@ if [ $? -ne 0 ]; then
 fi
 "#;
 
-    fs::write(&pre_commit_path, hook_content).map_err(|e| format!("Failed to write pre-commit hook file: {}", e))?;
+    fs::write(&pre_commit_path, hook_content)
+        .map_err(|e| format!("Failed to write pre-commit hook file: {}", e))?;
 
     #[cfg(unix)]
     {
@@ -269,8 +291,12 @@ fi
             .map_err(|e| format!("Failed to read metadata for pre-commit hook: {}", e))?
             .permissions();
         perms.set_mode(0o755);
-        fs::set_permissions(&pre_commit_path, perms)
-            .map_err(|e| format!("Failed to set executable permissions on pre-commit hook: {}", e))?;
+        fs::set_permissions(&pre_commit_path, perms).map_err(|e| {
+            format!(
+                "Failed to set executable permissions on pre-commit hook: {}",
+                e
+            )
+        })?;
     }
 
     Ok(())
@@ -287,8 +313,8 @@ fn run_check_locales(workspace_root: &Path, fix: bool) -> Result<bool, String> {
         return Err("English source translation file (en.ftl) is missing!".to_string());
     }
 
-    let en_content = fs::read_to_string(&en_path)
-        .map_err(|e| format!("Failed to read en.ftl: {}", e))?;
+    let en_content =
+        fs::read_to_string(&en_path).map_err(|e| format!("Failed to read en.ftl: {}", e))?;
     let en_map = parse_fluent_file(&en_content);
 
     let mut all_clean = true;
@@ -354,7 +380,10 @@ fn run_check_locales(workspace_root: &Path, fix: bool) -> Result<bool, String> {
         }
 
         if !extra_keys.is_empty() {
-            println!("    * {} Extra Keys (not present in en.ftl):", extra_keys.len());
+            println!(
+                "    * {} Extra Keys (not present in en.ftl):",
+                extra_keys.len()
+            );
             for key in &extra_keys {
                 println!("      - {}", key);
             }
@@ -365,7 +394,10 @@ fn run_check_locales(workspace_root: &Path, fix: bool) -> Result<bool, String> {
             for (key, en_vars, loc_vars) in &mismatching_vars {
                 let en_vars_str = en_vars.iter().cloned().collect::<Vec<_>>().join(", ");
                 let loc_vars_str = loc_vars.iter().cloned().collect::<Vec<_>>().join(", ");
-                println!("      - {}: English variables = [{}], Localized variables = [{}]", key, en_vars_str, loc_vars_str);
+                println!(
+                    "      - {}: English variables = [{}], Localized variables = [{}]",
+                    key, en_vars_str, loc_vars_str
+                );
             }
         }
 
@@ -383,10 +415,17 @@ fn run_check_locales(workspace_root: &Path, fix: bool) -> Result<bool, String> {
                 .open(&path)
                 .map_err(|e| format!("Failed to open file '{}' for appending: {}", file_name, e))?;
 
-            file.write_all(append_content.as_bytes())
-                .map_err(|e| format!("Failed to append missing translations to '{}': {}", file_name, e))?;
+            file.write_all(append_content.as_bytes()).map_err(|e| {
+                format!(
+                    "Failed to append missing translations to '{}': {}",
+                    file_name, e
+                )
+            })?;
 
-            println!("      -> Successfully appended {} placeholders.", missing_keys.len());
+            println!(
+                "      -> Successfully appended {} placeholders.",
+                missing_keys.len()
+            );
         }
     }
 
@@ -408,7 +447,10 @@ fn parse_fluent_file(content: &str) -> HashMap<String, (String, HashSet<String>)
         if first_char.is_ascii_alphabetic() {
             if let Some(ref key) = current_key {
                 let vars = extract_variables(&current_value);
-                map.insert(key.clone(), (current_value.clone(), vars.into_iter().collect()));
+                map.insert(
+                    key.clone(),
+                    (current_value.clone(), vars.into_iter().collect()),
+                );
                 current_value.clear();
             }
 
@@ -417,13 +459,12 @@ fn parse_fluent_file(content: &str) -> HashMap<String, (String, HashSet<String>)
                 current_key = Some(key);
                 current_value = line[eq_idx + 1..].trim().to_string();
             }
-        } else if (line.starts_with(' ') || line.starts_with('\t'))
-            && current_key.is_some() {
-                if !current_value.is_empty() {
-                    current_value.push('\n');
-                }
-                current_value.push_str(line.trim());
+        } else if (line.starts_with(' ') || line.starts_with('\t')) && current_key.is_some() {
+            if !current_value.is_empty() {
+                current_value.push('\n');
             }
+            current_value.push_str(line.trim());
+        }
     }
 
     if let Some(ref key) = current_key {
@@ -466,4 +507,3 @@ fn extract_variables(s: &str) -> Vec<String> {
 
     vars
 }
-

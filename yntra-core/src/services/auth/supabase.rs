@@ -9,7 +9,7 @@ struct SupabaseUserResponse {
 async fn get_supabase_config() -> Result<(String, String), YntraError> {
     let mut db_url = None;
     let mut db_key = None;
-    
+
     // 1. Try retrieving from database
     if let Ok(conn) = crate::database::acquire_connection().await {
         if let Ok(mut stmt) = conn.prepare("SELECT key, value FROM system_settings WHERE key IN ('supabase_url', 'supabase_anon_key')").await {
@@ -26,7 +26,7 @@ async fn get_supabase_config() -> Result<(String, String), YntraError> {
             }
         }
     }
-    
+
     // 2. Try retrieving from environment variables (native target only)
     let env_url = {
         #[cfg(not(target_arch = "wasm32"))]
@@ -38,7 +38,7 @@ async fn get_supabase_config() -> Result<(String, String), YntraError> {
             None
         }
     };
-    
+
     let env_key = {
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -49,13 +49,17 @@ async fn get_supabase_config() -> Result<(String, String), YntraError> {
             None
         }
     };
-    
-    let final_url = db_url.or(env_url).ok_or_else(|| YntraError::ValidationError("Supabase URL not configured".to_string()))?;
-    let final_key = db_key.or(env_key).ok_or_else(|| YntraError::ValidationError("Supabase Anon Key not configured".to_string()))?;
-    
+
+    let final_url = db_url
+        .or(env_url)
+        .ok_or_else(|| YntraError::ValidationError("Supabase URL not configured".to_string()))?;
+    let final_key = db_key.or(env_key).ok_or_else(|| {
+        YntraError::ValidationError("Supabase Anon Key not configured".to_string())
+    })?;
+
     Ok((final_url, final_key))
 }
- 
+
 #[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
 pub async fn get_supabase_user_email(mut token: String) -> Result<String, YntraError> {
     let (base_url, apikey) = get_supabase_config().await?;
@@ -75,7 +79,10 @@ pub async fn get_supabase_user_email(mut token: String) -> Result<String, YntraE
     let res = res.map_err(|e| YntraError::NetworkError(e.to_string()))?;
 
     if !res.status().is_success() {
-        return Err(YntraError::NetworkError(format!("Supabase HTTP error: {}", res.status())));
+        return Err(YntraError::NetworkError(format!(
+            "Supabase HTTP error: {}",
+            res.status()
+        )));
     }
 
     let user_info: SupabaseUserResponse = res
@@ -121,7 +128,9 @@ pub async fn initiate_oauth_login(provider: String, token: String) -> Result<Str
     spawn_task(async move {
         let res = match provider_clone.as_str() {
             "supabase" => get_supabase_user_email(token_clone).await,
-            _ => Err(YntraError::ValidationError("Unsupported OAuth provider".to_string())),
+            _ => Err(YntraError::ValidationError(
+                "Unsupported OAuth provider".to_string(),
+            )),
         };
 
         let now_ms = crate::infra::time::get_current_time_ms();
@@ -144,7 +153,10 @@ pub async fn initiate_oauth_login(provider: String, token: String) -> Result<Str
                             ).await;
                         }
                         Err(_) => {
-                            let err_msg = format!("User '{}' authenticated by {} is not registered in this Yntra workspace.", email, provider_clone);
+                            let err_msg = format!(
+                                "User '{}' authenticated by {} is not registered in this Yntra workspace.",
+                                email, provider_clone
+                            );
                             let _ = conn_task.execute(
                                 "UPDATE oauth_auth_sessions SET status = 'error', error_message = ?1, updated_at = ?2 WHERE id = ?3",
                                 crate::params![&err_msg, now_ms, &session_id_clone],
@@ -169,7 +181,9 @@ pub async fn initiate_oauth_login(provider: String, token: String) -> Result<Str
 }
 
 #[uniffi::export]
-pub async fn get_oauth_login_status(session_id: String) -> Result<Option<crate::OauthAuthSession>, YntraError> {
+pub async fn get_oauth_login_status(
+    session_id: String,
+) -> Result<Option<crate::OauthAuthSession>, YntraError> {
     let conn = crate::database::acquire_connection().await?;
     let mut stmt = conn
         .prepare("SELECT id, provider, token, status, error_message, authenticated_user_id, created_at, updated_at FROM oauth_auth_sessions WHERE id = ?1")
@@ -203,7 +217,12 @@ mod tests {
         let conn = crate::database::acquire_connection().await.unwrap();
 
         // 1. Clear database config & env variables
-        conn.execute("DELETE FROM system_settings WHERE key IN ('supabase_url', 'supabase_anon_key')", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM system_settings WHERE key IN ('supabase_url', 'supabase_anon_key')",
+            (),
+        )
+        .await
+        .unwrap();
         unsafe {
             std::env::remove_var("SUPABASE_URL");
             std::env::remove_var("SUPABASE_ANON_KEY");
@@ -235,7 +254,12 @@ mod tests {
         assert_eq!(key, "db-key");
 
         // Clean up
-        conn.execute("DELETE FROM system_settings WHERE key IN ('supabase_url', 'supabase_anon_key')", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM system_settings WHERE key IN ('supabase_url', 'supabase_anon_key')",
+            (),
+        )
+        .await
+        .unwrap();
         unsafe {
             std::env::remove_var("SUPABASE_URL");
             std::env::remove_var("SUPABASE_ANON_KEY");
@@ -259,20 +283,27 @@ mod tests {
         let _conn = crate::database::acquire_connection().await.unwrap();
 
         // 1. Initiate login
-        let session_id = initiate_oauth_login("supabase".to_string(), "mock_token".to_string()).await.unwrap();
+        let session_id = initiate_oauth_login("supabase".to_string(), "mock_token".to_string())
+            .await
+            .unwrap();
         assert!(!session_id.is_empty());
 
         // 2. Verify it's created as pending
-        let session = get_oauth_login_status(session_id.clone()).await.unwrap().unwrap();
+        let session = get_oauth_login_status(session_id.clone())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(session.status, "pending");
 
         // 3. Wait for background task to resolve configuration & fail (since Supabase URL is not set)
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         // 4. Verify session state transitioned to error
-        let session_after = get_oauth_login_status(session_id.clone()).await.unwrap().unwrap();
+        let session_after = get_oauth_login_status(session_id.clone())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(session_after.status, "error");
         assert!(session_after.error_message.is_some());
     }
 }
-

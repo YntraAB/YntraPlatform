@@ -1,18 +1,16 @@
-pub mod todos;
-pub mod workspaces;
-pub mod users;
-pub mod teams;
+pub mod audit;
+pub mod auth;
+pub mod blocks;
+pub mod clients;
+pub mod directory;
+pub mod dynamic_entities;
+pub mod jobs;
 pub mod messages;
 pub mod notes;
-pub mod time_reports;
-pub mod clients;
-pub mod blocks;
 pub mod reports;
-pub mod directory;
-pub mod auth;
-pub mod jobs;
-pub mod audit;
 pub mod role_templates;
-pub mod dynamic_entities;
-
-
+pub mod teams;
+pub mod time_reports;
+pub mod todos;
+pub mod users;
+pub mod workspaces;

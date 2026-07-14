@@ -1,7 +1,7 @@
-use dioxus::prelude::*;
 use crate::components;
-use crate::state::AppState;
 use crate::locales::t;
+use crate::state::AppState;
+use dioxus::prelude::*;
 
 #[component]
 pub fn TemplateManagerDialog(
@@ -46,24 +46,104 @@ pub fn TemplateManagerDialog(
                 updated_at: 0,
                 sync_status: "synced".to_string(),
             });
-            let modules_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
-            temp_messaging.set(modules_val.get("messaging").and_then(|v| v.as_bool()).unwrap_or(true));
-            temp_scheduling.set(modules_val.get("scheduling").and_then(|v| v.as_bool()).unwrap_or(true));
-            temp_notes.set(modules_val.get("notes").and_then(|v| v.as_bool()).unwrap_or(true));
-            temp_time.set(modules_val.get("time").and_then(|v| v.as_bool()).unwrap_or(true));
-            let is_ast = modules_val.get("assistance").and_then(|v| v.as_bool()).unwrap_or(true);
-            temp_journals.set(modules_val.get("journals").and_then(|v| v.as_bool()).unwrap_or(is_ast));
-            temp_medications.set(modules_val.get("medications").and_then(|v| v.as_bool()).unwrap_or(is_ast));
-            temp_jobs.set(modules_val.get("jobs").and_then(|v| v.as_bool()).unwrap_or(true));
-            temp_reporting.set(modules_val.get("reporting").and_then(|v| v.as_bool()).unwrap_or(true));
-            temp_todos.set(modules_val.get("todos").and_then(|v| v.as_bool()).unwrap_or(true));
-            temp_academics.set(modules_val.get("academics").and_then(|v| v.as_bool()).unwrap_or(false));
-            temp_attendance.set(modules_val.get("attendance").and_then(|v| v.as_bool()).unwrap_or(false));
-            temp_finance.set(modules_val.get("finance").and_then(|v| v.as_bool()).unwrap_or(false));
-            temp_library.set(modules_val.get("library").and_then(|v| v.as_bool()).unwrap_or(false));
-            temp_moving_company.set(modules_val.get("moving_company").and_then(|v| v.as_bool()).unwrap_or(false));
+            let modules_val: serde_json::Value =
+                serde_json::from_str(&ws.modules_active).unwrap_or_default();
+            temp_messaging.set(
+                modules_val
+                    .get("messaging")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true),
+            );
+            temp_scheduling.set(
+                modules_val
+                    .get("scheduling")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true),
+            );
+            temp_notes.set(
+                modules_val
+                    .get("notes")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true),
+            );
+            temp_time.set(
+                modules_val
+                    .get("time")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true),
+            );
+            let is_ast = modules_val
+                .get("assistance")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            temp_journals.set(
+                modules_val
+                    .get("journals")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(is_ast),
+            );
+            temp_medications.set(
+                modules_val
+                    .get("medications")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(is_ast),
+            );
+            temp_jobs.set(
+                modules_val
+                    .get("jobs")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true),
+            );
+            temp_reporting.set(
+                modules_val
+                    .get("reporting")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true),
+            );
+            temp_todos.set(
+                modules_val
+                    .get("todos")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true),
+            );
+            temp_academics.set(
+                modules_val
+                    .get("academics")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
+            );
+            temp_attendance.set(
+                modules_val
+                    .get("attendance")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
+            );
+            temp_finance.set(
+                modules_val
+                    .get("finance")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
+            );
+            temp_library.set(
+                modules_val
+                    .get("library")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
+            );
+            temp_moving_company.set(
+                modules_val
+                    .get("moving_company")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
+            );
 
-            care_subtype.set(modules_val.get("care_subtype").and_then(|v| v.as_str()).unwrap_or("aldreomsorg").to_string());
+            care_subtype.set(
+                modules_val
+                    .get("care_subtype")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("aldreomsorg")
+                    .to_string(),
+            );
             reset_roles.set(false);
         }
     }));
@@ -75,16 +155,16 @@ pub fn TemplateManagerDialog(
                 title: t("templates-modal-title", &region),
                 max_width: "600px".to_string(),
                 onclose: move |_| show_template_manager_modal.set(false),
-                
+
                 div {
                     class: "flex flex-col gap-6 text-sm",
                     style: "width: 100%;",
-                    
+
                     // Template Preset Selection
                     div {
                         h3 { class: "text-sm font-extrabold text-foreground",
                         style: "margin:0 0 0.75rem 0;", "{t(\"templates-select-preset\", &region)}" }
-                        
+
                         div { class: "flex flex-col gap-3",
                             // Preset 1: Care
                             div {
@@ -203,12 +283,12 @@ pub fn TemplateManagerDialog(
                             }
                         }
                     }
-                    
+
                     // Individual module toggles
                     div {
                         h3 { class: "text-sm font-extrabold border-t border-border pt-4 text-foreground",
                         style: "margin:0 0 0.75rem 0;", "{t(\"templates-module-toggles\", &region)}" }
-                        
+
                         div { class: "grid gap-3",
                         style: "grid-template-columns:1fr 1fr;",
                             components::Checkbox {
@@ -368,7 +448,7 @@ pub fn TemplateManagerDialog(
                             label: t("templates-reset-roles-label", &region)
                         }
                     }
-                    
+
                     // Apply Button
                     button {
                         class: "yntra-btn mt-2 w-full",
@@ -391,14 +471,14 @@ pub fn TemplateManagerDialog(
                                 modules_map.insert("finance".to_string(), serde_json::Value::Bool(*temp_finance.read()));
                                 modules_map.insert("library".to_string(), serde_json::Value::Bool(*temp_library.read()));
 
-                                
+
                                 modules_map.insert("moving_company".to_string(), serde_json::Value::Bool(*temp_moving_company.read()));
                                 if *temp_journals.read() || *temp_medications.read() {
                                     modules_map.insert("care_subtype".to_string(), serde_json::Value::String((*care_subtype.read()).clone()));
                                 }
                                 modules_map.insert("locale".to_string(), serde_json::Value::String(region.clone()));
                                 modules_map.insert("reset_roles".to_string(), serde_json::Value::Bool(*reset_roles.read()));
-                                
+
                                 let modules_json = serde_json::to_string(&serde_json::Value::Object(modules_map)).unwrap_or_default();
                                 let ws_id = workspace_id.clone();
                                 let requester_uid = state.active_user_id.read().clone();

@@ -25,18 +25,21 @@ pub fn SetupView(props: SetupViewProps) -> Element {
     let active_uid = props.active_user_id.read().clone();
     let users = props.users.clone();
     let current_user = users.iter().find(|u| u.id == active_uid).cloned();
-    
+
     let region = props.auth_region.read().clone();
-    
+
     // Prefill the full name if we already have it from the directory invitation
-    let initial_name = current_user.as_ref().and_then(|u| u.full_name.clone()).unwrap_or_default();
-    
+    let initial_name = current_user
+        .as_ref()
+        .and_then(|u| u.full_name.clone())
+        .unwrap_or_default();
+
     let mut full_name = use_signal(|| initial_name);
     let mut phone = use_signal(String::new);
     let mut password = use_signal(String::new);
     let mut confirm_password = use_signal(String::new);
     let mut error_msg = use_signal(|| Option::<String>::None);
-    
+
     let _active_user_id = props.active_user_id;
     let mut needs_setup = props.needs_setup;
     let mut logged_in = props.logged_in;
@@ -74,8 +77,15 @@ pub fn SetupView(props: SetupViewProps) -> Element {
         }
 
         // Call the database profile update function
-        let prefs = current_user.as_ref().map(|u| u.preferences.clone()).unwrap_or_else(|| "{}".to_string());
-        let phone_opt = if phone_val.is_empty() { None } else { Some(phone_val) };
+        let prefs = current_user
+            .as_ref()
+            .map(|u| u.preferences.clone())
+            .unwrap_or_else(|| "{}".to_string());
+        let phone_opt = if phone_val.is_empty() {
+            None
+        } else {
+            Some(phone_val)
+        };
 
         let mut error = error_msg;
         let mut setup = needs_setup;
@@ -84,8 +94,13 @@ pub fn SetupView(props: SetupViewProps) -> Element {
         let uid = active_uid.clone();
 
         spawn(async move {
-            if let Err(e) = yntra_core::set_user_password(uid.clone(), uid.clone(), pass_val).await {
-                error.set(Some(format!("{}: {}", t("auth-setup-error-prefix", &save_region_clone), e)));
+            if let Err(e) = yntra_core::set_user_password(uid.clone(), uid.clone(), pass_val).await
+            {
+                error.set(Some(format!(
+                    "{}: {}",
+                    t("auth-setup-error-prefix", &save_region_clone),
+                    e
+                )));
                 return;
             }
 
@@ -97,7 +112,11 @@ pub fn SetupView(props: SetupViewProps) -> Element {
                     setup.set(false);
                 }
                 Err(e) => {
-                    error.set(Some(format!("{}: {}", t("auth-setup-error-prefix", &save_region_clone), e)));
+                    error.set(Some(format!(
+                        "{}: {}",
+                        t("auth-setup-error-prefix", &save_region_clone),
+                        e
+                    )));
                 }
             }
         });
@@ -128,7 +147,7 @@ pub fn SetupView(props: SetupViewProps) -> Element {
 
                 div { class: "flex flex-col gap-3.5 mt-4",
                     div {
-                        label { 
+                        label {
                             class: "text-xs font-bold text-muted-foreground mb-1 block",
                             r#for: "setup-full-name",
                             "{t(\"auth-setup-full-name\", &region)}"
@@ -142,7 +161,7 @@ pub fn SetupView(props: SetupViewProps) -> Element {
                     }
 
                     div {
-                        label { 
+                        label {
                             class: "text-xs font-bold text-muted-foreground mb-1 block",
                             r#for: "setup-phone",
                             "{t(\"auth-setup-phone-optional\", &region)}"
@@ -156,7 +175,7 @@ pub fn SetupView(props: SetupViewProps) -> Element {
                     }
 
                     div {
-                        label { 
+                        label {
                             class: "text-xs font-bold text-muted-foreground mb-1 block",
                             r#for: "setup-password",
                             "{pin_label}"
@@ -171,7 +190,7 @@ pub fn SetupView(props: SetupViewProps) -> Element {
                     }
 
                     div {
-                        label { 
+                        label {
                             class: "text-xs font-bold text-muted-foreground mb-1 block",
                             r#for: "setup-confirm-password",
                             "{confirm_pin_label}"
