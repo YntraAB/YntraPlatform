@@ -116,9 +116,16 @@ pub async fn get_workspaces(requester_user_id: String) -> Result<Vec<Workspace>,
 
 #[uniffi::export]
 pub async fn get_workspace_template_type(
+    requester_user_id: String,
     workspace_id: String,
 ) -> Result<crate::WorkspaceTemplateType, YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
     let modules_json: Option<String> = conn
         .query_row(
             "SELECT modules_active FROM workspaces WHERE id = ?1",
@@ -231,6 +238,7 @@ fn get_default_settings_for_modules(modules_json: &str) -> String {
 
 #[uniffi::export]
 pub async fn create_workspace_via_hub(
+    requester_user_id: String,
     name: String,
     admin_email: String,
     modules_active: String,
@@ -245,6 +253,12 @@ pub async fn create_workspace_via_hub(
     let default_settings = get_default_settings_for_modules(&modules_active);
 
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" {
+        return Err(YntraError::AuthError(
+            "Access denied: platform administrator privileges required".to_string(),
+        ));
+    }
 
     conn.begin_transaction().await?;
 

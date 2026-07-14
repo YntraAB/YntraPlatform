@@ -345,8 +345,14 @@ pub async fn get_audit_logs(requester_user_id: String) -> Result<Vec<AuditLogEnt
 }
 
 #[uniffi::export]
-pub async fn verify_audit_log_chain() -> Result<bool, YntraError> {
+pub async fn verify_audit_log_chain(requester_user_id: String) -> Result<bool, YntraError> {
     let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.role != "admin" {
+        return Err(YntraError::AuthError(
+            "Access denied: administrator privileges required".to_string(),
+        ));
+    }
 
     let store = get_audit_store();
     let all = store.read_all_audit_logs()?;
@@ -362,6 +368,9 @@ pub async fn verify_audit_log_chain() -> Result<bool, YntraError> {
     }
 
     for (ws_id, mut ws_entries) in groups {
+        if auth.role != "platform_admin" && ws_id != auth.workspace_id {
+            continue;
+        }
         let creator_pub: Option<String> = conn
             .query_row(
                 "SELECT creator_public_key FROM workspaces WHERE id = ?1",
@@ -477,11 +486,21 @@ mod tests {
     #[tokio::test]
     async fn test_audit_log_verification() {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
         // Clear audit store
         let _ = get_audit_store().write_audit_logs(Vec::new());
-        let res = verify_audit_log_chain().await;
+
+        // Setup platform_admin user
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('workspace-test-verify', 'Verify WS', '[]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-verify-admin', 'workspace-test-verify', 'verify@admin.io', 'platform_admin')", ()).await.unwrap();
+
+        let res = verify_audit_log_chain("u-verify-admin".to_string()).await;
         assert!(res.is_ok());
         assert!(res.unwrap());
+
+        // Clean up
+        conn.execute("DELETE FROM users WHERE id = 'u-verify-admin'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'workspace-test-verify'", ()).await.unwrap();
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -534,7 +553,7 @@ mod tests {
         assert!(entry.signature.is_some());
 
         // Verify the entire chain is valid
-        let chain_ok = verify_audit_log_chain().await.unwrap();
+        let chain_ok = verify_audit_log_chain("test-actor-1".to_string()).await.unwrap();
         assert!(chain_ok);
 
         // Clean up

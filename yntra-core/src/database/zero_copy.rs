@@ -230,30 +230,21 @@ impl ZeroCopyStore {
             return Ok(Vec::new());
         }
 
-        let mut list = Vec::new();
-        if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
+        let list: Vec<TodoItem> = if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
             let archived_todos =
                 rkyv::access::<rkyv::Archived<Vec<TodoItem>>, rkyv::rancor::Error>(rkyv_slice)
                     .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            for archived_todo in archived_todos.iter() {
-                let todo: TodoItem =
-                    rkyv::deserialize::<TodoItem, rkyv::rancor::Error>(archived_todo)
-                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                list.push(todo);
-            }
+            rkyv::deserialize::<Vec<TodoItem>, rkyv::rancor::Error>(archived_todos)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?
         } else {
             let mut aligned = rkyv::util::AlignedVec::<16>::new();
             aligned.extend_from_slice(rkyv_slice);
             let archived_todos =
                 rkyv::access::<rkyv::Archived<Vec<TodoItem>>, rkyv::rancor::Error>(&aligned)
                     .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            for archived_todo in archived_todos.iter() {
-                let todo: TodoItem =
-                    rkyv::deserialize::<TodoItem, rkyv::rancor::Error>(archived_todo)
-                        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                list.push(todo);
-            }
-        }
+            rkyv::deserialize::<Vec<TodoItem>, rkyv::rancor::Error>(archived_todos)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?
+        };
 
         {
             let mut cache = self.cache.lock().unwrap();
@@ -1252,21 +1243,14 @@ impl ZeroCopyMessageStore {
             return Ok(Vec::new());
         }
 
-        let mut list = Vec::new();
-        if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
+        let list: Vec<crate::models::MessageItem> = if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
             let archived_msgs = rkyv::access::<
                 rkyv::Archived<Vec<crate::models::MessageItem>>,
                 rkyv::rancor::Error,
             >(rkyv_slice)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            for archived_msg in archived_msgs.iter() {
-                let msg: crate::models::MessageItem = rkyv::deserialize::<
-                    crate::models::MessageItem,
-                    rkyv::rancor::Error,
-                >(archived_msg)
-                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                list.push(msg);
-            }
+            rkyv::deserialize::<Vec<crate::models::MessageItem>, rkyv::rancor::Error>(archived_msgs)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?
         } else {
             let mut aligned = rkyv::util::AlignedVec::<16>::new();
             aligned.extend_from_slice(rkyv_slice);
@@ -1275,15 +1259,9 @@ impl ZeroCopyMessageStore {
                 rkyv::rancor::Error,
             >(&aligned)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            for archived_msg in archived_msgs.iter() {
-                let msg: crate::models::MessageItem = rkyv::deserialize::<
-                    crate::models::MessageItem,
-                    rkyv::rancor::Error,
-                >(archived_msg)
-                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                list.push(msg);
-            }
-        }
+            rkyv::deserialize::<Vec<crate::models::MessageItem>, rkyv::rancor::Error>(archived_msgs)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?
+        };
 
         {
             let mut cache = self.cache.lock().unwrap();
@@ -1392,21 +1370,14 @@ impl ZeroCopyAuditStore {
             return Ok(Vec::new());
         }
 
-        let mut list = Vec::new();
-        if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
+        let list: Vec<crate::models::AuditLogEntry> = if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
             let archived_entries = rkyv::access::<
                 rkyv::Archived<Vec<crate::models::AuditLogEntry>>,
                 rkyv::rancor::Error,
             >(rkyv_slice)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            for archived_entry in archived_entries.iter() {
-                let entry: crate::models::AuditLogEntry = rkyv::deserialize::<
-                    crate::models::AuditLogEntry,
-                    rkyv::rancor::Error,
-                >(archived_entry)
-                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                list.push(entry);
-            }
+            rkyv::deserialize::<Vec<crate::models::AuditLogEntry>, rkyv::rancor::Error>(archived_entries)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?
         } else {
             let mut aligned = rkyv::util::AlignedVec::<16>::new();
             aligned.extend_from_slice(rkyv_slice);
@@ -1415,15 +1386,9 @@ impl ZeroCopyAuditStore {
                 rkyv::rancor::Error,
             >(&aligned)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            for archived_entry in archived_entries.iter() {
-                let entry: crate::models::AuditLogEntry = rkyv::deserialize::<
-                    crate::models::AuditLogEntry,
-                    rkyv::rancor::Error,
-                >(archived_entry)
-                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                list.push(entry);
-            }
-        }
+            rkyv::deserialize::<Vec<crate::models::AuditLogEntry>, rkyv::rancor::Error>(archived_entries)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?
+        };
 
         {
             let mut cache = self.cache.lock().unwrap();
@@ -1500,21 +1465,14 @@ impl ZeroCopyNoteStore {
             return Ok(Vec::new());
         }
 
-        let mut list = Vec::new();
-        if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
+        let list: Vec<crate::models::DailyNote> = if (rkyv_slice.as_ptr() as usize).is_multiple_of(8) {
             let archived_notes = rkyv::access::<
                 rkyv::Archived<Vec<crate::models::DailyNote>>,
                 rkyv::rancor::Error,
             >(rkyv_slice)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            for archived_note in archived_notes.iter() {
-                let note: crate::models::DailyNote = rkyv::deserialize::<
-                    crate::models::DailyNote,
-                    rkyv::rancor::Error,
-                >(archived_note)
-                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                list.push(note);
-            }
+            rkyv::deserialize::<Vec<crate::models::DailyNote>, rkyv::rancor::Error>(archived_notes)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?
         } else {
             let mut aligned = rkyv::util::AlignedVec::<16>::new();
             aligned.extend_from_slice(rkyv_slice);
@@ -1523,15 +1481,9 @@ impl ZeroCopyNoteStore {
                 rkyv::rancor::Error,
             >(&aligned)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            for archived_note in archived_notes.iter() {
-                let note: crate::models::DailyNote = rkyv::deserialize::<
-                    crate::models::DailyNote,
-                    rkyv::rancor::Error,
-                >(archived_note)
-                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-                list.push(note);
-            }
-        }
+            rkyv::deserialize::<Vec<crate::models::DailyNote>, rkyv::rancor::Error>(archived_notes)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?
+        };
 
         {
             let mut cache = self.cache.lock().unwrap();

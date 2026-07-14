@@ -918,7 +918,6 @@ pub async fn apply_note_loro_update(
     }
 }
 
-#[uniffi::export]
 pub async fn merge_unmerged_notes() -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
 
