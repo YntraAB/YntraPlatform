@@ -90,16 +90,20 @@ impl ZeroCopyEngine {
 
     pub fn save_to_disk(&mut self, rkyv_bytes: &[u8], loro_bytes: &[u8]) -> Result<(), YntraError> {
         let rkyv_len = rkyv_bytes.len() as u64;
+        let loro_len = loro_bytes.len() as u64;
         #[cfg(not(target_arch = "wasm32"))]
         {
             let total_size = 16 + rkyv_bytes.len() + loro_bytes.len();
             
-            // Check if size has changed, and if so, resize the file and recreate mapping
-            let current_size = self.mmap.as_ref().map(|m| m.len()).unwrap_or(0);
-            if current_size != total_size {
+            // Round up to nearest 64KB boundary to avoid frequent resizing
+            let target_capacity = ((total_size + 65535) / 65536) * 65536;
+            
+            // Check if size has grown beyond current capacity, or if current capacity is overly large (e.g. > 2x target_capacity)
+            let current_capacity = self.mmap.as_ref().map(|m| m.len()).unwrap_or(0);
+            if current_capacity < total_size || current_capacity > target_capacity * 2 {
                 self.mmap = None;
                 let file = self.file.as_ref().ok_or_else(|| YntraError::DbError("Database file closed".to_string()))?;
-                file.set_len(total_size as u64)
+                file.set_len(target_capacity as u64)
                     .map_err(|e| YntraError::DbError(format!("Failed to resize database file: {}", e)))?;
                 let m = unsafe {
                     memmap2::MmapMut::map_mut(file)
@@ -111,21 +115,22 @@ impl ZeroCopyEngine {
             // Write data directly into the memory mapped slice
             if let Some(ref mut m) = self.mmap {
                 m[0..8].copy_from_slice(&rkyv_len.to_be_bytes());
-                m[8..16].copy_from_slice(&[0u8; 8]);
+                m[8..16].copy_from_slice(&loro_len.to_be_bytes());
                 
                 let rkyv_end = 16 + rkyv_bytes.len();
+                let total_data_end = rkyv_end + loro_bytes.len();
                 m[16..rkyv_end].copy_from_slice(rkyv_bytes);
-                m[rkyv_end..total_size].copy_from_slice(loro_bytes);
+                m[rkyv_end..total_data_end].copy_from_slice(loro_bytes);
                 
-                m.flush()
-                    .map_err(|e| YntraError::DbError(format!("Failed to flush database changes: {}", e)))?;
+                // Let OS handle dirty page flushing asynchronously in the background.
+                // This eliminates the blocking thread latency of m.flush().
             }
         }
         #[cfg(target_arch = "wasm32")]
         {
             let mut buf = rkyv::util::AlignedVec::<16>::new();
             buf.extend_from_slice(&rkyv_len.to_be_bytes());
-            buf.extend_from_slice(&[0u8; 8]); // 8 padding bytes for 16-byte alignment
+            buf.extend_from_slice(&loro_len.to_be_bytes());
             buf.extend_from_slice(rkyv_bytes);
             buf.extend_from_slice(loro_bytes);
 
@@ -148,12 +153,23 @@ impl ZeroCopyEngine {
             if m.len() >= 16 {
                 let rkyv_len = usize::try_from(u64::from_be_bytes(m[0..8].try_into().unwrap()))
                     .map_err(|e| YntraError::DbError(format!("Database size overflow: {}", e)))?;
-                if let Some(loro_offset) = rkyv_len.checked_add(16) {
-                    if m.len() >= loro_offset {
-                        if m.len() > loro_offset {
-                            let loro_bytes = &m[loro_offset..];
-                            if let Err(e) = self.loro.import(loro_bytes) {
-                                tracing::warn!("Failed to import Loro state on startup: {:?}", e);
+                let mut loro_len = usize::try_from(u64::from_be_bytes(m[8..16].try_into().unwrap()))
+                    .map_err(|e| YntraError::DbError(format!("Database size overflow: {}", e)))?;
+                
+                // Backward compatibility fallback: if stored loro_len is 0, but there are remaining bytes,
+                // assume the rest of the file is the Loro payload.
+                if loro_len == 0 && m.len() > rkyv_len + 16 {
+                    loro_len = m.len() - (rkyv_len + 16);
+                }
+
+                if loro_len > 0 {
+                    if let Some(loro_offset) = rkyv_len.checked_add(16) {
+                        if let Some(loro_end) = loro_offset.checked_add(loro_len) {
+                            if m.len() >= loro_end {
+                                let loro_bytes = &m[loro_offset..loro_end];
+                                if let Err(e) = self.loro.import(loro_bytes) {
+                                    tracing::warn!("Failed to import Loro state on startup: {:?}", e);
+                                }
                             }
                         }
                     }
@@ -169,12 +185,22 @@ impl ZeroCopyEngine {
         if len >= 16 {
             let rkyv_len = usize::try_from(u64::from_be_bytes(self.buffer[0..8].try_into().unwrap()))
                 .map_err(|e| YntraError::DbError(format!("Database size overflow: {}", e)))?;
-            if let Some(loro_offset) = rkyv_len.checked_add(16) {
-                if len >= loro_offset {
-                    if len > loro_offset {
-                        let loro_bytes = &self.buffer[loro_offset..];
-                        if let Err(e) = self.loro.import(loro_bytes) {
-                            tracing::warn!("Failed to import Loro state on startup: {:?}", e);
+            let mut loro_len = usize::try_from(u64::from_be_bytes(self.buffer[8..16].try_into().unwrap()))
+                .map_err(|e| YntraError::DbError(format!("Database size overflow: {}", e)))?;
+            
+            // Backward compatibility fallback
+            if loro_len == 0 && len > rkyv_len + 16 {
+                loro_len = len - (rkyv_len + 16);
+            }
+
+            if loro_len > 0 {
+                if let Some(loro_offset) = rkyv_len.checked_add(16) {
+                    if let Some(loro_end) = loro_offset.checked_add(loro_len) {
+                        if len >= loro_end {
+                            let loro_bytes = &self.buffer[loro_offset..loro_end];
+                            if let Err(e) = self.loro.import(loro_bytes) {
+                                tracing::warn!("Failed to import Loro state on startup: {:?}", e);
+                            }
                         }
                     }
                 }
@@ -185,7 +211,7 @@ impl ZeroCopyEngine {
 
     pub fn get_loro_changes(&self) -> Result<Vec<u8>, YntraError> {
         self.loro
-            .export(loro::ExportMode::Snapshot)
+            .export(loro::ExportMode::Updates { from: Default::default() })
             .map_err(|e| YntraError::SerializationError(e.to_string()))
     }
 
