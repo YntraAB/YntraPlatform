@@ -77,26 +77,51 @@ impl ZeroCopyEngine {
         let rkyv_len = rkyv_bytes.len() as u64;
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let total_len = 8 + rkyv_bytes.len() + loro_bytes.len();
-            let file = self
-                .file
-                .as_ref()
-                .ok_or_else(|| YntraError::DbError("Database file not opened".to_string()))?;
-
+            // Drop memory mapping and close file to release Windows OS locks
             self.mmap = None;
+            self.file = None;
 
-            file.set_len(total_len as u64)
+            let temp_path = format!("{}.tmp", self._file_path);
+
+            {
+                use std::io::Write;
+                let mut temp_file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .open(&temp_path)
+                    .map_err(|e| YntraError::DbError(e.to_string()))?;
+
+                temp_file
+                    .write_all(&rkyv_len.to_be_bytes())
+                    .map_err(|e| YntraError::DbError(e.to_string()))?;
+                temp_file
+                    .write_all(rkyv_bytes)
+                    .map_err(|e| YntraError::DbError(e.to_string()))?;
+                temp_file
+                    .write_all(loro_bytes)
+                    .map_err(|e| YntraError::DbError(e.to_string()))?;
+
+                temp_file
+                    .sync_all()
+                    .map_err(|e| YntraError::DbError(e.to_string()))?;
+            }
+
+            std::fs::rename(&temp_path, &self._file_path)
                 .map_err(|e| YntraError::DbError(e.to_string()))?;
 
-            let mut m = unsafe {
-                memmap2::MmapMut::map_mut(file).map_err(|e| YntraError::DbError(e.to_string()))?
+            let file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&self._file_path)
+                .map_err(|e| YntraError::DbError(e.to_string()))?;
+
+            let m = unsafe {
+                memmap2::MmapMut::map_mut(&file)
+                    .map_err(|e| YntraError::DbError(e.to_string()))?
             };
 
-            m[0..8].copy_from_slice(&rkyv_len.to_be_bytes());
-            m[8..8 + rkyv_bytes.len()].copy_from_slice(rkyv_bytes);
-            m[8 + rkyv_bytes.len()..total_len].copy_from_slice(loro_bytes);
-
-            m.flush().map_err(|e| YntraError::DbError(e.to_string()))?;
+            self.file = Some(file);
             self.mmap = Some(m);
         }
         #[cfg(target_arch = "wasm32")]
