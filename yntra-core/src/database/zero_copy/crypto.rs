@@ -264,13 +264,18 @@ impl ZkCryptoTrust {
         use ed25519_dalek::Signer;
         let signature = signing_key.sign(commitment.as_bytes());
 
+        // 5. Generate Schema Validity ZKP using the Schnorr-like sigma protocol
+        let (C_comp, schema_e, schema_s) = generate_schema_zkp(is_valid_schema)?;
+
         let mut proof_builder = Vec::new();
         proof_builder.extend_from_slice(b"ZKP_PROOF_V3:");
         proof_builder.extend_from_slice(commitment.as_bytes()); // 32 bytes
         proof_builder.extend_from_slice(&salt_bytes); // 32 bytes
         proof_builder.extend_from_slice(&signature.to_bytes()); // 64 bytes
         proof_builder.extend_from_slice(public_key.as_bytes()); // 32 bytes
-        proof_builder.push(if is_valid_schema { 1 } else { 0 }); // 1 byte
+        proof_builder.extend_from_slice(&C_comp.to_bytes()); // 32 bytes
+        proof_builder.extend_from_slice(&schema_e.to_bytes()); // 32 bytes
+        proof_builder.extend_from_slice(&schema_s.to_bytes()); // 32 bytes
 
         Ok(const_hex::encode(&proof_builder))
     }
@@ -302,12 +307,24 @@ impl ZkCryptoTrust {
         let data_hash_bytes =
             const_hex::decode(&data_hash_hex).map_err(|e| YntraError::CryptoError(e.to_string()))?;
 
-        if proof_bytes.starts_with(b"ZKP_PROOF_V3:") && proof_bytes.len() == 174 {
+        if proof_bytes.starts_with(b"ZKP_PROOF_V3:") && proof_bytes.len() == 269 {
             let actual_commitment = &proof_bytes[13..45];
             let salt_bytes = &proof_bytes[45..77];
             let signature_bytes = &proof_bytes[77..141];
             let proof_public_key = &proof_bytes[141..173];
-            let is_valid_schema = *proof_bytes.last().unwrap_or(&0) == 1;
+
+            let schema_C_bytes = &proof_bytes[173..205];
+            let schema_e_bytes = &proof_bytes[205..237];
+            let schema_s_bytes = &proof_bytes[237..269];
+
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(schema_C_bytes);
+            let schema_C = CompressedEdwardsY(arr);
+            let schema_e = Scalar::from_bytes_mod_order(schema_e_bytes.try_into().unwrap());
+            let schema_s = Scalar::from_bytes_mod_order(schema_s_bytes.try_into().unwrap());
+
+            // Verify schema ZKP using verify_schema_zkp
+            let is_schema_valid = verify_schema_zkp(schema_C, schema_e, schema_s);
 
             let registered_public_key = const_hex::decode(&public_key_hex)
                 .map_err(|e| YntraError::CryptoError(e.to_string()))?;
@@ -337,9 +354,8 @@ impl ZkCryptoTrust {
             let expected_commitment = hasher.finalize();
 
             let hash_matches = constant_time_eq(expected_commitment.as_bytes(), actual_commitment);
-            let schema_matches = is_valid_schema;
 
-            Ok(hash_matches && schema_matches)
+            Ok(hash_matches && is_schema_valid)
         } else if proof_bytes.starts_with(b"ZKP_PROOF_V2:") && proof_bytes.len() == 174 {
             let actual_commitment = &proof_bytes[13..45];
             let salt_bytes = &proof_bytes[45..77];
