@@ -259,7 +259,45 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             created_at TEXT NOT NULL,
             updated_at INTEGER NOT NULL,
             sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            origin_address TEXT,
+            destination_address TEXT,
+            origin_floor INTEGER DEFAULT 0,
+            destination_floor INTEGER DEFAULT 0,
+            origin_has_elevator INTEGER DEFAULT 0,
+            destination_has_elevator INTEGER DEFAULT 0,
+            origin_parking_permit_needed INTEGER DEFAULT 0,
+            destination_parking_permit_needed INTEGER DEFAULT 0,
             FOREIGN KEY(assigned_user_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS move_inventory (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL DEFAULT 'workspace-1',
+            job_ticket_id TEXT NOT NULL,
+            item_category TEXT NOT NULL,
+            item_name TEXT NOT NULL,
+            quantity INTEGER NOT NULL,
+            estimated_volume_m3 REAL NOT NULL,
+            handling_notes TEXT,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(job_ticket_id) REFERENCES job_tickets(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS move_quotes (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL DEFAULT 'workspace-1',
+            job_ticket_id TEXT NOT NULL,
+            base_price REAL NOT NULL,
+            distance_fee REAL NOT NULL,
+            stairs_surcharge REAL NOT NULL,
+            packing_supplies_fee REAL NOT NULL,
+            total_price REAL NOT NULL,
+            status TEXT NOT NULL,
+            accepted_at INTEGER,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(job_ticket_id) REFERENCES job_tickets(id)
         );
 
         CREATE TABLE IF NOT EXISTS invitations (
@@ -329,7 +367,11 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
         CREATE INDEX IF NOT EXISTS idx_time_reports_workspace_date ON time_reports(workspace_id, date DESC);
         CREATE INDEX IF NOT EXISTS idx_notes_team_created ON notes(team_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_notes_workspace_created ON notes(workspace_id, created_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_messages_workspace_created ON messages(workspace_id, created_at ASC);"
+        CREATE INDEX IF NOT EXISTS idx_messages_workspace_created ON messages(workspace_id, created_at ASC);
+        CREATE INDEX IF NOT EXISTS idx_move_inventory_job ON move_inventory(job_ticket_id);
+        CREATE INDEX IF NOT EXISTS idx_move_quotes_job ON move_quotes(job_ticket_id);
+        CREATE INDEX IF NOT EXISTS idx_move_inventory_job_ticket ON move_inventory(job_ticket_id);
+        CREATE INDEX IF NOT EXISTS idx_move_quotes_job_ticket ON move_quotes(job_ticket_id);"
     )
     .await
     .map_err(|e| YntraError::DbError(e.to_string()))?;

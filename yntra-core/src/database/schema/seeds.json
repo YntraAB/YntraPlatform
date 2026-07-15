@@ -97,8 +97,8 @@
     }
   ],
   "users": [
-    { "id": "user-1", "workspace_id": "workspace-1", "email": "marie.andersson@yntra.se", "full_name": "Marie Andersson", "role": "assistant", "preferences": "{}", "updated_at": 1719830400000, "sync_status": "synced" },
-    { "id": "user-2", "workspace_id": "workspace-1", "email": "dev.user@yntra.se", "full_name": "Dev User", "role": "platform_admin", "preferences": "{}", "updated_at": 1719830400000, "sync_status": "synced" },
+    { "id": "user-1", "workspace_id": "workspace-1", "email": "marie.andersson@yntra.se", "full_name": "Marie Andersson", "role": "assistant", "preferences": "{}", "updated_at": 1719830400000, "sync_status": "synced", "password_hash": "$argon2id$v=19$m=19456,t=2,p=1$9nZMHYw9oG8j5ARiotf30Q$mRz0TM0czgqG+8YnfFIIq/wgEBkANz9jnw4FtEGk76U" },
+    { "id": "user-2", "workspace_id": "workspace-1", "email": "dev.user@yntra.se", "full_name": "Dev User", "role": "platform_admin", "preferences": "{}", "updated_at": 1719830400000, "sync_status": "synced", "password_hash": "$argon2id$v=19$m=19456,t=2,p=1$9nZMHYw9oG8j5ARiotf30Q$mRz0TM0czgqG+8YnfFIIq/wgEBkANz9jnw4FtEGk76U" },
     { "id": "user-parent-1", "workspace_id": "workspace-1", "email": "parent.smith@example.com", "full_name": "Sarah Smith", "role": "parent", "preferences": "{}", "updated_at": 1719830400000, "sync_status": "synced" },
     { "id": "user-parent-2", "workspace_id": "workspace-1", "email": "parent.johnson@example.com", "full_name": "Michael Johnson", "role": "parent", "preferences": "{}", "updated_at": 1719830400000, "sync_status": "synced" },
     { "id": "user-parent-3", "workspace_id": "workspace-1", "email": "parent.brown@example.com", "full_name": "Eleanor Brown", "role": "parent", "preferences": "{}", "updated_at": 1719830400000, "sync_status": "synced" }
@@ -170,6 +170,60 @@
       "destination_has_elevator": true,
       "origin_parking_permit_needed": false,
       "destination_parking_permit_needed": true
+    }
+  ],
+  "move_inventory": [
+    {
+      "id": "inv-1",
+      "workspace_id": "workspace-1",
+      "job_ticket_id": "job-1",
+      "item_category": "Möbler",
+      "item_name": "Dubbelsäng",
+      "quantity": 1,
+      "estimated_volume_m3": 1.8,
+      "handling_notes": "Demonteras vid flytt, ömtålig gavel",
+      "updated_at": 1719830400000,
+      "sync_status": "synced"
+    },
+    {
+      "id": "inv-2",
+      "workspace_id": "workspace-1",
+      "job_ticket_id": "job-1",
+      "item_category": "Kartonger",
+      "item_name": "Flyttkartonger (Böcker/Porslin)",
+      "quantity": 25,
+      "estimated_volume_m3": 0.15,
+      "handling_notes": "Tunga boklådor packas max 1/2",
+      "updated_at": 1719830400000,
+      "sync_status": "synced"
+    },
+    {
+      "id": "inv-3",
+      "workspace_id": "workspace-1",
+      "job_ticket_id": "job-1",
+      "item_category": "Möbler",
+      "item_name": "Soffa (3-sits)",
+      "quantity": 1,
+      "estimated_volume_m3": 2.0,
+      "handling_notes": "Kräver skyddsplast",
+      "updated_at": 1719830400000,
+      "sync_status": "synced"
+    }
+  ],
+  "move_quotes": [
+    {
+      "id": "quote-1",
+      "workspace_id": "workspace-1",
+      "job_ticket_id": "job-1",
+      "base_price": 4500.0,
+      "distance_fee": 800.0,
+      "stairs_surcharge": 400.0,
+      "packing_supplies_fee": 600.0,
+      "total_price": 6300.0,
+      "status": "accepted",
+      "accepted_at": 1719830500000,
+      "updated_at": 1719830400000,
+      "sync_status": "synced"
     }
   ]
 }

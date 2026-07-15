@@ -537,17 +537,6 @@ impl ZkCryptoTrust {
             return false;
         }
 
-        if proof_bytes.starts_with(b"ZKP_RING_PROOF_V1:") {
-            let ring_keys: Vec<String> = public_key_hex
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-            let dummy_hash = blake3::hash(b"dummy_role_proof_hash");
-            let dummy_hash_hex = const_hex::encode(dummy_hash.as_bytes());
-            return self.verify_ring_compliance_proof(proof_hex, dummy_hash_hex, ring_keys).unwrap_or(false);
-        }
-
         if proof_bytes.starts_with(b"ZKP_ROLE_PROOF_V3:") && proof_bytes.len() == 178 {
             let actual_commitment = &proof_bytes[18..50];
             let salt_bytes = &proof_bytes[50..82];

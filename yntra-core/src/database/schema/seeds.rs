@@ -169,6 +169,7 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
                     "preferences",
                     "updated_at",
                     "sync_status",
+                    "password_hash",
                 ],
                 users,
             )
@@ -322,8 +323,74 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
                         "created_at",
                         "updated_at",
                         "sync_status",
+                        "origin_address",
+                        "destination_address",
+                        "origin_floor",
+                        "destination_floor",
+                        "origin_has_elevator",
+                        "destination_has_elevator",
+                        "origin_parking_permit_needed",
+                        "destination_parking_permit_needed",
                     ],
                     job_tickets,
+                )
+                .await?;
+            }
+        }
+
+        let inventory_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM move_inventory", (), |row| row.get(0))
+            .await
+            .unwrap_or(0);
+        if inventory_count == 0 {
+            if let Some(move_inventory) = data["move_inventory"].as_array() {
+                seed_table(
+                    conn,
+                    "INSERT",
+                    "move_inventory",
+                    &[
+                        "id",
+                        "workspace_id",
+                        "job_ticket_id",
+                        "item_category",
+                        "item_name",
+                        "quantity",
+                        "estimated_volume_m3",
+                        "handling_notes",
+                        "updated_at",
+                        "sync_status",
+                    ],
+                    move_inventory,
+                )
+                .await?;
+            }
+        }
+
+        let quotes_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM move_quotes", (), |row| row.get(0))
+            .await
+            .unwrap_or(0);
+        if quotes_count == 0 {
+            if let Some(move_quotes) = data["move_quotes"].as_array() {
+                seed_table(
+                    conn,
+                    "INSERT",
+                    "move_quotes",
+                    &[
+                        "id",
+                        "workspace_id",
+                        "job_ticket_id",
+                        "base_price",
+                        "distance_fee",
+                        "stairs_surcharge",
+                        "packing_supplies_fee",
+                        "total_price",
+                        "status",
+                        "accepted_at",
+                        "updated_at",
+                        "sync_status",
+                    ],
+                    move_quotes,
                 )
                 .await?;
             }
