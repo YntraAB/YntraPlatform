@@ -440,11 +440,132 @@ pub async fn submit_bankid_pin(session_id: String, token: String, pin: String) -
         return Err(YntraError::AuthError("Access denied: invalid session token".to_string()));
     }
 
+    let zeroizing_pin = zeroize::Zeroizing::new(pin);
+    let pin_val = zeroizing_pin.as_str();
+
+    let mut is_norwegian_flow = false;
+    let mut resolved_id = None;
+
+    if pin_val.contains('|') {
+        is_norwegian_flow = true;
+        // Norwegian format: phone|birthdate
+        let parts: Vec<&str> = pin_val.split('|').collect();
+        if parts.len() == 2 {
+            let phone_input = parts[0];
+            let birthdate_input = parts[1];
+
+            if let Ok(mut stmt) = conn
+                .prepare("SELECT id, metadata, workspace_id FROM users WHERE phone = ?1 LIMIT 1")
+                .await
+            {
+                if let Ok(mut rows) = stmt.query(crate::params![phone_input]).await {
+                    if let Ok(Some(row)) = rows.next().await {
+                        let uid: String = row.get(0)?;
+                        let metadata_str: Option<String> = row.get(1)?;
+                        let ws_id: Option<String> = row.get(2)?;
+
+                        let mut pnum = None;
+                        if let Some(ref m_str) = metadata_str {
+                            if let Ok(meta_val) = serde_json::from_str::<serde_json::Value>(m_str) {
+                                pnum = meta_val
+                                    .get("personal_number")
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string());
+                            }
+                        }
+
+                        if let Some(pnum_enc) = pnum {
+                            let pnum_dec = crate::infra::crypto::decrypt_opt_field(
+                                Some(pnum_enc),
+                                ws_id.as_deref().unwrap_or(""),
+                            );
+                            if let Some(decrypted_pnum) = pnum_dec {
+                                if check_birthdate_match_impl(
+                                    &decrypted_pnum,
+                                    birthdate_input,
+                                    Some("no_bankid"),
+                                ) {
+                                    resolved_id = Some(uid);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    let mut is_mock_bypass = false;
+
     #[cfg(debug_assertions)]
     {
-        let zeroizing_pin = zeroize::Zeroizing::new(pin);
+        if !is_norwegian_flow {
+            if pin_val == "mock_admin"
+                || pin_val == "mock_platform_admin"
+                || pin_val == "mock_assistant"
+                || pin_val == "mock_user"
+                || pin_val == "mock_client"
+                || pin_val == "phone_scan"
+                || pin_val == "local_app"
+                || pin_val == "123456"
+            {
+                is_mock_bypass = true;
 
-        // 1. First set status to verifying and progress = 0.0
+                let mut target_role = None;
+                if let Ok(mut stmt) = conn
+                    .prepare("SELECT target_role FROM bankid_auth_sessions WHERE id = ?1")
+                    .await
+                {
+                    if let Ok(mut rows) = stmt.query(crate::params![&session_id]).await {
+                        if let Ok(Some(row)) = rows.next().await {
+                            target_role = row.get::<String>(0).ok();
+                        }
+                    }
+                }
+
+                let role_str = target_role.as_deref().unwrap_or("assistant");
+                let target_role_to_resolve = if pin_val == "mock_admin" {
+                    "admin"
+                } else if pin_val == "mock_platform_admin" {
+                    "platform_admin"
+                } else if pin_val == "mock_assistant" {
+                    "assistant"
+                } else if pin_val == "mock_user" {
+                    "user"
+                } else if pin_val == "mock_client" {
+                    "client"
+                } else {
+                    role_str
+                };
+
+                if let Ok(mut stmt) = conn
+                    .prepare("SELECT id FROM users WHERE role = ?1 LIMIT 1")
+                    .await
+                {
+                    if let Ok(mut rows) = stmt.query(crate::params![target_role_to_resolve]).await {
+                        if let Ok(Some(row)) = rows.next().await {
+                            resolved_id = row.get::<String>(0).ok();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let should_simulate = {
+        #[cfg(debug_assertions)]
+        {
+            is_mock_bypass || is_norwegian_flow
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            is_norwegian_flow
+        }
+    };
+
+    if should_simulate {
+        // Transition status to verifying
         {
             conn.execute(
                 "UPDATE bankid_auth_sessions SET status = 'verifying', progress = 0.0 WHERE id = ?1",
@@ -453,75 +574,8 @@ pub async fn submit_bankid_pin(session_id: String, token: String, pin: String) -
         }
         notify_observers();
 
-        // 2. Spawn a background thread that ticks progress up to 100% and then completes the login!
         let session_id_clone = session_id.clone();
-        let pin_clone = zeroizing_pin.clone();
         spawn_task(async move {
-            let zeroizing_pin_clone = zeroize::Zeroizing::new(pin_clone);
-            let mut resolved_id = None;
-            if let Ok(conn) = database::acquire_connection().await {
-                if zeroizing_pin_clone.contains('|') {
-                    let parts: Vec<&str> = zeroizing_pin_clone.split('|').collect();
-                    if parts.len() == 2 {
-                        let phone_input = parts[0];
-                        if let Ok(mut stmt) = conn
-                            .prepare("SELECT id FROM users WHERE phone = ?1 LIMIT 1")
-                            .await
-                        {
-                            if let Ok(mut rows) = stmt.query(crate::params![phone_input]).await {
-                                if let Ok(Some(row)) = rows.next().await {
-                                    resolved_id = row.get::<String>(0).ok();
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if resolved_id.is_none() {
-                    let mut target_role = None;
-                    if let Ok(mut stmt) = conn
-                        .prepare("SELECT target_role FROM bankid_auth_sessions WHERE id = ?1")
-                        .await
-                    {
-                        if let Ok(mut rows) = stmt.query(crate::params![&session_id_clone]).await {
-                            if let Ok(Some(row)) = rows.next().await {
-                                target_role = row.get::<String>(0).ok();
-                            }
-                        }
-                    }
-
-                    let role_str = target_role.as_deref().unwrap_or("assistant");
-                    if role_str == "admin" || role_str == "platform_admin" {
-                        // Require an explicit mock PIN to bypass auth for administrative accounts
-                        let pin_val = zeroizing_pin_clone.as_str();
-                        if pin_val == "mock_admin" || pin_val == "mock_platform_admin" {
-                            if let Ok(mut stmt) = conn
-                                .prepare("SELECT id FROM users WHERE role = ?1 LIMIT 1")
-                                .await
-                            {
-                                if let Ok(mut rows) = stmt.query(crate::params![role_str]).await {
-                                    if let Ok(Some(row)) = rows.next().await {
-                                        resolved_id = row.get::<String>(0).ok();
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        // Non-administrative roles can continue using standard debug mock PINs
-                        if let Ok(mut stmt) = conn
-                            .prepare("SELECT id FROM users WHERE role = ?1 LIMIT 1")
-                            .await
-                        {
-                            if let Ok(mut rows) = stmt.query(crate::params![role_str]).await {
-                                if let Ok(Some(row)) = rows.next().await {
-                                    resolved_id = row.get::<String>(0).ok();
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
             if let Some(uid) = resolved_id {
                 for progress_pct in [20.0, 40.0, 60.0, 80.0, 100.0] {
                     sleep_ms(200).await;
@@ -554,13 +608,8 @@ pub async fn submit_bankid_pin(session_id: String, token: String, pin: String) -
         });
 
         Ok(())
-    }
-
-    #[cfg(not(debug_assertions))]
-    {
-        let _zeroizing_pin = zeroize::Zeroizing::new(pin);
-
-        // Transition status to verifying
+    } else {
+        // Real out-of-band flow: Transition status to verifying and wait for host validation
         {
             conn.execute(
                 "UPDATE bankid_auth_sessions SET status = 'verifying', progress = 0.0 WHERE id = ?1",
@@ -568,8 +617,6 @@ pub async fn submit_bankid_pin(session_id: String, token: String, pin: String) -
             ).await?;
         }
         notify_observers();
-
-        // For all providers in production: we keep in verifying status and wait for host validation
         Ok(())
     }
 }
