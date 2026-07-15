@@ -126,18 +126,4 @@ pub static BLOCK_REGISTRY: &[BlockDefinition] = &[
             badge_key: None,
         }],
     },
-    BlockDefinition {
-        id: "p2p_playground",
-        name: "P2P Playground",
-        navigation: &[BlockNavItem {
-            id: "p2p_playground",
-            label_key: "sidebar-p2p-playground",
-            path: "p2p_playground",
-            icon: "refresh-cw",
-            allowed_roles: Some(&["platform_admin", "admin", "user"]),
-            section: "main",
-            children: None,
-            badge_key: None,
-        }],
-    },
 ];

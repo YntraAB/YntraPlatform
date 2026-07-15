@@ -1,6 +1,6 @@
 use crate::components;
 use dioxus::prelude::*;
-use yntra_core::WorkspaceUser;
+use yntra_core::{get_oauth_login_status, initiate_oauth_login, WorkspaceUser};
 
 #[derive(Props, Clone)]
 pub struct SsoModalProps {
@@ -42,28 +42,81 @@ pub fn SsoModal(props: SsoModalProps) -> Element {
             return;
         }
 
-        if let Some(user) = users.iter().find(|u| u.email.to_lowercase() == email) {
-            let prefs: serde_json::Value = serde_json::from_str(&user.preferences).unwrap_or_default();
-            let mfa_enabled = prefs.get("two_factor_enabled").and_then(|v| v.as_bool()).unwrap_or(false);
-            if mfa_enabled {
-                two_factor_user.set(Some(user.clone()));
-            } else {
-                active_user_id.set(user.id.clone());
-                if user.role == "client" {
-                    active_section.set("client_portal".to_string());
-                } else {
-                    active_section.set("dashboard".to_string());
+        let mut active_uid = active_user_id;
+        let mut active_sec = active_section;
+        let mut setup_needed = needs_setup;
+        let mut is_logged_in = logged_in;
+        let mut tf_user = two_factor_user;
+        let users_list = users.clone();
+        let mut show_modal = show_sso_modal;
+        let mut email_input = sso_email_input;
+        let mut err_sig = sso_error;
+
+        spawn(async move {
+            let mock_token = format!("mock_sso_email:{}", email);
+            match initiate_oauth_login("supabase".to_string(), mock_token).await {
+                Ok(session_id) => {
+                    loop {
+                        match get_oauth_login_status(session_id.clone()).await {
+                            Ok(Some(session)) => {
+                                match session.status.as_str() {
+                                    "success" => {
+                                        let uid = session.authenticated_user_id.unwrap();
+                                        if let Some(user) = users_list.iter().find(|u| u.id == uid) {
+                                            let prefs: serde_json::Value =
+                                                serde_json::from_str(&user.preferences)
+                                                    .unwrap_or_default();
+                                            let mfa_enabled = prefs
+                                                .get("two_factor_enabled")
+                                                .and_then(|v| v.as_bool())
+                                                .unwrap_or(false);
+                                            if mfa_enabled {
+                                                tf_user.set(Some(user.clone()));
+                                            } else {
+                                                active_uid.set(user.id.clone());
+                                                if user.role == "client" {
+                                                    active_sec.set("client_portal".to_string());
+                                                } else {
+                                                    active_sec.set("dashboard".to_string());
+                                                }
+                                                let is_new_invite = user.phone.is_none()
+                                                    || user
+                                                        .phone
+                                                        .as_ref()
+                                                        .map(|p| p.is_empty())
+                                                        .unwrap_or(true);
+                                                setup_needed.set(is_new_invite);
+                                                is_logged_in.set(true);
+                                            }
+                                        }
+                                        show_modal.set(false);
+                                        email_input.set(String::new());
+                                        err_sig.set(None);
+                                        break;
+                                    }
+                                    "error" => {
+                                        let err_msg = session
+                                            .error_message
+                                            .unwrap_or_else(|| "Unknown error".to_string());
+                                        err_sig.set(Some(err_msg));
+                                        break;
+                                    }
+                                    _ => {
+                                        crate::utils::sleep_ms(100).await;
+                                    }
+                                }
+                            }
+                            _ => {
+                                break;
+                            }
+                        }
+                    }
                 }
-                let is_new_invite = user.phone.is_none() || user.phone.as_ref().map(|p| p.is_empty()).unwrap_or(true);
-                needs_setup.set(is_new_invite);
-                logged_in.set(true);
+                Err(e) => {
+                    err_sig.set(Some(format!("Misslyckades att initiera SSO: {}", e)));
+                }
             }
-            show_sso_modal.set(false);
-            sso_email_input.set(String::new());
-            sso_error.set(None);
-        } else {
-            sso_error.set(Some(format!("Användare med e-post '{}' hittades inte i Yntra-katalogen.", email)));
-        }
+        });
     };
 
     rsx! {

@@ -2,37 +2,7 @@ use super::ChecklistItem;
 use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
-use yntra_core::JobTicket;
-
-#[derive(Clone, PartialEq, Debug)]
-pub struct MoveInventoryItem {
-    pub id: String,
-    pub workspace_id: String,
-    pub job_ticket_id: String,
-    pub item_category: String,
-    pub item_name: String,
-    pub quantity: i32,
-    pub estimated_volume_m3: f64,
-    pub handling_notes: Option<String>,
-    pub updated_at: i64,
-    pub sync_status: String,
-}
-
-#[derive(Clone, PartialEq, Debug)]
-pub struct MoveQuote {
-    pub id: String,
-    pub workspace_id: String,
-    pub job_ticket_id: String,
-    pub base_price: i64,
-    pub distance_fee: i64,
-    pub stairs_surcharge: i64,
-    pub packing_supplies_fee: i64,
-    pub total_price: i64,
-    pub status: String,
-    pub accepted_at: Option<i64>,
-    pub updated_at: i64,
-    pub sync_status: String,
-}
+use yntra_core::{JobTicket, MoveInventoryItem, MoveQuote};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct JobDetailsProps {

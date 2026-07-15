@@ -1,7 +1,7 @@
 use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
-use yntra_core::JobTicket;
+use yntra_core::{JobTicket, MoveInventoryItem, MoveQuote};
 
 mod details;
 
@@ -56,9 +56,28 @@ pub fn JobsView(props: JobsViewProps) -> Element {
     let mut completion_report_state = use_signal(String::new);
     let mut active_status_state = use_signal(|| "all".to_string());
 
-    // Reactive resources for moving company modules (Inventory & Quote) - Stubbed out
-    let inventories = Vec::<details::MoveInventoryItem>::new();
-    let quote = Option::<details::MoveQuote>::None;
+    // Reactive resources for moving company modules (Inventory & Quote)
+    let details_resource = use_resource(move || {
+        let uid = props.active_user_id.read().clone();
+        let job_id_opt = selected_job_id.read().clone();
+        async move {
+            if let Some(job_id) = job_id_opt {
+                let inv = yntra_core::get_move_inventory(uid.clone(), job_id.clone())
+                    .await
+                    .unwrap_or_default();
+                let q = yntra_core::get_move_quote(uid, job_id)
+                    .await
+                    .unwrap_or(None);
+                (inv, q)
+            } else {
+                (Vec::new(), None)
+            }
+        }
+    });
+
+    let details_val = details_resource.read().clone().unwrap_or((Vec::new(), None));
+    let inventories: Vec<MoveInventoryItem> = details_val.0;
+    let quote: Option<MoveQuote> = details_val.1;
 
     // Sync checklist/report when a new job is selected, reading directly from resource to avoid moves
     use_effect(use_reactive(&selected_job_id, move |selected_id| {

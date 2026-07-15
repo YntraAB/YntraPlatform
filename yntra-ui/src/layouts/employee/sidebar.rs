@@ -195,7 +195,6 @@ pub fn LayoutSidebar(props: LayoutSidebarProps) -> Element {
                                 "reporting" => props.reporting_enabled,
                                 "jobs" => props.jobs_enabled,
                                 "todos" => props.todos_enabled,
-                                "p2p_playground" => true,
                                 _ => false,
                             }
                         };
