@@ -340,8 +340,224 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             FOREIGN KEY(block_id) REFERENCES blocks(id)
         );
 
+        CREATE TABLE IF NOT EXISTS student_profiles (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            user_id TEXT,
+            first_name TEXT NOT NULL,
+            last_name TEXT NOT NULL,
+            grade_level TEXT NOT NULL,
+            parent_contact TEXT,
+            updated_at INTEGER NOT NULL,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS student_parents (
+            student_id TEXT NOT NULL,
+            parent_user_id TEXT NOT NULL,
+            workspace_id TEXT NOT NULL DEFAULT 'workspace-1',
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            PRIMARY KEY(student_id, parent_user_id),
+            FOREIGN KEY(student_id) REFERENCES student_profiles(id),
+            FOREIGN KEY(parent_user_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS courses (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            teacher_id TEXT,
+            classroom TEXT,
+            updated_at INTEGER NOT NULL,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced'))
+        );
+
+        CREATE TABLE IF NOT EXISTS assignments (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            course_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            due_date TEXT NOT NULL,
+            max_points INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(course_id) REFERENCES courses(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS submissions (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            assignment_id TEXT NOT NULL,
+            student_id TEXT NOT NULL,
+            content TEXT NOT NULL,
+            grade TEXT,
+            feedback TEXT,
+            submitted_at TEXT NOT NULL,
+            updated_at INTEGER NOT NULL,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(assignment_id) REFERENCES assignments(id),
+            FOREIGN KEY(student_id) REFERENCES student_profiles(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS attendance_records (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            student_id TEXT NOT NULL,
+            course_id TEXT NOT NULL,
+            date TEXT NOT NULL,
+            status TEXT NOT NULL,
+            notes TEXT,
+            updated_at INTEGER NOT NULL,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(student_id) REFERENCES student_profiles(id),
+            FOREIGN KEY(course_id) REFERENCES courses(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS term_grades (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            student_id TEXT NOT NULL,
+            course_id TEXT NOT NULL,
+            term_name TEXT NOT NULL,
+            final_grade TEXT,
+            final_points INTEGER,
+            teacher_comments TEXT,
+            updated_at INTEGER NOT NULL,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(student_id) REFERENCES student_profiles(id),
+            FOREIGN KEY(course_id) REFERENCES courses(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS report_cards (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            student_id TEXT NOT NULL,
+            term_name TEXT NOT NULL,
+            gpa REAL NOT NULL,
+            principal_comments TEXT,
+            status TEXT NOT NULL DEFAULT 'draft',
+            updated_at INTEGER NOT NULL,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(student_id) REFERENCES student_profiles(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS timetable_slots (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            course_id TEXT NOT NULL,
+            day_of_week INTEGER NOT NULL,
+            start_time TEXT NOT NULL,
+            end_time TEXT NOT NULL,
+            classroom TEXT,
+            updated_at INTEGER NOT NULL,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(course_id) REFERENCES courses(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS health_records (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            student_id TEXT NOT NULL,
+            vaccine_name TEXT NOT NULL,
+            status TEXT NOT NULL,
+            administered_at TEXT,
+            updated_at INTEGER NOT NULL,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(student_id) REFERENCES student_profiles(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS health_incidents (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            student_id TEXT NOT NULL,
+            visit_reason TEXT NOT NULL,
+            treatment TEXT NOT NULL,
+            checked_in_at TEXT NOT NULL,
+            checked_out_at TEXT,
+            notes TEXT,
+            updated_at INTEGER NOT NULL,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(student_id) REFERENCES student_profiles(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS school_invoices (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            student_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            amount REAL NOT NULL,
+            due_date TEXT NOT NULL,
+            status TEXT NOT NULL,
+            paid_at TEXT,
+            updated_at INTEGER NOT NULL,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(student_id) REFERENCES student_profiles(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS school_payments (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            invoice_id TEXT NOT NULL,
+            amount REAL NOT NULL,
+            payment_method TEXT NOT NULL,
+            paid_at TEXT NOT NULL,
+            updated_at INTEGER NOT NULL,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(invoice_id) REFERENCES school_invoices(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS library_books (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            author TEXT NOT NULL,
+            isbn TEXT NOT NULL,
+            copies_available INTEGER NOT NULL,
+            total_copies INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced'))
+        );
+
+        CREATE TABLE IF NOT EXISTS library_lending_logs (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            book_id TEXT NOT NULL,
+            student_id TEXT NOT NULL,
+            checked_out_at TEXT NOT NULL,
+            due_date TEXT NOT NULL,
+            returned_at TEXT,
+            status TEXT NOT NULL,
+            updated_at INTEGER NOT NULL,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(book_id) REFERENCES library_books(id),
+            FOREIGN KEY(student_id) REFERENCES student_profiles(id)
+        );
+
 
         -- Indices
+        CREATE INDEX IF NOT EXISTS idx_student_profiles_workspace ON student_profiles(workspace_id);
+        CREATE INDEX IF NOT EXISTS idx_student_profiles_user ON student_profiles(user_id);
+        CREATE INDEX IF NOT EXISTS idx_courses_workspace ON courses(workspace_id);
+        CREATE INDEX IF NOT EXISTS idx_assignments_course ON assignments(course_id);
+        CREATE INDEX IF NOT EXISTS idx_submissions_assignment ON submissions(assignment_id);
+        CREATE INDEX IF NOT EXISTS idx_submissions_student ON submissions(student_id);
+        CREATE INDEX IF NOT EXISTS idx_attendance_records_student ON attendance_records(student_id);
+        CREATE INDEX IF NOT EXISTS idx_attendance_records_course ON attendance_records(course_id);
+        CREATE INDEX IF NOT EXISTS idx_term_grades_student ON term_grades(student_id);
+        CREATE INDEX IF NOT EXISTS idx_term_grades_course ON term_grades(course_id);
+        CREATE INDEX IF NOT EXISTS idx_report_cards_student ON report_cards(student_id);
+        CREATE INDEX IF NOT EXISTS idx_timetable_slots_course ON timetable_slots(course_id);
+        CREATE INDEX IF NOT EXISTS idx_health_records_student ON health_records(student_id);
+        CREATE INDEX IF NOT EXISTS idx_health_incidents_student ON health_incidents(student_id);
+        CREATE INDEX IF NOT EXISTS idx_school_invoices_student ON school_invoices(student_id);
+        CREATE INDEX IF NOT EXISTS idx_school_payments_invoice ON school_payments(invoice_id);
+        CREATE INDEX IF NOT EXISTS idx_library_lending_logs_book ON library_lending_logs(book_id);
+        CREATE INDEX IF NOT EXISTS idx_library_lending_logs_student ON library_lending_logs(student_id);
+
         CREATE INDEX IF NOT EXISTS idx_users_workspace ON users(workspace_id);
         CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
         CREATE INDEX IF NOT EXISTS idx_users_email_lower ON users(LOWER(email));
