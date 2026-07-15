@@ -32,7 +32,7 @@ ark-relations = { version = "0.4.0", default-features = false }
 ark-serialize = { version = "0.4.0", default-features = false, features = ["derive"] }
 loro = "1.13.6"
 diff = "0.1.13"
-chrono = { version = "0.4.38", features = ["clock", "wasmbind"] }
+chrono = { version = "0.4.38", features = ["clock", "now"] }
 tracing = "0.1"
 const-hex = { version = "1.12", features = ["alloc"] }
 zeroize = { version = "1.8", features = ["derive", "zeroize_derive"] }

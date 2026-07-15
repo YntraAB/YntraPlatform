@@ -34,8 +34,7 @@ pub async fn get_blocks(requester_user_id: String) -> Result<Vec<BlockItem>, Ynt
                 crate::params![auth.workspace_id],
                 |r| r.get(0),
             )
-            .await
-            .unwrap_or_else(|_| "[]".to_string());
+            .await?;
 
         let active_ids: Vec<String> = serde_json::from_str(&modules_active_str).unwrap_or_default();
         let filtered = list
