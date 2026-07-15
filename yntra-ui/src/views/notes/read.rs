@@ -332,11 +332,11 @@ pub fn NoteRead(props: NoteReadProps) -> Element {
                             div { class: "flex flex-col gap-2",
                                 label { class: "text-[9px] font-bold uppercase tracking-wider text-muted-foreground", "Enter Passkey Seed to Decrypt" }
                                 div { class: "flex gap-2.5 items-center",
-                                    input {
-                                        class: "yntra-input text-xs h-9 bg-background border border-border rounded px-3 flex-1 text-foreground",
+                                    crate::components::Input {
+                                        class: "text-xs h-9 bg-background border border-border rounded px-3 flex-1 text-foreground",
                                         placeholder: "Passkey seed...",
                                         value: "{passkey_seed_input}",
-                                        oninput: move |e| passkey_seed_input.set(e.value()),
+                                        oninput: move |e: FormEvent| passkey_seed_input.set(e.value()),
                                     }
                                     button {
                                         class: "yntra-btn rounded-lg font-semibold px-4 py-2 cursor-pointer bg-amber-500 text-neutral-900 border-0 text-xs h-9 transition-colors hover:bg-amber-400",

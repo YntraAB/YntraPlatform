@@ -231,14 +231,17 @@ pub fn SchedulingSidebar(props: SchedulingSidebarProps) -> Element {
                     h3 { class: "m-0 text-xs font-semibold uppercase tracking-wider text-muted-foreground/60 select-none",
                         "{t(\"scheduler-active-schedule\", &props.locale)}"
                     }
-                    select {
-                        class: "h-[38px] w-full rounded-lg border border-border bg-muted px-3 text-sm text-foreground outline-none cursor-pointer",
+                    crate::components::Select {
+                        trigger_class: "h-[38px] w-full rounded-lg border border-border bg-muted px-3 text-sm text-foreground outline-none cursor-pointer",
                         value: "{filter_team_id}",
-                        onchange: move |e| filter_team_id.set(e.value()),
-                        option { value: "all", "{t(\"scheduler-all-teams\", &props.locale)}" }
-                        for t in teams.iter() {
-                            option { value: "{t.id}", "{t.name}" }
-                        }
+                        onchange: move |val: String| filter_team_id.set(val),
+                        options: {
+                            let mut opts = vec![("all".to_string(), t("scheduler-all-teams", &props.locale))];
+                            for t in teams.iter() {
+                                opts.push((t.id.clone(), t.name.clone()));
+                            }
+                            opts
+                        },
                     }
                 }
             }
@@ -248,19 +251,21 @@ pub fn SchedulingSidebar(props: SchedulingSidebarProps) -> Element {
                 h3 { class: "m-0 text-xs font-semibold uppercase tracking-wider text-muted-foreground/60 select-none",
                     "{t(\"scheduler-staff-assistants\", &props.locale)}"
                 }
-                select {
-                    class: "h-[38px] w-full rounded-lg border border-border bg-muted px-3 text-sm text-foreground outline-none cursor-pointer",
+                crate::components::Select {
+                    trigger_class: "h-[38px] w-full rounded-lg border border-border bg-muted px-3 text-sm text-foreground outline-none cursor-pointer",
                     value: "{filter_assignee_id}",
-                    onchange: move |e| filter_assignee_id.set(e.value()),
-                    if props.is_admin {
-                        option { value: "all", "{t(\"scheduler-all-assistants\", &props.locale)}" }
-                        for u in users.iter().filter(|u| u.role != "client") {
-                            option { value: "{u.id}", "{u.full_name.clone().unwrap_or_else(|| u.email.clone())}" }
+                    onchange: move |val: String| filter_assignee_id.set(val),
+                    options: {
+                        let mut opts = vec![("all".to_string(), t("scheduler-all-assistants", &props.locale))];
+                        if props.is_admin {
+                            for u in users.iter().filter(|u| u.role != "client") {
+                                opts.push((u.id.clone(), u.full_name.clone().unwrap_or_else(|| u.email.clone())));
+                            }
+                        } else {
+                            opts.push((active_user.id.clone(), t("scheduler-only-my-shifts", &props.locale)));
                         }
-                    } else {
-                        option { value: "all", "{t(\"scheduler-all-assistants\", &props.locale)}" }
-                        option { value: "{active_user.id}", "{t(\"scheduler-only-my-shifts\", &props.locale)}" }
-                    }
+                        opts
+                    },
                 }
             }
 

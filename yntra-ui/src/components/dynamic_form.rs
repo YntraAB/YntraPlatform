@@ -64,12 +64,12 @@ pub fn DynamicForm(props: DynamicFormProps) -> Element {
                                     };
                                     let name_clone = name.clone();
                                     rsx! {
-                                        input {
+                                        crate::components::Input {
                                             r#type: "number",
-                                            class: "yntra-input py-1.5 px-3 text-xs bg-background border border-border text-foreground w-full",
+                                            class: "py-1.5 px-3 text-xs bg-background border border-border text-foreground w-full",
                                             placeholder: placeholder,
                                             value: "{current_val}",
-                                            oninput: move |evt| {
+                                            oninput: move |evt: FormEvent| {
                                                 if let Ok(num) = evt.value().parse::<f64>() {
                                                     form_values.write().insert(name_clone.clone(), serde_json::json!(num));
                                                 } else {

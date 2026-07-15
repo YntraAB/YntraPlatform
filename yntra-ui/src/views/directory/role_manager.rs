@@ -154,11 +154,11 @@ pub fn RoleManagerDialog(
                                 div { class: "flex flex-col gap-4 flex-1",
                                     div { class: "flex flex-col gap-1.5",
                                         label { class: "text-xs font-bold text-muted-foreground", "Role Name" }
-                                        input {
-                                            class: "yntra-input",
+                                        crate::components::Input {
+                                            class: "",
                                             value: "{role_form_name}",
                                             placeholder: "e.g. Supervisor / Team Lead",
-                                            oninput: move |e| role_form_name.set(e.value()),
+                                            oninput: move |e: FormEvent| role_form_name.set(e.value()),
                                         }
                                     }
                                     div { class: "flex flex-col gap-4 mt-2 overflow-y-auto max-h-[300px] pr-2 border-t border-b border-border py-4",

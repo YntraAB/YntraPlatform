@@ -165,11 +165,11 @@ pub fn NoteCompose(props: NoteComposeProps) -> Element {
                         div {
                             class: "flex flex-col gap-1.5 animate-in fade-in duration-200",
                             label { class: "text-[9px] font-bold uppercase tracking-wider text-muted-foreground", "Passkey PIN / Seed" }
-                            input {
-                                class: "yntra-input text-xs h-8 bg-background/50 border border-border rounded px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground",
+                            crate::components::Input {
+                                class: "text-xs h-8 bg-background/50 border border-border rounded px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground",
                                 placeholder: "Enter passkey seed for key derivation...",
                                 value: "{passkey_seed}",
-                                oninput: move |e| passkey_seed.set(e.value()),
+                                oninput: move |e: FormEvent| passkey_seed.set(e.value()),
                             }
                         }
                     }

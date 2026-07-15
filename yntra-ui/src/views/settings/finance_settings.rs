@@ -94,11 +94,11 @@ pub fn FinanceSettings(props: FinanceSettingsProps) -> Element {
                             label { class: "text-xs font-semibold uppercase tracking-wider text-muted-foreground",
                                 "Module Display Name"
                             }
-                            input {
-                                class: "yntra-input h-10 border-border/50 bg-background/50 text-sm py-2 px-3",
+                            crate::components::Input {
+                                class: "h-10 border-border/50 bg-background/50 text-sm py-2 px-3",
                                 value: "{display_name}",
                                 placeholder: "e.g. School Fees, Tuition Billing",
-                                oninput: move |e| {
+                                oninput: move |e: FormEvent| {
                                     display_name.set(e.value());
                                 }
                             }

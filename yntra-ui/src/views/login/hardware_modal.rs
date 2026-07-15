@@ -94,14 +94,14 @@ pub fn HardwareModal(props: HardwareModalProps) -> Element {
                             style: "line-height: 1.4;",
                             "{t(\"login-hw-card-detected-enter-pin\", &props.region)}"
                         }
-                        input {
-                            class: "yntra-input w-full text-center",
+                        crate::components::Input {
+                            class: "w-full text-center",
                             r#type: "password",
                             placeholder: {t("login-hw-pin-placeholder", &props.region)},
                             value: "{pin_val}",
                             autofocus: true,
-                            oninput: move |e| pin_val.set(e.value()),
-                            onkeydown: move |e| {
+                            oninput: move |e: FormEvent| pin_val.set(e.value()),
+                            onkeydown: move |e: KeyboardEvent| {
                                 if e.key() == Key::Enter && !pin_val.read().is_empty() {
                                     let pin = pin_val.read().clone();
                                     props.on_verify_pin.call(pin);

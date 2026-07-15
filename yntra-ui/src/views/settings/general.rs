@@ -214,11 +214,11 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
                                         "{t(\"settings-organization-name\", &props.locale)}"
                                     }
                                     div { class: "group relative",
-                                        input {
+                                        crate::components::Input {
                                             id: "org-name",
-                                            class: "yntra-input h-11 rounded-xl border-border/40 bg-background/40 transition-all duration-300 focus:ring-2 focus:ring-primary/20",
+                                            class: "h-11 rounded-xl border-border/40 bg-background/40 transition-all duration-300 focus:ring-2 focus:ring-primary/20",
                                             value: "{settings_name}",
-                                            oninput: move |e| settings_name.set(e.value()),
+                                            oninput: move |e: FormEvent| settings_name.set(e.value()),
                                             onblur: {
                                                 let save_identity = save_identity.clone();
                                                 move |_| {
@@ -353,23 +353,24 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
                             label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
                                 "{t(\"settings-language\", &props.locale)}"
                             }
-                            select {
-                                class: "yntra-input h-11 rounded-xl border-border/40 bg-background/40",
+                            crate::components::Select {
+                                trigger_class: "h-11 rounded-xl border-border/40 bg-background/40",
                                 value: "{language}",
                                 onchange: {
                                     let save_settings = save_settings.clone();
-                                    move |e| {
+                                    move |val: String| {
                                         let mut save_settings = save_settings.clone();
-                                        let val = e.value();
                                         language.set(val.clone());
                                         save_settings();
                                     }
                                 },
-                                option { value: "sv", "{t(\"settings-languages-sv\", &props.locale)}" }
-                                option { value: "no", "{t(\"settings-languages-no\", &props.locale)}" }
-                                option { value: "da", "{t(\"settings-languages-da\", &props.locale)}" }
-                                option { value: "fi", "{t(\"settings-languages-fi\", &props.locale)}" }
-                                option { value: "en", "{t(\"settings-languages-en\", &props.locale)}" }
+                                options: vec![
+                                    ("sv".to_string(), t("settings-languages-sv", &props.locale)),
+                                    ("no".to_string(), t("settings-languages-no", &props.locale)),
+                                    ("da".to_string(), t("settings-languages-da", &props.locale)),
+                                    ("fi".to_string(), t("settings-languages-fi", &props.locale)),
+                                    ("en".to_string(), t("settings-languages-en", &props.locale)),
+                                ],
                             }
                         }
 
@@ -378,28 +379,29 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
                             label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
                                 "Target Region (Compliance)"
                             }
-                            select {
-                                class: "yntra-input h-11 rounded-xl border-border/40 bg-background/40",
+                            crate::components::Select {
+                                trigger_class: "h-11 rounded-xl border-border/40 bg-background/40",
                                 value: "{target_region}",
                                 onchange: {
                                     let save_settings = save_settings.clone();
-                                    move |e| {
+                                    move |val: String| {
                                         let mut save_settings = save_settings.clone();
-                                        let val = e.value();
                                         target_region.set(val.clone());
                                         save_settings();
                                     }
                                 },
-                                option { value: "EU", "EU (Default)" }
-                                option { value: "SE", "Sweden (SE)" }
-                                option { value: "NO", "Norway (NO)" }
-                                option { value: "DK", "Denmark (DK)" }
-                                option { value: "FI", "Finland (FI)" }
-                                option { value: "US-FED", "US Federal (FLSA)" }
-                                option { value: "US-CA", "US California" }
-                                option { value: "US-CO", "US Colorado" }
-                                option { value: "US-NV", "US Nevada" }
-                                option { value: "US-AK", "US Alaska" }
+                                options: vec![
+                                    ("EU".to_string(), "EU (Default)".to_string()),
+                                    ("SE".to_string(), "Sweden (SE)".to_string()),
+                                    ("NO".to_string(), "Norway (NO)".to_string()),
+                                    ("DK".to_string(), "Denmark (DK)".to_string()),
+                                    ("FI".to_string(), "Finland (FI)".to_string()),
+                                    ("US-FED".to_string(), "US Federal (FLSA)".to_string()),
+                                    ("US-CA".to_string(), "US California".to_string()),
+                                    ("US-CO".to_string(), "US Colorado".to_string()),
+                                    ("US-NV".to_string(), "US Nevada".to_string()),
+                                    ("US-AK".to_string(), "US Alaska".to_string()),
+                                ],
                             }
                         }
 
@@ -408,20 +410,21 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
                             label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
                                 "{t(\"settings-timezone\", &props.locale)}"
                             }
-                            select {
-                                class: "yntra-input h-11 rounded-xl border-border/40 bg-background/40",
+                            crate::components::Select {
+                                trigger_class: "h-11 rounded-xl border-border/40 bg-background/40",
                                 value: "{timezone}",
                                 onchange: {
                                     let save_settings = save_settings.clone();
-                                    move |e| {
+                                    move |val: String| {
                                         let mut save_settings = save_settings.clone();
-                                        let val = e.value();
                                         timezone.set(val.clone());
                                         save_settings();
                                     }
                                 },
-                                option { value: "Europe/Stockholm", "{t(\"settings-timezones-stockholm\", &props.locale)}" }
-                                option { value: "UTC", "{t(\"settings-timezones-utc\", &props.locale)}" }
+                                options: vec![
+                                    ("Europe/Stockholm".to_string(), t("settings-timezones-stockholm", &props.locale)),
+                                    ("UTC".to_string(), t("settings-timezones-utc", &props.locale)),
+                                ],
                             }
                         }
 
@@ -430,21 +433,23 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
                             label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
                                 "{t(\"settings-week-start\", &props.locale)}"
                             }
-                            select {
-                                class: "yntra-input h-11 rounded-xl border-border/40 bg-background/40",
-                                value: "{week_start}",
+                            crate::components::Select {
+                                trigger_class: "h-11 rounded-xl border-border/40 bg-background/40",
+                                value: week_start.read().to_string(),
                                 onchange: {
                                     let save_settings = save_settings.clone();
-                                    move |e| {
+                                    move |val: String| {
                                         let mut save_settings = save_settings.clone();
-                                        if let Ok(val) = e.value().parse::<i32>() {
-                                            week_start.set(val);
+                                        if let Ok(parsed) = val.parse::<i32>() {
+                                            week_start.set(parsed);
                                             save_settings();
                                         }
                                     }
                                 },
-                                option { value: "1", "{t(\"settings-monday\", &props.locale)}" }
-                                option { value: "0", "{t(\"settings-sunday\", &props.locale)}" }
+                                options: vec![
+                                    ("1".to_string(), t("settings-monday", &props.locale)),
+                                    ("0".to_string(), t("settings-sunday", &props.locale)),
+                                ],
                             }
                         }
 
@@ -453,21 +458,22 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
                             label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
                                 "Workspace Template"
                             }
-                            select {
-                                class: "yntra-input h-11 rounded-xl border-border/40 bg-background/40",
+                            crate::components::Select {
+                                trigger_class: "h-11 rounded-xl border-border/40 bg-background/40",
                                 value: "{template}",
                                 onchange: {
                                     let save_settings = save_settings.clone();
-                                    move |e| {
+                                    move |val: String| {
                                         let mut save_settings = save_settings.clone();
-                                        let val = e.value();
                                         template.set(val.clone());
                                         save_settings();
                                     }
                                 },
-                                option { value: "care", "Care & Assistance" }
-                                option { value: "moving", "Moving Company" }
-                                option { value: "general", "General Operations" }
+                                options: vec![
+                                    ("care".to_string(), "Care & Assistance".to_string()),
+                                    ("moving".to_string(), "Moving Company".to_string()),
+                                    ("general".to_string(), "General Operations".to_string()),
+                                ],
                             }
                         }
 
@@ -477,24 +483,25 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
                                 label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
                                     "Grading System / Scale"
                                 }
-                                select {
-                                    class: "yntra-input h-11 rounded-xl border-border/40 bg-background/40",
+                                crate::components::Select {
+                                    trigger_class: "h-11 rounded-xl border-border/40 bg-background/40",
                                     value: "{grading_system}",
                                     onchange: {
                                         let save_settings = save_settings.clone();
-                                        move |e| {
+                                        move |val: String| {
                                             let mut save_settings = save_settings.clone();
-                                            let val = e.value();
                                             grading_system.set(val.clone());
                                             save_settings();
                                         }
                                     },
-                                    option { value: "A-F", "A-F (Letter Grades)" }
-                                    option { value: "1-10", "1-10 (Numeric Scale)" }
-                                    option { value: "1-100", "0-100 (Percentage Scale)" }
-                                    option { value: "U-G-VG", "U, G, VG (Swedish University Scale)" }
-                                    option { value: "U-G", "U, G (Swedish Pass/Fail)" }
-                                    option { value: "U-3-4-5", "U, 3, 4, 5 (Swedish Engineering)" }
+                                    options: vec![
+                                        ("A-F".to_string(), "A-F (Letter Grades)".to_string()),
+                                        ("1-10".to_string(), "1-10 (Numeric Scale)".to_string()),
+                                        ("1-100".to_string(), "0-100 (Percentage Scale)".to_string()),
+                                        ("U-G-VG".to_string(), "U, G, VG (Swedish University Scale)".to_string()),
+                                        ("U-G".to_string(), "U, G (Swedish Pass/Fail)".to_string()),
+                                        ("U-3-4-5".to_string(), "U, 3, 4, 5 (Swedish Engineering)".to_string()),
+                                    ],
                                 }
                             }
                         }
@@ -505,22 +512,23 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
                                 label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
                                     "Default Late Submission Policy"
                                 }
-                                select {
-                                    class: "yntra-input h-11 rounded-xl border-border/40 bg-background/40",
+                                crate::components::Select {
+                                    trigger_class: "h-11 rounded-xl border-border/40 bg-background/40",
                                     value: "{late_policy}",
                                     onchange: {
                                         let save_settings = save_settings.clone();
-                                        move |e| {
+                                        move |val: String| {
                                             let mut save_settings = save_settings.clone();
-                                            let val = e.value();
                                             late_policy.set(val.clone());
                                             save_settings();
                                         }
                                     },
-                                    option { value: "none", "None (No Penalties)" }
-                                    option { value: "hard_deadline", "Hard Deadline (Block Late Submissions)" }
-                                    option { value: "penalty_5", "5% Daily Deduction Penalty" }
-                                    option { value: "penalty_10", "10% Daily Deduction Penalty" }
+                                    options: vec![
+                                        ("none".to_string(), "None (No Penalties)".to_string()),
+                                        ("hard_deadline".to_string(), "Hard Deadline (Block Late Submissions)".to_string()),
+                                        ("penalty_5".to_string(), "5% Daily Deduction Penalty".to_string()),
+                                        ("penalty_10".to_string(), "10% Daily Deduction Penalty".to_string()),
+                                    ],
                                 }
                             }
                         }

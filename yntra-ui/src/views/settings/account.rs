@@ -202,9 +202,9 @@ pub fn AccountSettings(props: AccountSettingsProps) -> Element {
                                 class: "text-xs font-semibold uppercase tracking-wider text-muted-foreground",
                                 "Email Address"
                             }
-                            input {
+                            crate::components::Input {
                                 id: "email",
-                                class: "yntra-input h-11 border-border/50 bg-muted/50",
+                                class: "h-11 border-border/50 bg-muted/50",
                                 value: "{active_user.email}",
                                 disabled: true,
                                 style: "opacity:0.6; cursor:not-allowed;"
@@ -221,11 +221,11 @@ pub fn AccountSettings(props: AccountSettingsProps) -> Element {
                                 class: "text-xs font-semibold uppercase tracking-wider text-muted-foreground",
                                 "Name"
                             }
-                            input {
+                            crate::components::Input {
                                 id: "name",
-                                class: "yntra-input h-11 border-border/50 bg-background/50",
+                                class: "h-11 border-border/50 bg-background/50",
                                 value: "{account_name}",
-                                oninput: move |e| account_name.set(e.value())
+                                oninput: move |e: FormEvent| account_name.set(e.value())
                             }
                         }
 
@@ -236,19 +236,21 @@ pub fn AccountSettings(props: AccountSettingsProps) -> Element {
                                     "{t(\"settings-account-phone\", &props.locale)}"
                                 }
                                 div { class: "space-y-1.5",
-                                    input {
-                                        class: "yntra-input h-11 border-border/50 bg-background/50",
+                                    crate::components::Input {
+                                        class: "h-11 border-border/50 bg-background/50",
                                         value: "{account_phone}",
                                         placeholder: "+46...",
-                                        oninput: move |e| account_phone.set(e.value())
+                                        oninput: move |e: FormEvent| account_phone.set(e.value())
                                     }
-                                    select {
-                                        class: "yntra-input h-8 border-border/40 bg-secondary/30 text-[11px] p-0 px-2",
+                                    crate::components::Select {
+                                        trigger_class: "h-8 border-border/40 bg-secondary/30 text-[11px] p-0 px-2",
                                         value: "{phone_privacy}",
-                                        onchange: move |e| phone_privacy.set(e.value()),
-                                        option { value: "everyone", "{t(\"settings-account-visibility-everyone\", &props.locale)}" }
-                                        option { value: "organization", "{t(\"settings-account-visibility-organization\", &props.locale)}" }
-                                        option { value: "none", "{t(\"settings-account-visibility-none\", &props.locale)}" }
+                                        onchange: move |val: String| phone_privacy.set(val),
+                                        options: vec![
+                                            ("everyone".to_string(), t("settings-account-visibility-everyone", &props.locale)),
+                                            ("organization".to_string(), t("settings-account-visibility-organization", &props.locale)),
+                                            ("none".to_string(), t("settings-account-visibility-none", &props.locale)),
+                                        ],
                                     }
                                 }
                             }
@@ -259,19 +261,21 @@ pub fn AccountSettings(props: AccountSettingsProps) -> Element {
                                     "{t(\"settings-account-location\", &props.locale)}"
                                 }
                                 div { class: "space-y-1.5",
-                                    input {
-                                        class: "yntra-input h-11 border-border/50 bg-background/50",
+                                    crate::components::Input {
+                                        class: "h-11 border-border/50 bg-background/50",
                                         value: "{location_val}",
                                         placeholder: "Stockholm, SE",
-                                        oninput: move |e| location_val.set(e.value())
+                                        oninput: move |e: FormEvent| location_val.set(e.value())
                                     }
-                                    select {
-                                        class: "yntra-input h-8 border-border/40 bg-secondary/30 text-[11px] p-0 px-2",
+                                    crate::components::Select {
+                                        trigger_class: "h-8 border-border/40 bg-secondary/30 text-[11px] p-0 px-2",
                                         value: "{location_privacy}",
-                                        onchange: move |e| location_privacy.set(e.value()),
-                                        option { value: "everyone", "{t(\"settings-account-visibility-everyone\", &props.locale)}" }
-                                        option { value: "organization", "{t(\"settings-account-visibility-organization\", &props.locale)}" }
-                                        option { value: "none", "{t(\"settings-account-visibility-none\", &props.locale)}" }
+                                        onchange: move |val: String| location_privacy.set(val),
+                                        options: vec![
+                                            ("everyone".to_string(), t("settings-account-visibility-everyone", &props.locale)),
+                                            ("organization".to_string(), t("settings-account-visibility-organization", &props.locale)),
+                                            ("none".to_string(), t("settings-account-visibility-none", &props.locale)),
+                                        ],
                                     }
                                 }
                             }
@@ -493,22 +497,23 @@ pub fn AccountSettings(props: AccountSettingsProps) -> Element {
                                 label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
                                     "{t(\"settings-language\", &props.locale)}"
                                 }
-                                select {
-                                    class: "yntra-input h-11 rounded-xl border-border/40 bg-background/40 w-full",
+                                crate::components::Select {
+                                    trigger_class: "h-11 rounded-xl border-border/40 bg-background/40 w-full",
                                     value: "{selected_language}",
                                     onchange: {
                                         let mut update_preference = update_preference.clone();
-                                        move |e| {
-                                            let val = e.value();
+                                        move |val: String| {
                                             selected_language.set(val.clone());
                                             update_preference("language", serde_json::json!(val));
                                         }
                                     },
-                                    option { value: "sv", "{t(\"settings-languages-sv\", &props.locale)}" }
-                                    option { value: "no", "{t(\"settings-languages-no\", &props.locale)}" }
-                                    option { value: "da", "{t(\"settings-languages-da\", &props.locale)}" }
-                                    option { value: "fi", "{t(\"settings-languages-fi\", &props.locale)}" }
-                                    option { value: "en", "{t(\"settings-languages-en\", &props.locale)}" }
+                                    options: vec![
+                                        ("sv".to_string(), t("settings-languages-sv", &props.locale)),
+                                        ("no".to_string(), t("settings-languages-no", &props.locale)),
+                                        ("da".to_string(), t("settings-languages-da", &props.locale)),
+                                        ("fi".to_string(), t("settings-languages-fi", &props.locale)),
+                                        ("en".to_string(), t("settings-languages-en", &props.locale)),
+                                    ],
                                 }
                             }
                         }

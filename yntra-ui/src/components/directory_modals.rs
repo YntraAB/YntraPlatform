@@ -280,26 +280,26 @@ pub fn EditMemberDialog(props: EditMemberDialogProps) -> Element {
                     div { class: "flex flex-col gap-3.5",
                         div { class: "flex flex-col gap-1.5",
                             label { class: "text-xs font-bold text-muted-foreground uppercase", "First Name" }
-                            input {
-                                class: "yntra-input",
+                            crate::components::Input {
+                                class: "",
                                 value: "{client_first}",
-                                oninput: move |e| client_first.set(e.value()),
+                                oninput: move |e: FormEvent| client_first.set(e.value()),
                             }
                         }
                         div { class: "flex flex-col gap-1.5",
                             label { class: "text-xs font-bold text-muted-foreground uppercase", "Last Name" }
-                            input {
-                                class: "yntra-input",
+                            crate::components::Input {
+                                class: "",
                                 value: "{client_last}",
-                                oninput: move |e| client_last.set(e.value()),
+                                oninput: move |e: FormEvent| client_last.set(e.value()),
                             }
                         }
                         div { class: "flex flex-col gap-1.5",
                             label { class: "text-xs font-bold text-muted-foreground uppercase", "Personal Number (SSN)" }
-                            input {
-                                class: "yntra-input",
+                            crate::components::Input {
+                                class: "",
                                 value: "{client_ssn}",
-                                oninput: move |e| client_ssn.set(e.value()),
+                                oninput: move |e: FormEvent| client_ssn.set(e.value()),
                             }
                         }
                         div { class: "flex flex-col gap-1.5",
@@ -318,18 +318,18 @@ pub fn EditMemberDialog(props: EditMemberDialogProps) -> Element {
                     div { class: "flex flex-col gap-3.5",
                         div { class: "flex flex-col gap-1.5",
                             label { class: "text-xs font-bold text-muted-foreground uppercase", "Full Name" }
-                            input {
-                                class: "yntra-input",
+                            crate::components::Input {
+                                class: "",
                                 value: "{caregiver_name}",
-                                oninput: move |e| caregiver_name.set(e.value()),
+                                oninput: move |e: FormEvent| caregiver_name.set(e.value()),
                             }
                         }
                         div { class: "flex flex-col gap-1.5",
                             label { class: "text-xs font-bold text-muted-foreground uppercase", "Phone Number" }
-                            input {
-                                class: "yntra-input",
+                            crate::components::Input {
+                                class: "",
                                 value: "{caregiver_phone}",
-                                oninput: move |e| caregiver_phone.set(e.value()),
+                                oninput: move |e: FormEvent| caregiver_phone.set(e.value()),
                             }
                         }
                         div { class: "flex flex-col gap-1.5",

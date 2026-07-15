@@ -94,11 +94,11 @@ pub fn MessageCompose(props: MessageComposeProps) -> Element {
                 }
                 div { class: "flex flex-col gap-1.5",
                     label { class: "text-xs font-bold text-muted-foreground", "{t(\"messages-subject\", &region)}" }
-                    input {
-                        class: "yntra-input text-sm h-9 px-3 bg-background border border-border rounded-lg text-foreground",
+                    crate::components::Input {
+                        class: "text-sm h-9 px-3 bg-background border border-border rounded-lg text-foreground",
                         value: "{compose_subject}",
                         placeholder: t("messages-subject-placeholder", &region),
-                        oninput: move |e| compose_subject.set(e.value()),
+                        oninput: move |e: FormEvent| compose_subject.set(e.value()),
                     }
                 }
                 div { class: "flex flex-col gap-1.5",

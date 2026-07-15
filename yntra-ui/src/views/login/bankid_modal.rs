@@ -129,17 +129,17 @@ pub fn BankIdModal(props: BankIdModalProps) -> Element {
                         p { class: "text-muted-foreground m-0 text-xs",
                             "Vennligst oppgi mobilnummer og fødselsdato."
                         }
-                        input {
-                            class: "yntra-input w-full text-center",
+                        crate::components::Input {
+                            class: "w-full text-center",
                             placeholder: "Mobilnummer (8 siffer)",
                             value: "{norway_mobile}",
-                            oninput: move |e| norway_mobile.set(e.value()),
+                            oninput: move |e: FormEvent| norway_mobile.set(e.value()),
                         }
-                        input {
-                            class: "yntra-input w-full text-center",
+                        crate::components::Input {
+                            class: "w-full text-center",
                             placeholder: "Fødselsdato (DDMMÅÅ)",
                             value: "{norway_birthdate}",
-                            oninput: move |e| norway_birthdate.set(e.value()),
+                            oninput: move |e: FormEvent| norway_birthdate.set(e.value()),
                         }
                         button {
                             class: "yntra-btn w-full mt-2",

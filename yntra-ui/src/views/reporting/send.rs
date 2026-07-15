@@ -107,11 +107,11 @@ pub fn ReportSubmitForm(props: ReportSubmitFormProps) -> Element {
                         label { class: "text-xs font-bold text-muted-foreground",
                             { t("reporting-form-date-label", &region) }
                         }
-                        input {
-                            class: "yntra-input",
+                        crate::components::Input {
+                            class: "",
                             r#type: "date",
                             value: "{report_date}",
-                            oninput: move |e| report_date.set(e.value()),
+                            oninput: move |e: FormEvent| report_date.set(e.value()),
                         }
                     }
                 }
@@ -120,11 +120,11 @@ pub fn ReportSubmitForm(props: ReportSubmitFormProps) -> Element {
                     label { class: "text-xs font-bold text-muted-foreground",
                         { t("reporting-form-subject", &region) }
                     }
-                    input {
-                        class: "yntra-input",
+                    crate::components::Input {
+                        class: "",
                         value: "{report_subject}",
                         placeholder: t("reporting-form-subject-help", &region),
-                        oninput: move |e| report_subject.set(e.value()),
+                        oninput: move |e: FormEvent| report_subject.set(e.value()),
                     }
                 }
 

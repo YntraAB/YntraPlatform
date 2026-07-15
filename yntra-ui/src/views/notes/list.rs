@@ -63,12 +63,13 @@ pub fn NoteList(props: NoteListProps) -> Element {
                     div {
                         class: "flex items-center relative w-64",
                         components::LucideIcon { name: "directory", class: "absolute left-3 h-4 w-4", color: "var(--text-muted)" }
-                        input {
-                            class: "yntra-input pl-9 text-xs h-8",
+                        crate::components::Input {
+                            class: "pl-9 text-xs h-8",
+                            style: "padding-left: 2.25rem;",
 
                             placeholder: "{t(\"notes-list-search-placeholder\", &locale)}",
                             value: "{note_search_query}",
-                            oninput: move |e| note_search_query.set(e.value()),
+                            oninput: move |e: FormEvent| note_search_query.set(e.value()),
                         }
                     }
                 }

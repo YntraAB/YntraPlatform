@@ -317,22 +317,22 @@ pub fn MembersList(props: MembersListProps) -> Element {
                             label { class: "text-xs font-bold text-muted-foreground",
                                 "Full Name"
                             }
-                            input {
-                                class: "yntra-input",
+                            crate::components::Input {
+                                class: "",
                                 value: "{new_member_name}",
                                 placeholder: "e.g. Marie Andersson",
-                                oninput: move |e| new_member_name.set(e.value()),
+                                oninput: move |e: FormEvent| new_member_name.set(e.value()),
                             }
                         }
                         div {
                             label { class: "text-xs font-bold text-muted-foreground",
                                 "Email Address"
                             }
-                            input {
-                                class: "yntra-input",
+                            crate::components::Input {
+                                class: "",
                                 value: "{new_member_email}",
                                 placeholder: "marie@yntra.se",
-                                oninput: move |e| new_member_email.set(e.value()),
+                                oninput: move |e: FormEvent| new_member_email.set(e.value()),
                             }
                         }
                         div {
@@ -399,22 +399,22 @@ pub fn MembersList(props: MembersListProps) -> Element {
                                 label { class: "text-xs font-bold text-muted-foreground",
                                     "First Name"
                                 }
-                                input {
-                                    class: "yntra-input",
+                                crate::components::Input {
+                                    class: "",
                                     value: "{new_client_first_name}",
                                     placeholder: "Lars",
-                                    oninput: move |e| new_client_first_name.set(e.value()),
+                                    oninput: move |e: FormEvent| new_client_first_name.set(e.value()),
                                 }
                             }
                             div {
                                 label { class: "text-xs font-bold text-muted-foreground",
                                     "Last Name"
                                 }
-                                input {
-                                    class: "yntra-input",
+                                crate::components::Input {
+                                    class: "",
                                     value: "{new_client_last_name}",
                                     placeholder: "Johansson",
-                                    oninput: move |e| new_client_last_name.set(e.value()),
+                                    oninput: move |e: FormEvent| new_client_last_name.set(e.value()),
                                 }
                             }
                         }
@@ -422,11 +422,11 @@ pub fn MembersList(props: MembersListProps) -> Element {
                             label { class: "text-xs font-bold text-muted-foreground",
                                 "Personal Number (SSN)"
                             }
-                            input {
-                                class: "yntra-input",
+                            crate::components::Input {
+                                class: "",
                                 value: "{new_client_personal_number}",
                                 placeholder: "19481105-4321",
-                                oninput: move |e| new_client_personal_number.set(e.value()),
+                                oninput: move |e: FormEvent| new_client_personal_number.set(e.value()),
                             }
                         }
                         div {

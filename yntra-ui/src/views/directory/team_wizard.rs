@@ -84,11 +84,11 @@ pub fn TeamRegistrationWizard(props: TeamRegistrationWizardProps) -> Element {
                     if *wizard_step.read() == 1 {
                         div { class: "flex flex-col gap-1.5",
                             label { class: "text-xs font-bold text-muted-foreground", "Team Name" }
-                            input {
-                                class: "yntra-input",
+                            crate::components::Input {
+                                class: "",
                                 value: "{new_team_name}",
                                 placeholder: "e.g. Care Team Stockholm East",
-                                oninput: move |e| new_team_name.set(e.value()),
+                                oninput: move |e: FormEvent| new_team_name.set(e.value()),
                             }
                         }
                         div { class: "flex justify-end gap-2 mt-2",
@@ -172,28 +172,28 @@ pub fn TeamRegistrationWizard(props: TeamRegistrationWizardProps) -> Element {
                             style: "grid-template-columns: 1fr 1fr;",
                                 div { class: "flex flex-col gap-1",
                                     label { class: "text-xs text-muted-foreground", "First Name" }
-                                    input {
-                                        class: "yntra-input",
+                                    crate::components::Input {
+                                        class: "",
                                         value: "{wizard_client_first}",
-                                        oninput: move |e| wizard_client_first.set(e.value()),
+                                        oninput: move |e: FormEvent| wizard_client_first.set(e.value()),
                                     }
                                 }
                                 div { class: "flex flex-col gap-1",
                                     label { class: "text-xs text-muted-foreground", "Last Name" }
-                                    input {
-                                        class: "yntra-input",
+                                    crate::components::Input {
+                                        class: "",
                                         value: "{wizard_client_last}",
-                                        oninput: move |e| wizard_client_last.set(e.value()),
+                                        oninput: move |e: FormEvent| wizard_client_last.set(e.value()),
                                     }
                                 }
                             }
                             div { class: "flex flex-col gap-1",
                                 label { class: "text-xs text-muted-foreground", "Personal Number (SSN)" }
-                                input {
-                                    class: "yntra-input",
+                                crate::components::Input {
+                                    class: "",
                                     value: "{wizard_client_ssn}",
                                     placeholder: "19481105-4321",
-                                    oninput: move |e| wizard_client_ssn.set(e.value()),
+                                    oninput: move |e: FormEvent| wizard_client_ssn.set(e.value()),
                                 }
                             }
                             div { class: "flex flex-col gap-1",

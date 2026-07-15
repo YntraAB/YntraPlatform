@@ -86,11 +86,11 @@ pub fn DevHubDialog(props: DevHubDialogProps) -> Element {
                         label { class: "text-xs font-bold text-muted-foreground uppercase",
                             "Workspace Name"
                         }
-                        input {
-                            class: "yntra-input",
+                        crate::components::Input {
+                            class: "",
                             placeholder: "e.g. Gothenburg Health Hub",
                             value: "{ws_name}",
-                            oninput: move |e| ws_name.set(e.value()),
+                            oninput: move |e: FormEvent| ws_name.set(e.value()),
                         }
                     }
 
@@ -98,11 +98,11 @@ pub fn DevHubDialog(props: DevHubDialogProps) -> Element {
                         label { class: "text-xs font-bold text-muted-foreground uppercase",
                             "Administrator Emails (comma-separated)"
                         }
-                        input {
-                            class: "yntra-input",
+                        crate::components::Input {
+                            class: "",
                             placeholder: "e.g. admin1@healthhub.se, admin2@healthhub.se",
                             value: "{admin_email}",
-                            oninput: move |e| admin_email.set(e.value()),
+                            oninput: move |e: FormEvent| admin_email.set(e.value()),
                         }
                     }
                 }

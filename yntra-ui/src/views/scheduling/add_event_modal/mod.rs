@@ -39,10 +39,21 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
     let workspace_id = props.workspace_id.clone();
 
     // Fetch the active template type from core database
+    let ws_id_1 = workspace_id.clone();
     let template_type_res = use_resource(move || {
-        let ws_id = workspace_id.clone();
+        let _trig = db_trigger.read();
+        let ws_id = ws_id_1.clone();
         let uid = state.active_user_id.read().clone();
         async move { yntra_core::get_workspace_template_type(uid, ws_id).await }
+    });
+
+    // Fetch courses list for the School template
+    let ws_id_2 = workspace_id.clone();
+    let courses_res = use_resource(move || {
+        let _trig = db_trigger.read();
+        let ws_id = ws_id_2.clone();
+        let uid = state.active_user_id.read().clone();
+        async move { yntra_core::get_workspace_courses(uid, ws_id).await }
     });
 
     // Form inputs local states
@@ -62,6 +73,7 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
     let mut team_dropdown_open = use_signal(|| false);
     let mut assignee_dropdown_open = use_signal(|| false);
     let mut client_dropdown_open = use_signal(|| false);
+    let mut category_dropdown_open = use_signal(|| false);
     let mut start_date = use_signal(String::new);
     let mut start_time = use_signal(|| "09:00".to_string());
     let mut end_date = use_signal(String::new);
@@ -241,6 +253,11 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
         .as_ref()
         .and_then(|r| r.as_ref().ok().copied())
         .unwrap_or(yntra_core::WorkspaceTemplateType::General);
+    let courses = courses_res
+        .read()
+        .as_ref()
+        .and_then(|r| r.as_ref().ok().cloned())
+        .unwrap_or_default();
     let cats_list = get_categories_for_template(template);
     let quick_cats = match template {
         yntra_core::WorkspaceTemplateType::Care => vec![
@@ -259,6 +276,55 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
         yntra_core::WorkspaceTemplateType::General => {
             vec!["meeting", "administrative_hours", "training", "other"]
         }
+    };
+
+    // Template-specific dynamic labels and localized placeholders
+    let (team_label, staff_label, client_label) = match template {
+        yntra_core::WorkspaceTemplateType::School => match props.locale.as_str() {
+            "sv" => ("Klass", "Lärare", "Elev (Frivillig)"),
+            "no" => ("Klasse", "Lærer", "Elev (Valgfri)"),
+            "da" => ("Klasse", "Lærer", "Elev (Valgfri)"),
+            _ => ("Class", "Teacher", "Student (Optional)"),
+        },
+        yntra_core::WorkspaceTemplateType::MovingCompany => match props.locale.as_str() {
+            "sv" => ("Flyttlag", "Förare", "Kund (Frivillig)"),
+            "no" => ("Arbeidslag", "Sjåfør", "Kunde (Valgfri)"),
+            "da" => ("Arbejdshold", "Chauffør", "Kunde (Valgfri)"),
+            _ => ("Crew", "Driver/Mover", "Customer (Optional)"),
+        },
+        yntra_core::WorkspaceTemplateType::Care => match props.locale.as_str() {
+            "sv" => ("Vårdlag", "Personal", "Brukare (Frivillig)"),
+            "no" => ("Pleielag", "Pleier", "Bruker (Valgfri)"),
+            "da" => ("Plejehold", "Plejer", "Borger (Valgfri)"),
+            _ => ("Care Team", "Caregiver", "Client/Patient (Optional)"),
+        },
+        yntra_core::WorkspaceTemplateType::General => match props.locale.as_str() {
+            "sv" => ("Team", "Personal", "Klient (Frivillig)"),
+            "no" => ("Team", "Ansatt", "Klient (Valgfri)"),
+            "da" => ("Team", "Medarbejder", "Klient (Valgfri)"),
+            _ => ("Team", "Staff", "Client (Optional)"),
+        },
+    };
+
+    let select_team_placeholder = match props.locale.as_str() {
+        "sv" => format!("Välj {}...", team_label.to_lowercase()),
+        "no" => format!("Velg {}...", team_label.to_lowercase()),
+        "da" => format!("Vælg {}...", team_label.to_lowercase()),
+        _ => format!("Select {}...", team_label),
+    };
+
+    let select_staff_placeholder = match props.locale.as_str() {
+        "sv" => format!("Välj {}...", staff_label.to_lowercase()),
+        "no" => format!("Velg {}...", staff_label.to_lowercase()),
+        "da" => format!("Vælg {}...", staff_label.to_lowercase()),
+        _ => format!("Select {}...", staff_label),
+    };
+
+    let no_client_placeholder = match props.locale.as_str() {
+        "sv" => format!("Ingen specifik {}", client_label.split(' ').next().unwrap().to_lowercase()),
+        "no" => format!("Ingen spesifikk {}", client_label.split(' ').next().unwrap().to_lowercase()),
+        "da" => format!("Ingen specifik {}", client_label.split(' ').next().unwrap().to_lowercase()),
+        _ => format!("No specific {}", client_label.split(' ').next().unwrap()),
     };
 
     let is_open = *show_add_event_modal.read() || editing_event.read().is_some();
@@ -285,33 +351,56 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
                     label { class: "text-xs font-semibold uppercase tracking-wider text-muted-foreground",
                         "{t(\"common-category\", &props.locale)}"
                     }
-                    select {
-                        class: "yntra-input border-border bg-muted/50 w-full",
-                        value: "{category}",
-                        onchange: move |e| category.set(e.value()),
-                        for cat in cats_list.iter() {
-                            option { value: "{cat.id}", "{t(cat.label_key, &props.locale)}" }
+                    {
+                        let current_cat_str = category.read().clone();
+                        let current_cat_config = get_category_config(&current_cat_str);
+                        let current_cat_label = t(current_cat_config.label_key, &props.locale);
+
+                        rsx! {
+                            components::Dropdown {
+                                label: current_cat_label,
+                                open: *category_dropdown_open.read(),
+                                ontoggle: move |_| {
+                                    let cur = *category_dropdown_open.read();
+                                    category_dropdown_open.set(!cur);
+                                },
+                                for cat in cats_list.iter() {
+                                    {
+                                        let cat_id = cat.id;
+                                        let cat_label = t(cat.label_key, &props.locale);
+                                        rsx! {
+                                            components::DropdownItem {
+                                                label: cat_label,
+                                                onclick: move |_| {
+                                                    category.set(cat_id.to_string());
+                                                    category_dropdown_open.set(false);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     div { class: "flex flex-wrap gap-2 pt-1",
                         for cat in quick_cats.iter() {
                             {
-                                let cat_str = cat.to_string();
-                                let is_active = *category.read() == cat_str;
-                                let active_class = if is_active {
-                                    "border border-primary/50 bg-primary/20 text-primary shadow-sm font-semibold"
-                                } else {
-                                    "border border-transparent bg-muted/50 text-muted-foreground hover:bg-muted/80"
-                                };
-                                let config = get_category_config(&cat_str);
-                                rsx! {
-                                    button {
-                                        r#type: "button",
-                                        class: "rounded-lg px-3 py-1.5 text-[11px] font-medium transition-all cursor-pointer {active_class}",
-                                        onclick: move |_| category.set(cat_str.clone()),
-                                        "{t(config.label_key, &props.locale)}"
-                                    }
-                                }
+                                  let cat_str = cat.to_string();
+                                  let is_active = *category.read() == cat_str;
+                                  let active_class = if is_active {
+                                      "border border-primary/50 bg-primary/20 text-primary shadow-sm font-semibold"
+                                  } else {
+                                      "border border-transparent bg-muted/50 text-muted-foreground hover:bg-muted/80"
+                                  };
+                                  let config = get_category_config(&cat_str);
+                                  rsx! {
+                                      button {
+                                          r#type: "button",
+                                          class: "rounded-lg px-3 py-1.5 text-[11px] font-medium transition-all cursor-pointer {active_class}",
+                                          onclick: move |_| category.set(cat_str.clone()),
+                                          "{t(config.label_key, &props.locale)}"
+                                      }
+                                  }
                             }
                         }
                     }
@@ -321,7 +410,7 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
                 div { class: "grid grid-cols-2 gap-4",
                     div { class: "flex flex-col gap-1.5",
                         label { class: "text-xs font-semibold uppercase tracking-wider text-muted-foreground",
-                            "{t(\"common-team\", &props.locale)}"
+                            "{team_label}"
                         }
                         {
                             let current_team_name = if let Some(t) = teams.iter().find(|t| t.id == *team_id.read()) {
@@ -329,7 +418,7 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
                             } else if let Some(first_t) = teams.first() {
                                 first_t.name.clone()
                             } else {
-                                "Select Team...".to_string()
+                                select_team_placeholder.clone()
                             };
 
                             rsx! {
@@ -361,7 +450,7 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
                     }
                     div { class: "flex flex-col gap-1.5",
                         label { class: "text-xs font-semibold uppercase tracking-wider text-muted-foreground",
-                            "{t(\"scheduler-staff\", &props.locale)}"
+                            "{staff_label}"
                         }
                         {
                             let current_assignee_name = if let Some(u) = staff_users.iter().find(|u| u.id == *assignee_id.read()) {
@@ -369,7 +458,7 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
                             } else if let Some(first_u) = staff_users.first() {
                                 first_u.full_name.clone().unwrap_or_else(|| first_u.email.clone())
                             } else {
-                                "Select Staff...".to_string()
+                                select_staff_placeholder.clone()
                             };
 
                             rsx! {
@@ -405,15 +494,15 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
                 if !clients.is_empty() {
                     div { class: "flex flex-col gap-1.5",
                         label { class: "text-xs font-semibold uppercase tracking-wider text-muted-foreground",
-                            "{t(\"scheduler-client-optional\", &props.locale)}"
+                            "{client_label}"
                         }
                         {
                             let current_client_name = if *client_id.read() == "none" {
-                                t("scheduler-no-specific-client", &props.locale)
+                                no_client_placeholder.clone()
                             } else if let Some(c) = clients.iter().find(|c| c.id == *client_id.read()) {
                                 c.full_name.clone().unwrap_or_else(|| c.email.clone())
                             } else {
-                                t("scheduler-no-specific-client", &props.locale)
+                                no_client_placeholder.clone()
                             };
 
                             rsx! {
@@ -425,7 +514,7 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
                                         client_dropdown_open.set(!cur);
                                     },
                                     components::DropdownItem {
-                                        label: t("scheduler-no-specific-client", &props.locale),
+                                        label: no_client_placeholder.clone(),
                                         onclick: move |_| {
                                             client_id.set("none".to_string());
                                             client_dropdown_open.set(false);
@@ -455,6 +544,7 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
                 // Template-specific inputs (School / Moving Company)
                 TemplateInputs {
                     template,
+                    courses,
                     selected_course_id,
                     classroom_text,
                     vehicle_id_text,
