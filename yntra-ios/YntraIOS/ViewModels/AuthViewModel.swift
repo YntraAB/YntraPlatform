@@ -70,10 +70,16 @@ class AuthViewModel: ObservableObject {
 
     func passwordLogin(email: String, pin: String) {
         self.errorMessage = nil
-        if !email.isEmpty && pin.count >= 4 {
-            self.isLoggedIn = true
-        } else {
-            self.errorMessage = "Invalid credentials"
+        Task {
+            do {
+                if let _ = try await verifyEmailPassword(email: email, password: pin) {
+                    self.isLoggedIn = true
+                } else {
+                    self.errorMessage = "Invalid credentials"
+                }
+            } catch {
+                self.errorMessage = error.localizedDescription
+            }
         }
     }
 

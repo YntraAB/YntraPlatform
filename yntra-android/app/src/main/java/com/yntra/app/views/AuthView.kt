@@ -1,9 +1,11 @@
 package com.yntra.app.views
 
 import androidx.compose.animation.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -99,7 +101,7 @@ fun AuthView(viewModel: AuthViewModel) {
                     )
                     
                     if (bankIdFlowState == "qr_scan" && qrData != null) {
-                        // QR Code placeholder using custom drawing or standard box
+                        // QR Code box
                         Box(
                             modifier = Modifier
                                 .size(200.dp)
@@ -108,12 +110,22 @@ fun AuthView(viewModel: AuthViewModel) {
                                 .padding(16.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = "QR: ${qrData!!.take(12)}...",
-                                color = Color.Black,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            val qrBitmap = remember(qrData) {
+                                try {
+                                    generateQRCode(qrData!!)
+                                } catch (e: Exception) {
+                                    null
+                                }
+                            }
+                            if (qrBitmap != null) {
+                                Image(
+                                    bitmap = qrBitmap.asImageBitmap(),
+                                    contentDescription = "QR Code",
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Text("Error generating QR", color = Color.Red, fontSize = 12.sp)
+                            }
                         }
                     } else {
                         CircularProgressIndicator(color = Color(0xFF4F46E5))
@@ -269,4 +281,19 @@ fun AuthView(viewModel: AuthViewModel) {
             }
         }
     }
+}
+
+fun generateQRCode(content: String): android.graphics.Bitmap {
+    val size = 512
+    val writer = com.google.zxing.qrcode.QRCodeWriter()
+    val bitMatrix = writer.encode(content, com.google.zxing.BarcodeFormat.QR_CODE, size, size)
+    val width = bitMatrix.width
+    val height = bitMatrix.height
+    val bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.RGB_565)
+    for (x in 0 until width) {
+        for (y in 0 until height) {
+            bitmap.setPixel(x, y, if (bitMatrix.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+        }
+    }
+    return bitmap
 }

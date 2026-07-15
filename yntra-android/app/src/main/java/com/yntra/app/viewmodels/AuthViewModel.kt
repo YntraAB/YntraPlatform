@@ -87,8 +87,8 @@ class AuthViewModel : ViewModel() {
         viewModelScope.launch {
             _errorMessage.value = null
             try {
-                // TOTP/Password fallback auth (simulated for template)
-                if (email.isNotBlank() && pin.length >= 4) {
+                val user = verifyEmailPassword(email, pin)
+                if (user != null) {
                     _isLoggedIn.value = true
                 } else {
                     _errorMessage.value = "Invalid email or credentials"

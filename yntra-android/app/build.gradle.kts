@@ -64,6 +64,7 @@ dependencies {
     
     // JNA is required by UniFFI on Android
     implementation("net.java.dev.jna:jna:5.14.0@aar")
+    implementation("com.google.zxing:core:3.5.3")
 
     // Instrumented tests
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

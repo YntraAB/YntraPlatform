@@ -1,5 +1,6 @@
 import SwiftUI
 import yntra_core
+import CoreImage.CIFilterBuiltins
 
 struct AuthView: View {
     @ObservedObject var viewModel: AuthViewModel
@@ -80,17 +81,18 @@ struct AuthView: View {
                             .foregroundColor(.white)
                         
                         if viewModel.bankIdFlowState == "qr_scan", let qrData = viewModel.qrData {
-                            // QR placeholder box
+                            // QR code box
                             ZStack {
                                 RoundedRectangle(cornerRadius: 20)
                                     .fill(Color.white)
                                     .frame(width: 200, height: 200)
                                     .shadow(radius: 10)
                                 
-                                Text("QR DATA:\n\(qrData.prefix(12))...")
-                                    .font(.system(size: 12, weight: .bold, design: .monospaced))
-                                    .foregroundColor(.black)
-                                    .multilineTextAlignment(.center)
+                                Image(uiImage: generateQRCode(from: qrData))
+                                    .interpolation(.none)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 180, height: 180)
                             }
                         } else {
                             ProgressView()
@@ -214,5 +216,21 @@ struct AuthView: View {
                 Spacer()
             }
         }
+    }
+
+    private func generateQRCode(from string: String) -> UIImage {
+        let context = CIContext()
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(string.utf8)
+
+        if let outputImage = filter.outputImage {
+            let transform = CGAffineTransform(scaleX: 10, scaleY: 10)
+            let scaledImage = outputImage.transformed(by: transform)
+            if let cgImage = context.createCGImage(scaledImage, from: scaledImage.extent) {
+                return UIImage(cgImage: cgImage)
+            }
+        }
+
+        return UIImage(systemName: "xmark.circle") ?? UIImage()
     }
 }
