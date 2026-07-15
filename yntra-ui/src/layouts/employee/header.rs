@@ -65,6 +65,11 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
     let runner = crate::utils::use_action_runner();
     let active_user = props.active_user.clone();
     let current_role = active_user.role.clone();
+    let region = {
+        let user_prefs: serde_json::Value =
+            serde_json::from_str(&active_user.preferences).unwrap_or_default();
+        user_prefs.get("language").and_then(|l| l.as_str()).unwrap_or("US").to_string()
+    };
 
     let active_user_id = props.active_user_id;
     let mut active_section = props.active_section;
@@ -76,6 +81,15 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
     let is_client = current_role == "client";
     let mut header_role_open = use_signal(|| false);
     let mut header_template_open = use_signal(|| false);
+
+    // Global reporting modal signals
+    let mut show_reporting_modal = use_signal(|| false);
+    let mut report_type = use_signal(|| "incident".to_string());
+    let mut report_date = use_signal(|| chrono::Local::now().format("%Y-%m-%d").to_string());
+    let mut report_subject = use_signal(String::new);
+    let mut report_description = use_signal(String::new);
+    let mut report_is_anonymous = use_signal(|| false);
+    let report_tab = use_signal(|| "send".to_string());
 
     let active_template_label = {
         let modules_val: serde_json::Value =
@@ -415,6 +429,23 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                     }
                 }
 
+                // Global Quick Action for Incident Reporting
+                if !is_client {
+                    button {
+                        class: "yntra-btn secondary flex items-center gap-2 border border-border bg-transparent text-xs text-foreground hover:bg-white/[0.04] px-3 py-1.5 rounded-lg font-semibold cursor-pointer mr-2",
+                        onclick: move |_| {
+                            report_subject.set(String::new());
+                            report_description.set(String::new());
+                            report_is_anonymous.set(false);
+                            report_type.set("incident".to_string());
+                            report_date.set(chrono::Local::now().format("%Y-%m-%d").to_string());
+                            show_reporting_modal.set(true);
+                        },
+                        components::LucideIcon { name: "shield", size: "14", class: "text-red-400" }
+                        span { "Report Incident" }
+                    }
+                }
+
                 // Header User Profile trigger
                 div { class: "relative flex items-center gap-3",
                     div {
@@ -463,6 +494,30 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                                 },
                                 components::LucideIcon { name: "logout", class: "h-4 w-4" }
                                 "{t(\"common-logout\", &auth_region.read())}"
+                            }
+                        }
+                    }
+                }
+            }
+            if *show_reporting_modal.read() {
+                components::Dialog {
+                    open: true,
+                    title: "Report incident/deviation".to_string(),
+                    max_width: "600px".to_string(),
+                    onclose: move |_| show_reporting_modal.set(false),
+                    div { class: "w-full text-sm",
+                        style: "max-width: 500px; padding: 0.5rem;",
+                        crate::views::reporting::send::ReportSubmitForm {
+                            active_user: active_user.clone(),
+                            region: region,
+                            report_type: report_type,
+                            report_date: report_date,
+                            report_subject: report_subject,
+                            report_description: report_description,
+                            report_is_anonymous: report_is_anonymous,
+                            report_tab: report_tab,
+                            on_success: move |_| {
+                                show_reporting_modal.set(false);
                             }
                         }
                     }

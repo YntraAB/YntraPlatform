@@ -151,6 +151,7 @@ pub struct AppState {
     // Desktop OAuth flow triggers
     pub on_desktop_oauth: Callback<String>,
     pub background_error: Signal<Option<yntra_core::YntraError>>,
+    pub db_initialized: Signal<bool>,
 }
 
 pub fn use_init_app_state() -> AppState {
@@ -173,6 +174,7 @@ pub fn use_init_app_state() -> AppState {
     let two_factor_user = use_signal(|| Option::<WorkspaceUser>::None);
     let background_error = use_signal(|| Option::<yntra_core::YntraError>::None);
     let mut active_user_role = use_signal(|| "guest".to_string());
+    let mut db_initialized = use_signal(|| false);
 
     // Login & Auth State Signals
     let logged_in = use_signal(|| false);
@@ -193,6 +195,7 @@ pub fn use_init_app_state() -> AppState {
         spawn(async move {
             let _ = init_tracing();
             let _ = init_wasm_db().await;
+            db_initialized.set(true);
             let _ = load_workspace_zero_copy_stores("workspace-1".to_string()).await;
             start_background_sync(30);
             let mut eval = dioxus::document::eval(
@@ -267,26 +270,29 @@ pub fn use_init_app_state() -> AppState {
     let active_uid_for_session = active_user_id;
     let mut active_role_sig = active_user_role;
     use_effect(move || {
-        let uid = active_uid_for_session.read().clone();
-        if !uid.is_empty() {
-            spawn(async move {
-                if let Ok(all_users) = get_users(uid.clone()).await {
-                    if let Some(user) = all_users.into_iter().find(|u| u.id == uid) {
-                        let ws_id = user
-                            .workspace_id
-                            .clone()
-                            .unwrap_or_else(|| "workspace-1".to_string());
-                        if !is_session_key_set() {
-                            let _ = load_local_workspace_key(ws_id.clone()).await;
+        let db_ready = *db_initialized.read();
+        if db_ready {
+            let uid = active_uid_for_session.read().clone();
+            if !uid.is_empty() {
+                spawn(async move {
+                    if let Ok(all_users) = get_users(uid.clone()).await {
+                        if let Some(user) = all_users.into_iter().find(|u| u.id == uid) {
+                            let ws_id = user
+                                .workspace_id
+                                .clone()
+                                .unwrap_or_else(|| "workspace-1".to_string());
+                            if !is_session_key_set() {
+                                let _ = load_local_workspace_key(ws_id.clone()).await;
+                            }
+                            let _ = load_workspace_zero_copy_stores(ws_id).await;
+                            active_role_sig.set(user.role.clone());
                         }
-                        let _ = load_workspace_zero_copy_stores(ws_id).await;
-                        active_role_sig.set(user.role.clone());
                     }
-                }
-            });
-        } else {
-            clear_session_key();
-            active_role_sig.set("guest".to_string());
+                });
+            } else {
+                clear_session_key();
+                active_role_sig.set("guest".to_string());
+            }
         }
     });
 
@@ -411,6 +417,7 @@ pub fn use_init_app_state() -> AppState {
         workspaces,
         mut todos,
     ) = resources::init_resources(
+        db_initialized,
         active_user_id,
         background_error,
         trigger_workspaces,
@@ -490,68 +497,18 @@ pub fn use_init_app_state() -> AppState {
                                 let mut update_jobs = false;
                                 let mut update_db = false;
 
+                                let mut todo_record_updates = Vec::new();
+                                let mut message_record_updates = Vec::new();
+                                let mut note_record_updates = Vec::new();
+
                                 for table in pending_tables.drain() {
                                     if let Some(pos) = table.find(':') {
                                         let table_name = &table[..pos];
                                         let record_id = &table[pos+1..];
                                         match table_name {
-                                            "todos" => {
-                                                let ws_id = workspace.read().as_ref().map(|w| w.id.clone()).unwrap_or_else(|| "workspace-1".to_string());
-                                                let uid = active_user_id.read().clone();
-                                                spawn({
-                                                    let record_id = record_id.to_string();
-                                                    async move {
-                                                        if let Ok(Some(item)) = yntra_core::get_todo_by_id(uid, ws_id, record_id).await {
-                                                            if let Some(list) = todos.write().as_mut() {
-                                                                if let Some(pos) = list.iter().position(|x| x.id == item.id) {
-                                                                    list[pos] = item;
-                                                                } else {
-                                                                    list.push(item);
-                                                                    list.sort_by(|a, b| a.id.cmp(&b.id));
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                });
-                                            }
-                                            "messages" => {
-                                                let ws_id = workspace.read().as_ref().map(|w| w.id.clone()).unwrap_or_else(|| "workspace-1".to_string());
-                                                let uid = active_user_id.read().clone();
-                                                spawn({
-                                                    let record_id = record_id.to_string();
-                                                    async move {
-                                                        if let Ok(Some(item)) = yntra_core::get_message_by_id(uid, ws_id, record_id).await {
-                                                            if let Some(list) = messages.write().as_mut() {
-                                                                if let Some(pos) = list.iter().position(|x| x.id == item.id) {
-                                                                    list[pos] = item;
-                                                                } else {
-                                                                    list.push(item);
-                                                                    list.sort_by(|a, b| a.created_at.cmp(&b.created_at));
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                });
-                                            }
-                                            "notes" => {
-                                                let ws_id = workspace.read().as_ref().map(|w| w.id.clone()).unwrap_or_else(|| "workspace-1".to_string());
-                                                let uid = active_user_id.read().clone();
-                                                spawn({
-                                                    let record_id = record_id.to_string();
-                                                    async move {
-                                                        if let Ok(Some(item)) = yntra_core::get_note_by_id(uid, ws_id, record_id).await {
-                                                            if let Some(list) = notes.write().as_mut() {
-                                                                if let Some(pos) = list.iter().position(|x| x.id == item.id) {
-                                                                    list[pos] = item;
-                                                                } else {
-                                                                    list.push(item);
-                                                                    list.sort_by(|a, b| a.created_at.cmp(&b.created_at));
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                });
-                                            }
+                                            "todos" => todo_record_updates.push(record_id.to_string()),
+                                            "messages" => message_record_updates.push(record_id.to_string()),
+                                            "notes" => note_record_updates.push(record_id.to_string()),
                                             _ => {
                                                 match table_name {
                                                     "todos" => update_todos = true,
@@ -601,6 +558,78 @@ pub fn use_init_app_state() -> AppState {
                                     }
                                     if table != "audit_logs" {
                                         update_db = true;
+                                    }
+                                }
+
+                                if todo_record_updates.len() > 3 {
+                                    update_todos = true;
+                                } else {
+                                    for record_id in todo_record_updates {
+                                        let ws_id = workspace.read().as_ref().map(|w| w.id.clone()).unwrap_or_else(|| "workspace-1".to_string());
+                                        let uid = active_user_id.read().clone();
+                                        spawn({
+                                            let record_id = record_id.clone();
+                                            async move {
+                                                if let Ok(Some(item)) = yntra_core::get_todo_by_id(uid, ws_id, record_id).await {
+                                                    if let Some(list) = todos.write().as_mut() {
+                                                        if let Some(pos) = list.iter().position(|x| x.id == item.id) {
+                                                            list[pos] = item;
+                                                        } else {
+                                                            list.push(item);
+                                                            list.sort_by(|a, b| a.id.cmp(&b.id));
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        });
+                                    }
+                                }
+
+                                if message_record_updates.len() > 3 {
+                                    update_messages = true;
+                                } else {
+                                    for record_id in message_record_updates {
+                                        let ws_id = workspace.read().as_ref().map(|w| w.id.clone()).unwrap_or_else(|| "workspace-1".to_string());
+                                        let uid = active_user_id.read().clone();
+                                        spawn({
+                                            let record_id = record_id.clone();
+                                            async move {
+                                                if let Ok(Some(item)) = yntra_core::get_message_by_id(uid, ws_id, record_id).await {
+                                                    if let Some(list) = messages.write().as_mut() {
+                                                        if let Some(pos) = list.iter().position(|x| x.id == item.id) {
+                                                            list[pos] = item;
+                                                        } else {
+                                                            list.push(item);
+                                                            list.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        });
+                                    }
+                                }
+
+                                if note_record_updates.len() > 3 {
+                                    update_notes = true;
+                                } else {
+                                    for record_id in note_record_updates {
+                                        let ws_id = workspace.read().as_ref().map(|w| w.id.clone()).unwrap_or_else(|| "workspace-1".to_string());
+                                        let uid = active_user_id.read().clone();
+                                        spawn({
+                                            let record_id = record_id.clone();
+                                            async move {
+                                                if let Ok(Some(item)) = yntra_core::get_note_by_id(uid, ws_id, record_id).await {
+                                                    if let Some(list) = notes.write().as_mut() {
+                                                        if let Some(pos) = list.iter().position(|x| x.id == item.id) {
+                                                            list[pos] = item;
+                                                        } else {
+                                                            list.push(item);
+                                                            list.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        });
                                     }
                                 }
 
@@ -847,5 +876,6 @@ pub fn use_init_app_state() -> AppState {
         workspace_id,
         on_desktop_oauth,
         background_error,
+        db_initialized,
     }
 }

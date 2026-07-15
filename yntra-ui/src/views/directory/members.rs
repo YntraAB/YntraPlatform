@@ -27,7 +27,7 @@ pub fn MembersList(props: MembersListProps) -> Element {
     let active_uid_for_client = active_uid_outside.clone();
     let team_id_unwrap = props.team_id_unwrap.clone();
     let custom_roles = props.custom_roles.clone();
-    let state = use_context::<AppState>();
+    let mut state = use_context::<AppState>();
 
     let workspace_opt = state.workspace.read();
     let workspace = workspace_opt.as_ref().cloned().unwrap_or_else(|| yntra_core::Workspace {
@@ -90,6 +90,15 @@ pub fn MembersList(props: MembersListProps) -> Element {
         .collect();
     let first_client = team_clients.first().cloned();
 
+    let mut active_tab = use_signal(|| "members".to_string());
+    let user_prefs: serde_json::Value =
+        serde_json::from_str(&active_user.preferences).unwrap_or_default();
+    let region_str = user_prefs
+        .get("language")
+        .and_then(|l| l.as_str())
+        .unwrap_or("US")
+        .to_string();
+
     rsx! {
         div { class: "relative flex h-full flex-1 flex-col bg-background",
             div { class: "flex h-16 shrink-0 items-center justify-between border-b border-border px-8 bg-sidebar",
@@ -105,8 +114,48 @@ pub fn MembersList(props: MembersListProps) -> Element {
                         "Team Members & Patients"
                     }
                 }
+
+                if team_id_unwrap != "all_members" {
+                    div { class: "flex gap-2",
+                        button {
+                            class: format!("px-4 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer border flex items-center gap-1.5 {}",
+                                if *active_tab.read() == "members" { "bg-primary text-primary-foreground border-primary" } else { "text-muted-foreground hover:bg-muted border-transparent" }
+                            ),
+                            onclick: move |_| active_tab.set("members".to_string()),
+                            components::LucideIcon { name: "users", size: "14" }
+                            "Members"
+                        }
+                        button {
+                            class: format!("px-4 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer border flex items-center gap-1.5 {}",
+                                if *active_tab.read() == "notes" { "bg-primary text-primary-foreground border-primary" } else { "text-muted-foreground hover:bg-muted border-transparent" }
+                            ),
+                            onclick: {
+                                let team_id = team_id_unwrap.clone();
+                                move |_| {
+                                    state.selected_note_team_id.set(team_id.clone());
+                                    active_tab.set("notes".to_string());
+                                }
+                            },
+                            components::LucideIcon { name: "file-text", size: "14" }
+                            "Team Notes"
+                        }
+                    }
+                }
             }
-            div { class: "scrollbar-dark w-full flex-1 px-8 py-6 box-border",
+            if *active_tab.read() == "notes" && team_id_unwrap != "all_members" {
+                div { class: "scrollbar-dark w-full flex-1 px-8 py-6 box-border overflow-y-auto",
+                    crate::views::NotesView {
+                        active_user: active_user.clone(),
+                        selected_note_team_id: state.selected_note_team_id,
+                        note_subject: state.note_subject,
+                        note_content: state.note_content,
+                        active_note_id: state.selected_note_id,
+                        is_composing: state.is_note_composing,
+                        locale: region_str,
+                    }
+                }
+            } else {
+                div { class: "scrollbar-dark w-full flex-1 px-8 py-6 box-border overflow-y-auto",
                 if let Some(client) = first_client {
                     div {
                         class: "border border-border bg-white/[0.015] p-6 mb-6 rounded-xl",
@@ -429,6 +478,7 @@ pub fn MembersList(props: MembersListProps) -> Element {
                 }
             }
         }
+    }
 
         // Details Modals
         if let Some(m) = selected_member.read().clone() {

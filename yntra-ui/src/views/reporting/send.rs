@@ -14,6 +14,7 @@ pub struct ReportSubmitFormProps {
     pub report_description: Signal<String>,
     pub report_is_anonymous: Signal<bool>,
     pub report_tab: Signal<String>,
+    pub on_success: Option<EventHandler<()>>,
 }
 
 #[component]
@@ -26,6 +27,7 @@ pub fn ReportSubmitForm(props: ReportSubmitFormProps) -> Element {
     let mut report_description = props.report_description;
     let mut report_is_anonymous = props.report_is_anonymous;
     let mut report_tab = props.report_tab;
+    let on_success = props.on_success;
     let mut report_type_open = use_signal(|| false);
 
     rsx! {
@@ -185,12 +187,16 @@ pub fn ReportSubmitForm(props: ReportSubmitFormProps) -> Element {
                                             );
                                             let _ = dioxus::document::eval(&js);
                                         }
+                                        if let Some(handler) = on_success {
+                                            handler.call(());
+                                        } else {
+                                            report_tab.set("list".to_string());
+                                        }
                                     }
                                 });
                                 report_subject.set(String::new());
                                 report_description.set(String::new());
                                 report_is_anonymous.set(false);
-                                report_tab.set("list".to_string());
                             }
                         }
                     },

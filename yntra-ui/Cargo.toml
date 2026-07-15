@@ -22,6 +22,7 @@ dioxus-primitives = { git = "https://github.com/DioxusLabs/components" }
 palette = "0.7"
 blake3 = { version = "1.5.1", features = ["zeroize"] }
 const-hex = { version = "1.12", features = ["alloc"] }
+chrono = { version = "0.4.38", features = ["clock", "wasmbind"] }
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = { workspace = true }
 web-sys = { workspace = true }

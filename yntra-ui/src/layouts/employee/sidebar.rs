@@ -315,7 +315,7 @@ pub fn LayoutSidebar(props: LayoutSidebarProps) -> Element {
 
                             // Custom Dynamic Sidebar Items
                             for b in db_blocks.iter() {
-                                if !static_block_ids.contains(b.id.as_str()) && modules_active_val.get(&b.id).and_then(|v| v.as_bool()).unwrap_or(false) {
+                                if b.id != "time" && b.id != "notes" && b.id != "reporting" && b.id != "assistance" && !static_block_ids.contains(b.id.as_str()) && modules_active_val.get(&b.id).and_then(|v| v.as_bool()).unwrap_or(false) {
                                     {
                                         let b_id = b.id.clone();
                                         let b_name = b.name.clone();

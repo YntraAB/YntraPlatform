@@ -57,6 +57,7 @@ pub fn LoginView(props: LoginViewProps) -> Element {
         _ => "English",
     };
 
+    let state = use_context::<crate::state::AppState>();
     let active_user_id = props.active_user_id;
     let active_section = props.active_section;
     let logged_in = props.logged_in;
@@ -189,24 +190,27 @@ pub fn LoginView(props: LoginViewProps) -> Element {
     use_effect(move || {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            spawn(async move {
-                let is_active = active_session_id.read().is_some();
-                if !is_active {
-                    hardware_auth_type.set("card_or_badge".to_string());
-                    hardware_reader_status.set("connecting".to_string());
-                    hardware_error_msg.set(None);
-                    let mut active_tok = active_session_token;
-                    if let Ok(sess) = yntra_core::initiate_bankid_auth(
-                        "assistant".to_string(),
-                        "card_or_badge".to_string(),
-                    )
-                    .await
-                    {
-                        active_session_id.set(Some(sess.id.clone()));
-                        active_tok.set(Some(sess.token.clone()));
+            let db_ready = *state.db_initialized.read();
+            if db_ready {
+                spawn(async move {
+                    let is_active = active_session_id.read().is_some();
+                    if !is_active {
+                        hardware_auth_type.set("card_or_badge".to_string());
+                        hardware_reader_status.set("connecting".to_string());
+                        hardware_error_msg.set(None);
+                        let mut active_tok = active_session_token;
+                        if let Ok(sess) = yntra_core::initiate_bankid_auth(
+                            "assistant".to_string(),
+                            "card_or_badge".to_string(),
+                        )
+                        .await
+                        {
+                            active_session_id.set(Some(sess.id.clone()));
+                            active_tok.set(Some(sess.token.clone()));
+                        }
                     }
-                }
-            });
+                });
+            }
         }
     });
 
@@ -332,6 +336,9 @@ pub fn LoginView(props: LoginViewProps) -> Element {
                                         .description(final_msg),
                                 );
                             }
+                            active_session_id.set(None);
+                            active_session_token.set(None);
+                        } else if s.status == "no_service" {
                             active_session_id.set(None);
                             active_session_token.set(None);
                         } else if s.status == "success" {
