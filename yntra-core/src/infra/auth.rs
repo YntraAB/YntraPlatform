@@ -5,6 +5,9 @@ use std::sync::{OnceLock, RwLock};
 
 static AUTH_CONTEXT_CACHE: OnceLock<RwLock<HashMap<String, AuthContext>>> = OnceLock::new();
 
+#[cfg(not(target_arch = "wasm32"))]
+static AUTH_MUTEX: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 pub fn invalidate_auth_context_cache() {
     if let Ok(mut cache) = AUTH_CONTEXT_CACHE
         .get_or_init(|| RwLock::new(HashMap::new()))
@@ -24,77 +27,14 @@ pub struct AuthContext {
 }
 
 fn extract_auth_epoch(settings_str: &str) -> u64 {
-    // Zero-allocation, zero-copy custom JSON parser to extract auth_epoch at root level
-    let bytes = settings_str.as_bytes();
-    let mut i = 0;
-    let len = bytes.len();
-
-    let mut depth = 0;
-    let mut in_string = false;
-    let mut escaped = false;
-
-    while i < len {
-        let c = bytes[i];
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if c == b'\\' {
-                escaped = true;
-            } else if c == b'"' {
-                in_string = false;
-            }
-        } else {
-            match c {
-                b'"' => {
-                    in_string = true;
-                    // Check if this is the key "auth_epoch" at depth 1
-                    if depth == 1 {
-                        if i + 12 <= len
-                            && &bytes[i + 1..i + 11] == b"auth_epoch"
-                            && bytes[i + 11] == b'"'
-                        {
-                            // Verify that this is followed by a colon ':' (making it a JSON key)
-                            let mut next_idx = i + 12;
-                            while next_idx < len && bytes[next_idx].is_ascii_whitespace() {
-                                next_idx += 1;
-                            }
-                            if next_idx < len && bytes[next_idx] == b':' {
-                                i = next_idx + 1;
-                                // Skip whitespace after colon
-                                while i < len && bytes[i].is_ascii_whitespace() {
-                                    i += 1;
-                                }
-                                // Parse digits
-                                let start = i;
-                                while i < len && bytes[i].is_ascii_digit() {
-                                    i += 1;
-                                }
-                                if i > start {
-                                    if let Ok(val) = std::str::from_utf8(&bytes[start..i]) {
-                                        if let Ok(epoch) = val.parse::<u64>() {
-                                            return epoch;
-                                        }
-                                    }
-                                }
-                                return 0;
-                            }
-                        }
-                    }
-                }
-                b'{' | b'[' => {
-                    depth += 1;
-                }
-                b'}' | b']' => {
-                    if depth > 0 {
-                        depth -= 1;
-                    }
-                }
-                _ => {}
-            }
-        }
-        i += 1;
+    #[derive(serde::Deserialize)]
+    struct Settings {
+        auth_epoch: Option<u64>,
     }
-    0
+    serde_json::from_str::<Settings>(settings_str)
+        .ok()
+        .and_then(|s| s.auth_epoch)
+        .unwrap_or(0)
 }
 
 impl AuthContext {
@@ -167,6 +107,9 @@ impl AuthContext {
             };
 
             if is_signature_required {
+                #[cfg(not(target_arch = "wasm32"))]
+                let _guard = AUTH_MUTEX.lock().await;
+
                 let pk = creator_pk.ok_or_else(|| {
                     YntraError::AuthError(format!("Cryptographic signature verification is required for role '{}', but workspace public key is not configured", role))
                 })?;

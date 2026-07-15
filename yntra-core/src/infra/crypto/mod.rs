@@ -18,6 +18,16 @@ struct SessionKeys {
 }
 
 static SESSION_KEY: Mutex<Option<SessionKeys>> = Mutex::new(None);
+static SESSION_KEY_IS_POISONED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+struct PoisonGuard;
+impl Drop for PoisonGuard {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            SESSION_KEY_IS_POISONED.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+}
 static SYSTEM_SALT: OnceLock<zeroize::Zeroizing<Vec<u8>>> = OnceLock::new();
 
 static AUTH_KEY_CACHE: OnceLock<RwLock<HashMap<String, String>>> = OnceLock::new();
@@ -176,6 +186,7 @@ fn ensure_system_salt_initialized() -> Result<(), YntraError> {
 
 #[uniffi::export]
 pub fn set_session_key(mut key_bytes: Vec<u8>) -> bool {
+    let _guard = PoisonGuard;
     let mut lock = match SESSION_KEY.lock() {
         Ok(l) => l,
         Err(poisoned) => {
@@ -203,10 +214,12 @@ pub fn set_session_key(mut key_bytes: Vec<u8>) -> bool {
         cache.clear();
     }
 
+    SESSION_KEY_IS_POISONED.store(false, std::sync::atomic::Ordering::SeqCst);
     true
 }
 
 pub fn get_session_key() -> Option<zeroize::Zeroizing<[u8; 32]>> {
+    let _guard = PoisonGuard;
     let lock = match SESSION_KEY.lock() {
         Ok(l) => l,
         Err(poisoned) => poisoned.into_inner(),
@@ -216,6 +229,7 @@ pub fn get_session_key() -> Option<zeroize::Zeroizing<[u8; 32]>> {
 
 #[uniffi::export]
 pub fn is_session_key_set() -> bool {
+    let _guard = PoisonGuard;
     let lock = match SESSION_KEY.lock() {
         Ok(l) => l,
         Err(poisoned) => poisoned.into_inner(),
@@ -236,6 +250,7 @@ pub async fn load_local_workspace_key(workspace_id: String) -> bool {
 
 #[uniffi::export]
 pub fn clear_session_key() {
+    let _guard = PoisonGuard;
     let mut lock = match SESSION_KEY.lock() {
         Ok(l) => l,
         Err(poisoned) => {
@@ -251,6 +266,7 @@ pub fn clear_session_key() {
     if let Ok(mut cache) = get_workspace_key_cache().write() {
         cache.clear();
     }
+    SESSION_KEY_IS_POISONED.store(false, std::sync::atomic::Ordering::SeqCst);
 }
 
 fn get_encryption_keys_internal(
@@ -279,15 +295,12 @@ fn get_encryption_keys_internal(
 
     let mut session_key_bytes = zeroize::Zeroizing::new([0u8; 32]);
     {
-        let mut is_poisoned = false;
+        let _guard = PoisonGuard;
         let lock = match SESSION_KEY.lock() {
             Ok(l) => l,
-            Err(poisoned) => {
-                is_poisoned = true;
-                poisoned.into_inner()
-            }
+            Err(poisoned) => poisoned.into_inner(),
         };
-        if lock.is_none() && is_poisoned {
+        if SESSION_KEY_IS_POISONED.load(std::sync::atomic::Ordering::SeqCst) {
             hasher.zeroize();
             return Err(YntraError::CryptoError(
                 "session_key_lock_poisoned".to_string(),
@@ -589,10 +602,16 @@ mod tests {
     #[test]
     fn test_session_key_poisoning_recovery() {
         let _test_lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        
+        // 1. Poison when None
         clear_session_key();
         let _ = std::panic::catch_unwind(|| {
-            let _lock = SESSION_KEY.lock().unwrap();
-            panic!("poisoning lock");
+            let _lock = match SESSION_KEY.lock() {
+                Ok(g) => g,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            SESSION_KEY_IS_POISONED.store(true, std::sync::atomic::Ordering::SeqCst);
+            panic!("poisoning lock when None");
         });
 
         let res = get_encryption_keys_internal("some-workspace");
@@ -603,8 +622,32 @@ mod tests {
             panic!("Expected CryptoError(session_key_lock_poisoned)");
         }
 
+        // Recovery
         assert!(set_session_key(
             "my-new-session-key".to_string().into_bytes()
+        ));
+
+        // 2. Poison when Some
+        let _ = std::panic::catch_unwind(|| {
+            let _lock = match SESSION_KEY.lock() {
+                Ok(g) => g,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            SESSION_KEY_IS_POISONED.store(true, std::sync::atomic::Ordering::SeqCst);
+            panic!("poisoning lock when Some");
+        });
+
+        let res = get_encryption_keys_internal("some-workspace");
+        assert!(res.is_err());
+        if let Err(YntraError::CryptoError(msg)) = res {
+            assert_eq!(msg, "session_key_lock_poisoned");
+        } else {
+            panic!("Expected CryptoError(session_key_lock_poisoned)");
+        }
+
+        // Recovery again
+        assert!(set_session_key(
+            "my-new-session-key-2".to_string().into_bytes()
         ));
 
         let lock = match SESSION_KEY.lock() {

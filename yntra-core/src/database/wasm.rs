@@ -154,16 +154,18 @@ impl DbConnection {
         sql: &str,
         params: P,
     ) -> Result<u64, YntraError> {
-        if let Some(in_tx) = super::check_transaction_sql(sql) {
-            self.in_transaction
-                .store(in_tx, std::sync::atomic::Ordering::SeqCst);
-        }
+        let tx_state_update = super::check_transaction_sql(sql);
         let params_wasm = params.into_wasm_params();
         let params_val = serde_wasm_bindgen::to_value(&params_wasm)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         let result_val = js_execute_sql("execute", sql, params_val).await?;
         let res: ExecuteResult = serde_wasm_bindgen::from_value(result_val)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+
+        if let Some(in_tx) = tx_state_update {
+            self.in_transaction
+                .store(in_tx, std::sync::atomic::Ordering::SeqCst);
+        }
 
         let is_rollback =
             sql.trim_start().len() >= 8 && sql.trim_start()[..8].eq_ignore_ascii_case("ROLLBACK");
@@ -183,13 +185,18 @@ impl DbConnection {
 
     /// Executes a batch of SQL statements.
     pub async fn execute_batch(&self, sql: &str) -> Result<(), YntraError> {
+        let mut last_tx_state = None;
         for stmt in super::parser::split_sql_statements(sql) {
             if let Some(in_tx) = super::check_transaction_sql(stmt) {
-                self.in_transaction
-                    .store(in_tx, std::sync::atomic::Ordering::SeqCst);
+                last_tx_state = Some(in_tx);
             }
         }
         js_execute_sql("execute_batch", sql, JsValue::UNDEFINED).await?;
+
+        if let Some(in_tx) = last_tx_state {
+            self.in_transaction
+                .store(in_tx, std::sync::atomic::Ordering::SeqCst);
+        }
 
         let is_rollback =
             sql.trim_start().len() >= 8 && sql.trim_start()[..8].eq_ignore_ascii_case("ROLLBACK");

@@ -362,15 +362,16 @@ impl DbConnection {
         params: P,
     ) -> Result<u64, YntraError> {
         let conn = self.get_conn()?;
-        if let Some(in_tx) = super::check_transaction_sql(sql) {
-            self.in_transaction
-                .store(in_tx, std::sync::atomic::Ordering::SeqCst);
-        }
+        let tx_state_update = super::check_transaction_sql(sql);
         let res = conn
             .execute(sql, params)
             .await
             .map_err(|e| YntraError::DbError(e.to_string()));
         if res.is_ok() {
+            if let Some(in_tx) = tx_state_update {
+                self.in_transaction
+                    .store(in_tx, std::sync::atomic::Ordering::SeqCst);
+            }
             let is_rollback = sql.trim_start().len() >= 8
                 && sql.trim_start()[..8].eq_ignore_ascii_case("ROLLBACK");
             if is_rollback {
@@ -390,15 +391,20 @@ impl DbConnection {
 
     pub async fn execute_batch(&self, sql: &str) -> Result<(), YntraError> {
         let conn = self.get_conn()?;
+        let mut last_tx_state = None;
         for stmt in super::parser::split_sql_statements(sql) {
             if let Some(in_tx) = super::check_transaction_sql(stmt) {
-                self.in_transaction
-                    .store(in_tx, std::sync::atomic::Ordering::SeqCst);
+                last_tx_state = Some(in_tx);
             }
         }
         conn.execute_batch(sql)
             .await
             .map_err(|e| YntraError::DbError(e.to_string()))?;
+
+        if let Some(in_tx) = last_tx_state {
+            self.in_transaction
+                .store(in_tx, std::sync::atomic::Ordering::SeqCst);
+        }
 
         let is_rollback =
             sql.trim_start().len() >= 8 && sql.trim_start()[..8].eq_ignore_ascii_case("ROLLBACK");
