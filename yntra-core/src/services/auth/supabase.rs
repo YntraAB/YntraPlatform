@@ -62,6 +62,26 @@ async fn get_supabase_config() -> Result<(String, String), YntraError> {
 
 #[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
 pub async fn get_supabase_user_email(mut token: String) -> Result<String, YntraError> {
+    #[cfg(debug_assertions)]
+    {
+        if token.starts_with("mock_sso_email:") {
+            let email = token.trim_start_matches("mock_sso_email:").to_string();
+            use zeroize::Zeroize;
+            token.zeroize();
+            return Ok(email);
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        if token.starts_with("mock_sso_email:") {
+            use zeroize::Zeroize;
+            token.zeroize();
+            return Err(YntraError::AuthError(
+                "Mock SSO bypass tokens are disabled in release builds".to_string(),
+            ));
+        }
+    }
+
     let (base_url, apikey) = get_supabase_config().await?;
     let url = format!("{}/auth/v1/user", base_url.trim_end_matches('/'));
 
