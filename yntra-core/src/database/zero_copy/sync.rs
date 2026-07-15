@@ -70,6 +70,7 @@ fn in_memory_broadcast(from_peer: &str, data: Vec<u8>, peers: &[String]) {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn in_memory_poll(peer_id: &str) -> Vec<Vec<u8>> {
     let mut relay = IN_MEMORY_RELAY.lock_poison_safe();
     if let Some(q) = relay.remove(peer_id) {
@@ -219,7 +220,6 @@ async fn do_broadcast_write(
 #[derive(Clone, uniffi::Object)]
 pub struct P2PMeshSyncRouter {
     peers: Arc<Mutex<Vec<String>>>,
-    pending_broadcasts: Arc<Mutex<Vec<Vec<u8>>>>,
     pub(crate) failed_broadcasts: Arc<Mutex<Vec<(String, Vec<u8>)>>>,
     relay_url: Arc<Mutex<Option<String>>>,
     client: reqwest::Client,
@@ -234,7 +234,6 @@ impl P2PMeshSyncRouter {
     pub fn new() -> Self {
         Self {
             peers: Arc::new(Mutex::new(Vec::new())),
-            pending_broadcasts: Arc::new(Mutex::new(Vec::new())),
             failed_broadcasts: Arc::new(Mutex::new(Vec::new())),
             relay_url: Arc::new(Mutex::new(None)),
             client: reqwest::Client::new(),
@@ -247,7 +246,6 @@ impl P2PMeshSyncRouter {
     pub fn with_relay(relay_url: String) -> Self {
         Self {
             peers: Arc::new(Mutex::new(Vec::new())),
-            pending_broadcasts: Arc::new(Mutex::new(Vec::new())),
             failed_broadcasts: Arc::new(Mutex::new(Vec::new())),
             relay_url: Arc::new(Mutex::new(Some(relay_url))),
             client: reqwest::Client::new(),
@@ -379,12 +377,6 @@ impl P2PMeshSyncRouter {
         }
     }
 
-    pub fn broadcast_write(&self, data: Vec<u8>) -> Result<(), YntraError> {
-        let mut pending = self.pending_broadcasts.lock_poison_safe();
-        pending.push(data);
-        Ok(())
-    }
-
     pub fn retry_failed_broadcasts(&self) {
         let relay_opt = self.relay_url.lock_poison_safe().clone();
         if let Some(relay_url) = relay_opt {
@@ -429,37 +421,42 @@ impl P2PMeshSyncRouter {
         let peers = self.peers.lock_poison_safe().clone();
 
         // 1. Direct Peer-to-Peer local synchronization (WebRTC simulation)
-        if let Ok(map) = LOCAL_PEER_STORES.lock() {
-            for (peer_id, store) in map.iter() {
-                if peer_id != &from_peer {
-                    let _ = store.apply_loro_update(data.clone());
+        #[cfg(debug_assertions)]
+        {
+            if relay_opt.is_none() {
+                if let Ok(map) = LOCAL_PEER_STORES.lock() {
+                    for (peer_id, store) in map.iter() {
+                        if peer_id != &from_peer {
+                            let _ = store.apply_loro_update(data.clone());
+                        }
+                    }
                 }
-            }
-        }
-        if let Ok(map) = LOCAL_PEER_NOTE_STORES.lock() {
-            for (peer_id, store) in map.iter() {
-                if peer_id != &from_peer {
-                    let _ = store.apply_loro_update(data.clone());
+                if let Ok(map) = LOCAL_PEER_NOTE_STORES.lock() {
+                    for (peer_id, store) in map.iter() {
+                        if peer_id != &from_peer {
+                            let _ = store.apply_loro_update(data.clone());
+                        }
+                    }
                 }
-            }
-        }
-        if let Ok(map) = LOCAL_PEER_MESSAGE_STORES.lock() {
-            for (peer_id, store) in map.iter() {
-                if peer_id != &from_peer {
-                    let _ = store.apply_loro_update(data.clone());
+                if let Ok(map) = LOCAL_PEER_MESSAGE_STORES.lock() {
+                    for (peer_id, store) in map.iter() {
+                        if peer_id != &from_peer {
+                            let _ = store.apply_loro_update(data.clone());
+                        }
+                    }
                 }
-            }
-        }
-        if let Ok(map) = LOCAL_PEER_AUDIT_STORES.lock() {
-            for (peer_id, store) in map.iter() {
-                if peer_id != &from_peer {
-                    let _ = store.apply_loro_update(data.clone());
+                if let Ok(map) = LOCAL_PEER_AUDIT_STORES.lock() {
+                    for (peer_id, store) in map.iter() {
+                        if peer_id != &from_peer {
+                            let _ = store.apply_loro_update(data.clone());
+                        }
+                    }
                 }
-            }
-        }
 
-        // Always store in-memory fallback
-        in_memory_broadcast(&from_peer, data.clone(), &peers);
+                // Always store in-memory fallback
+                in_memory_broadcast(&from_peer, data.clone(), &peers);
+            }
+        }
 
         // Retry any previously failed broadcasts before trying the new one
         self.retry_failed_broadcasts();
@@ -507,8 +504,6 @@ impl P2PMeshSyncRouter {
                     queue_clone,
                 ));
             }
-        } else {
-            let _ = self.broadcast_write(data);
         }
     }
 
@@ -603,12 +598,7 @@ impl P2PMeshSyncRouter {
                             }
                         }
                     }
-                    let updates = in_memory_poll(&peer_id);
-                    if !updates.is_empty() {
-                        if store.apply_loro_updates_batch(updates).is_ok() {
-                            crate::infra::observer::notify_observers();
-                        }
-                    }
+
                 });
             }
             #[cfg(target_arch = "wasm32")]
@@ -653,12 +643,7 @@ impl P2PMeshSyncRouter {
                             }
                         }
                     }
-                    let updates = in_memory_poll(&peer_id);
-                    if !updates.is_empty() {
-                        if store.apply_loro_updates_batch(updates).is_ok() {
-                            crate::infra::observer::notify_observers();
-                        }
-                    }
+
                 });
             }
         }
@@ -715,12 +700,7 @@ impl P2PMeshSyncRouter {
                             }
                         }
                     }
-                    let updates = in_memory_poll(&peer_id);
-                    if !updates.is_empty() {
-                        if store.apply_loro_updates_batch(updates).is_ok() {
-                            crate::infra::observer::notify_observers();
-                        }
-                    }
+
                 });
             }
             #[cfg(target_arch = "wasm32")]
@@ -765,12 +745,7 @@ impl P2PMeshSyncRouter {
                             }
                         }
                     }
-                    let updates = in_memory_poll(&peer_id);
-                    if !updates.is_empty() {
-                        if store.apply_loro_updates_batch(updates).is_ok() {
-                            crate::infra::observer::notify_observers();
-                        }
-                    }
+
                 });
             }
         }
@@ -823,12 +798,7 @@ impl P2PMeshSyncRouter {
                             }
                         }
                     }
-                    let updates = in_memory_poll(&peer_id);
-                    if !updates.is_empty() {
-                        if store.apply_loro_updates_batch(updates).is_ok() {
-                            crate::infra::observer::notify_observers();
-                        }
-                    }
+
                 });
             }
             #[cfg(target_arch = "wasm32")]
@@ -873,12 +843,7 @@ impl P2PMeshSyncRouter {
                             }
                         }
                     }
-                    let updates = in_memory_poll(&peer_id);
-                    if !updates.is_empty() {
-                        if store.apply_loro_updates_batch(updates).is_ok() {
-                            crate::infra::observer::notify_observers();
-                        }
-                    }
+
                 });
             }
         }
@@ -931,12 +896,7 @@ impl P2PMeshSyncRouter {
                             }
                         }
                     }
-                    let updates = in_memory_poll(&peer_id);
-                    if !updates.is_empty() {
-                        if store.apply_loro_updates_batch(updates).is_ok() {
-                            crate::infra::observer::notify_observers();
-                        }
-                    }
+
                 });
             }
             #[cfg(target_arch = "wasm32")]
@@ -981,12 +941,7 @@ impl P2PMeshSyncRouter {
                             }
                         }
                     }
-                    let updates = in_memory_poll(&peer_id);
-                    if !updates.is_empty() {
-                        if store.apply_loro_updates_batch(updates).is_ok() {
-                            crate::infra::observer::notify_observers();
-                        }
-                    }
+
                 });
             }
         }
@@ -994,11 +949,6 @@ impl P2PMeshSyncRouter {
 
     pub fn get_connected_peers(&self) -> Vec<String> {
         self.peers.lock_poison_safe().clone()
-    }
-
-    pub fn drain_pending_broadcasts(&self) -> Vec<Vec<u8>> {
-        let mut pending = self.pending_broadcasts.lock_poison_safe();
-        std::mem::take(&mut *pending)
     }
 }
 
