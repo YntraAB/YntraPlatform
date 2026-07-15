@@ -91,18 +91,6 @@ async fn run_real_hardware_auth_native(ctx: pcsc::Context, session_id: String, _
             }
         };
 
-    let set_success = |uid: String| {
-        let session_id = session_id.clone();
-        async move {
-            if let Ok(conn) = database::acquire_connection().await {
-                let _ = conn.execute(
-                    "UPDATE bankid_auth_sessions SET status = 'success', progress = 100.0, authenticated_user_id = ?1 WHERE id = ?2",
-                    crate::params![uid, session_id],
-                ).await;
-            }
-            notify_observers();
-        }
-    };
 
     let set_error = |err_msg: &str| {
         let session_id = session_id.clone();
@@ -203,89 +191,20 @@ async fn run_real_hardware_auth_native(ctx: pcsc::Context, session_id: String, _
                             if let (Some(challenge_hex), Some(pubkey_hex)) =
                                 (challenge_opt, user_pubkey)
                             {
-                                #[cfg(debug_assertions)]
-                                {
-                                    let challenge_bytes =
-                                        const_hex::decode(&challenge_hex).unwrap_or_default();
-                                    let seed_val = if unique_id.contains("ALICE")
-                                        || unique_id.contains("alice")
-                                    {
-                                        1
-                                    } else {
-                                        2
-                                    };
-                                    let signing_key =
-                                        ed25519_dalek::SigningKey::from_bytes(&[seed_val; 32]);
-
-                                    use ed25519_dalek::Signer;
-                                    let signature = signing_key.sign(&challenge_bytes);
-                                    let sig_hex = const_hex::encode(signature.to_bytes());
-
-                                    match crate::services::auth::bankid::verify_hardware_auth_signature(session_id.clone(), pubkey_hex, sig_hex).await {
-                                        Ok(_) => {
-                                            break;
-                                        }
-                                        Err(_e) => {
-                                            set_error("login-hw-error-verification-failed").await;
-                                            break;
-                                        }
-                                    }
+                                let _ = challenge_hex;
+                                if let Ok(conn) = database::acquire_connection().await {
+                                    let _ = conn.execute(
+                                        "UPDATE bankid_auth_sessions SET status = 'card_detected', qr_data = ?1 WHERE id = ?2",
+                                        crate::params![pubkey_hex, &session_id],
+                                    ).await;
                                 }
-                                #[cfg(not(debug_assertions))]
-                                {
-                                    if let Ok(conn) = database::acquire_connection().await {
-                                        let _ = conn.execute(
-                                            "UPDATE bankid_auth_sessions SET status = 'card_detected', qr_data = ?1 WHERE id = ?2",
-                                            crate::params![pubkey_hex, &session_id],
-                                        ).await;
-                                    }
-                                    notify_observers();
-                                    break;
-                                }
+                                notify_observers();
+                                break;
                             } else {
                                 set_error("login-hw-error-missing-crypto-params").await;
                                 break;
                             }
                         } else {
-                            #[cfg(debug_assertions)]
-                            {
-                                let mut resolved_user_info = None;
-                                if let Ok(conn) = database::acquire_connection().await {
-                                    if let Ok(mut stmt) = conn.prepare("SELECT id, metadata ->> 'siths_public_key' FROM users WHERE metadata ->> 'siths_card_id' IS NOT NULL AND metadata ->> 'siths_card_id' != ''").await {
-                                        if let Ok(mut rows) = stmt.query(()).await {
-                                            if let Ok(Some(row)) = rows.next().await {
-                                                resolved_user_info = Some((row.get::<String>(0).unwrap(), row.get::<Option<String>>(1).unwrap()));
-                                            }
-                                        }
-                                    }
-                                }
-                                if let Some((uid, pubkey_opt)) = resolved_user_info {
-                                    tracing::warn!(
-                                        "[Real Smart Card Debug Fallback] Mapping card ID {} to user ID {}",
-                                        unique_id,
-                                        uid
-                                    );
-                                    if let (Some(challenge_hex), Some(pubkey_opt_hex)) =
-                                        (challenge_opt, pubkey_opt)
-                                    {
-                                        let challenge_bytes =
-                                            const_hex::decode(&challenge_hex).unwrap_or_default();
-                                        let signing_key =
-                                            ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
-
-                                        use ed25519_dalek::Signer;
-                                        let signature = signing_key.sign(&challenge_bytes);
-                                        let sig_hex = const_hex::encode(signature.to_bytes());
-
-                                        if let Ok(_) = crate::services::auth::bankid::verify_hardware_auth_signature(session_id.clone(), pubkey_opt_hex, sig_hex).await {
-                                            break;
-                                        }
-                                    }
-                                    set_success(uid).await;
-                                    break;
-                                }
-                            }
-
                             set_error(&format!("login-hw-error-card-unregistered:{}", unique_id))
                                 .await;
                             break;

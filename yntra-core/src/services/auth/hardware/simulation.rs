@@ -233,14 +233,16 @@ pub async fn complete_hardware_auth(
     #[cfg(not(target_arch = "wasm32"))]
     {
         let is_simulated = {
-            #[cfg(debug_assertions)]
-            {
-                true
+            let mut has_reader = false;
+            if let Ok(ctx) = pcsc::Context::establish(pcsc::Scope::User) {
+                let mut readers_buf = [0; 2048];
+                if let Ok(mut r_list) = ctx.list_readers(&mut readers_buf) {
+                    if r_list.next().is_some() {
+                        has_reader = true;
+                    }
+                }
             }
-            #[cfg(not(debug_assertions))]
-            {
-                false
-            }
+            !has_reader
         };
 
         if is_simulated {
@@ -341,19 +343,38 @@ pub async fn complete_hardware_auth(
                 |r| Ok((r.get(0)?, r.get(1)?))
             ).await.ok();
 
-            if let Some((user_id, pubkey_hex)) = user_info {
+            if let Some((_user_id, pubkey_hex)) = user_info {
                 let challenge_bytes = const_hex::decode(&challenge_hex).unwrap_or_default();
-                let seed_val = if user_id == "user-1" { 1 } else { 2 };
-                let signing_key = ed25519_dalek::SigningKey::from_bytes(&[seed_val; 32]);
+                
+                // Construct PSO: Compute Digital Signature APDU command
+                // CLA: 00, INS: 2A, P1: 9E, P2: 9A
+                let mut apdu_sign = vec![0x00, 0x2A, 0x9E, 0x9A];
+                apdu_sign.push(challenge_bytes.len() as u8);
+                apdu_sign.extend_from_slice(&challenge_bytes);
+                apdu_sign.push(0x00); // Le
 
-                use ed25519_dalek::Signer;
-                let signature = signing_key.sign(&challenge_bytes);
-                let sig_hex = const_hex::encode(signature.to_bytes());
+                let mut signature_buf = [0u8; 258];
+                let mut card_sign_ok = false;
+                let mut sig_hex = String::new();
 
-                crate::services::auth::bankid::verify_hardware_auth_signature(
-                    session_id, pubkey_hex, sig_hex,
-                )
-                .await?;
+                if let Ok(res) = card.transmit(&apdu_sign, &mut signature_buf) {
+                    if res.len() >= 2 && res[res.len() - 2..] == [0x90, 0x00] {
+                        let signature_bytes = &res[..res.len() - 2];
+                        sig_hex = const_hex::encode(signature_bytes);
+                        card_sign_ok = true;
+                    }
+                }
+
+                if card_sign_ok {
+                    crate::services::auth::bankid::verify_hardware_auth_signature(
+                        session_id, pubkey_hex, sig_hex,
+                    )
+                    .await?;
+                } else {
+                    return Err(YntraError::AuthError(
+                        "On-device smart card cryptographic signing failed or is unsupported on the connected card.".to_string(),
+                    ));
+                }
             } else {
                 return Err(YntraError::NotFoundError(
                     "No user is registered with this Smart Card".to_string(),
