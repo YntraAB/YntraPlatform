@@ -53,9 +53,14 @@ pub async fn sync_database() -> Result<(), YntraError> {
         let has_sync_env = std::env::var("LIBSQL_URL").is_ok();
         if config.is_some() || has_sync_env {
             let db = super::native::get_database();
-            db.sync()
-                .await
-                .map_err(|e| YntraError::SyncError(e.to_string()))?;
+            match tokio::time::timeout(std::time::Duration::from_secs(15), db.sync()).await {
+                Ok(sync_res) => {
+                    sync_res.map_err(|e| YntraError::SyncError(e.to_string()))?;
+                }
+                Err(_) => {
+                    return Err(YntraError::SyncError("Database sync timed out".to_string()));
+                }
+            }
             let _ = crate::services::notes::merge_unmerged_notes().await;
             crate::infra::observer::notify_observers();
         }
@@ -118,8 +123,7 @@ pub fn start_background_sync(interval_secs: u32) {
     #[cfg(not(target_arch = "wasm32"))]
     {
         let rt = super::native::get_runtime();
-        let _guard = rt.enter();
-        tokio::spawn(async move {
+        rt.spawn(async move {
             let base_interval = interval_secs as u64;
             let mut consecutive_failures = 0;
             loop {
@@ -183,9 +187,19 @@ mod tests {
 
     #[test]
     fn test_sync_loop_cancellation() {
-        start_background_sync(10);
+        start_background_sync(0);
         assert!(SYNC_RUNNING.load(Ordering::SeqCst));
         stop_background_sync();
         assert!(SYNC_CANCELLED.load(Ordering::SeqCst));
+
+        let mut ok = false;
+        for _ in 0..10 {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            if !SYNC_RUNNING.load(Ordering::SeqCst) {
+                ok = true;
+                break;
+            }
+        }
+        assert!(ok, "Sync loop did not stop running after cancellation");
     }
 }

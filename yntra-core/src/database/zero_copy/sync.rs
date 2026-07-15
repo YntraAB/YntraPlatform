@@ -228,6 +228,20 @@ pub struct P2PMeshSyncRouter {
     ws_conn: Arc<Mutex<Option<WsConnection>>>,
 }
 
+fn create_http_client() -> reqwest::Client {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new())
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        reqwest::Client::new()
+    }
+}
+
 #[uniffi::export]
 impl P2PMeshSyncRouter {
     #[uniffi::constructor]
@@ -236,7 +250,7 @@ impl P2PMeshSyncRouter {
             peers: Arc::new(Mutex::new(Vec::new())),
             failed_broadcasts: Arc::new(Mutex::new(Vec::new())),
             relay_url: Arc::new(Mutex::new(None)),
-            client: reqwest::Client::new(),
+            client: create_http_client(),
             signing_key: Arc::new(Mutex::new(None)),
             ws_conn: Arc::new(Mutex::new(None)),
         }
@@ -248,7 +262,7 @@ impl P2PMeshSyncRouter {
             peers: Arc::new(Mutex::new(Vec::new())),
             failed_broadcasts: Arc::new(Mutex::new(Vec::new())),
             relay_url: Arc::new(Mutex::new(Some(relay_url))),
-            client: reqwest::Client::new(),
+            client: create_http_client(),
             signing_key: Arc::new(Mutex::new(None)),
             ws_conn: Arc::new(Mutex::new(None)),
         }
@@ -1134,7 +1148,7 @@ impl EdgeSyncLoop {
                 message_gen: Arc::new(std::sync::atomic::AtomicU64::new(0)),
                 note_gen: Arc::new(std::sync::atomic::AtomicU64::new(0)),
                 audit_gen: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-                client: reqwest::Client::new(),
+                client: create_http_client(),
             }),
         }
     }

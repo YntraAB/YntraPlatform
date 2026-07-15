@@ -162,11 +162,15 @@ pub fn get_note_store(workspace_id: &str) -> ZeroCopyNoteStore {
         .clone()
 }
 
-#[uniffi::export]
-pub async fn load_notes_from_opfs(workspace_id: String) -> Result<(), YntraError> {
-    let store = get_note_store(&workspace_id);
+pub async fn load_notes_from_opfs_internal(workspace_id: &str) -> Result<(), YntraError> {
+    let store = get_note_store(workspace_id);
     store.load_from_opfs().await?;
     Ok(())
+}
+
+#[uniffi::export]
+pub async fn load_notes_from_opfs(workspace_id: String) -> Result<(), YntraError> {
+    load_notes_from_opfs_internal(&workspace_id).await
 }
 
 #[uniffi::export]

@@ -39,11 +39,15 @@ pub(crate) fn get_audit_store(workspace_id: &str) -> Arc<crate::ZeroCopyAuditSto
         .clone()
 }
 
-#[uniffi::export]
-pub async fn load_audits_from_opfs(workspace_id: String) -> Result<(), YntraError> {
-    let store = get_audit_store(&workspace_id);
+pub async fn load_audits_from_opfs_internal(workspace_id: &str) -> Result<(), YntraError> {
+    let store = get_audit_store(workspace_id);
     store.load_from_opfs().await?;
     Ok(())
+}
+
+#[uniffi::export]
+pub async fn load_audits_from_opfs(workspace_id: String) -> Result<(), YntraError> {
+    load_audits_from_opfs_internal(&workspace_id).await
 }
 
 fn compute_hash(

@@ -226,6 +226,7 @@ macro_rules! named_params {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[uniffi::export]
 pub async fn init_wasm_db() -> Result<(), YntraError> {
     database::native::init_database_async().await?;
     Ok(())
@@ -263,9 +264,9 @@ pub fn init_tracing() -> Result<(), YntraError> {
 
 #[uniffi::export]
 pub async fn load_workspace_zero_copy_stores(workspace_id: String) -> Result<(), YntraError> {
-    services::todos::load_todos_from_opfs(workspace_id.clone()).await?;
-    services::messages::load_messages_from_opfs(workspace_id.clone()).await?;
-    services::notes::load_notes_from_opfs(workspace_id.clone()).await?;
-    services::audit::load_audits_from_opfs(workspace_id).await?;
+    services::todos::load_todos_from_opfs_internal(&workspace_id).await?;
+    services::messages::load_messages_from_opfs_internal(&workspace_id).await?;
+    services::notes::load_notes_from_opfs_internal(&workspace_id).await?;
+    services::audit::load_audits_from_opfs_internal(&workspace_id).await?;
     Ok(())
 }

@@ -85,6 +85,12 @@ pub async fn get_supabase_user_email(mut token: String) -> Result<String, YntraE
     let (base_url, apikey) = get_supabase_config().await?;
     let url = format!("{}/auth/v1/user", base_url.trim_end_matches('/'));
 
+    #[cfg(not(target_arch = "wasm32"))]
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| YntraError::NetworkError(e.to_string()))?;
+    #[cfg(target_arch = "wasm32")]
     let client = reqwest::Client::new();
     let res = client
         .get(&url)

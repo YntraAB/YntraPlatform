@@ -38,11 +38,15 @@ pub(crate) fn get_message_store(workspace_id: &str) -> Arc<crate::ZeroCopyMessag
         .clone()
 }
 
-#[uniffi::export]
-pub async fn load_messages_from_opfs(workspace_id: String) -> Result<(), YntraError> {
-    let store = get_message_store(&workspace_id);
+pub async fn load_messages_from_opfs_internal(workspace_id: &str) -> Result<(), YntraError> {
+    let store = get_message_store(workspace_id);
     store.load_from_opfs().await?;
     Ok(())
+}
+
+#[uniffi::export]
+pub async fn load_messages_from_opfs(workspace_id: String) -> Result<(), YntraError> {
+    load_messages_from_opfs_internal(&workspace_id).await
 }
 
 #[uniffi::export]
