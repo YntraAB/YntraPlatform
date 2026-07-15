@@ -35,7 +35,7 @@ pub use datepicker::DatePicker;
 pub use devhub::DevHubDialog;
 pub use dialog::{Dialog, DialogDescription, DialogTitle};
 pub use directory_modals::{DirectoryMember, EditMemberDialog, MemberDetailDialog};
-pub use dropdown::{Dropdown, DropdownItem};
+pub use dropdown::{Dropdown, DropdownItem, Select};
 pub use error_boundary::ErrorBoundary;
 pub use globalsearch::GlobalSearch;
 pub use icons::LucideIcon;
