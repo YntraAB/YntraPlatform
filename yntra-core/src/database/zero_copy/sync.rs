@@ -1093,8 +1093,6 @@ macro_rules! start_loop_body {
                                     if !remote_bytes.is_empty() {
                                         if let Err(e) = $store.apply_loro_update(remote_bytes.to_vec()) {
                                             tracing::warn!("Failed to apply sync loop update: {:?}", e);
-                                        } else {
-                                            crate::infra::observer::notify_observers();
                                         }
                                     }
                                 }
@@ -1124,8 +1122,6 @@ macro_rules! start_loop_body {
                                     if !remote_bytes.is_empty() {
                                         if let Err(e) = $store.apply_loro_update(remote_bytes.to_vec()) {
                                             tracing::warn!("Failed to apply sync loop update: {:?}", e);
-                                        } else {
-                                            crate::infra::observer::notify_observers();
                                         }
                                     }
                                 }

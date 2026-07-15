@@ -1135,9 +1135,12 @@ pub async fn apply_note_loro_update(
 pub async fn merge_unmerged_notes() -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
 
-    // Find candidate notes that have at least one update in note_updates, fetching max_seq as a subquery
+    // Find candidate notes that have at least one update in note_updates, fetching max_seq using a JOIN
     let mut stmt = conn.prepare(
-        "SELECT id, content, (SELECT IFNULL(MAX(seq), -1) FROM note_updates WHERE note_updates.note_id = notes.id) FROM notes WHERE EXISTS (SELECT 1 FROM note_updates WHERE note_updates.note_id = notes.id)"
+        "SELECT n.id, n.content, MAX(u.seq) \
+         FROM notes n \
+         JOIN note_updates u ON u.note_id = n.id \
+         GROUP BY n.id"
     ).await?;
 
     let mut rows = stmt.query(()).await?;
