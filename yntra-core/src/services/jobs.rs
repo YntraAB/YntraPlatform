@@ -2,7 +2,7 @@
 
 use crate::database;
 use crate::infra::observer::notify_observers;
-use crate::{JobTicket, YntraError};
+use crate::{JobTicket, MoveInventoryItem, MoveQuote, YntraError};
 use uuid::Uuid;
 
 fn is_staff(auth: &crate::AuthContext) -> bool {
@@ -34,7 +34,7 @@ pub async fn get_job_tickets(requester_user_id: String) -> Result<Vec<JobTicket>
     }
 
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status FROM job_tickets WHERE workspace_id = ?1",
+        "SELECT id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed FROM job_tickets WHERE workspace_id = ?1",
     ).await?;
 
     let list = stmt
@@ -54,14 +54,14 @@ pub async fn get_job_tickets(requester_user_id: String) -> Result<Vec<JobTicket>
                 created_at: row.get(11)?,
                 updated_at: row.get(12)?,
                 sync_status: row.get(13)?,
-                origin_address: None,
-                destination_address: None,
-                origin_floor: 0,
-                destination_floor: 0,
-                origin_has_elevator: false,
-                destination_has_elevator: false,
-                origin_parking_permit_needed: false,
-                destination_parking_permit_needed: false,
+                origin_address: row.get(14)?,
+                destination_address: row.get(15)?,
+                origin_floor: row.get(16)?,
+                destination_floor: row.get(17)?,
+                origin_has_elevator: row.get::<bool>(18)?,
+                destination_has_elevator: row.get::<bool>(19)?,
+                origin_parking_permit_needed: row.get::<bool>(20)?,
+                destination_parking_permit_needed: row.get::<bool>(21)?,
             })
         })
         .await?;
@@ -141,7 +141,7 @@ pub async fn create_job_ticket(
     }
 
     conn.execute(
-        "INSERT INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        "INSERT INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
         crate::params![
             job.id,
             job.workspace_id,
@@ -156,7 +156,15 @@ pub async fn create_job_ticket(
             job.completion_report,
             job.created_at,
             job.updated_at,
-            job.sync_status
+            job.sync_status,
+            job.origin_address,
+            job.destination_address,
+            job.origin_floor,
+            job.destination_floor,
+            job.origin_has_elevator,
+            job.destination_has_elevator,
+            job.origin_parking_permit_needed,
+            job.destination_parking_permit_needed
         ],
     ).await?;
     Ok(job)
@@ -252,6 +260,154 @@ pub async fn get_job_tickets_rkyv(requester_user_id: String) -> Result<Vec<u8>, 
     let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&tickets)
         .map_err(|e| YntraError::SerializationError(e.to_string()))?;
     Ok(bytes.into_vec())
+}
+
+#[uniffi::export]
+pub async fn get_move_inventory(
+    requester_user_id: String,
+    job_ticket_id: String,
+) -> Result<Vec<MoveInventoryItem>, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" {
+        return Err(YntraError::AuthError(
+            "Access denied: insufficient permissions".to_string(),
+        ));
+    }
+
+    // Verify workspace scoping
+    let (job_ws,): (String,) = conn
+        .query_row(
+            "SELECT workspace_id FROM job_tickets WHERE id = ?1",
+            crate::params![&job_ticket_id],
+            |r| Ok((r.get(0)?,)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
+
+    if auth.workspace_id != job_ws {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, handling_notes, updated_at, sync_status FROM move_inventory WHERE job_ticket_id = ?1",
+    ).await?;
+
+    let list = stmt
+        .query_map(crate::params![job_ticket_id], |row| {
+            Ok(MoveInventoryItem {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                job_ticket_id: row.get(2)?,
+                item_category: row.get(3)?,
+                item_name: row.get(4)?,
+                quantity: row.get::<i64>(5)? as i32,
+                estimated_volume_m3: row.get(6)?,
+                handling_notes: row.get(7)?,
+                updated_at: row.get(8)?,
+                sync_status: row.get(9)?,
+            })
+        })
+        .await?;
+
+    Ok(list)
+}
+
+#[uniffi::export]
+pub async fn get_move_quote(
+    requester_user_id: String,
+    job_ticket_id: String,
+) -> Result<Option<MoveQuote>, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" {
+        return Err(YntraError::AuthError(
+            "Access denied: insufficient permissions".to_string(),
+        ));
+    }
+
+    // Verify workspace scoping
+    let (job_ws,): (String,) = conn
+        .query_row(
+            "SELECT workspace_id FROM job_tickets WHERE id = ?1",
+            crate::params![&job_ticket_id],
+            |r| Ok((r.get(0)?,)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
+
+    if auth.workspace_id != job_ws {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, accepted_at, updated_at, sync_status FROM move_quotes WHERE job_ticket_id = ?1 LIMIT 1",
+    ).await?;
+
+    let mut rows = stmt.query(crate::params![job_ticket_id]).await?;
+    if let Some(row) = rows.next().await? {
+        Ok(Some(MoveQuote {
+            id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            job_ticket_id: row.get(2)?,
+            base_price: row.get::<f64>(3)? as i64,
+            distance_fee: row.get::<f64>(4)? as i64,
+            stairs_surcharge: row.get::<f64>(5)? as i64,
+            packing_supplies_fee: row.get::<f64>(6)? as i64,
+            total_price: row.get::<f64>(7)? as i64,
+            status: row.get(8)?,
+            accepted_at: row.get(9)?,
+            updated_at: row.get(10)?,
+            sync_status: row.get(11)?,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+#[uniffi::export]
+pub async fn accept_move_quote(
+    requester_user_id: String,
+    quote_id: String,
+) -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" {
+        return Err(YntraError::AuthError(
+            "Access denied: insufficient permissions".to_string(),
+        ));
+    }
+
+    // Verify workspace scoping
+    let (quote_ws,): (String,) = conn
+        .query_row(
+            "SELECT workspace_id FROM move_quotes WHERE id = ?1",
+            crate::params![&quote_id],
+            |r| Ok((r.get(0)?,)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Quote not found".to_string()))?;
+
+    if auth.workspace_id != quote_ws {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    conn.execute(
+        "UPDATE move_quotes SET status = 'accepted', accepted_at = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
+        crate::params![now_ms, now_ms, quote_id],
+    ).await?;
+
+    Ok(())
 }
 
 #[cfg(test)]

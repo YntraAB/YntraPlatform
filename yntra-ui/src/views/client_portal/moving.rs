@@ -1,47 +1,7 @@
 use dioxus::prelude::*;
-use yntra_core::get_job_tickets;
-
-#[derive(Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
-pub struct MoveInventoryItem {
-    pub id: String,
-    pub workspace_id: String,
-    pub job_ticket_id: String,
-    pub item_category: String,
-    pub item_name: String,
-    pub quantity: i32,
-    pub estimated_volume_m3: f64,
-    pub handling_notes: Option<String>,
-    pub updated_at: i64,
-    pub sync_status: String,
-}
-
-#[derive(Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
-pub struct MoveQuote {
-    pub id: String,
-    pub workspace_id: String,
-    pub job_ticket_id: String,
-    pub base_price: i64,
-    pub distance_fee: i64,
-    pub stairs_surcharge: i64,
-    pub packing_supplies_fee: i64,
-    pub total_price: i64,
-    pub status: String,
-    pub accepted_at: Option<i64>,
-    pub updated_at: i64,
-    pub sync_status: String,
-}
-
-async fn get_move_inventory(_uid: String, _jid: String) -> Result<Vec<MoveInventoryItem>, String> {
-    Ok(vec![])
-}
-
-async fn get_move_quote(_uid: String, _jid: String) -> Result<Option<MoveQuote>, String> {
-    Ok(None)
-}
-
-async fn accept_move_quote(_uid: String, _qid: String) -> Result<(), String> {
-    Ok(())
-}
+use yntra_core::{
+    get_job_tickets, get_move_inventory, get_move_quote, accept_move_quote,
+};
 use crate::components;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
