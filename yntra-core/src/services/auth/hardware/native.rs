@@ -44,14 +44,26 @@ pub async fn run_hardware_auth_native(session_id: String, provider: String) {
         Ok(c) => c,
         Err(e) => {
             let err_msg = format!("Smart Card subsystem failed to initialize: {:?}", e);
-            if let Ok(conn) = database::acquire_connection().await {
-                let _ = conn.execute(
-                    "UPDATE bankid_auth_sessions SET status = 'error', progress = 0.0, error_message = ?1 WHERE id = ?2",
-                    crate::params![err_msg, session_id],
-                ).await;
+            if e == pcsc::Error::NoService {
+                let silent_msg = "Smart Card subsystem is not running (NoService). Skipping hardware auth.";
+                if let Ok(conn) = database::acquire_connection().await {
+                    let _ = conn.execute(
+                        "UPDATE bankid_auth_sessions SET status = 'no_service', progress = 0.0, error_message = ?1 WHERE id = ?2",
+                        crate::params![silent_msg.to_string(), session_id],
+                    ).await;
+                }
+                notify_observers();
+                tracing::debug!("[Smart Card] {}", silent_msg);
+            } else {
+                if let Ok(conn) = database::acquire_connection().await {
+                    let _ = conn.execute(
+                        "UPDATE bankid_auth_sessions SET status = 'error', progress = 0.0, error_message = ?1 WHERE id = ?2",
+                        crate::params![err_msg, session_id],
+                    ).await;
+                }
+                notify_observers();
+                tracing::error!("[Smart Card Error] {}", err_msg);
             }
-            notify_observers();
-            tracing::error!("[Smart Card Error] {}", err_msg);
             return;
         }
     };
