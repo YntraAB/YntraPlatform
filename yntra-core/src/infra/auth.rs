@@ -5,6 +5,36 @@ use std::sync::{OnceLock, RwLock};
 
 static AUTH_CONTEXT_CACHE: OnceLock<RwLock<HashMap<String, AuthContext>>> = OnceLock::new();
 
+fn check_insecure_dev_bypass() -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if let Ok(val) = std::env::var("YNTRA_INSECURE_DEV_BYPASS_SIGNATURES") {
+            return val == "1" || val.to_lowercase() == "true";
+        }
+        for path in &[".env", "../.env"] {
+            if let Ok(content) = std::fs::read_to_string(path) {
+                for line in content.lines() {
+                    if let Some(stripped) = line.strip_prefix("YNTRA_INSECURE_DEV_BYPASS_SIGNATURES=") {
+                        let val = stripped.trim().trim_matches('"').trim_matches('\'').to_lowercase();
+                        return val == "1" || val == "true";
+                    }
+                }
+            }
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(window) = web_sys::window() {
+            if let Ok(Some(storage)) = window.local_storage() {
+                if let Ok(Some(val)) = storage.get_item("YNTRA_INSECURE_DEV_BYPASS_SIGNATURES") {
+                    return val == "1" || val.to_lowercase() == "true";
+                }
+            }
+        }
+    }
+    false
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 static AUTH_MUTEX: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
@@ -14,6 +44,64 @@ pub fn invalidate_auth_context_cache() {
         .write()
     {
         cache.clear();
+    }
+}
+
+pub fn invalidate_auth_context_cache_for_user(user_id: &str) {
+    if let Ok(mut cache) = AUTH_CONTEXT_CACHE
+        .get_or_init(|| RwLock::new(HashMap::new()))
+        .write()
+    {
+        cache.remove(user_id);
+    }
+}
+
+pub fn invalidate_auth_context_cache_for_workspace(workspace_id: &str) {
+    if let Ok(mut cache) = AUTH_CONTEXT_CACHE
+        .get_or_init(|| RwLock::new(HashMap::new()))
+        .write()
+    {
+        cache.retain(|_, context| context.workspace_id != workspace_id);
+    }
+}
+
+pub fn invalidate_auth_context_cache_for_sql(sql: &str, table: &str) {
+    if let Ok(mut cache) = AUTH_CONTEXT_CACHE
+        .get_or_init(|| RwLock::new(HashMap::new()))
+        .write()
+    {
+        let has_placeholders = sql.contains('?');
+        let mut literals = Vec::new();
+        let mut chars = sql.chars().peekable();
+        let mut in_quote = false;
+        let mut current_lit = String::new();
+        while let Some(c) = chars.next() {
+            if c == '\'' {
+                if in_quote {
+                    literals.push(current_lit.clone());
+                    current_lit.clear();
+                    in_quote = false;
+                } else {
+                    in_quote = true;
+                }
+            } else if in_quote {
+                current_lit.push(c);
+            }
+        }
+
+        if has_placeholders || literals.is_empty() {
+            cache.clear();
+        } else {
+            if table == "users" {
+                for lit in literals {
+                    cache.remove(&lit);
+                }
+            } else if table == "workspaces" {
+                cache.retain(|_, context| {
+                    !literals.iter().any(|lit| lit == &context.workspace_id)
+                });
+            }
+        }
     }
 }
 
@@ -97,11 +185,20 @@ impl AuthContext {
             // Cryptographic signature is always required in production to prevent local database tampering.
             // In test and debug configurations, we allow bypassing it if the setup did not configure a public key,
             // to avoid breaking local dev mode / test runs with unconfigured mock workspaces.
-            let is_signature_required = if cfg!(test) || cfg!(debug_assertions) {
+            let is_signature_required = if cfg!(test) {
                 creator_pk
                     .as_ref()
                     .map(|s| !s.trim().is_empty())
                     .unwrap_or(false)
+            } else if cfg!(debug_assertions) {
+                if check_insecure_dev_bypass() {
+                    creator_pk
+                        .as_ref()
+                        .map(|s| !s.trim().is_empty())
+                        .unwrap_or(false)
+                } else {
+                    true
+                }
             } else {
                 true
             };
@@ -650,5 +747,125 @@ mod tests {
         // Value hijacking regression test
         let value_hijack_json = "{\"name\": \"auth_epoch\", \"auth_epoch\": 5}";
         assert_eq!(extract_auth_epoch(value_hijack_json), 5);
+    }
+
+    #[test]
+    fn test_auth_context_debug_assertions_bypass_prevention() {
+        unsafe {
+            std::env::remove_var("YNTRA_INSECURE_DEV_BYPASS_SIGNATURES");
+        }
+        assert!(!check_insecure_dev_bypass());
+        
+        unsafe {
+            std::env::set_var("YNTRA_INSECURE_DEV_BYPASS_SIGNATURES", "true");
+        }
+        assert!(check_insecure_dev_bypass());
+        
+        unsafe {
+            std::env::set_var("YNTRA_INSECURE_DEV_BYPASS_SIGNATURES", "1");
+        }
+        assert!(check_insecure_dev_bypass());
+        
+        unsafe {
+            std::env::set_var("YNTRA_INSECURE_DEV_BYPASS_SIGNATURES", "false");
+        }
+        assert!(!check_insecure_dev_bypass());
+
+        unsafe {
+            std::env::remove_var("YNTRA_INSECURE_DEV_BYPASS_SIGNATURES");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_selective_auth_cache_invalidation() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        // 1. Populate the cache with two contexts
+        let ctx1 = AuthContext {
+            user_id: "user-cache-test-1".to_string(),
+            role: "user".to_string(),
+            workspace_id: "ws-cache-test-1".to_string(),
+            is_admin: false,
+            workspace_settings: None,
+        };
+        let ctx2 = AuthContext {
+            user_id: "user-cache-test-2".to_string(),
+            role: "admin".to_string(),
+            workspace_id: "ws-cache-test-2".to_string(),
+            is_admin: true,
+            workspace_settings: None,
+        };
+
+        if let Ok(mut cache) = AUTH_CONTEXT_CACHE
+            .get_or_init(|| RwLock::new(HashMap::new()))
+            .write()
+        {
+            cache.insert("user-cache-test-1".to_string(), ctx1);
+            cache.insert("user-cache-test-2".to_string(), ctx2);
+        }
+
+        // Verify they are cached
+        {
+            let cache = AUTH_CONTEXT_CACHE.get().unwrap().read().unwrap();
+            assert!(cache.contains_key("user-cache-test-1"));
+            assert!(cache.contains_key("user-cache-test-2"));
+        }
+
+        // 2. Perform a write that targets user-cache-test-1 using a SQL statement
+        let sql_user = "UPDATE users SET role = 'admin' WHERE id = 'user-cache-test-1'";
+        invalidate_auth_context_cache_for_sql(sql_user, "users");
+
+        // Verify user-cache-test-1 is invalidated, but user-cache-test-2 is NOT!
+        {
+            let cache = AUTH_CONTEXT_CACHE.get().unwrap().read().unwrap();
+            assert!(!cache.contains_key("user-cache-test-1"));
+            assert!(cache.contains_key("user-cache-test-2"));
+        }
+
+        // Repopulate user-cache-test-1
+        let ctx1 = AuthContext {
+            user_id: "user-cache-test-1".to_string(),
+            role: "user".to_string(),
+            workspace_id: "ws-cache-test-1".to_string(),
+            is_admin: false,
+            workspace_settings: None,
+        };
+        if let Ok(mut cache) = AUTH_CONTEXT_CACHE.get().unwrap().write() {
+            cache.insert("user-cache-test-1".to_string(), ctx1);
+        }
+
+        // 3. Perform a write that targets ws-cache-test-1 using a SQL statement
+        let sql_ws = "UPDATE workspaces SET settings = '{}' WHERE id = 'ws-cache-test-1'";
+        invalidate_auth_context_cache_for_sql(sql_ws, "workspaces");
+
+        // Verify user-cache-test-1 (which belongs to ws-cache-test-1) is invalidated, but user-cache-test-2 is NOT!
+        {
+            let cache = AUTH_CONTEXT_CACHE.get().unwrap().read().unwrap();
+            assert!(!cache.contains_key("user-cache-test-1"));
+            assert!(cache.contains_key("user-cache-test-2"));
+        }
+
+        // Repopulate user-cache-test-1
+        let ctx1 = AuthContext {
+            user_id: "user-cache-test-1".to_string(),
+            role: "user".to_string(),
+            workspace_id: "ws-cache-test-1".to_string(),
+            is_admin: false,
+            workspace_settings: None,
+        };
+        if let Ok(mut cache) = AUTH_CONTEXT_CACHE.get().unwrap().write() {
+            cache.insert("user-cache-test-1".to_string(), ctx1);
+        }
+
+        // 4. Perform a SQL write with placeholders (should fall back to clearing everything)
+        let sql_placeholder = "UPDATE users SET role = ?1 WHERE id = ?2";
+        invalidate_auth_context_cache_for_sql(sql_placeholder, "users");
+
+        // Verify EVERYTHING is cleared
+        {
+            let cache = AUTH_CONTEXT_CACHE.get().unwrap().read().unwrap();
+            assert!(cache.is_empty());
+        }
     }
 }

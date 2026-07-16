@@ -154,17 +154,17 @@ pub async fn activate_invitation_code(code: String) -> Result<WorkspaceUser, Ynt
                     let lookup_code_clone = lookup_code.clone();
                     let enc_key_clone = enc_key.clone();
                     tokio::task::spawn_blocking(move || {
-                        crate::infra::crypto::decrypt_workspace_key_with_password(&lookup_code_clone, &enc_key_clone)
+                        crate::infra::crypto::decrypt_workspace_key_with_password(lookup_code_clone, &enc_key_clone)
                     }).await.unwrap_or_else(|e| Err(YntraError::CryptoError(e.to_string())))
                 };
                 #[cfg(target_arch = "wasm32")]
-                let dec_res = crate::infra::crypto::decrypt_workspace_key_with_password(&lookup_code, enc_key);
+                let dec_res = crate::infra::crypto::decrypt_workspace_key_with_password(lookup_code.clone(), enc_key);
 
                 let pk = dec_res?;
                 let key_setting = format!("workspace_key_{}", workspace_id);
                 crate::infra::crypto::set_local_secret(&key_setting, &const_hex::encode(&pk)).await?;
 
-                crate::infra::crypto::set_session_key(pk);
+                crate::infra::crypto::set_session_key(pk, workspace_id.clone());
             }
 
             // Write the out-of-band verified public key to the keyring if provided
@@ -343,7 +343,7 @@ mod tests {
         // 1. Insert a mock invitation with encrypted workspace key
         let test_key = vec![0u8; 32];
         let enc_test_key =
-            crate::infra::crypto::encrypt_workspace_key_with_password("CODE123", test_key).unwrap();
+            crate::infra::crypto::encrypt_workspace_key_with_password("CODE123".to_string(), test_key).unwrap();
         conn.execute(
             "INSERT OR REPLACE INTO invitations (code, workspace_id, email, full_name, role, activated, updated_at, encrypted_workspace_key) VALUES ('CODE123', 'ws-dir-inv', 'guest@dir.io', 'Guest User', 'user', 0, 0, ?1)",
             crate::params![enc_test_key],
@@ -400,7 +400,7 @@ mod tests {
 
         let test_key_2 = vec![0u8; 32];
         let enc_test_key_2 =
-            crate::infra::crypto::encrypt_workspace_key_with_password("CODE456", test_key_2)
+            crate::infra::crypto::encrypt_workspace_key_with_password("CODE456".to_string(), test_key_2)
                 .unwrap();
         conn.execute(
             "INSERT OR REPLACE INTO invitations (code, workspace_id, email, full_name, role, activated, updated_at, encrypted_workspace_key) VALUES ('CODE456', 'ws-dir-inv', 'guest2@dir.io', 'Guest User 2', 'user', 0, 0, ?1)",

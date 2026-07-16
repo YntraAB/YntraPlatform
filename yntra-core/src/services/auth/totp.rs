@@ -17,7 +17,7 @@ pub fn verify_user_totp(mut secret: String, mut code: String) -> bool {
 }
 
 static LAST_VERIFIED_STEPS: std::sync::OnceLock<
-    std::sync::Mutex<std::collections::HashMap<String, u64>>,
+    std::sync::Mutex<std::collections::HashMap<String, Vec<u64>>>,
 > = std::sync::OnceLock::new();
 
 fn verify_totp(secret: String, code: &str, timestamp: u64) -> bool {
@@ -55,22 +55,38 @@ fn verify_totp(secret: String, code: &str, timestamp: u64) -> bool {
     }
 
     if let Some(step) = verified_step {
+        static EPHEMERAL_SALT: std::sync::OnceLock<[u8; 32]> = std::sync::OnceLock::new();
+        let salt = EPHEMERAL_SALT.get_or_init(|| {
+            let mut s = [0u8; 32];
+            let _ = getrandom::fill(&mut s);
+            s
+        });
+
         let secret_hash = {
             use sha2::Digest;
             let mut hasher = sha2::Sha256::new();
             hasher.update(secret.as_bytes());
+            hasher.update(salt);
             const_hex::encode(hasher.finalize())
         };
+
         let mut cache = LAST_VERIFIED_STEPS
             .get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
             .lock()
             .unwrap();
-        if let Some(&last_step) = cache.get(&secret_hash) {
-            if step <= last_step {
-                return false;
-            }
+
+        let entry = cache.entry(secret_hash).or_insert_with(Vec::new);
+
+        // Remove any expired steps outside of the valid skew window (current_step - 1)
+        let min_valid_step = current_step.saturating_sub(1);
+        entry.retain(|&s| s >= min_valid_step);
+
+        // Check if this step has already been verified
+        if entry.contains(&step) {
+            return false;
         }
-        cache.insert(secret_hash, step);
+
+        entry.push(step);
         true
     } else {
         false
@@ -107,5 +123,41 @@ mod tests {
 
         // Verify incorrect code fails
         assert!(!verify_totp(secret_str.clone(), "000000", timestamp));
+    }
+
+    #[test]
+    fn test_totp_sliding_window_skew_replay() {
+        let secret_str = generate_totp_secret();
+        let secret_bytes = Secret::Encoded(secret_str.clone()).to_bytes().unwrap();
+        let totp = TOTP::new(Algorithm::SHA1, 6, 1, 30, secret_bytes).unwrap();
+
+        let timestamp = 1700000000;
+        let current_step = timestamp / 30;
+
+        let code_prev = totp.generate((current_step - 1) * 30);
+        let code_curr = totp.generate(current_step * 30);
+        let code_next = totp.generate((current_step + 1) * 30);
+
+        // 1. Verify code_curr for current step succeeds
+        assert!(verify_totp(secret_str.clone(), &code_curr, timestamp));
+
+        // 2. Replay of same code_curr fails
+        assert!(!verify_totp(secret_str.clone(), &code_curr, timestamp));
+
+        // 3. Verify code_next (skew +1) succeeds
+        assert!(verify_totp(secret_str.clone(), &code_next, timestamp));
+
+        // 4. Replay of code_next fails
+        assert!(!verify_totp(secret_str.clone(), &code_next, timestamp));
+
+        // 5. Verify code_prev (skew -1) succeeds
+        assert!(verify_totp(secret_str.clone(), &code_prev, timestamp));
+
+        // 6. Replay of code_prev fails
+        assert!(!verify_totp(secret_str.clone(), &code_prev, timestamp));
+
+        // 7. Verify an old expired step (skew -2) fails
+        let code_expired = totp.generate((current_step - 2) * 30);
+        assert!(!verify_totp(secret_str.clone(), &code_expired, timestamp));
     }
 }

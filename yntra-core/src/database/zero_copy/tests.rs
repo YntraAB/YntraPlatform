@@ -792,5 +792,71 @@ fn test_failed_broadcast_retry_queue() {
     }
 }
 
+#[test]
+fn test_p2p_update_envelope_and_signature() {
+    let router = P2PMeshSyncRouter::new();
+    let pubkey_hex = router.set_ephemeral_identity().unwrap();
+
+    let data = vec![1, 2, 3, 4, 5];
+    let timestamp = chrono::Utc::now().timestamp_millis();
+
+    // 1. Generate signature
+    let sig_hex = {
+        let key_guard = router.signing_key.lock().unwrap();
+        let key = key_guard.as_ref().unwrap();
+        
+        let mut msg = Vec::new();
+        msg.extend_from_slice(b"broadcast:");
+        msg.extend_from_slice(pubkey_hex.as_bytes());
+        msg.extend_from_slice(b":");
+        msg.extend_from_slice(&timestamp.to_be_bytes());
+        msg.extend_from_slice(b":");
+        msg.extend_from_slice(&data);
+
+        use ed25519_dalek::Signer;
+        let sig = key.sign(&msg);
+        const_hex::encode(sig.to_bytes())
+    };
+
+    // 2. Verify signature with valid params
+    let is_valid = super::sync::verify_update_signature(&pubkey_hex, timestamp, &sig_hex, &data);
+    assert!(is_valid);
+
+    // 3. Verify signature fails with wrong data
+    let is_valid_wrong_data = super::sync::verify_update_signature(&pubkey_hex, timestamp, &sig_hex, &[9, 9, 9]);
+    assert!(!is_valid_wrong_data);
+
+    // 4. Verify signature fails with expired/drifted timestamp (e.g. 1 hour ago)
+    let old_timestamp = timestamp - 3600 * 1000;
+    let is_valid_drift = super::sync::verify_update_signature(&pubkey_hex, old_timestamp, &sig_hex, &data);
+    assert!(!is_valid_drift);
+}
+
+#[tokio::test]
+async fn test_p2p_sync_workspace_access_control() {
+    let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+    let conn = crate::database::acquire_connection().await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-sync-test', 'Sync WS', '[]', '{}')", ()).await.unwrap();
+
+    let peer_a = "000000000000000000000000000000000000000000000000000000000000001a";
+    let peer_b = "000000000000000000000000000000000000000000000000000000000000001b";
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email) VALUES (?1, 'ws-sync-test', 'a@yntra.io')", crate::params![peer_a]).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email) VALUES (?1, 'ws-sync-test', 'b@yntra.io')", crate::params![peer_b]).await.unwrap();
+
+    let peer_c = "000000000000000000000000000000000000000000000000000000000000001c";
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-sync-test-diff', 'Diff WS', '[]', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email) VALUES (?1, 'ws-sync-test-diff', 'c@yntra.io')", crate::params![peer_c]).await.unwrap();
+
+    let auth_ab = super::sync::is_peer_authorized(peer_a, peer_b).await;
+    assert!(auth_ab);
+
+    let auth_ac = super::sync::is_peer_authorized(peer_a, peer_c).await;
+    assert!(!auth_ac);
+
+    conn.execute("DELETE FROM users WHERE id IN (?1, ?2, ?3)", crate::params![peer_a, peer_b, peer_c]).await.unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id IN ('ws-sync-test', 'ws-sync-test-diff')", ()).await.unwrap();
+}
+
 
 

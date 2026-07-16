@@ -1471,7 +1471,7 @@ mod tests {
         let _ = conn.execute("DELETE FROM notes WHERE workspace_id = ?1", crate::params![ws_id]).await;
         let _ = conn.execute("DELETE FROM note_updates WHERE note_id IN (SELECT id FROM notes WHERE workspace_id = ?1)", crate::params![ws_id]).await;
 
-        crate::infra::crypto::set_session_key("collab-test-session-key".to_string().into_bytes());
+        crate::infra::crypto::set_session_key("collab-test-session-key".to_string().into_bytes(), ws_id.to_string());
 
         // 1. Author creates a note
         let note = add_note(

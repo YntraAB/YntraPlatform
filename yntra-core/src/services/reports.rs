@@ -52,12 +52,11 @@ pub async fn get_reports(
             let ws_id: String = row.get(1)?;
             let raw_content: String = row.get(5)?;
 
-            if !ciphers.contains_key(&ws_id) {
-                let c = crate::infra::crypto::WorkspaceCipher::new(&ws_id)?;
-                ciphers.insert(ws_id.clone(), c);
-            }
-            let cipher = ciphers.get(&ws_id).unwrap();
-            let decrypted = cipher.decrypt(&raw_content).unwrap_or(raw_content);
+            let decrypted = if let Ok(cipher) = crate::infra::crypto::WorkspaceCipher::new(&ws_id) {
+                cipher.decrypt(&raw_content).unwrap_or(raw_content)
+            } else {
+                raw_content
+            };
 
             let user_id: String = if is_anon_int != 0 {
                 "anonymous".to_string()
@@ -316,7 +315,7 @@ mod tests {
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-rep-user2', 'ws-rep-2', 'user2@rep.io', 'user')", ()).await.unwrap();
 
         // Initialize key/salt for decrypting reports
-        crate::infra::crypto::set_session_key("rep-test-session-key".to_string().into_bytes());
+        crate::infra::crypto::set_session_key("rep-test-session-key".to_string().into_bytes(), "ws-rep-1".to_string());
 
         // 2. Add reports
         let r1 = add_report(
@@ -356,6 +355,8 @@ mod tests {
             .unwrap();
         assert_eq!(dummy_role, "anonymous");
 
+        crate::infra::crypto::set_session_key("rep-test-session-key-2".to_string().into_bytes(), "ws-rep-2".to_string());
+
         let r3 = add_report(
             "u-rep-user2".to_string(),
             "ws-rep-2".to_string(),
@@ -368,6 +369,8 @@ mod tests {
         )
         .await
         .unwrap();
+
+        crate::infra::crypto::set_session_key("rep-test-session-key".to_string().into_bytes(), "ws-rep-1".to_string());
 
         // 3. Verify get_reports scoping:
 
@@ -443,7 +446,7 @@ mod tests {
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES (?1, ?2, 'user1@rep.io', 'user')", crate::params![user1_id, ws_id]).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES (?1, ?2, 'user2@rep.io', 'user')", crate::params![user2_id, ws_id]).await.unwrap();
 
-        crate::infra::crypto::set_session_key("idor-test-session".to_string().into_bytes());
+        crate::infra::crypto::set_session_key("idor-test-session".to_string().into_bytes(), ws_id.to_string());
 
         // User 2 logs a standard non-anonymous report
         let rep_user2 = add_report(

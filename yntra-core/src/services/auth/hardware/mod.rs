@@ -309,7 +309,7 @@ mod tests {
 
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-hw-1', 'HW WS 1', '[]', '{}')", ()).await.unwrap();
 
-        crate::infra::crypto::set_session_key("hw-test-session-key".to_string().into_bytes());
+        crate::infra::crypto::set_session_key("hw-test-session-key".to_string().into_bytes(), "ws-hw-1".to_string());
 
         let pnum = "19950505-5555";
         let enc_pnum =

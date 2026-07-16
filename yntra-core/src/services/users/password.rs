@@ -120,9 +120,8 @@ pub async fn verify_email_password(
 
                     #[cfg(not(target_arch = "wasm32"))]
                     let enc_key_res = tokio::task::spawn_blocking(move || {
-                        let zeroing = zeroize::Zeroizing::new(pwd_clone);
                         crate::infra::crypto::encrypt_workspace_key_with_password(
-                            &zeroing,
+                            pwd_clone,
                             ws_key.to_vec(),
                         )
                     })
@@ -130,7 +129,7 @@ pub async fn verify_email_password(
                     .unwrap_or_else(|e| Err(YntraError::CryptoError(e.to_string())));
                     #[cfg(target_arch = "wasm32")]
                     let enc_key_res = crate::infra::crypto::encrypt_workspace_key_with_password(
-                        &zeroizing_password,
+                        zeroizing_password.to_string(),
                         ws_key.to_vec(),
                     );
 
@@ -162,9 +161,8 @@ pub async fn verify_email_password(
                 let enc_key_str = enc_key.to_string();
                 #[cfg(not(target_arch = "wasm32"))]
                 let dec_res = tokio::task::spawn_blocking(move || {
-                    let zeroing = zeroize::Zeroizing::new(pwd);
                     crate::infra::crypto::decrypt_workspace_key_with_password(
-                        &zeroing,
+                        pwd,
                         &enc_key_str,
                     )
                 })
@@ -172,7 +170,7 @@ pub async fn verify_email_password(
                 .unwrap_or_else(|e| Err(YntraError::CryptoError(e.to_string())));
                 #[cfg(target_arch = "wasm32")]
                 let dec_res = crate::infra::crypto::decrypt_workspace_key_with_password(
-                    &zeroizing_password,
+                    zeroizing_password.to_string(),
                     enc_key,
                 );
 
@@ -182,7 +180,7 @@ pub async fn verify_email_password(
                         &const_hex::encode(&dec_key),
                     )
                     .await;
-                    crate::infra::crypto::set_session_key(dec_key);
+                    crate::infra::crypto::set_session_key(dec_key, ws.clone());
                 }
             }
         }
@@ -277,14 +275,13 @@ pub async fn set_user_password(
         let ws_key_clone = ws_key.to_vec();
         #[cfg(not(target_arch = "wasm32"))]
         let enc_res = tokio::task::spawn_blocking(move || {
-            let zeroing = zeroize::Zeroizing::new(pwd);
-            crate::infra::crypto::encrypt_workspace_key_with_password(&zeroing, ws_key_clone)
+            crate::infra::crypto::encrypt_workspace_key_with_password(pwd, ws_key_clone)
         })
         .await
         .unwrap_or_else(|e| Err(YntraError::CryptoError(e.to_string())));
         #[cfg(target_arch = "wasm32")]
         let enc_res = crate::infra::crypto::encrypt_workspace_key_with_password(
-            &zeroizing_password,
+            zeroizing_password.to_string(),
             ws_key.to_vec(),
         );
 
@@ -301,14 +298,13 @@ pub async fn set_user_password(
             let ws_key_vec = ws_key.to_vec();
             #[cfg(not(target_arch = "wasm32"))]
             let enc_res = tokio::task::spawn_blocking(move || {
-                let zeroing = zeroize::Zeroizing::new(pwd);
-                crate::infra::crypto::encrypt_workspace_key_with_password(&zeroing, ws_key_vec)
+                crate::infra::crypto::encrypt_workspace_key_with_password(pwd, ws_key_vec)
             })
             .await
             .unwrap_or_else(|e| Err(YntraError::CryptoError(e.to_string())));
             #[cfg(target_arch = "wasm32")]
             let enc_res = crate::infra::crypto::encrypt_workspace_key_with_password(
-                &zeroizing_password,
+                zeroizing_password.to_string(),
                 ws_key.to_vec(),
             );
 

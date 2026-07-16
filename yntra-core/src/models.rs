@@ -374,7 +374,7 @@ pub struct BankIdAuthSession {
     pub target_role: String,
     pub provider: String,
     pub status: String,
-    pub pin: String,
+    pub error_message: Option<String>,
     pub qr_data: String,
     pub progress: f64,
     pub authenticated_user_id: Option<String>,

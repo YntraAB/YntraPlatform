@@ -300,7 +300,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_clients_probabilistic_encryption_match() {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
-        crate::infra::crypto::set_session_key("test-session-key".to_string().into_bytes());
+        crate::infra::crypto::set_session_key("test-session-key".to_string().into_bytes(), "workspace-1".to_string());
 
         let conn = database::acquire_connection().await.unwrap();
         let user_id = "test-client-user-999";
@@ -360,7 +360,7 @@ mod tests {
     #[tokio::test]
     async fn test_delete_client_works_without_errors() {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
-        crate::infra::crypto::set_session_key("test-session-key-delete".to_string().into_bytes());
+        crate::infra::crypto::set_session_key("test-session-key-delete".to_string().into_bytes(), "workspace-delete-test".to_string());
 
         let conn = database::acquire_connection().await.unwrap();
         let requester_user_id = "test-admin-user-delete";

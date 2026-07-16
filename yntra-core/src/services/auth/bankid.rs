@@ -18,6 +18,36 @@ where
     }
 }
 
+fn check_bankid_mock_bypass_allowed() -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if let Ok(val) = std::env::var("YNTRA_ALLOW_BANKID_MOCK_PIN_BYPASS") {
+            return val == "1" || val.to_lowercase() == "true";
+        }
+        for path in &[".env", "../.env"] {
+            if let Ok(content) = std::fs::read_to_string(path) {
+                for line in content.lines() {
+                    if let Some(stripped) = line.strip_prefix("YNTRA_ALLOW_BANKID_MOCK_PIN_BYPASS=") {
+                        let val = stripped.trim().trim_matches('"').trim_matches('\'').to_lowercase();
+                        return val == "1" || val == "true";
+                    }
+                }
+            }
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(window) = web_sys::window() {
+            if let Ok(Some(storage)) = window.local_storage() {
+                if let Ok(Some(val)) = storage.get_item("YNTRA_ALLOW_BANKID_MOCK_PIN_BYPASS") {
+                    return val == "1" || val.to_lowercase() == "true";
+                }
+            }
+        }
+    }
+    false
+}
+
 fn verify_luhn(digits: &str) -> bool {
     let mut sum = 0;
     let mut alternate = false;
@@ -83,9 +113,11 @@ fn verify_auth_signature(public_key_hex: &str, message: &str, signature_hex: &st
         Ok(b) => b,
         Err(_) => return false,
     };
-    let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(
-        &public_key_bytes.try_into().unwrap_or([0u8; 32]),
-    ) {
+    let public_key_arr: [u8; 32] = match public_key_bytes.try_into() {
+        Ok(arr) => arr,
+        Err(_) => return false,
+    };
+    let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(&public_key_arr) {
         Ok(k) => k,
         Err(_) => return false,
     };
@@ -306,7 +338,7 @@ pub async fn initiate_bankid_auth(
         target_role: target_role.clone(),
         provider: provider.clone(),
         status,
-        pin: "".to_string(),
+        error_message: None,
         qr_data: format!("{}-{}-qr", provider, session_id),
         progress: 0.0,
         authenticated_user_id: None,
@@ -415,7 +447,7 @@ pub async fn get_bankid_auth_session(
             target_role: row.get(1)?,
             provider: row.get(2)?,
             status: row.get(3)?,
-            pin: err_msg.unwrap_or_default(),
+            error_message: err_msg,
             qr_data: row.get(5)?,
             progress: row.get(6)?,
             authenticated_user_id: row.get(7)?,
@@ -500,7 +532,7 @@ pub async fn submit_bankid_pin(session_id: String, token: String, pin: String) -
 
     #[cfg(debug_assertions)]
     {
-        if !is_norwegian_flow {
+        if !is_norwegian_flow && check_bankid_mock_bypass_allowed() {
             if pin_val == "mock_admin"
                 || pin_val == "mock_platform_admin"
                 || pin_val == "mock_assistant"
@@ -1083,5 +1115,46 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+
+    #[test]
+    fn test_bankid_mock_bypass_env_check() {
+        unsafe {
+            std::env::remove_var("YNTRA_ALLOW_BANKID_MOCK_PIN_BYPASS");
+        }
+        assert!(!check_bankid_mock_bypass_allowed());
+
+        unsafe {
+            std::env::set_var("YNTRA_ALLOW_BANKID_MOCK_PIN_BYPASS", "true");
+        }
+        assert!(check_bankid_mock_bypass_allowed());
+
+        unsafe {
+            std::env::set_var("YNTRA_ALLOW_BANKID_MOCK_PIN_BYPASS", "1");
+        }
+        assert!(check_bankid_mock_bypass_allowed());
+
+        unsafe {
+            std::env::set_var("YNTRA_ALLOW_BANKID_MOCK_PIN_BYPASS", "false");
+        }
+        assert!(!check_bankid_mock_bypass_allowed());
+
+        unsafe {
+            std::env::remove_var("YNTRA_ALLOW_BANKID_MOCK_PIN_BYPASS");
+        }
+    }
+
+    #[test]
+    fn test_ed25519_invalid_key_rejection() {
+        let invalid_pk_hex = "00112233";
+        let signature_hex = const_hex::encode(&[0u8; 64]);
+        let message = "some test message";
+
+        let result = verify_auth_signature(invalid_pk_hex, message, &signature_hex);
+        assert!(!result);
+
+        let invalid_key_content_hex = const_hex::encode(&[0u8; 32]);
+        let result2 = verify_auth_signature(&invalid_key_content_hex, message, &signature_hex);
+        assert!(!result2);
     }
 }
