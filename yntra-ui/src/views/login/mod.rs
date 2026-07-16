@@ -527,6 +527,7 @@ pub fn LoginView(props: LoginViewProps) -> Element {
         let mut active_sec = active_section;
         let mut n_setup = needs_setup;
         let mut log_in = logged_in;
+        let toast_err = toast.clone();
         spawn(async move {
             let targeted_user = users_list
                 .iter()
@@ -553,24 +554,42 @@ pub fn LoginView(props: LoginViewProps) -> Element {
                 log_in.set(true);
             } else {
                 // Auto-activate dev invitation on first bypass click
-                if let Ok(user) =
-                    yntra_core::activate_invitation_code("WELCOME-OFFLINE-FIRST".to_string()).await
-                {
-                    active_uid.set(user.id.clone());
-                    active_sec.set("dashboard".to_string());
-                    n_setup.set(false); // WELCOME-OFFLINE-FIRST is the dev invitation code, so bypass setup
-                    log_in.set(true);
-                } else if let Ok(Some(user)) =
-                    yntra_core::get_user_by_email("user-2".to_string(), "dev.user@yntra.se".to_string()).await
-                {
-                    active_uid.set(user.id.clone());
-                    active_sec.set("dashboard".to_string());
-                    let is_new_invite = user.phone.is_none()
-                        || user.phone.as_ref().map(|p| p.is_empty()).unwrap_or(true);
-                    let is_dev_or_admin =
-                        user.email == "dev.user@yntra.se" || user.email == "admin@yntra.se";
-                    n_setup.set(is_new_invite && !is_dev_or_admin);
-                    log_in.set(true);
+                match yntra_core::activate_invitation_code("WELCOME-OFFLINE-FIRST".to_string()).await {
+                    Ok(user) => {
+                        active_uid.set(user.id.clone());
+                        active_sec.set("dashboard".to_string());
+                        n_setup.set(false); // WELCOME-OFFLINE-FIRST is the dev invitation code, so bypass setup
+                        log_in.set(true);
+                    }
+                    Err(e1) => {
+                        log::error!("activate_invitation_code WELCOME-OFFLINE-FIRST failed: {:?}", e1);
+                        match yntra_core::get_user_by_email("user-2".to_string(), "dev.user@yntra.se".to_string()).await {
+                            Ok(Some(user)) => {
+                                active_uid.set(user.id.clone());
+                                active_sec.set("dashboard".to_string());
+                                let is_new_invite = user.phone.is_none()
+                                    || user.phone.as_ref().map(|p| p.is_empty()).unwrap_or(true);
+                                let is_dev_or_admin =
+                                    user.email == "dev.user@yntra.se" || user.email == "admin@yntra.se";
+                                n_setup.set(is_new_invite && !is_dev_or_admin);
+                                log_in.set(true);
+                            }
+                            Ok(None) => {
+                                log::error!("get_user_by_email dev.user@yntra.se returned None");
+                                toast_err.error(
+                                    "Dev Login Failed".to_string(),
+                                    dioxus_primitives::toast::ToastOptions::new().description("User dev.user@yntra.se not found in database."),
+                                );
+                            }
+                            Err(e2) => {
+                                log::error!("get_user_by_email dev.user@yntra.se failed: {:?}", e2);
+                                toast_err.error(
+                                    "Dev Login Failed".to_string(),
+                                    dioxus_primitives::toast::ToastOptions::new().description(format!("Verification bypass failed: {:?}", e2)),
+                                );
+                            }
+                        }
+                    }
                 }
             }
         });

@@ -8,6 +8,7 @@ use yntra_core::{
 pub fn init_resources(
     db_initialized: Signal<bool>,
     active_user_id: Signal<String>,
+    logged_in: Signal<bool>,
     background_error: Signal<Option<yntra_core::YntraError>>,
     trigger_workspaces: Signal<u32>,
     trigger_users: Signal<u32>,
@@ -34,11 +35,12 @@ pub fn init_resources(
 ) {
     let workspace = use_resource(move || {
         let initialized = *db_initialized.read();
+        let is_login = *logged_in.read();
         let uid = active_user_id.read().clone();
         let _trig = trigger_workspaces.read();
         let mut bg_err = background_error;
         async move {
-            if !initialized {
+            if !initialized || !is_login {
                 return Workspace {
                     id: "workspace-1".to_string(),
                     name: "Yntra Operations Ltd".to_string(),
@@ -138,11 +140,12 @@ pub fn init_resources(
 
     let users = use_resource(move || {
         let initialized = *db_initialized.read();
+        let is_login = *logged_in.read();
         let _trig = trigger_users.read();
         let uid = active_user_id.read().clone();
         let mut bg_err = background_error;
         async move {
-            if !initialized {
+            if !initialized || !is_login {
                 return Vec::new();
             }
             match get_users(uid).await {
@@ -157,11 +160,12 @@ pub fn init_resources(
 
     let teams = use_resource(move || {
         let initialized = *db_initialized.read();
+        let is_login = *logged_in.read();
         let _trig = trigger_teams.read();
         let uid = active_user_id.read().clone();
         let mut bg_err = background_error;
         async move {
-            if !initialized {
+            if !initialized || !is_login {
                 return Vec::new();
             }
             match get_teams(uid).await {
@@ -176,12 +180,13 @@ pub fn init_resources(
 
     let events = use_resource(move || {
         let initialized = *db_initialized.read();
+        let is_login = *logged_in.read();
         let _trig = trigger_events.read();
         let uid = active_user_id.read().clone();
         let mut bg_err = background_error;
         let enabled = *scheduling_enabled.read();
         async move {
-            if !initialized || !enabled {
+            if !initialized || !is_login || !enabled {
                 return Vec::new();
             }
             match get_events(uid, None).await {
@@ -196,12 +201,13 @@ pub fn init_resources(
 
     let messages = use_resource(move || {
         let initialized = *db_initialized.read();
+        let is_login = *logged_in.read();
         let _trig = trigger_messages.read();
         let uid = active_user_id.read().clone();
         let mut bg_err = background_error;
         let enabled = *messaging_enabled.read();
         async move {
-            if !initialized || !enabled {
+            if !initialized || !is_login || !enabled {
                 return Vec::new();
             }
             match get_messages(uid.clone(), uid).await {
@@ -216,12 +222,13 @@ pub fn init_resources(
 
     let notes = use_resource(move || {
         let initialized = *db_initialized.read();
+        let is_login = *logged_in.read();
         let _trig = trigger_notes.read();
         let uid = active_user_id.read().clone();
         let mut bg_err = background_error;
         let enabled = *notes_enabled.read();
         async move {
-            if !initialized || !enabled {
+            if !initialized || !is_login || !enabled {
                 return Vec::new();
             }
             match get_notes(uid, None).await {
@@ -236,12 +243,13 @@ pub fn init_resources(
 
     let time_reports = use_resource(move || {
         let initialized = *db_initialized.read();
+        let is_login = *logged_in.read();
         let _trig = trigger_time.read();
         let uid = active_user_id.read().clone();
         let mut bg_err = background_error;
         let enabled = *time_enabled.read();
         async move {
-            if !initialized || !enabled {
+            if !initialized || !is_login || !enabled {
                 return Vec::new();
             }
             match get_time_reports(uid, None).await {
@@ -256,12 +264,13 @@ pub fn init_resources(
 
     let clients = use_resource(move || {
         let initialized = *db_initialized.read();
+        let is_login = *logged_in.read();
         let _trig = trigger_clients.read();
         let uid = active_user_id.read().clone();
         let mut bg_err = background_error;
         let enabled = *assistance_enabled.read();
         async move {
-            if !initialized || !enabled {
+            if !initialized || !is_login || !enabled {
                 return Vec::new();
             }
             match get_clients(uid).await {
@@ -276,12 +285,13 @@ pub fn init_resources(
 
     let reports = use_resource(move || {
         let initialized = *db_initialized.read();
+        let is_login = *logged_in.read();
         let _trig = trigger_reports.read();
         let uid = active_user_id.read().clone();
         let mut bg_err = background_error;
         let enabled = *reporting_enabled.read();
         async move {
-            if !initialized || !enabled {
+            if !initialized || !is_login || !enabled {
                 return Vec::new();
             }
             let mut eval = dioxus::document::eval(
@@ -310,11 +320,12 @@ pub fn init_resources(
 
     let workspaces = use_resource(move || {
         let initialized = *db_initialized.read();
+        let is_login = *logged_in.read();
         let _trig = trigger_workspaces.read();
         let uid = active_user_id.read().clone();
         let mut bg_err = background_error;
         async move {
-            if !initialized {
+            if !initialized || !is_login {
                 return Vec::new();
             }
             match get_workspaces(uid).await {
@@ -329,6 +340,7 @@ pub fn init_resources(
 
     let todos = use_resource(move || {
         let initialized = *db_initialized.read();
+        let is_login = *logged_in.read();
         let _trig = trigger_todos.read();
         let uid = active_user_id.read().clone();
         let mut bg_err = background_error;
@@ -338,7 +350,7 @@ pub fn init_resources(
             .map(|w| w.id.clone())
             .unwrap_or_else(|| "workspace-1".to_string());
         async move {
-            if !initialized {
+            if !initialized || !is_login {
                 return Vec::new();
             }
             match get_todos(uid, ws_id).await {

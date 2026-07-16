@@ -198,13 +198,21 @@ pub fn use_init_app_state() -> AppState {
             db_initialized.set(true);
             let _ = load_workspace_zero_copy_stores("workspace-1".to_string()).await;
             start_background_sync(30);
-            let mut eval = dioxus::document::eval(
+            let bypass_script = if cfg!(debug_assertions) {
+                r#"localStorage.setItem("YNTRA_INSECURE_DEV_BYPASS_SIGNATURES", "true");"#
+            } else {
+                ""
+            };
+            let script = format!(
                 r#"
+                {}
                 let logged_in = localStorage.getItem("yntra_logged_in") === "true";
                 let uid = localStorage.getItem("yntra_active_user_id") || "";
-                dioxus.send(JSON.stringify({ logged_in, uid }));
+                dioxus.send(JSON.stringify({{ logged_in, uid }}));
                 "#,
+                bypass_script
             );
+            let mut eval = dioxus::document::eval(&script);
             if let Ok(serde_json::Value::Object(obj)) = eval.recv::<serde_json::Value>().await {
                 let has_logged_in = obj
                     .get("logged_in")
@@ -419,6 +427,7 @@ pub fn use_init_app_state() -> AppState {
     ) = resources::init_resources(
         db_initialized,
         active_user_id,
+        logged_in,
         background_error,
         trigger_workspaces,
         trigger_users,
