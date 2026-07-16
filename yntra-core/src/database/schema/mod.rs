@@ -51,7 +51,6 @@ pub async fn setup_schema(conn: &DbConnection) -> Result<(), YntraError> {
         .query_row("PRAGMA user_version", (), |r| r.get(0))
         .await
         .unwrap_or(0);
-    let mut is_fresh = false;
     if current_version == 0 {
         let has_users_table = conn
             .query_row(
@@ -72,7 +71,6 @@ pub async fn setup_schema(conn: &DbConnection) -> Result<(), YntraError> {
             tables::create_initial_tables(conn).await?;
             conn.execute("PRAGMA user_version = 10", ()).await?;
             current_version = 10;
-            is_fresh = true;
         }
     }
 
@@ -83,10 +81,8 @@ pub async fn setup_schema(conn: &DbConnection) -> Result<(), YntraError> {
             .await?;
     }
 
-    // If the database was fresh, seed mock data now that the schema is fully migrated
-    if is_fresh {
-        seeds::seed_mock_data(conn).await?;
-    }
+    // Seed mock data if not already seeded
+    seeds::seed_mock_data(conn).await?;
 
     // 3. Initialize system salt from database settings
     initialize_salt_from_db(conn).await?;

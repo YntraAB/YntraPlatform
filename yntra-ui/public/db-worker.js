@@ -1,7 +1,29 @@
 // db-worker.js
 // Background Web Worker executing SQLite queries on OPFS using official SQLite WASM VFS
 
-importScripts("https://cdn.jsdelivr.net/npm/@sqlite.org/sqlite-wasm@3.45.1/sqlite-wasm/jswasm/sqlite3.js");
+let loaded = false;
+const cdns = [
+  "/sqlite3.js",
+  "https://cdn.jsdelivr.net/npm/@sqlite.org/sqlite-wasm@3.45.1-build1/sqlite-wasm/jswasm/sqlite3.js",
+  "https://unpkg.com/@sqlite.org/sqlite-wasm@3.45.1-build1/sqlite-wasm/jswasm/sqlite3.js",
+  "https://cdnjs.cloudflare.com/ajax/libs/sqlite-wasm/3.45.1-build1/sqlite-wasm/jswasm/sqlite3.js",
+  "/wasm/sqlite3.js"
+];
+
+for (const cdn of cdns) {
+  try {
+    importScripts(cdn);
+    console.log("Successfully loaded SQLite WASM from:", cdn);
+    loaded = true;
+    break;
+  } catch (err) {
+    console.warn(`Failed to import SQLite WASM from ${cdn}, trying next fallback...`);
+  }
+}
+
+if (!loaded) {
+  console.error("All SQLite WASM import fallbacks failed. Database connection cannot be established.");
+}
 
 let db = null;
 let isReady = false;
@@ -32,6 +54,19 @@ self.sqlite3InitModule({
   postMessage({ type: "status", status: "status_error", error: err.toString() });
 });
 
+function sanitizeBind(bind) {
+  if (Array.isArray(bind)) {
+    return bind.map(v => v === undefined ? null : v);
+  } else if (bind && typeof bind === 'object') {
+    const clean = {};
+    for (const key of Object.keys(bind)) {
+      clean[key] = bind[key] === undefined ? null : bind[key];
+    }
+    return clean;
+  }
+  return bind;
+}
+
 // Handle messages from the main thread
 onmessage = async function(e) {
   const { id, type, sql, params, url, token } = e.data;
@@ -45,7 +80,7 @@ onmessage = async function(e) {
     if (type === "execute") {
       db.exec({
         sql: sql,
-        bind: params || [],
+        bind: sanitizeBind(params) || [],
       });
       const rowsAffected = db.changes();
       postMessage({ id, success: true, rowsAffected });
@@ -53,7 +88,7 @@ onmessage = async function(e) {
       const rows = [];
       db.exec({
         sql: sql,
-        bind: params || [],
+        bind: sanitizeBind(params) || [],
         rowMode: 'array',
         callback: (row) => rows.push(row),
       });
@@ -63,6 +98,27 @@ onmessage = async function(e) {
         sql: sql,
       });
       postMessage({ id, success: true });
+    } else if (type === "execute_statements") {
+      try {
+        let idx = 0;
+        for (const item of params) {
+          const sqlVal = (item instanceof Map) ? item.get('sql') : item.sql;
+          const paramsVal = (item instanceof Map) ? item.get('params') : item.params;
+          try {
+            db.exec({
+              sql: sqlVal,
+              bind: sanitizeBind(paramsVal) || [],
+            });
+          } catch (err) {
+            console.error(`[db-worker] Failed at statement #${idx}:`, item, err);
+            throw new Error(`Batch execution failed at statement #${idx}: ${err.message}`);
+          }
+          idx++;
+        }
+        postMessage({ id, success: true });
+      } catch (err) {
+        throw err;
+      }
     } else if (type === "sync") {
       performSync(url, token)
         .then((hasChanges) => postMessage({ id, success: true, hasChanges }))

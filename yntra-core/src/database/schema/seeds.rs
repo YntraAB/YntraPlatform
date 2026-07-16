@@ -49,6 +49,7 @@ fn map_to_libsql_params(map: serde_json::Map<String, serde_json::Value>) -> libs
     libsql::params::Params::Named(list)
 }
 
+#[allow(unused_variables)]
 async fn seed_table(
     conn: &DbConnection,
     insert_op: &str,
@@ -71,31 +72,54 @@ async fn seed_table(
         insert_op, table, cols_str, vals_str
     );
 
-    for record in records {
-        let mut map = serde_json::Map::new();
-        for col in columns {
-            let val = match record.get(*col) {
-                Some(serde_json::Value::Object(o)) => {
-                    serde_json::Value::String(serde_json::to_string(o).unwrap_or_default())
-                }
-                Some(serde_json::Value::Array(a)) => {
-                    serde_json::Value::String(serde_json::to_string(a).unwrap_or_default())
-                }
-                Some(v) => v.clone(),
-                None => serde_json::Value::Null,
-            };
-            map.insert(format!(":{}", col), val);
-        }
-
-        #[cfg(not(target_arch = "wasm32"))]
-        {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        for record in records {
+            let mut map = serde_json::Map::new();
+            for col in columns {
+                let val = match record.get(*col) {
+                    Some(serde_json::Value::Object(o)) => {
+                        serde_json::Value::String(serde_json::to_string(o).unwrap_or_default())
+                    }
+                    Some(serde_json::Value::Array(a)) => {
+                        serde_json::Value::String(serde_json::to_string(a).unwrap_or_default())
+                    }
+                    Some(v) => v.clone(),
+                    None => serde_json::Value::Null,
+                };
+                map.insert(format!(":{}", col), val);
+            }
             let params = map_to_libsql_params(map);
             conn.execute(&sql, params).await?;
         }
-        #[cfg(target_arch = "wasm32")]
-        {
-            conn.execute(&sql, serde_json::Value::Object(map)).await?;
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut list = Vec::new();
+        for record in records {
+            let mut row_params = Vec::new();
+            for col in columns {
+                let val = match record.get(*col) {
+                    Some(serde_json::Value::Object(o)) => {
+                        serde_json::Value::String(serde_json::to_string(o).unwrap_or_default())
+                    }
+                    Some(serde_json::Value::Array(a)) => {
+                        serde_json::Value::String(serde_json::to_string(a).unwrap_or_default())
+                    }
+                    Some(v) => v.clone(),
+                    None => serde_json::Value::Null,
+                };
+                row_params.push(val);
+            }
+            list.push(serde_json::json!({
+                "sql": sql,
+                "params": serde_json::Value::Array(row_params),
+            }));
         }
+        let params_val = serde_wasm_bindgen::to_value(&serde_json::Value::Array(list))
+            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+        crate::database::wasm::js_execute_sql("execute_statements", "", params_val).await?;
     }
     Ok(())
 }
@@ -108,7 +132,7 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
     if let Some(blocks) = data["blocks"].as_array() {
         seed_table(
             conn,
-            "INSERT OR IGNORE",
+            "INSERT OR REPLACE",
             "blocks",
             &[
                 "id",
@@ -127,9 +151,9 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
         .await?;
     }
 
-    // 2. Check if workspaces already exist
+    // 2. Check if users already exist
     let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM workspaces", (), |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM users", (), |row| row.get(0))
         .await
         .unwrap_or(0);
 

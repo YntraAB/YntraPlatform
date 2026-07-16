@@ -50,8 +50,8 @@ pub fn track_write(sql: &str) {
         }
         crate::infra::observer::set_last_modified_table(&table);
     } else {
-        let sql_upper = sql.to_uppercase();
-        if sql_upper.contains("INSERT") || sql_upper.contains("UPDATE") || sql_upper.contains("DELETE") {
+        if self::parser::has_write_keyword(sql) {
+            let sql_upper = sql.to_uppercase();
             let sql_clean = self::parser::clean_sql(&sql_upper);
             let has_users = sql_clean.contains("USERS") || sql_clean.contains("`USERS`") || sql_clean.contains("\"USERS\"");
             let has_workspaces = sql_clean.contains("WORKSPACES") || sql_clean.contains("`WORKSPACES`") || sql_clean.contains("\"WORKSPACES\"");
@@ -71,8 +71,8 @@ pub fn track_write_batch(sql: &str) {
             }
             crate::infra::observer::set_last_modified_table(&table);
         } else {
-            let sql_upper = stmt.to_uppercase();
-            if sql_upper.contains("INSERT") || sql_upper.contains("UPDATE") || sql_upper.contains("DELETE") {
+            if self::parser::has_write_keyword(stmt) {
+                let sql_upper = stmt.to_uppercase();
                 let sql_clean = self::parser::clean_sql(&sql_upper);
                 let has_users = sql_clean.contains("USERS") || sql_clean.contains("`USERS`") || sql_clean.contains("\"USERS\"");
                 let has_workspaces = sql_clean.contains("WORKSPACES") || sql_clean.contains("`WORKSPACES`") || sql_clean.contains("\"WORKSPACES\"");

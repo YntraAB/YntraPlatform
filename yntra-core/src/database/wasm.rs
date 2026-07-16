@@ -53,7 +53,7 @@ extern "C" {
     ) -> Result<JsValue, JsValue>;
 }
 
-async fn js_execute_sql(
+pub(crate) async fn js_execute_sql(
     query_type: &str,
     sql: &str,
     params: JsValue,
@@ -63,9 +63,12 @@ async fn js_execute_sql(
     match send_fut.await {
         Ok(js_val) => Ok(js_val),
         Err(js_err) => {
-            let err_msg = js_err
-                .as_string()
-                .unwrap_or_else(|| "Unknown JavaScript error during SQL execution".to_string());
+            let err_msg = if let Some(s) = js_err.as_string() {
+                s
+            } else {
+                let err_obj = js_sys::Error::from(js_err);
+                String::from(err_obj.to_string())
+            };
             Err(YntraError::DbError(err_msg))
         }
     }
@@ -121,8 +124,11 @@ pub struct DbConnection {
 impl Drop for DbConnection {
     fn drop(&mut self) {
         let guard = self._guard.take();
+        let in_tx = self.in_transaction.load(std::sync::atomic::Ordering::SeqCst);
         wasm_bindgen_futures::spawn_local(async move {
-            let _ = js_execute_sql("execute", "ROLLBACK", wasm_bindgen::JsValue::null()).await;
+            if in_tx {
+                let _ = js_execute_sql("execute", "ROLLBACK", wasm_bindgen::JsValue::null()).await;
+            }
             drop(guard);
         });
     }

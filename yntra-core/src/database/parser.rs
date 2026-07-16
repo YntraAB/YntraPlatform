@@ -62,7 +62,7 @@ pub fn clean_sql(sql: &str) -> String {
     cleaned
 }
 
-fn has_write_keyword(sql: &str) -> bool {
+pub fn has_write_keyword(sql: &str) -> bool {
     let bytes = sql.as_bytes();
     let needles: &[&[u8]] = &[b"INSERT", b"UPDATE", b"DELETE"];
     for needle in needles {

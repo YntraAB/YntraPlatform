@@ -194,7 +194,10 @@ pub fn use_init_app_state() -> AppState {
     use_effect(move || {
         spawn(async move {
             let _ = init_tracing();
-            let _ = init_wasm_db().await;
+            match init_wasm_db().await {
+                Ok(_) => log::info!("Database initialized successfully."),
+                Err(e) => log::error!("Database initialization failed: {:?}", e),
+            }
             db_initialized.set(true);
             let _ = load_workspace_zero_copy_stores("workspace-1".to_string()).await;
             start_background_sync(30);
