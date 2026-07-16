@@ -8,9 +8,16 @@ pub fn clean_sql(sql: &str) -> String {
     while let Some(c) = chars.next() {
         if in_single_quote {
             if c == '\'' {
-                in_single_quote = false;
+                if chars.peek() == Some(&'\'') {
+                    cleaned.push('\'');
+                    cleaned.push(chars.next().unwrap());
+                } else {
+                    in_single_quote = false;
+                    cleaned.push(c);
+                }
+            } else {
+                cleaned.push(c);
             }
-            cleaned.push(c);
         } else if in_double_quote {
             if c == '"' {
                 in_double_quote = false;
@@ -171,7 +178,11 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
                 let current_byte_idx = byte_idx + c_idx;
                 if in_single_quote {
                     if c == '\'' {
-                        in_single_quote = false;
+                        if chars.peek().map(|&(_, nc)| nc) == Some('\'') {
+                            chars.next(); // consume the second quote
+                        } else {
+                            in_single_quote = false;
+                        }
                     }
                 } else if in_double_quote {
                     if c == '"' {
@@ -234,12 +245,16 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
             in_double_quote = false;
             let mut closed_idx = None;
 
-            let mut chars = trimmed[byte_idx..].char_indices();
+            let mut chars = trimmed[byte_idx..].char_indices().peekable();
             while let Some((c_idx, c)) = chars.next() {
                 let current_byte_idx = byte_idx + c_idx;
                 if in_single_quote {
                     if c == '\'' {
-                        in_single_quote = false;
+                        if chars.peek().map(|&(_, nc)| nc) == Some('\'') {
+                            chars.next(); // consume the second quote
+                        } else {
+                            in_single_quote = false;
+                        }
                     }
                 } else if in_double_quote {
                     if c == '"' {
@@ -358,7 +373,11 @@ impl<'a> Iterator for SqlStatementSplitter<'a> {
         while let Some((idx, c)) = self.char_indices.next() {
             if self.in_single_quote {
                 if c == '\'' {
-                    self.in_single_quote = false;
+                    if self.char_indices.peek().map(|&(_, nc)| nc) == Some('\'') {
+                        self.char_indices.next(); // consume the second quote
+                    } else {
+                        self.in_single_quote = false;
+                    }
                 }
             } else if self.in_double_quote {
                 if c == '"' {
@@ -533,5 +552,25 @@ mod tests {
         assert_eq!(extract_table_name("UPDATE"), None);
         assert_eq!(extract_table_name("DELETE FROM"), None);
         assert_eq!(extract_table_name(""), None);
+    }
+
+    #[test]
+    fn test_escaped_quote_parsing() {
+        // test clean_sql handles escaped single quote correctly
+        let sql = "SELECT * FROM users WHERE name = 'O''Brien' -- some comment";
+        let cleaned = clean_sql(sql);
+        assert_eq!(cleaned.trim(), "SELECT * FROM users WHERE name = 'O''Brien'");
+
+        // test extract_table_name works with CTE that contains escaped quotes
+        let sql_cte = "WITH cte AS (SELECT id FROM users WHERE name = 'O''Brien') UPDATE profiles SET status = 1 WHERE user_id IN (SELECT id FROM cte)";
+        assert_eq!(extract_table_name(sql_cte), Some("profiles".to_string()));
+
+        // test SqlStatementSplitter splits correctly when statements contain escaped quotes
+        let multi_sql = "INSERT INTO users (name) VALUES ('O''Brien'); SELECT 1;";
+        let statements: Vec<&str> = SqlStatementSplitter::new(multi_sql).collect();
+        assert_eq!(statements, vec![
+            "INSERT INTO users (name) VALUES ('O''Brien')",
+            "SELECT 1"
+        ]);
     }
 }
