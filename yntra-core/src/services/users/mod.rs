@@ -137,12 +137,9 @@ pub async fn update_user_role(
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     if auth.role != "admin" && auth.role != "platform_admin" {
-        let is_dev_self_change = cfg!(debug_assertions) && requester_user_id == user_id;
-        if !is_dev_self_change {
-            return Err(YntraError::AuthError(
-                "Access denied: only administrators can change roles".to_string(),
-            ));
-        }
+        return Err(YntraError::AuthError(
+            "Access denied: only administrators can change roles".to_string(),
+        ));
     }
 
     let target_ws_id: Option<String> = conn
@@ -715,6 +712,61 @@ mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
+    async fn test_ensure_role_signature_keyring_first() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let ws_id = "ws-order-test";
+        let user_id = "user-order-test";
+
+        // Clean up
+        let _ = conn.execute("DELETE FROM users WHERE id = ?1", crate::params![user_id]).await;
+        let _ = conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await;
+        let _ = crate::infra::crypto::set_local_secret(&format!("creator_private_key_{}", ws_id), "").await;
+
+        // Insert workspace without creator_public_key
+        conn.execute(
+            "INSERT INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Order Test WS', '[]', '{}')",
+            crate::params![ws_id],
+        ).await.unwrap();
+
+        // Insert user
+        conn.execute(
+            "INSERT INTO users (id, workspace_id, email, role) VALUES (?1, ?2, 'test@order.io', 'admin')",
+            crate::params![user_id, ws_id],
+        ).await.unwrap();
+
+        // Call ensure_user_role_signature. Since creator_public_key is empty, it should generate keys,
+        // write to keyring, and update DB.
+        let res = signatures::ensure_user_role_signature(&conn, user_id, "admin", ws_id).await;
+        assert!(res.is_ok());
+
+        // Verify private key was written to keyring
+        let priv_key_opt = crate::infra::crypto::get_local_secret(&format!("creator_private_key_{}", ws_id)).await.unwrap();
+        assert!(priv_key_opt.is_some());
+        let priv_key = priv_key_opt.unwrap();
+        assert!(!priv_key.trim().is_empty());
+
+        // Verify creator_public_key was updated in DB
+        let pub_key: String = conn.query_row(
+            "SELECT creator_public_key FROM workspaces WHERE id = ?1",
+            crate::params![ws_id],
+            |r| r.get(0),
+        ).await.unwrap();
+        assert!(!pub_key.trim().is_empty());
+
+        // Verify that public key matches derived public key from the private key in keyring
+        let derived_pub = crate::infra::crypto::derive_public_key_from_private_key(&zeroize::Zeroizing::new(priv_key)).unwrap();
+        assert_eq!(pub_key, derived_pub);
+
+        // Clean up
+        let _ = conn.execute("DELETE FROM users WHERE id = ?1", crate::params![user_id]).await;
+        let _ = conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await;
+        let _ = crate::infra::crypto::set_local_secret(&format!("creator_private_key_{}", ws_id), "").await;
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
     async fn test_delete_user_with_reports() {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         let conn = database::acquire_connection().await.unwrap();
@@ -785,5 +837,36 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_self_role_change_blocked() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let ws_id = format!("ws-self-{}", uuid::Uuid::new_v4());
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Self WS', '[]', '{}')", crate::params![&ws_id]).await.unwrap();
+
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('test-user', ?1, 'user@yntra.io', 'user')", crate::params![&ws_id]).await.unwrap();
+
+        // Standard user trying to change their own role (previously allowed via debug bypass)
+        let res = update_user_role(
+            "test-user".to_string(),
+            "test-user".to_string(),
+            "platform_admin".to_string(),
+        )
+        .await;
+
+        assert!(res.is_err());
+        if let Err(YntraError::AuthError(msg)) = res {
+            assert!(msg.contains("Access denied"));
+        } else {
+            panic!("Expected AuthError, got {:?}", res);
+        }
+
+        // Cleanup
+        conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![&ws_id]).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![&ws_id]).await.unwrap();
     }
 }
