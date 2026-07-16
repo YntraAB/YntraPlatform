@@ -56,6 +56,11 @@ pub fn JobsView(props: JobsViewProps) -> Element {
     let mut completion_report_state = use_signal(String::new);
     let mut active_status_state = use_signal(|| "all".to_string());
 
+    // Context Menu signals
+    let mut job_context_menu_open = use_signal(|| false);
+    let mut job_context_menu_pos = use_signal(|| (0, 0));
+    let mut job_context_menu_val = use_signal(|| Option::<JobTicket>::None);
+
     // Reactive resources for moving company modules (Inventory & Quote)
     let details_resource = use_resource(move || {
         let uid = props.active_user_id.read().clone();
@@ -176,11 +181,19 @@ pub fn JobsView(props: JobsViewProps) -> Element {
                             _ => "background: rgba(107, 114, 128, 0.15); color: hsl(216, 12.2%, 83.9%);",
                         };
 
+                        let job_clone = job.clone();
                         rsx! {
                             div {
                                 key: "{job_id}",
                                 class: "cursor-pointer w-full",
                                 onclick: move |_| selected_job_id.set(Some(job_id.clone())),
+                                oncontextmenu: move |evt| {
+                                    evt.prevent_default();
+                                    let coords = evt.client_coordinates();
+                                    job_context_menu_pos.set((coords.x as i32, coords.y as i32));
+                                    job_context_menu_val.set(Some(job_clone.clone()));
+                                    job_context_menu_open.set(true);
+                                },
                                 components::Card {
                                     style: format!(
                                         "padding: 1rem; border-color: {}; transition: all 0.2s;",
@@ -239,6 +252,91 @@ pub fn JobsView(props: JobsViewProps) -> Element {
                             style: "margin: 1rem 0 0.25rem 0;", "{t(\"jobs-detail-empty-title\", &region)}" }
                             p { class: "text-sm m-0",
                             style: "max-width: 280px; line-height: 1.4;", "{t(\"jobs-detail-empty-desc\", &region)}" }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Job Ticket Context Menu Overlay
+        if let Some(job) = job_context_menu_val.read().clone() {
+            {
+                let job_id = job.id.clone();
+                let active_uid = props.active_user_id.read().clone();
+                let db_trig = db_trigger;
+                let mut selected_id = selected_job_id;
+
+                rsx! {
+                    components::ContextMenu {
+                        open: *job_context_menu_open.read(),
+                        x: job_context_menu_pos.read().0,
+                        y: job_context_menu_pos.read().1,
+                        onclose: move |_| job_context_menu_open.set(false),
+
+                        button {
+                            class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                            onclick: {
+                                let job_id = job_id.clone();
+                                move |_| {
+                                    selected_id.set(Some(job_id.clone()));
+                                    job_context_menu_open.set(false);
+                                }
+                            },
+                            components::LucideIcon { name: "info", size: "14" }
+                            "View Details"
+                        }
+                        button {
+                            class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                            onclick: {
+                                let job_id = job_id.clone();
+                                let active_uid = active_uid.clone();
+                                move |_| {
+                                    let j_id = job_id.clone();
+                                    let u_id = active_uid.clone();
+                                    let mut d_trig = db_trig;
+                                    spawn(async move {
+                                        let _ = yntra_core::update_job_status(u_id, j_id, "in_progress".to_string()).await;
+                                        let current = *d_trig.read();
+                                        d_trig.set(current + 1);
+                                    });
+                                    job_context_menu_open.set(false);
+                                }
+                            },
+                            components::LucideIcon { name: "play", size: "14" }
+                            "Mark In Progress"
+                        }
+                        button {
+                            class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                            onclick: {
+                                let job_id = job_id.clone();
+                                let active_uid = active_uid.clone();
+                                move |_| {
+                                    let j_id = job_id.clone();
+                                    let u_id = active_uid.clone();
+                                    let mut d_trig = db_trig;
+                                    spawn(async move {
+                                        let _ = yntra_core::update_job_status(u_id, j_id, "completed".to_string()).await;
+                                        let current = *d_trig.read();
+                                        d_trig.set(current + 1);
+                                    });
+                                    job_context_menu_open.set(false);
+                                }
+                            },
+                            components::LucideIcon { name: "check-circle", size: "14" }
+                            "Mark Completed"
+                        }
+                        button {
+                            class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                            onclick: {
+                                let job_id = job_id.clone();
+                                move |_| {
+                                    let js = format!("navigator.clipboard.writeText({:?});", job_id);
+                                    let _ = dioxus::document::eval(&js);
+                                    job_context_menu_open.set(false);
+                                }
+                            },
+                            components::LucideIcon { name: "copy", size: "14" }
+                            "Copy Job ID"
                         }
                     }
                 }
