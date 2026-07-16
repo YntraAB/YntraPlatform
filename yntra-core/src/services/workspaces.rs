@@ -33,6 +33,7 @@ pub async fn update_workspace_modules(
     workspace_id: String,
     modules_json: String,
 ) -> Result<(), YntraError> {
+    crate::infra::auth::validate_id(&workspace_id, "Workspace ID")?;
     tracing::info!(
         "update_workspace_modules FFI called: requester_user_id={}, workspace_id={}, modules_json={}",
         requester_user_id, workspace_id, modules_json
@@ -61,7 +62,7 @@ pub async fn update_workspace_modules(
         "UPDATE workspaces SET modules_active = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
         crate::params![modules_json, now_ms, workspace_id],
     ).await;
-    println!("UPDATE workspaces query execution result: {:?}", res);
+    tracing::debug!("UPDATE workspaces query execution result: {:?}", res);
     res?;
 
     if reset_roles {
@@ -290,6 +291,9 @@ pub async fn create_workspace_via_hub(
         }
         Err(e) => {
             let _ = conn.rollback().await;
+            // Clean up keyring key to avoid orphaned private key on rollback
+            let private_key_setting = format!("creator_private_key_{}", ws_id);
+            let _ = crate::infra::crypto::set_local_secret(&private_key_setting, "").await;
             Err(e)
         }
     }
@@ -300,6 +304,7 @@ pub async fn delete_workspace_via_hub(
     requester_user_id: String,
     workspace_id: String,
 ) -> Result<(), YntraError> {
+    crate::infra::auth::validate_id(&workspace_id, "Workspace ID")?;
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" {
@@ -348,6 +353,11 @@ pub async fn delete_workspace_via_hub(
     match res {
         Ok(_) => {
             conn.commit().await?;
+            // Clean up all keyring credentials associated with this workspace on successful deletion
+            let _ = crate::infra::crypto::set_local_secret(&format!("creator_private_key_{}", workspace_id), "").await;
+            let _ = crate::infra::crypto::set_local_secret(&format!("workspace_public_key_{}", workspace_id), "").await;
+            let _ = crate::infra::crypto::set_local_secret(&format!("workspace_key_{}", workspace_id), "").await;
+            let _ = crate::infra::crypto::set_local_secret(&format!("workspace_auth_epoch_{}", workspace_id), "").await;
             notify_observers();
             Ok(())
         }

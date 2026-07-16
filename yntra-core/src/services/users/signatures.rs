@@ -8,7 +8,7 @@ pub async fn ensure_user_role_signature(
     workspace_id: &str,
 ) -> Result<(), YntraError> {
     let mut cached_pk = None;
-    let mut cached_sk = None;
+    let mut cached_sk: Option<zeroize::Zeroizing<String>> = None;
     ensure_user_role_signature_impl(
         conn,
         user_id,
@@ -26,8 +26,10 @@ pub async fn ensure_user_role_signature_impl(
     role: &str,
     workspace_id: &str,
     cached_pk: &mut Option<String>,
-    cached_sk: &mut Option<String>,
+    cached_sk: &mut Option<zeroize::Zeroizing<String>>,
 ) -> Result<(), YntraError> {
+    crate::infra::auth::validate_id(user_id, "User ID")?;
+    crate::infra::auth::validate_id(workspace_id, "Workspace ID")?;
     let needs_signature = role != "anonymous" && role != "deleted";
     if !needs_signature {
         let current_sig: Option<String> = conn
@@ -51,23 +53,30 @@ pub async fn ensure_user_role_signature_impl(
 
     // 1. Check if workspace already has a public key configured (with caching)
     if cached_pk.is_none() {
-        let creator_pk: Option<String> = conn
+        let creator_pk: Option<String> = match conn
             .query_row(
                 "SELECT creator_public_key FROM workspaces WHERE id = ?1",
                 crate::params![workspace_id],
-                |r| Ok(r.get(0)?),
+                |r| Ok(r.get::<Option<String>>(0)?),
             )
             .await
-            .ok()
-            .flatten();
+        {
+            Ok(val) => val,
+            Err(YntraError::NoRowsReturned) => None,
+            Err(e) => return Err(e),
+        };
         *cached_pk = Some(creator_pk.unwrap_or_default());
     }
 
     let private_key_setting = format!("creator_private_key_{}", workspace_id);
     if cached_sk.is_none() {
-        let creator_sk: Option<String> =
+        let mut creator_sk: Option<String> =
             crate::infra::crypto::get_local_secret(&private_key_setting).await?;
-        *cached_sk = Some(creator_sk.unwrap_or_default());
+        if let Some(ref mut sk) = creator_sk {
+            *cached_sk = Some(zeroize::Zeroizing::new(std::mem::take(sk)));
+        } else {
+            *cached_sk = Some(zeroize::Zeroizing::new(String::new()));
+        }
     }
 
     let creator_pk_val = cached_pk.as_ref().unwrap();
@@ -103,8 +112,8 @@ pub async fn ensure_user_role_signature_impl(
             }
 
             *cached_pk = Some(pub_hex.clone());
-            *cached_sk = Some((*priv_hex).clone());
-            active_sk = Some((*priv_hex).clone());
+            *cached_sk = Some(priv_hex.clone());
+            active_sk = Some(priv_hex.clone());
         } else {
             let private_key_bytes = zeroize::Zeroizing::new(
                 const_hex::decode(creator_sk_val)
@@ -176,7 +185,7 @@ pub async fn reconcile_role_signatures(requester_user_id: String) -> Result<(), 
             conn.begin_transaction().await?;
             let res = async {
                 let mut cached_pk = None;
-                let mut cached_sk = None;
+                let mut cached_sk: Option<zeroize::Zeroizing<String>> = None;
                 for (u_id, u_role) in to_sign {
                     ensure_user_role_signature_impl(
                         &conn,
@@ -196,6 +205,8 @@ pub async fn reconcile_role_signatures(requester_user_id: String) -> Result<(), 
                 Ok(_) => conn.commit().await?,
                 Err(e) => {
                     let _ = conn.rollback().await;
+                    // Clean up keyring key to avoid orphaned private key on rollback
+                    let _ = crate::infra::crypto::set_local_secret(&format!("creator_private_key_{}", auth.workspace_id), "").await;
                     return Err(e);
                 }
             }
