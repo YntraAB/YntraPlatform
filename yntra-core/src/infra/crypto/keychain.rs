@@ -56,12 +56,35 @@ pub(crate) fn get_local_client_pepper() -> Result<String, YntraError> {
             "yntra_client_pepper.bin",
         ));
         if let Ok(pepper) = fs::read_to_string(&path) {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if let Ok(metadata) = fs::metadata(&path) {
+                    let mut perms = metadata.permissions();
+                    if perms.mode() & 0o777 != 0o600 {
+                        perms.set_mode(0o600);
+                        let _ = fs::set_permissions(&path, perms);
+                    }
+                }
+            }
             Ok(pepper)
         } else {
             let mut rand_bytes = [0u8; 32];
             getrandom::fill(&mut rand_bytes).map_err(|e| YntraError::CryptoError(e.to_string()))?;
             let new_pepper = const_hex::encode(&rand_bytes);
-            let _ = fs::write(&path, &new_pepper);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                let mut options = fs::OpenOptions::new();
+                if let Ok(mut file) = options.write(true).create(true).truncate(true).mode(0o600).open(&path) {
+                    use std::io::Write;
+                    let _ = file.write_all(new_pepper.as_bytes());
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = fs::write(&path, &new_pepper);
+            }
             Ok(new_pepper)
         }
     }
@@ -152,7 +175,7 @@ pub async fn set_local_secret(key: &str, value: &str) -> Result<(), YntraError> 
         }
     }
     let key = key.to_string();
-    let value = value.to_string();
+    let value = zeroize::Zeroizing::new(value.to_string());
     tokio::task::spawn_blocking(move || {
         let _lock = get_keyring_lock().lock().unwrap_or_else(|e| e.into_inner());
         let entry = keyring::Entry::new("yntra-platform", &key)
@@ -170,7 +193,7 @@ pub async fn set_local_secret(key: &str, value: &str) -> Result<(), YntraError> 
                         "Keyring write failed in test/CI environment, writing to in-memory fallback: {:?}",
                         e
                     );
-                    get_fallback_keyring().write().unwrap().insert(key.clone(), value.clone());
+                    get_fallback_keyring().write().unwrap().insert(key.clone(), (*value).clone());
                     Ok(())
                 } else {
                     Err(YntraError::CryptoError(format!(
@@ -180,7 +203,7 @@ pub async fn set_local_secret(key: &str, value: &str) -> Result<(), YntraError> 
                 }
             } else {
                 if cfg!(test) || std::env::var("CI").is_ok() {
-                    get_fallback_keyring().write().unwrap().insert(key.clone(), value.clone());
+                    get_fallback_keyring().write().unwrap().insert(key.clone(), (*value).clone());
                 }
                 Ok(())
             }
@@ -820,5 +843,44 @@ mod keychain_tests {
 
         let decrypted = decrypt_workspace_key_with_password(password.to_string(), &envelope).unwrap();
         assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_client_pepper_fallback_permissions() {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let temp_dir = std::env::temp_dir();
+            let path = temp_dir.join("test_yntra_client_pepper.bin");
+            if path.exists() {
+                let _ = std::fs::remove_file(&path);
+            }
+
+            let new_pepper = "test-pepper-value";
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                let mut options = std::fs::OpenOptions::new();
+                if let Ok(mut file) = options.write(true).create(true).truncate(true).mode(0o600).open(&path) {
+                    use std::io::Write;
+                    let _ = file.write_all(new_pepper.as_bytes());
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = std::fs::write(&path, &new_pepper);
+            }
+
+            assert!(path.exists());
+
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let metadata = std::fs::metadata(&path).unwrap();
+                let mode = metadata.permissions().mode();
+                assert_eq!(mode & 0o777, 0o600);
+            }
+
+            let _ = std::fs::remove_file(&path);
+        }
     }
 }
