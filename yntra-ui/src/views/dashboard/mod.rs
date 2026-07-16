@@ -193,6 +193,16 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
     let mut todo_input = use_signal(String::new);
     let mut temp_selected_widgets = use_signal(Vec::<String>::new);
 
+    // Event Context Menu Signals
+    let mut event_context_menu_open = use_signal(|| false);
+    let mut event_context_menu_pos = use_signal(|| (0, 0));
+    let mut event_context_menu_val = use_signal(|| Option::<TeamEvent>::None);
+
+    // Todo Context Menu Signals
+    let mut todo_context_menu_open = use_signal(|| false);
+    let mut todo_context_menu_pos = use_signal(|| (0, 0));
+    let mut todo_context_menu_val = use_signal(|| Option::<yntra_core::TodoItem>::None);
+
     let is_client = active_user.role == "client";
     let locale = auth_region.read().clone();
 
@@ -629,6 +639,20 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                         for event in rendered_today_events.iter() {
                                             div {
                                                 key: "{event.id}",
+                                                oncontextmenu: {
+                                                    let event_id = event.id.clone();
+                                                    move |evt| {
+                                                        evt.prevent_default();
+                                                        let coords = evt.client_coordinates();
+                                                        event_context_menu_pos.set((coords.x as i32, coords.y as i32));
+                                                        if let Some(events) = state.events.read().as_ref() {
+                                                            if let Some(original) = events.iter().find(|e| e.id == event_id) {
+                                                                event_context_menu_val.set(Some(original.clone()));
+                                                            }
+                                                        }
+                                                        event_context_menu_open.set(true);
+                                                    }
+                                                },
                                                 class: "flex flex-col gap-1 border border-border rounded-lg p-3 bg-white/[0.015] hover:bg-white/[0.03] transition-colors cursor-default",
                                                 span {
                                                     class: "font-semibold text-sm text-foreground",
@@ -847,6 +871,16 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                         for item in active_todos.iter() {
                                             div {
                                                 key: "{item.id}",
+                                                oncontextmenu: {
+                                                    let item_c = item.clone();
+                                                    move |evt| {
+                                                        evt.prevent_default();
+                                                        let coords = evt.client_coordinates();
+                                                        todo_context_menu_pos.set((coords.x as i32, coords.y as i32));
+                                                        todo_context_menu_val.set(Some(item_c.clone()));
+                                                        todo_context_menu_open.set(true);
+                                                    }
+                                                },
                                                 class: "flex items-center gap-2 border border-border/40 rounded-lg p-2 bg-white/[0.015]",
                                                 input {
                                                     r#type: "checkbox",
@@ -1501,6 +1535,105 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                     _ => "Save"
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Event Context Menu Overlay
+        if let Some(event) = event_context_menu_val.read().clone() {
+            {
+                let ev_id = event.id.clone();
+                let ev_title = event.title.clone();
+                let active_uid = active_user.id.clone();
+                let db_trig = db_trigger;
+                let mut active_sec = active_section;
+
+                rsx! {
+                    crate::components::ContextMenu {
+                        open: *event_context_menu_open.read(),
+                        x: event_context_menu_pos.read().0,
+                        y: event_context_menu_pos.read().1,
+                        onclose: move |_| event_context_menu_open.set(false),
+
+                        button {
+                            class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                            onclick: move |_| {
+                                active_sec.set("scheduling".to_string());
+                                event_context_menu_open.set(false);
+                            },
+                            crate::components::LucideIcon { name: "calendar", size: "14" }
+                            "Go to Schedule"
+                        }
+                        button {
+                            class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-destructive flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                            onclick: move |_| {
+                                let active_uid_c = active_uid.clone();
+                                let target_ev_id = ev_id.clone();
+                                let mut d_trig = db_trig;
+                                spawn(async move {
+                                    let _ = yntra_core::delete_event(active_uid_c, target_ev_id).await;
+                                    let val = *d_trig.read();
+                                    d_trig.set(val + 1);
+                                });
+                                event_context_menu_open.set(false);
+                            },
+                            crate::components::LucideIcon { name: "trash-2", size: "14" }
+                            "Delete Event"
+                        }
+                        button {
+                            class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                            onclick: move |_| {
+                                let js = format!("navigator.clipboard.writeText({:?});", ev_title);
+                                let _ = dioxus::document::eval(&js);
+                                event_context_menu_open.set(false);
+                            },
+                            crate::components::LucideIcon { name: "copy", size: "14" }
+                            "Copy Event Title"
+                        }
+                    }
+                }
+            }
+        }
+
+        // Todo Context Menu Overlay
+        if let Some(todo) = todo_context_menu_val.read().clone() {
+            {
+                let todo_id = todo.id.clone();
+                let todo_text = todo.text.clone();
+                let active_uid = active_user.id.clone();
+                let is_completed = todo.completed;
+
+                rsx! {
+                    crate::components::ContextMenu {
+                        open: *todo_context_menu_open.read(),
+                        x: todo_context_menu_pos.read().0,
+                        y: todo_context_menu_pos.read().1,
+                        onclose: move |_| todo_context_menu_open.set(false),
+
+                        button {
+                            class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                            onclick: move |_| {
+                                let id = todo_id.clone();
+                                let u = active_uid.clone();
+                                spawn(async move {
+                                    let _ = yntra_core::toggle_todo(u, id).await;
+                                });
+                                todo_context_menu_open.set(false);
+                            },
+                            crate::components::LucideIcon { name: if is_completed { "square" } else { "check-square" }, size: "14" }
+                            if is_completed { "Mark Active" } else { "Mark Completed" }
+                        }
+                        button {
+                            class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                            onclick: move |_| {
+                                let js = format!("navigator.clipboard.writeText({:?});", todo_text);
+                                let _ = dioxus::document::eval(&js);
+                                todo_context_menu_open.set(false);
+                            },
+                            crate::components::LucideIcon { name: "copy", size: "14" }
+                            "Copy Todo Text"
                         }
                     }
                 }
