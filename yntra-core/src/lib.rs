@@ -32,6 +32,8 @@ pub use services::todos::*;
 pub use services::users::*;
 pub use services::workspaces::*;
 pub use services::dashboard::*;
+pub use services::vehicles::*;
+pub use services::school::*;
 
 // Support absolute paths inside submodules that import modules re-exported at the root
 #[cfg(target_arch = "wasm32")]
@@ -233,8 +235,27 @@ pub async fn init_wasm_db() -> Result<(), YntraError> {
 }
 
 #[cfg(target_arch = "wasm32")]
+pub async fn wait_for_js_bridge() {
+    if let Some(window) = web_sys::window() {
+        let sql_key = wasm_bindgen::JsValue::from_str("yntra_execute_sql");
+        let load_key = wasm_bindgen::JsValue::from_str("yntra_load_store_bin");
+        let save_key = wasm_bindgen::JsValue::from_str("yntra_save_store_bin");
+        loop {
+            let sql_ready = js_sys::Reflect::has(&window, &sql_key).unwrap_or(false);
+            let load_ready = js_sys::Reflect::has(&window, &load_key).unwrap_or(false);
+            let save_ready = js_sys::Reflect::has(&window, &save_key).unwrap_or(false);
+            if sql_ready && load_ready && save_ready {
+                break;
+            }
+            crate::infra::time::sleep_ms(10).await;
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
 #[uniffi::export]
 pub async fn init_wasm_db() -> Result<(), YntraError> {
+    wait_for_js_bridge().await;
     let conn = database::acquire_connection().await?;
     database::setup_schema(&conn).await?;
     Ok(())
@@ -245,7 +266,9 @@ pub async fn init_wasm_db() -> Result<(), YntraError> {
 pub fn init_tracing() -> Result<(), YntraError> {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        tracing_wasm::set_as_global_default();
+        if !tracing::dispatcher::has_been_set() {
+            tracing_wasm::set_as_global_default();
+        }
     });
     Ok(())
 }

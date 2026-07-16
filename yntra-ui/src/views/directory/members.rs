@@ -29,6 +29,10 @@ pub fn MembersList(props: MembersListProps) -> Element {
     let custom_roles = props.custom_roles.clone();
     let mut state = use_context::<AppState>();
 
+    let mut context_menu_open = use_signal(|| false);
+    let mut context_menu_pos = use_signal(|| (0, 0));
+    let mut context_menu_member = use_signal(|| Option::<components::DirectoryMember>::None);
+
     let workspace_opt = state.workspace.read();
     let workspace = workspace_opt.as_ref().cloned().unwrap_or_else(|| yntra_core::Workspace {
         id: "workspace-1".to_string(),
@@ -221,12 +225,24 @@ pub fn MembersList(props: MembersListProps) -> Element {
                                 "Platform Admins ({platform_admins.len()})"
                             }
                             for u in platform_admins.clone().into_iter() {
-                                div {
-                                    key: "{u.id}",
-                                    onclick: move |_| {
-                                        selected_member.set(Some(components::DirectoryMember::User(u.clone())));
-                                    },
-                                    class: "group flex cursor-pointer items-center border-b border-border/30 px-6 py-3 transition-colors hover:bg-white/[0.02] list-item-hover",
+                                {
+                                    let u_c = u.clone();
+                                    let onclick_u = u_c.clone();
+                                    let oncontext_u = u_c.clone();
+                                    rsx! {
+                                        div {
+                                            key: "{u.id}",
+                                            onclick: move |_| {
+                                                selected_member.set(Some(components::DirectoryMember::User(onclick_u.clone())));
+                                            },
+                                            oncontextmenu: move |evt| {
+                                                evt.prevent_default();
+                                                let coords = evt.client_coordinates();
+                                                context_menu_pos.set((coords.x as i32, coords.y as i32));
+                                                context_menu_member.set(Some(components::DirectoryMember::User(oncontext_u.clone())));
+                                                context_menu_open.set(true);
+                                            },
+                                            class: "group flex cursor-pointer items-center border-b border-border/30 px-6 py-3 transition-colors hover:bg-white/[0.02] list-item-hover",
                                     div {
                                         class: "mr-4 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.04] text-xs font-bold text-primary",
                                         "{u.full_name.clone().unwrap_or_else(|| \"Name Unspecified\".to_string()).chars().next().unwrap_or('?')}"
@@ -240,6 +256,8 @@ pub fn MembersList(props: MembersListProps) -> Element {
                                     components::LucideIcon { name: "chevron-right", class: "h-5 w-5 text-muted-foreground/40" }
                                 }
                             }
+                        }
+                    }
                         }
                     }
 
@@ -249,12 +267,24 @@ pub fn MembersList(props: MembersListProps) -> Element {
                                 "Administrators ({admins.len()})"
                             }
                             for u in admins.clone().into_iter() {
-                                div {
-                                    key: "{u.id}",
-                                    onclick: move |_| {
-                                        selected_member.set(Some(components::DirectoryMember::User(u.clone())));
-                                    },
-                                    class: "group flex cursor-pointer items-center border-b border-border/30 px-6 py-3 transition-colors hover:bg-white/[0.02] list-item-hover",
+                                {
+                                    let u_c = u.clone();
+                                    let onclick_u = u_c.clone();
+                                    let oncontext_u = u_c.clone();
+                                    rsx! {
+                                        div {
+                                            key: "{u.id}",
+                                            onclick: move |_| {
+                                                selected_member.set(Some(components::DirectoryMember::User(onclick_u.clone())));
+                                            },
+                                            oncontextmenu: move |evt| {
+                                                evt.prevent_default();
+                                                let coords = evt.client_coordinates();
+                                                context_menu_pos.set((coords.x as i32, coords.y as i32));
+                                                context_menu_member.set(Some(components::DirectoryMember::User(oncontext_u.clone())));
+                                                context_menu_open.set(true);
+                                            },
+                                            class: "group flex cursor-pointer items-center border-b border-border/30 px-6 py-3 transition-colors hover:bg-white/[0.02] list-item-hover",
                                     div {
                                         class: "mr-4 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.04] text-xs font-bold text-primary",
                                         "{u.full_name.clone().unwrap_or_else(|| \"Name Unspecified\".to_string()).chars().next().unwrap_or('?')}"
@@ -270,6 +300,8 @@ pub fn MembersList(props: MembersListProps) -> Element {
                             }
                         }
                     }
+                        }
+                    }
 
                     if !assistants.is_empty() {
                         div { class: "flex flex-col border border-border/40 rounded-xl overflow-hidden bg-white/[0.005]",
@@ -277,12 +309,24 @@ pub fn MembersList(props: MembersListProps) -> Element {
                                 "Employees & Staff ({assistants.len()})"
                             }
                             for u in assistants.clone().into_iter() {
-                                div {
-                                    key: "{u.id}",
-                                    onclick: move |_| {
-                                        selected_member.set(Some(components::DirectoryMember::User(u.clone())));
-                                    },
-                                    class: "group flex cursor-pointer items-center border-b border-border/30 px-6 py-3 transition-colors hover:bg-white/[0.02] list-item-hover",
+                                {
+                                    let u_c = u.clone();
+                                    let onclick_u = u_c.clone();
+                                    let oncontext_u = u_c.clone();
+                                    rsx! {
+                                        div {
+                                            key: "{u.id}",
+                                            onclick: move |_| {
+                                                selected_member.set(Some(components::DirectoryMember::User(onclick_u.clone())));
+                                            },
+                                            oncontextmenu: move |evt| {
+                                                evt.prevent_default();
+                                                let coords = evt.client_coordinates();
+                                                context_menu_pos.set((coords.x as i32, coords.y as i32));
+                                                context_menu_member.set(Some(components::DirectoryMember::User(oncontext_u.clone())));
+                                                context_menu_open.set(true);
+                                            },
+                                            class: "group flex cursor-pointer items-center border-b border-border/30 px-6 py-3 transition-colors hover:bg-white/[0.02] list-item-hover",
                                     div {
                                         class: "mr-4 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.04] text-xs font-bold text-primary",
                                         "{u.full_name.clone().unwrap_or_else(|| \"Name Unspecified\".to_string()).chars().next().unwrap_or('?')}"
@@ -296,6 +340,8 @@ pub fn MembersList(props: MembersListProps) -> Element {
                                     components::LucideIcon { name: "chevron-right", class: "h-5 w-5 text-muted-foreground/40" }
                                 }
                             }
+                        }
+                    }
                         }
                     }
                 }
@@ -499,6 +545,61 @@ pub fn MembersList(props: MembersListProps) -> Element {
                 onsave: move |_| {
                     let current = *db_trigger.read();
                     db_trigger.set(current + 1);
+                }
+            }
+        }
+        // Context Menu Overlay
+        if let Some(m) = context_menu_member.read().clone() {
+            {
+                let m_details = m.clone();
+                let m_edit = m.clone();
+
+                let mut act_sec = state.active_section;
+                let mut msg_view = state.messaging_view_tab;
+                let mut comp_rec = state.compose_recipient_id;
+
+                let member_id = match m.clone() {
+                    components::DirectoryMember::User(u) => u.id.clone(),
+                    components::DirectoryMember::Client(c) => c.id.clone(),
+                };
+
+                rsx! {
+                    components::ContextMenu {
+                        open: *context_menu_open.read(),
+                        x: context_menu_pos.read().0,
+                        y: context_menu_pos.read().1,
+                        onclose: move |_| context_menu_open.set(false),
+
+                        button {
+                            class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                            onclick: move |_| {
+                                selected_member.set(Some(m_details.clone()));
+                                context_menu_open.set(false);
+                            },
+                            components::LucideIcon { name: "user", size: "14" }
+                            "View Details"
+                        }
+                        button {
+                            class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                            onclick: move |_| {
+                                selected_member_to_edit.set(Some(m_edit.clone()));
+                                context_menu_open.set(false);
+                            },
+                            components::LucideIcon { name: "edit", size: "14" }
+                            "Edit Profile"
+                        }
+                        button {
+                            class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                            onclick: move |_| {
+                                act_sec.set("messaging".to_string());
+                                msg_view.set("compose".to_string());
+                                comp_rec.set(Some(member_id.clone()));
+                                context_menu_open.set(false);
+                            },
+                            components::LucideIcon { name: "message-square", size: "14" }
+                            "Send Message"
+                        }
+                    }
                 }
             }
         }

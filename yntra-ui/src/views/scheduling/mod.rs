@@ -69,6 +69,35 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
         events_sig.set(evs);
     });
 
+    let db_trig_val = *props.db_trigger.read();
+    let jobs_resource = use_resource(move || {
+        let _ = db_trig_val;
+        let uid = props.active_user.id.clone();
+        async move {
+            match yntra_core::get_job_tickets(uid).await {
+                Ok(list) => list,
+                Err(_) => Vec::new(),
+            }
+        }
+    });
+    let jobs = jobs_resource.read().clone().unwrap_or_default();
+
+    let workspace_opt = state.workspace.read().clone();
+    let is_moving_company = if let Some(ref ws) = workspace_opt {
+        let modules_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
+        modules_val.get("moving_company").and_then(|v| v.as_bool()).unwrap_or(false)
+    } else {
+        false
+    };
+
+    let unscheduled_jobs: Vec<yntra_core::JobTicket> = jobs
+        .iter()
+        .filter(|j| j.scheduled_date.is_empty() || j.scheduled_date == "unscheduled")
+        .cloned()
+        .collect();
+
+    let dragged_job_id = use_signal(|| Option::<String>::None);
+
     let mut edit_mode = use_signal(|| false);
     let mut calendar_view_mode = use_signal(|| "month".to_string());
     let dragged_event_id = use_signal(|| Option::<String>::None);
@@ -320,6 +349,9 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
                 if *calendar_view_mode.read() != "timetable" {
                     UnscheduledBucket {
                         unscheduled_events,
+                        unscheduled_jobs,
+                        dragged_job_id,
+                        is_moving_company,
                         edit_mode,
                         dragged_event_id,
                         db_trigger,
@@ -590,6 +622,7 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
                                             events_sig,
                                             selected_calendar_date,
                                             dragged_event_id,
+                                            dragged_job_id,
                                             show_event_detail_modal,
                                             edit_mode,
                                             db_trigger,
@@ -612,6 +645,7 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
                                             scheduled_events: scheduled_events.clone(),
                                             events_sig,
                                             dragged_event_id,
+                                            dragged_job_id,
                                             show_event_detail_modal,
                                             edit_mode,
                                             db_trigger,
@@ -642,6 +676,7 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
                                         events_sig,
                                         selected_calendar_date,
                                         dragged_event_id,
+                                        dragged_job_id,
                                         show_event_detail_modal,
                                         edit_mode,
                                         db_trigger,

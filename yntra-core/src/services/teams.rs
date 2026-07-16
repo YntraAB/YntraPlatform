@@ -193,11 +193,11 @@ pub async fn add_event_with_metadata(
 pub async fn delete_event(requester_user_id: String, id: String) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    let event_ws: String = conn
+    let (event_ws, metadata): (String, String) = conn
         .query_row(
-            "SELECT workspace_id FROM events WHERE id = ?1",
+            "SELECT workspace_id, metadata FROM events WHERE id = ?1",
             crate::params![&id],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .await
         .map_err(|_| YntraError::NotFoundError("Event not found".to_string()))?;
@@ -210,6 +210,17 @@ pub async fn delete_event(requester_user_id: String, id: String) -> Result<(), Y
 
     conn.execute("DELETE FROM events WHERE id = ?1", crate::params![id])
         .await?;
+
+    // Bidirectional sync with job tickets: if this event was linked to a job ticket, reset it to pending
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&metadata) {
+        if let Some(job_id) = val.get("job_ticket_id").and_then(|v| v.as_str()) {
+            let now_ms = crate::infra::time::get_current_time_ms();
+            conn.execute(
+                "UPDATE job_tickets SET scheduled_date = '', assigned_user_id = NULL, status = 'pending', updated_at = ?1, sync_status = 'pending' WHERE id = ?2",
+                crate::params![now_ms, job_id],
+            ).await?;
+        }
+    }
 
     notify_observers();
     Ok(())
@@ -263,11 +274,11 @@ pub async fn update_event_time(
     let now_ms = crate::infra::time::get_current_time_ms();
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    let event_ws: String = conn
+    let (event_ws, metadata): (String, String) = conn
         .query_row(
-            "SELECT workspace_id FROM events WHERE id = ?1",
+            "SELECT workspace_id, metadata FROM events WHERE id = ?1",
             crate::params![&id],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .await
         .map_err(|_| YntraError::NotFoundError("Event not found".to_string()))?;
@@ -282,6 +293,21 @@ pub async fn update_event_time(
         "UPDATE events SET start_time = ?1, end_time = ?2, updated_at = ?3, sync_status = 'pending' WHERE id = ?4",
         crate::params![start_time, end_time, now_ms, id],
     ).await?;
+
+    // Bidirectional sync with job tickets if metadata links them
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&metadata) {
+        if let Some(job_id) = val.get("job_ticket_id").and_then(|v| v.as_str()) {
+            let date_part = if start_time.len() >= 10 {
+                &start_time[..10]
+            } else {
+                &start_time
+            };
+            conn.execute(
+                "UPDATE job_tickets SET scheduled_date = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
+                crate::params![date_part, now_ms, job_id],
+            ).await?;
+        }
+    }
 
     notify_observers();
     Ok(())
@@ -322,6 +348,21 @@ pub async fn update_event(
         "UPDATE events SET title = ?1, start_time = ?2, end_time = ?3, team_id = ?4, assignee_id = ?5, user_id = ?6, metadata = ?7, updated_at = ?8, sync_status = 'pending' WHERE id = ?9",
         crate::params![title, start_time, end_time, team_id, assignee_id, recipient_id, metadata, now_ms, id],
     ).await?;
+
+    // Bidirectional sync with job tickets if metadata links them
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&metadata) {
+        if let Some(job_id) = val.get("job_ticket_id").and_then(|v| v.as_str()) {
+            let date_part = if start_time.len() >= 10 {
+                &start_time[..10]
+            } else {
+                &start_time
+            };
+            conn.execute(
+                "UPDATE job_tickets SET scheduled_date = ?1, assigned_user_id = ?2, status = 'assigned', updated_at = ?3, sync_status = 'pending' WHERE id = ?4",
+                crate::params![date_part, &assignee_id, now_ms, job_id],
+            ).await?;
+        }
+    }
 
     notify_observers();
     Ok(())

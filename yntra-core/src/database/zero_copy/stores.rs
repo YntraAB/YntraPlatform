@@ -1176,6 +1176,7 @@ extern "C" {
 pub async fn load_from_opfs_by_path(file_path: &str) -> Result<Option<Vec<u8>>, YntraError> {
     #[cfg(target_arch = "wasm32")]
     {
+        crate::wait_for_js_bridge().await;
         let fut = js_load_store_bin_stores(file_path);
         let send_fut = crate::database::wasm::SendFuture::new(fut);
         match send_fut.await {

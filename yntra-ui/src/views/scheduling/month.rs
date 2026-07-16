@@ -11,6 +11,7 @@ pub struct MonthViewProps {
     pub events_sig: Signal<Vec<TeamEvent>>,
     pub selected_calendar_date: Signal<String>,
     pub dragged_event_id: Signal<Option<String>>,
+    pub dragged_job_id: Signal<Option<String>>,
     pub show_event_detail_modal: Signal<Option<TeamEvent>>,
     pub edit_mode: Signal<bool>,
     pub db_trigger: Signal<u32>,
@@ -29,6 +30,7 @@ pub fn MonthView(props: MonthViewProps) -> Element {
     let state = use_context::<crate::state::AppState>();
     let mut selected_calendar_date = props.selected_calendar_date;
     let mut dragged_event_id = props.dragged_event_id;
+    let dragged_job_id = props.dragged_job_id;
     let mut show_event_detail_modal = props.show_event_detail_modal;
     let db_trigger = props.db_trigger;
     let events_sig = props.events_sig;
@@ -105,6 +107,7 @@ pub fn MonthView(props: MonthViewProps) -> Element {
                                 },
                                 ondrop: {
                                     let cell_date_c = cell_date_for_drop.clone();
+                                    let active_uid_sig = state.active_user_id;
                                      move |_| {
                                          dragged_over_cell.set(None);
                                          if let Some(event_id) = dragged_event_id.read().clone() {
@@ -120,15 +123,26 @@ pub fn MonthView(props: MonthViewProps) -> Element {
                                                      update_date_in_time_str(&ev.end_time, &cell_date_c)
                                                  };
                                                  let mut db_trig = db_trigger;
-                                                 let active_uid_sig = state.active_user_id;
+                                                 let active_uid_sig_c = active_uid_sig.clone();
                                                  spawn(async move {
-                                                     let active_uid = active_uid_sig.read().clone();
+                                                     let active_uid = active_uid_sig_c.read().clone();
                                                      if yntra_core::update_event_time(active_uid, event_id, new_start, new_end).await.is_ok() {
                                                          let val = *db_trig.read();
                                                          db_trig.set(val + 1);
                                                      }
                                                  });
                                              }
+                                         } else if let Some(job_id) = dragged_job_id.read().clone() {
+                                             let mut db_trig = db_trigger;
+                                             let active_uid_sig_c = active_uid_sig.clone();
+                                             let target_date = cell_date_c.clone();
+                                             spawn(async move {
+                                                 let active_uid = active_uid_sig_c.read().clone();
+                                                 if yntra_core::schedule_job_ticket(active_uid, job_id, target_date, None).await.is_ok() {
+                                                     let val = *db_trig.read();
+                                                     db_trig.set(val + 1);
+                                                 }
+                                             });
                                          }
                                      }
                                 },

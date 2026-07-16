@@ -457,9 +457,23 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
                                             div { class: "mb-4 rounded-full bg-muted p-4",
                                                 components::LucideIcon { name: "settings-2", class: "h-8 w-8 text-muted-foreground opacity-20" }
                                             }
-                                            h3 { class: "text-lg font-medium m-0", "{t(\"settings-blocks-config-placeholder-title\", &props.locale)}" }
-                                            p { class: "max-w-xs text-sm text-muted-foreground m-0 mt-1.5",
-                                                "{t(\"settings-blocks-config-placeholder-desc\", &props.locale)}"
+                                            h3 { class: "text-lg font-medium m-0", 
+                                                match props.locale.as_str() {
+                                                    "sv" => "Dynamisk databas & formulär",
+                                                    "no" => "Dynamisk database & skjema",
+                                                    "da" => "Dynamisk database & formular",
+                                                    "fi" => "Dynaaminen tietokanta & lomake",
+                                                    _ => "Dynamic Database & Forms"
+                                                }
+                                            }
+                                            p { class: "max-w-md text-sm text-muted-foreground m-0 mt-2 leading-relaxed px-4",
+                                                match props.locale.as_str() {
+                                                    "sv" => "Denna modul drivs av Yntras dynamiska modulmotor. Den använder automatiskt genererade tabellvyer och databasformulär baserade på den definierade schemakonfigurationen.",
+                                                    "no" => "Denne modulen er drevet av Yntras dynamiske modulmotor. Den bruker automatisk genererte tabellvisninger og databasskjemaer basert på den definerte skjema-konfigurasjonen.",
+                                                    "da" => "Dette modul er drevet af Yntras dynamiske modulmotor. Det bruger automatisk genererede tabelvisninger og databaseformularer baseret på den definerede skemakonfiguration.",
+                                                    "fi" => "Tämä moduuli toimii Yntran dynaamisen moduulimoottorin avulla. Se käyttää automaattisesti luotuja taulukkonäkymiä ja tietokantalomakkeita määritetyn skeeman perusteella.",
+                                                    _ => "This module is powered by Yntra's dynamic modular engine. It uses automatically generated table views and database forms based on its defined fields schema."
+                                                }
                                             }
                                         }
                                     }

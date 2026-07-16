@@ -1,0 +1,407 @@
+use crate::components::{Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, Input, LucideIcon, SuggestionInput};
+use crate::locales::t;
+use dioxus::prelude::*;
+use yntra_core::{
+    checkout_book, create_school_invoice, get_assignments, get_library_books,
+    get_library_lending_logs, get_school_invoices, get_student_profiles, get_workspace_courses,
+    get_users, record_school_payment, return_book, save_assignment, save_attendance_record, save_course,
+    link_parent_to_student, get_student_parents, get_student_health_records, save_student_health_record,
+    get_health_incidents, save_health_incident, save_student_profile,
+    get_course_term_grades, save_term_grade, publish_report_card, get_report_cards,
+    get_student_submissions, save_submission, get_timetable_slots, save_timetable_slot,
+    Assignment, Course, SchoolInvoice, HealthRecord, HealthIncident, StudentProfile, TermGrade, ReportCard,
+    Submission, TimetableSlot, save_library_book, LibraryBook,
+};
+
+use super::SchoolViewProps;
+
+#[component]
+pub fn LibraryView(props: SchoolViewProps) -> Element {
+    let mut db_trigger = props.db_trigger;
+    let user_id = props.active_user_id.clone();
+    let ws_id = props.workspace_id.clone();
+
+    // Local checkout states
+    let mut show_checkout_modal = use_signal(|| false);
+    let mut checkout_book_id = use_signal(String::new);
+    let mut checkout_student_id = use_signal(String::new);
+    let mut checkout_due = use_signal(|| "2026-08-01".to_string());
+
+    let mut context_menu_open = use_signal(|| false);
+    let mut context_menu_pos = use_signal(|| (0, 0));
+    let mut context_menu_book = use_signal(|| Option::<LibraryBook>::None);
+
+    let mut show_edit_book_modal = use_signal(|| false);
+    let mut edit_book_id = use_signal(String::new);
+    let mut edit_book_title = use_signal(String::new);
+    let mut edit_book_author = use_signal(String::new);
+    let mut edit_book_isbn = use_signal(String::new);
+    let mut edit_book_total_copies = use_signal(String::new);
+    let mut edit_book_copies_available = use_signal(|| 0);
+
+    let db_trig_val = *db_trigger.read();
+    let user_id_clone = user_id.clone();
+    let ws_id_clone = ws_id.clone();
+    let books_res = use_resource(move || {
+        let _ = db_trig_val;
+        let uid = user_id_clone.clone();
+        let ws = ws_id_clone.clone();
+        async move { get_library_books(uid, ws).await.unwrap_or_default() }
+    });
+
+    let user_id_clone2 = user_id.clone();
+    let ws_id_clone2 = ws_id.clone();
+    let logs_res = use_resource(move || {
+        let _ = db_trig_val;
+        let uid = user_id_clone2.clone();
+        let ws = ws_id_clone2.clone();
+        async move { get_library_lending_logs(uid, ws).await.unwrap_or_default() }
+    });
+
+    let user_id_clone3 = user_id.clone();
+    let ws_id_clone3 = ws_id.clone();
+    let students_res = use_resource(move || {
+        let _ = db_trig_val;
+        let uid = user_id_clone3.clone();
+        let ws = ws_id_clone3.clone();
+        async move { get_student_profiles(uid, ws).await.unwrap_or_default() }
+    });
+
+    let books = books_res.read().clone().unwrap_or_default();
+    let logs = logs_res.read().clone().unwrap_or_default();
+    let students = students_res.read().clone().unwrap_or_default();
+
+    rsx! {
+        div { class: "p-6 space-y-6 max-w-6xl mx-auto animate-in fade-in slide-in-from-top-4 duration-300",
+            div { class: "border-b border-border pb-4",
+                h2 { class: "text-2xl font-bold tracking-tight text-foreground m-0 flex items-center gap-2",
+                    LucideIcon { name: "library", class: "h-6 w-6 text-primary" }
+                    "Library Lending Catalog"
+                }
+                p { class: "text-xs text-muted-foreground m-0 mt-1", "Manage catalog records, checkout books to students, and track return lending logs." }
+            }
+
+            // Grid for book catalog vs checkout logs
+            div { class: "grid grid-cols-1 lg:grid-cols-2 gap-6",
+                // Library Catalog Table Card
+                Card { class: "border-border shadow-sm",
+                    CardHeader {
+                        CardTitle { "Book Catalog" }
+                        CardDescription { "Available inventory copies" }
+                    }
+                    CardContent {
+                        if books.is_empty() {
+                            div { class: "py-10 text-center text-xs text-muted-foreground border border-dashed border-border rounded-xl", "No books in library catalog." }
+                        } else {
+                            div { class: "divide-y divide-border border rounded-xl overflow-hidden bg-background",
+                                for b in books.iter() {
+                                    {
+                                        let b_c = b.clone();
+                                        let b_context = b.clone();
+                                        let book_id = b.id.clone();
+                                        let is_available = b.copies_available > 0;
+                                        rsx! {
+                                            div {
+                                                key: "{book_id}",
+                                                class: "p-4 flex justify-between items-center",
+                                                oncontextmenu: move |evt| {
+                                                    evt.prevent_default();
+                                                    let coords = evt.client_coordinates();
+                                                    context_menu_pos.set((coords.x as i32, coords.y as i32));
+                                                    context_menu_book.set(Some(b_context.clone()));
+                                                    context_menu_open.set(true);
+                                                },
+                                                div {
+                                                    div { class: "font-semibold text-sm text-foreground", "{b_c.title}" }
+                                                    div { class: "text-xs text-muted-foreground mt-0.5", "Author: {b_c.author} | ISBN: {b_c.isbn}" }
+                                                    div { class: "text-[10px] text-muted-foreground mt-2", "Copies: {b_c.copies_available} available of {b_c.total_copies}" }
+                                                }
+                                                if is_available {
+                                                    Button {
+                                                        class: "text-xs h-8 px-3 rounded-lg border border-primary text-primary hover:bg-primary/5 font-semibold",
+                                                        onclick: move |_| {
+                                                            checkout_book_id.set(book_id.clone());
+                                                            show_checkout_modal.set(true);
+                                                        },
+                                                        "Checkout"
+                                                    }
+                                                } else {
+                                                    span { class: "text-xs text-red-500 font-medium", "Unavailable" }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Lending Logs Card
+                Card { class: "border-border shadow-sm",
+                    CardHeader {
+                        CardTitle { "Lending Logs" }
+                        CardDescription { "Active book checkouts and status logs" }
+                    }
+                    CardContent {
+                        if logs.is_empty() {
+                            div { class: "py-10 text-center text-xs text-muted-foreground border border-dashed border-border rounded-xl", "No lending logs registered." }
+                        } else {
+                            div { class: "divide-y divide-border border rounded-xl overflow-hidden bg-background",
+                                for lg in logs.iter() {
+                                    {
+                                        let log_id = lg.id.clone();
+                                        let is_borrowed = lg.status == "borrowed";
+                                        let uid = user_id.clone();
+                                        let ws = ws_id.clone();
+                                        rsx! {
+                                            div { key: "{log_id}", class: "p-4 flex justify-between items-center",
+                                                div {
+                                                    div { class: "font-semibold text-sm text-foreground", "{lg.book_title}" }
+                                                    div { class: "text-xs text-muted-foreground mt-0.5", "Borrower: {lg.student_name} | Due: {lg.due_date}" }
+                                                    div { class: "text-[10px] mt-1.5",
+                                                        span { class: format!(
+                                                            "text-[9px] font-bold uppercase rounded px-1.5 py-0.5 {}",
+                                                            if is_borrowed { "bg-amber-500/10 text-amber-600" } else { "bg-green-500/10 text-green-600" }
+                                                        ),
+                                                            "{lg.status}"
+                                                        }
+                                                    }
+                                                }
+                                                if is_borrowed {
+                                                    Button {
+                                                        class: "text-xs h-8 px-3 rounded-lg border border-border text-foreground hover:bg-muted font-medium",
+                                                        onclick: move |_| {
+                                                            let uid_c = uid.clone();
+                                                            let ws_c = ws.clone();
+                                                            let log_id_c = log_id.clone();
+                                                            spawn(async move {
+                                                                let _ = return_book(uid_c, ws_c, log_id_c).await;
+                                                            });
+                                                            let current = *db_trigger.read();
+                                                            db_trigger.set(current + 1);
+                                                        },
+                                                        "Return Book"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Checkout Dialog Modal
+            if *show_checkout_modal.read() {
+                Dialog {
+                    open: *show_checkout_modal.read(),
+                    title: "Checkout Book copy",
+                    onclose: move |_| show_checkout_modal.set(false),
+                    div { class: "flex flex-col gap-4 text-sm w-full py-2",
+                        div { class: "grid gap-1.5",
+                            span { class: "font-bold text-foreground text-xs", "Select Borrower Student" }
+                            select {
+                                class: "w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none",
+                                value: checkout_student_id.read().clone(),
+                                onchange: move |evt: FormEvent| checkout_student_id.set(evt.value()),
+                                option { value: "", "Choose student..." }
+                                for s in students.iter() {
+                                    option { value: "{s.id}", "{s.first_name} {s.last_name} ({s.grade_level})" }
+                                }
+                            }
+                        }
+                        div { class: "grid gap-1.5",
+                            span { class: "font-bold text-foreground text-xs", "Due Date" }
+                            Input {
+                                value: checkout_due.read().clone(),
+                                oninput: move |evt: FormEvent| checkout_due.set(evt.value()),
+                            }
+                        }
+                        div { class: "flex justify-end gap-3 border-t border-border pt-4 mt-2",
+                            Button {
+                                class: "px-4 py-2 text-xs rounded-xl bg-muted text-foreground",
+                                onclick: move |_| show_checkout_modal.set(false),
+                                "Cancel"
+                            }
+                            Button {
+                                class: "px-4 py-2 text-xs rounded-xl bg-primary text-primary-foreground",
+                                onclick: {
+                                    let uid = user_id.clone();
+                                    let ws = ws_id.clone();
+                                    move |_| {
+                                        let bk_id = checkout_book_id.read().clone();
+                                        let std_id = checkout_student_id.read().clone();
+                                        let due_val = checkout_due.read().clone();
+                                        let uid_c = uid.clone();
+                                        let ws_c = ws.clone();
+                                        spawn(async move {
+                                            let _ = checkout_book(uid_c, ws_c, bk_id, std_id, due_val).await;
+                                        });
+                                        show_checkout_modal.set(false);
+                                        let current = *db_trigger.read();
+                                        db_trigger.set(current + 1);
+                                    }
+                                },
+                                "Log Checkout"
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Edit Book Dialog Modal
+            if *show_edit_book_modal.read() {
+                Dialog {
+                    open: *show_edit_book_modal.read(),
+                    title: "Edit Book Details",
+                    onclose: move |_| show_edit_book_modal.set(false),
+                    div { class: "flex flex-col gap-4 text-sm w-full py-2",
+                        div { class: "grid gap-1.5",
+                            span { class: "font-bold text-foreground text-xs", "Title" }
+                            Input {
+                                value: edit_book_title.read().clone(),
+                                oninput: move |evt: FormEvent| edit_book_title.set(evt.value()),
+                            }
+                        }
+                        div { class: "grid gap-1.5",
+                            span { class: "font-bold text-foreground text-xs", "Author" }
+                            Input {
+                                value: edit_book_author.read().clone(),
+                                oninput: move |evt: FormEvent| edit_book_author.set(evt.value()),
+                            }
+                        }
+                        div { class: "grid gap-1.5",
+                            span { class: "font-bold text-foreground text-xs", "ISBN" }
+                            Input {
+                                value: edit_book_isbn.read().clone(),
+                                oninput: move |evt: FormEvent| edit_book_isbn.set(evt.value()),
+                            }
+                        }
+                        div { class: "grid gap-1.5",
+                            span { class: "font-bold text-foreground text-xs", "Total Copies" }
+                            Input {
+                                value: edit_book_total_copies.read().clone(),
+                                oninput: move |evt: FormEvent| edit_book_total_copies.set(evt.value()),
+                            }
+                        }
+                        div { class: "flex justify-end gap-3 border-t border-border pt-4 mt-2",
+                            Button {
+                                class: "px-4 py-2 text-xs rounded-xl bg-muted text-foreground",
+                                onclick: move |_| show_edit_book_modal.set(false),
+                                "Cancel"
+                            }
+                            Button {
+                                class: "px-4 py-2 text-xs rounded-xl bg-primary text-primary-foreground",
+                                onclick: {
+                                    let uid = user_id.clone();
+                                    let ws = ws_id.clone();
+                                    move |_| {
+                                        let tot_copies = edit_book_total_copies.read().parse::<i32>().unwrap_or(1);
+                                        let av = *edit_book_copies_available.read();
+                                        let b = LibraryBook {
+                                            id: edit_book_id.read().clone(),
+                                            workspace_id: ws.clone(),
+                                            title: edit_book_title.read().clone(),
+                                            author: edit_book_author.read().clone(),
+                                            isbn: edit_book_isbn.read().clone(),
+                                            copies_available: av,
+                                            total_copies: tot_copies,
+                                            updated_at: 0,
+                                        };
+                                        let uid_c = uid.clone();
+                                        spawn(async move {
+                                            let _ = save_library_book(uid_c, b).await;
+                                        });
+                                        show_edit_book_modal.set(false);
+                                        let current = *db_trigger.read();
+                                        db_trigger.set(current + 1);
+                                    }
+                                },
+                                "Save Book"
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Context Menu Overlay
+            if let Some(book) = context_menu_book.read().clone() {
+                {
+                    let bk = book.clone();
+                    let bk_edit = book.clone();
+                    let bk_checkout = book.clone();
+                    let bk_return = book.clone();
+
+                    let active_log = logs.iter().find(|lg| lg.book_title == bk.title && lg.status == "borrowed").cloned();
+                    let is_available = bk.copies_available > 0;
+
+                    rsx! {
+                        crate::components::ContextMenu {
+                            open: *context_menu_open.read(),
+                            x: context_menu_pos.read().0,
+                            y: context_menu_pos.read().1,
+                            onclose: move |_| context_menu_open.set(false),
+
+                            if is_available {
+                                button {
+                                    class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                                    onclick: move |_| {
+                                        checkout_book_id.set(bk_checkout.id.clone());
+                                        show_checkout_modal.set(true);
+                                        context_menu_open.set(false);
+                                    },
+                                    crate::components::LucideIcon { name: "book-open", size: "14" }
+                                    "Checkout Book"
+                                }
+                            }
+                            if let Some(log) = active_log {
+                                {
+                                    let log_id = log.id.clone();
+                                    let uid_c = user_id.clone();
+                                    let ws_c = ws_id.clone();
+                                    rsx! {
+                                        button {
+                                            class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                                            onclick: move |_| {
+                                                let u = uid_c.clone();
+                                                let w = ws_c.clone();
+                                                let l = log_id.clone();
+                                                spawn(async move {
+                                                    let _ = return_book(u, w, l).await;
+                                                });
+                                                context_menu_open.set(false);
+                                                let current = *db_trigger.read();
+                                                db_trigger.set(current + 1);
+                                            },
+                                            crate::components::LucideIcon { name: "book-copy", size: "14" }
+                                            "Return Book"
+                                        }
+                                    }
+                                }
+                            }
+                            button {
+                                class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                                onclick: move |_| {
+                                    edit_book_id.set(bk_edit.id.clone());
+                                    edit_book_title.set(bk_edit.title.clone());
+                                    edit_book_author.set(bk_edit.author.clone());
+                                    edit_book_isbn.set(bk_edit.isbn.clone());
+                                    edit_book_total_copies.set(format!("{}", bk_edit.total_copies));
+                                    edit_book_copies_available.set(bk_edit.copies_available);
+                                    show_edit_book_modal.set(true);
+                                    context_menu_open.set(false);
+                                },
+                                crate::components::LucideIcon { name: "edit", size: "14" }
+                                "Edit Book"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+

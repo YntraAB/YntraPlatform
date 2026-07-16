@@ -12,6 +12,32 @@ pub struct LucideIconProps {
     pub class: Option<String>,
 }
 
+fn to_kebab_case(s: &str) -> String {
+    let mut result = String::new();
+    let mut last_was_dash = false;
+    for (i, c) in s.chars().enumerate() {
+        if c == '_' || c == '-' || c == ' ' {
+            if !last_was_dash && !result.is_empty() {
+                result.push('-');
+                last_was_dash = true;
+            }
+        } else if c.is_uppercase() {
+            if i > 0 && !last_was_dash {
+                result.push('-');
+            }
+            result.extend(c.to_lowercase());
+            last_was_dash = false;
+        } else {
+            result.push(c);
+            last_was_dash = false;
+        }
+    }
+    if result.ends_with('-') {
+        result.pop();
+    }
+    result
+}
+
 #[component]
 pub fn LucideIcon(props: LucideIconProps) -> Element {
     let size_val = props.size.unwrap_or_else(|| "18".to_string());
@@ -21,7 +47,8 @@ pub fn LucideIcon(props: LucideIconProps) -> Element {
     let class_val = props.class.unwrap_or_default();
     let class = class_val.as_str();
 
-    let svg_content = match props.name.as_str() {
+    let name_kebab = to_kebab_case(&props.name);
+    let svg_content = match name_kebab.as_str() {
         "layout-dashboard" | "dashboard" => rsx! {
             rect {
                 x: "3",
@@ -212,6 +239,16 @@ pub fn LucideIcon(props: LucideIconProps) -> Element {
         },
         "moon" => rsx! {
             path { d: "M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" }
+        },
+        "more-vertical" => rsx! {
+            circle { cx: "12", cy: "12", r: "1" }
+            circle { cx: "12", cy: "5", r: "1" }
+            circle { cx: "12", cy: "19", r: "1" }
+        },
+        "more-horizontal" => rsx! {
+            circle { cx: "12", cy: "12", r: "1" }
+            circle { cx: "19", cy: "12", r: "1" }
+            circle { cx: "5", cy: "12", r: "1" }
         },
         "zap" => rsx! {
             polygon { points: "13 2 3 14 12 14 11 22 21 10 12 10 13 2" }
@@ -467,6 +504,11 @@ pub fn LucideIcon(props: LucideIconProps) -> Element {
             path { d: "M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14" }
             circle { cx: "17", cy: "18", r: "2" }
             circle { cx: "7", cy: "18", r: "2" }
+        },
+        "user-check" => rsx! {
+            path { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" }
+            circle { cx: "9", cy: "7", r: "4" }
+            polyline { points: "16 11 18 13 22 9" }
         },
         "users" => rsx! {
             path { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" }

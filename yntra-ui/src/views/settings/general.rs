@@ -129,6 +129,31 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
             .to_string()
     });
 
+    let mut base_rate = use_signal(|| {
+        settings_val
+            .get("moving_base_rate_per_m3")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(500.0)
+    });
+    let mut distance_fee = use_signal(|| {
+        settings_val
+            .get("moving_distance_fee_flat")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(800.0)
+    });
+    let mut stairs_surcharge = use_signal(|| {
+        settings_val
+            .get("moving_stairs_surcharge_per_floor")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(300.0)
+    });
+    let mut packing_fee = use_signal(|| {
+        settings_val
+            .get("moving_packing_supplies_fee_per_m3")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(100.0)
+    });
+
     let state = use_context::<crate::state::AppState>();
     // Helper functions that clone required values to avoid borrow checker errors
     let workspace_id = props.workspace.id.clone();
@@ -168,6 +193,10 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
             settings_map["grading_system"] = serde_json::json!((*grading_system.read()).clone());
             settings_map["late_policy"] = serde_json::json!((*late_policy.read()).clone());
             settings_map["target_region"] = serde_json::json!((*target_region.read()).clone());
+            settings_map["moving_base_rate_per_m3"] = serde_json::json!(*base_rate.read());
+            settings_map["moving_distance_fee_flat"] = serde_json::json!(*distance_fee.read());
+            settings_map["moving_stairs_surcharge_per_floor"] = serde_json::json!(*stairs_surcharge.read());
+            settings_map["moving_packing_supplies_fee_per_m3"] = serde_json::json!(*packing_fee.read());
 
             let settings_str = serde_json::to_string(&settings_map).unwrap_or_default();
             let ws_id = workspace_id.clone();
@@ -529,6 +558,104 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
                                         ("penalty_5".to_string(), "5% Daily Deduction Penalty".to_string()),
                                         ("penalty_10".to_string(), "10% Daily Deduction Penalty".to_string()),
                                     ],
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if *template.read() == "moving" {
+                    components::Card { class: "flex h-full flex-col overflow-hidden border-2 border-border/50 bg-card/40 shadow-sm backdrop-blur-md",
+                        components::CardHeader { class: "pb-4",
+                            div { class: "flex items-center gap-3",
+                                div { class: "rounded-xl bg-primary/10 p-2.5 text-primary shadow-inner",
+                                    components::LucideIcon { name: "calculator", class: "h-5 w-5" }
+                                }
+                                div {
+                                    components::CardTitle { class: "text-lg font-bold tracking-tight",
+                                        "Moving Pricing Rates"
+                                    }
+                                    components::CardDescription { class: "text-xs",
+                                        "Configure hourly base rates, stair fees, and packaging costs."
+                                    }
+                                }
+                            }
+                        }
+                        components::CardContent { class: "grid flex-1 grid-cols-1 gap-4 sm:grid-cols-2",
+                            div { class: "space-y-2",
+                                label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
+                                    "Base Labor Rate (per m³)"
+                                }
+                                crate::components::Input {
+                                    class: "h-11 rounded-xl border-border/40 bg-background/40",
+                                    r#type: "number".to_string(),
+                                    value: base_rate.read().to_string(),
+                                    oninput: move |e: FormEvent| {
+                                        if let Ok(parsed) = e.value().parse::<f64>() {
+                                            base_rate.set(parsed);
+                                        }
+                                    },
+                                    onblur: {
+                                        let mut save = save_settings.clone();
+                                        move |_| save()
+                                    }
+                                }
+                            }
+                            div { class: "space-y-2",
+                                label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
+                                    "Flat Distance Fee (SEK)"
+                                }
+                                crate::components::Input {
+                                    class: "h-11 rounded-xl border-border/40 bg-background/40",
+                                    r#type: "number".to_string(),
+                                    value: distance_fee.read().to_string(),
+                                    oninput: move |e: FormEvent| {
+                                        if let Ok(parsed) = e.value().parse::<f64>() {
+                                            distance_fee.set(parsed);
+                                        }
+                                    },
+                                    onblur: {
+                                        let mut save = save_settings.clone();
+                                        move |_| save()
+                                    }
+                                }
+                            }
+                            div { class: "space-y-2",
+                                label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
+                                    "Stairs Surcharge (per floor)"
+                                }
+                                crate::components::Input {
+                                    class: "h-11 rounded-xl border-border/40 bg-background/40",
+                                    r#type: "number".to_string(),
+                                    value: stairs_surcharge.read().to_string(),
+                                    oninput: move |e: FormEvent| {
+                                        if let Ok(parsed) = e.value().parse::<f64>() {
+                                            stairs_surcharge.set(parsed);
+                                        }
+                                    },
+                                    onblur: {
+                                        let mut save = save_settings.clone();
+                                        move |_| save()
+                                    }
+                                }
+                            }
+                            div { class: "space-y-2",
+                                label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
+                                    "Packing Supplies (per m³)"
+                                }
+                                crate::components::Input {
+                                    class: "h-11 rounded-xl border-border/40 bg-background/40",
+                                    r#type: "number".to_string(),
+                                    value: packing_fee.read().to_string(),
+                                    oninput: move |e: FormEvent| {
+                                        if let Ok(parsed) = e.value().parse::<f64>() {
+                                            packing_fee.set(parsed);
+                                        }
+                                    },
+                                    onblur: {
+                                        let mut save = save_settings.clone();
+                                        move |_| save()
+                                    }
                                 }
                             }
                         }

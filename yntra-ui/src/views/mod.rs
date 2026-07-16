@@ -27,3 +27,6 @@ pub use time::TimeView;
 pub use todos::TodosView;
 pub mod dynamic_block;
 pub use dynamic_block::DynamicBlockView;
+
+pub mod school;
+pub use school::{AcademicsView, AttendanceView, FinanceView, LibraryView, StudentDirectoryView, HealthClinicView, ReportCardsView};

@@ -42,6 +42,17 @@ pub fn EventDetailModal(props: EventDetailModalProps) -> Element {
         async move { yntra_core::get_workspace_template_type(uid, ws_id).await }
     });
 
+    let show_val_courses = show_event_detail_modal.read().clone();
+    let courses_res = use_resource(move || {
+        let _trig = db_trigger.read();
+        let ws_id = show_val_courses
+            .as_ref()
+            .map(|e| e.workspace_id.clone())
+            .unwrap_or_else(|| "workspace-1".to_string());
+        let uid = state.active_user_id.read().clone();
+        async move { yntra_core::get_workspace_courses(uid, ws_id).await }
+    });
+
     if let Some(ref ev) = *show_event_detail_modal.read() {
         let ev_id = ev.id.clone();
         let ev_clone = ev.clone();
@@ -54,7 +65,13 @@ pub fn EventDetailModal(props: EventDetailModalProps) -> Element {
             .as_ref()
             .and_then(|r| r.as_ref().ok().copied())
             .unwrap_or(yntra_core::WorkspaceTemplateType::General);
-        let course_name: Option<String> = None;
+        let course_name: Option<String> = metadata_obj.course_id.clone().and_then(|cid| {
+            courses_res.read().as_ref().and_then(|r| {
+                r.as_ref().ok().and_then(|courses| {
+                    courses.iter().find(|c| c.id == cid).map(|c| format!("{} ({})", c.name, c.subject))
+                })
+            })
+        });
 
         let classroom = metadata_obj
             .classroom

@@ -10,6 +10,7 @@ pub struct DayViewProps {
     pub scheduled_events: Vec<TeamEvent>,
     pub events_sig: Signal<Vec<TeamEvent>>,
     pub dragged_event_id: Signal<Option<String>>,
+    pub dragged_job_id: Signal<Option<String>>,
     pub show_event_detail_modal: Signal<Option<TeamEvent>>,
     pub edit_mode: Signal<bool>,
     pub db_trigger: Signal<u32>,
@@ -35,6 +36,7 @@ pub fn DayView(props: DayViewProps) -> Element {
     let active_user_id = state.active_user_id.read().clone();
     let selected_calendar_date = props.selected_calendar_date;
     let mut dragged_event_id = props.dragged_event_id;
+    let dragged_job_id = props.dragged_job_id;
     let mut show_event_detail_modal = props.show_event_detail_modal;
     let db_trigger = props.db_trigger;
     let events_sig = props.events_sig;
@@ -122,6 +124,16 @@ pub fn DayView(props: DayViewProps) -> Element {
                                           }
                                      });
                                 }
+                            } else if let Some(job_id) = dragged_job_id.read().clone() {
+                                 let mut db_trig = db_trigger;
+                                 let active_uid = active_user_id.clone();
+                                 let target_date = cell_date_c.clone();
+                                 spawn(async move {
+                                     if yntra_core::schedule_job_ticket(active_uid, job_id, target_date, None).await.is_ok() {
+                                         let val = *db_trig.read();
+                                         db_trig.set(val + 1);
+                                     }
+                                 });
                             }
                         }
                     },

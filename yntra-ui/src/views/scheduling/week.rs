@@ -11,6 +11,7 @@ pub struct WeekViewProps {
     pub events_sig: Signal<Vec<TeamEvent>>,
     pub selected_calendar_date: Signal<String>,
     pub dragged_event_id: Signal<Option<String>>,
+    pub dragged_job_id: Signal<Option<String>>,
     pub show_event_detail_modal: Signal<Option<TeamEvent>>,
     pub edit_mode: Signal<bool>,
     pub db_trigger: Signal<u32>,
@@ -35,6 +36,7 @@ pub fn WeekView(props: WeekViewProps) -> Element {
     let state = use_context::<crate::state::AppState>();
     let mut selected_calendar_date = props.selected_calendar_date;
     let mut dragged_event_id = props.dragged_event_id;
+    let dragged_job_id = props.dragged_job_id;
     let mut show_event_detail_modal = props.show_event_detail_modal;
     let db_trigger = props.db_trigger;
     let events_sig = props.events_sig;
@@ -42,6 +44,10 @@ pub fn WeekView(props: WeekViewProps) -> Element {
     let hour_height = *props.zoom_level.read();
     let selected_date_str = selected_calendar_date.read().clone();
     let mut dragged_over_cell = props.dragged_over_cell;
+
+    let mut context_menu_open = use_signal(|| false);
+    let mut context_menu_pos = use_signal(|| (0, 0));
+    let mut context_menu_event = use_signal(|| Option::<TeamEvent>::None);
 
     rsx! {
         div {
@@ -140,6 +146,7 @@ pub fn WeekView(props: WeekViewProps) -> Element {
                                     },
                                     ondrop: {
                                         let cell_date_c = cell_date_for_drop.clone();
+                                        let active_uid_sig = state.active_user_id;
                                         move |_| {
                                             dragged_over_cell.set(None);
                                             if let Some(event_id) = dragged_event_id.read().clone() {
@@ -155,15 +162,26 @@ pub fn WeekView(props: WeekViewProps) -> Element {
                                                         update_date_in_time_str(&ev.end_time, &cell_date_c)
                                                     };
                                                     let mut db_trig = db_trigger;
-                                                    let active_uid_sig = state.active_user_id;
+                                                    let active_uid_sig_c = active_uid_sig.clone();
                                                     spawn(async move {
-                                                        let active_uid = active_uid_sig.read().clone();
+                                                        let active_uid = active_uid_sig_c.read().clone();
                                                         if yntra_core::update_event_time(active_uid, event_id, new_start, new_end).await.is_ok() {
                                                             let val = *db_trig.read();
                                                             db_trig.set(val + 1);
                                                         }
                                                     });
                                                 }
+                                            } else if let Some(job_id) = dragged_job_id.read().clone() {
+                                                let mut db_trig = db_trigger;
+                                                let active_uid_sig_c = active_uid_sig.clone();
+                                                let target_date = cell_date_c.clone();
+                                                spawn(async move {
+                                                    let active_uid = active_uid_sig_c.read().clone();
+                                                    if yntra_core::schedule_job_ticket(active_uid, job_id, target_date, None).await.is_ok() {
+                                                        let val = *db_trig.read();
+                                                        db_trig.set(val + 1);
+                                                    }
+                                                });
                                             }
                                         }
                                     },
@@ -211,6 +229,17 @@ pub fn WeekView(props: WeekViewProps) -> Element {
                                                 ondragend: move |_| {
                                                     dragged_event_id.set(None);
                                                     dragged_over_cell.set(None);
+                                                },
+                                                oncontextmenu: {
+                                                    let ev_c = item.0.clone();
+                                                    move |evt| {
+                                                        evt.prevent_default();
+                                                        evt.stop_propagation();
+                                                        let coords = evt.client_coordinates();
+                                                        context_menu_pos.set((coords.x as i32, coords.y as i32));
+                                                        context_menu_event.set(Some(ev_c.clone()));
+                                                        context_menu_open.set(true);
+                                                    }
                                                 },
                                                 onclick: {
                                                     let ev_c = item.0.clone();
@@ -304,6 +333,64 @@ pub fn WeekView(props: WeekViewProps) -> Element {
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Context Menu Overlay
+            if let Some(event) = context_menu_event.read().clone() {
+                {
+                    let ev_id = event.id.clone();
+                    let ev_detail = event.clone();
+                    let ev_title = event.title.clone();
+
+                    let active_uid_sig = state.active_user_id;
+                    let mut db_trig = db_trigger;
+
+                    rsx! {
+                        crate::components::ContextMenu {
+                            open: *context_menu_open.read(),
+                            x: context_menu_pos.read().0,
+                            y: context_menu_pos.read().1,
+                            onclose: move |_| context_menu_open.set(false),
+
+                            button {
+                                class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                                onclick: move |_| {
+                                    show_event_detail_modal.set(Some(ev_detail.clone()));
+                                    context_menu_open.set(false);
+                                },
+                                crate::components::LucideIcon { name: "info", size: "14" }
+                                "View Details"
+                            }
+                            if *edit_mode.read() {
+                                button {
+                                    class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-destructive flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                                    onclick: move |_| {
+                                        let active_uid = active_uid_sig.read().clone();
+                                        let target_ev_id = ev_id.clone();
+                                        spawn(async move {
+                                            let _ = yntra_core::delete_event(active_uid, target_ev_id).await;
+                                            let val = *db_trig.read();
+                                            db_trig.set(val + 1);
+                                        });
+                                        context_menu_open.set(false);
+                                    },
+                                    crate::components::LucideIcon { name: "trash-2", size: "14" }
+                                    "Delete Event"
+                                }
+                            }
+                            button {
+                                class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                                onclick: move |_| {
+                                    let js = format!("navigator.clipboard.writeText({:?});", ev_title);
+                                    let _ = dioxus::document::eval(&js);
+                                    context_menu_open.set(false);
+                                },
+                                crate::components::LucideIcon { name: "copy", size: "14" }
+                                "Copy Event Title"
                             }
                         }
                     }

@@ -1,0 +1,166 @@
+use crate::database;
+use crate::infra::observer::notify_observers;
+use crate::{MoveVehicle, YntraError};
+use uuid::Uuid;
+
+#[uniffi::export]
+pub async fn get_vehicles(requester_user_id: String) -> Result<Vec<MoveVehicle>, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" {
+        return Err(YntraError::AuthError(
+            "Access denied: insufficient permissions".to_string(),
+        ));
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT id, workspace_id, name, license_plate, capacity_m3, status, updated_at, sync_status FROM vehicles WHERE workspace_id = ?1",
+    ).await?;
+
+    let list = stmt
+        .query_map(crate::params![auth.workspace_id], |row| {
+            Ok(MoveVehicle {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                name: row.get(2)?,
+                license_plate: row.get(3)?,
+                capacity_m3: row.get(4)?,
+                status: row.get(5)?,
+                updated_at: row.get(6)?,
+                sync_status: row.get(7)?,
+            })
+        })
+        .await?;
+
+    Ok(list)
+}
+
+#[uniffi::export]
+pub async fn create_vehicle(
+    requester_user_id: String,
+    name: String,
+    license_plate: String,
+    capacity_m3: f64,
+) -> Result<MoveVehicle, YntraError> {
+    let id = Uuid::new_v4().to_string();
+    let now_ms = chrono::Utc::now().timestamp_millis();
+
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" || auth.role == "client" {
+        return Err(YntraError::AuthError(
+            "Access denied: only staff can manage vehicles".to_string(),
+        ));
+    }
+
+    let vehicle = MoveVehicle {
+        id: id.clone(),
+        workspace_id: auth.workspace_id.clone(),
+        name,
+        license_plate,
+        capacity_m3,
+        status: "active".to_string(),
+        updated_at: now_ms,
+        sync_status: "pending".to_string(),
+    };
+
+    conn.execute(
+        "INSERT INTO vehicles (id, workspace_id, name, license_plate, capacity_m3, status, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        crate::params![
+            vehicle.id,
+            vehicle.workspace_id,
+            vehicle.name,
+            vehicle.license_plate,
+            vehicle.capacity_m3,
+            vehicle.status,
+            vehicle.updated_at,
+            vehicle.sync_status
+        ],
+    ).await?;
+
+    notify_observers();
+    Ok(vehicle)
+}
+
+#[uniffi::export]
+pub async fn delete_vehicle(
+    requester_user_id: String,
+    vehicle_id: String,
+) -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" || auth.role == "client" {
+        return Err(YntraError::AuthError(
+            "Access denied: only staff can manage vehicles".to_string(),
+        ));
+    }
+
+    let (ws_id,): (String,) = conn
+        .query_row(
+            "SELECT workspace_id FROM vehicles WHERE id = ?1",
+            crate::params![&vehicle_id],
+            |r| Ok((r.get(0)?,)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Vehicle not found".to_string()))?;
+
+    if auth.workspace_id != ws_id {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    conn.execute(
+        "DELETE FROM vehicles WHERE id = ?1",
+        crate::params![vehicle_id],
+    ).await?;
+
+    notify_observers();
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_vehicle_management_flow() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        // Setup test workspace and user
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-veh-test', 'Vehicle WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-veh-staff', 'ws-veh-test', 'staff@fleet.io', 'admin')", ()).await.unwrap();
+
+        // 1. Create two vehicles
+        let v1 = create_vehicle("u-veh-staff".to_string(), "Truck A".to_string(), "ABC-123".to_string(), 45.5).await.unwrap();
+        let v2 = create_vehicle("u-veh-staff".to_string(), "Van B".to_string(), "XYZ-789".to_string(), 12.0).await.unwrap();
+
+        assert_eq!(v1.name, "Truck A");
+        assert_eq!(v1.license_plate, "ABC-123");
+        assert_eq!(v1.capacity_m3, 45.5);
+        assert_eq!(v1.status, "active");
+
+        // 2. Retrieve vehicles list
+        let list = get_vehicles("u-veh-staff".to_string()).await.unwrap();
+        assert_eq!(list.len(), 2);
+        assert!(list.iter().any(|v| v.id == v1.id));
+        assert!(list.iter().any(|v| v.id == v2.id));
+
+        // 3. Delete one vehicle
+        delete_vehicle("u-veh-staff".to_string(), v2.id.clone()).await.unwrap();
+
+        // Verify vehicle is deleted
+        let list_after = get_vehicles("u-veh-staff".to_string()).await.unwrap();
+        assert_eq!(list_after.len(), 1);
+        assert_eq!(list_after[0].id, v1.id);
+
+        // Cleanup
+        conn.execute("DELETE FROM vehicles WHERE workspace_id = 'ws-veh-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE id = 'u-veh-staff'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-veh-test'", ()).await.unwrap();
+    }
+}

@@ -15,4 +15,6 @@ pub mod todos;
 pub mod users;
 pub mod workspaces;
 pub mod dashboard;
+pub mod vehicles;
+pub mod school;
 

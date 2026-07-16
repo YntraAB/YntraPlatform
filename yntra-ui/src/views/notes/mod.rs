@@ -142,6 +142,7 @@ pub fn NotesView(props: NotesViewProps) -> Element {
             } else {
                 rsx! {
                     NoteList {
+                        active_user: active_user.clone(),
                         users: users,
                         filtered_notes: filtered_notes,
                         team_name: team_name,

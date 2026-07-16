@@ -37,11 +37,15 @@ pub fn MessagingView(props: MessagingViewProps) -> Element {
 
     let mut messaging_view_tab = props.messaging_view_tab;
     let mut active_message_id = props.active_message_id;
-    let compose_recipient_id = props.compose_recipient_id;
+    let mut compose_recipient_id = props.compose_recipient_id;
     let mut compose_subject = props.compose_subject;
     let mut compose_body = props.compose_body;
     let mut compose_status = props.compose_status;
     let db_trigger = props.db_trigger;
+
+    let mut context_menu_open = use_signal(|| false);
+    let mut context_menu_pos = use_signal(|| (0, 0));
+    let mut context_menu_message = use_signal(|| Option::<MessageItem>::None);
 
     let current_tab = messaging_view_tab.read().clone();
     let mut filtered_messages: Vec<MessageItem> = messages // Newest first
@@ -169,6 +173,7 @@ pub fn MessagingView(props: MessagingViewProps) -> Element {
                                     estimate_size: move |_| 72_u32,
                                     render_item: move |idx: usize| {
                                         let msg = &msgs[idx];
+                                        let msg_context = msg.clone();
                                         let msg_id = msg.id.clone();
                                         let is_unread = !msg.is_read && msg.receiver_id == Some(active_u.id.clone());
 
@@ -201,6 +206,13 @@ pub fn MessagingView(props: MessagingViewProps) -> Element {
                                         rsx! {
                                             div {
                                                 key: "{msg_id}",
+                                                oncontextmenu: move |evt| {
+                                                    evt.prevent_default();
+                                                    let coords = evt.client_coordinates();
+                                                    context_menu_pos.set((coords.x as i32, coords.y as i32));
+                                                    context_menu_message.set(Some(msg_context.clone()));
+                                                    context_menu_open.set(true);
+                                                },
                                                 onclick: move |_| {
                                                     active_message_id.set(Some(msg_id.clone()));
                                                     if is_unread {
@@ -256,6 +268,73 @@ pub fn MessagingView(props: MessagingViewProps) -> Element {
                         },
                         components::LucideIcon { name: "plus", class: "h-5 w-5 text-background" }
                         span { "{t(\"messages-new-message\", &region)}" }
+                    }
+                }
+            }
+
+            // Context Menu Overlay
+            if let Some(msg) = context_menu_message.read().clone() {
+                {
+                    let msg_reply = msg.clone();
+                    let msg_read = msg.clone();
+                    let is_unread = !msg.is_read && msg.receiver_id == Some(active_user.id.clone());
+
+                    let sender_id = msg.sender_id.clone().unwrap_or_default();
+                    let sender_user = users.iter().find(|u| u.id == sender_id).cloned();
+                    let sender_name = sender_user.as_ref()
+                        .and_then(|u| u.full_name.clone())
+                        .unwrap_or_else(|| t("messages-system", &region));
+                    let sender_email = sender_user.as_ref()
+                        .map(|u| u.email.clone())
+                        .unwrap_or_else(|| "system@yntra.local".to_string());
+                    let copy_details = format!("Sender: {}\nEmail: {}", sender_name, sender_email);
+
+                    rsx! {
+                        crate::components::ContextMenu {
+                            open: *context_menu_open.read(),
+                            x: context_menu_pos.read().0,
+                            y: context_menu_pos.read().1,
+                            onclose: move |_| context_menu_open.set(false),
+
+                            button {
+                                class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                                onclick: move |_| {
+                                    compose_recipient_id.set(msg_reply.sender_id.clone());
+                                    compose_subject.set(format!("Re: {}", msg_reply.subject.clone().unwrap_or_default()));
+                                    compose_body.set(String::new());
+                                    messaging_view_tab.set("compose".to_string());
+                                    context_menu_open.set(false);
+                                    active_message_id.set(None);
+                                },
+                                crate::components::LucideIcon { name: "reply", size: "14" }
+                                "Reply"
+                            }
+                            if is_unread {
+                                button {
+                                    class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                                    onclick: move |_| {
+                                        let m_id = msg_read.id.clone();
+                                        let r_id = active_user.id.clone();
+                                        spawn(async move {
+                                            let _ = mark_message_read(r_id, m_id).await;
+                                        });
+                                        context_menu_open.set(false);
+                                    },
+                                    crate::components::LucideIcon { name: "check-check", size: "14" }
+                                    "Mark as Read"
+                                }
+                            }
+                            button {
+                                class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                                onclick: move |_| {
+                                    let js = format!("navigator.clipboard.writeText({:?});", copy_details);
+                                    let _ = dioxus::document::eval(&js);
+                                    context_menu_open.set(false);
+                                },
+                                crate::components::LucideIcon { name: "copy", size: "14" }
+                                "Copy Sender Details"
+                            }
+                        }
                     }
                 }
             }

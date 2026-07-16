@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 use yntra_core::{
     get_job_tickets, get_move_inventory, get_move_quote, accept_move_quote,
+    generate_move_invoice, get_move_invoice, pay_move_invoice,
 };
 use crate::components;
 
@@ -25,7 +26,6 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
     let active_uid_for_jobs = props.active_user_id.clone();
     let active_uid_for_inv = props.active_user_id.clone();
     let active_uid_for_quote = props.active_user_id.clone();
-    let active_uid_for_accept = props.active_user_id.clone();
 
     let jobs_res = use_resource(move || {
         let _trig = db_trigger.read();
@@ -81,12 +81,43 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
         .map(|i| i.estimated_volume_m3 * i.quantity as f64)
         .sum();
     let quote = quote_res.read().clone().flatten();
+    let mut use_rut = use_signal(|| false);
 
-    let uid_for_accept = active_uid_for_accept.clone();
+    let quote_id_for_inv = quote.as_ref().map(|q| q.id.clone()).unwrap_or_default();
+    let active_uid_for_invoice = props.active_user_id.clone();
+    let db_trig_val = *db_trigger.read();
+    let invoice_res = use_resource(move || {
+        let _ = db_trig_val;
+        let uid = active_uid_for_invoice.clone();
+        let qid = quote_id_for_inv.clone();
+        async move {
+            if qid.is_empty() {
+                None
+            } else {
+                get_move_invoice(uid, qid).await.unwrap_or(None)
+            }
+        }
+    });
+    let invoice = invoice_res.read().clone().flatten();
+
+    let active_uid_for_accept_c = props.active_user_id.clone();
     let on_accept_quote = move |quote_id: String| {
-        let uid = uid_for_accept.clone();
+        let uid = active_uid_for_accept_c.clone();
+        let apply_rut = *use_rut.read();
         spawn(async move {
-            if accept_move_quote(uid, quote_id).await.is_ok() {
+            if accept_move_quote(uid.clone(), quote_id.clone()).await.is_ok() {
+                let _ = generate_move_invoice(uid, quote_id, apply_rut).await;
+                let current_val = *db_trigger.read();
+                db_trigger.set(current_val + 1);
+            }
+        });
+    };
+
+    let active_uid_for_pay_c = props.active_user_id.clone();
+    let on_pay_invoice = move |invoice_id: String| {
+        let uid = active_uid_for_pay_c.clone();
+        spawn(async move {
+            if pay_move_invoice(uid, invoice_id).await.is_ok() {
                 let current_val = *db_trigger.read();
                 db_trigger.set(current_val + 1);
             }
@@ -192,53 +223,141 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                     components::CardDescription { class: "text-xs", "Prisberäkning för din flytt." }
                                 }
                             }
-                        }
-                        components::CardContent {
+                               components::CardContent {
                             class: "pt-6 space-y-4 flex-1 flex flex-col justify-between",
-                            div { class: "space-y-2",
-                                div { class: "flex items-center justify-between text-xs text-muted-foreground",
-                                    span { "Baspris (arbete/tid):" }
-                                    span { class: "font-semibold text-foreground", "{q.base_price} kr" }
-                                }
-                                div { class: "flex items-center justify-between text-xs text-muted-foreground",
-                                    span { "Distansavgift:" }
-                                    span { class: "font-semibold text-foreground", "{q.distance_fee} kr" }
-                                }
-                                div { class: "flex items-center justify-between text-xs text-muted-foreground",
-                                    span { "Trapptillägg:" }
-                                    span { class: "font-semibold text-foreground", "{q.stairs_surcharge} kr" }
-                                }
-                                div { class: "flex items-center justify-between text-xs text-muted-foreground",
-                                    span { "Packmaterial & utrustning:" }
-                                    span { class: "font-semibold text-foreground", "{q.packing_supplies_fee} kr" }
-                                }
-                                div { class: "h-px bg-border/40 my-2", }
-                                div { class: "flex items-center justify-between text-sm font-extrabold",
-                                    span { "Totalt pris:" }
-                                    span { class: "text-primary text-base", "{q.total_price} kr" }
-                                }
-                            }
+                            if q.status != "accepted" {
+                                {
+                                    let is_rut = *use_rut.read();
+                                    let labor_cost = q.base_price + q.stairs_surcharge;
+                                    let rut_reduction = if is_rut { (0.5 * labor_cost as f64) as i64 } else { 0 };
+                                    let final_total = q.total_price - rut_reduction;
 
-                            // Offer acceptance action
-                            div { class: "pt-4",
-                                if q.status == "accepted" {
-                                    div { class: "flex items-center justify-center gap-2 p-2.5 rounded-lg bg-emerald-500/10 text-emerald-500 text-xs font-bold text-center border border-emerald-500/20",
-                                        components::LucideIcon { name: "check-circle", class: "h-4 w-4" }
-                                        span { "Offert Godkänd" }
+                                    rsx! {
+                                        div { class: "space-y-3",
+                                            div { class: "space-y-1.5",
+                                                div { class: "flex items-center justify-between text-xs text-muted-foreground",
+                                                    span { "Baspris (arbete/tid):" }
+                                                    span { class: "font-semibold text-foreground", "{q.base_price} kr" }
+                                                }
+                                                div { class: "flex items-center justify-between text-xs text-muted-foreground",
+                                                    span { "Distansavgift:" }
+                                                    span { class: "font-semibold text-foreground", "{q.distance_fee} kr" }
+                                                }
+                                                div { class: "flex items-center justify-between text-xs text-muted-foreground",
+                                                    span { "Trapptillägg:" }
+                                                    span { class: "font-semibold text-foreground", "{q.stairs_surcharge} kr" }
+                                                }
+                                                div { class: "flex items-center justify-between text-xs text-muted-foreground",
+                                                    span { "Packmaterial & utrustning:" }
+                                                    span { class: "font-semibold text-foreground", "{q.packing_supplies_fee} kr" }
+                                                }
+                                                if is_rut {
+                                                    div { class: "flex items-center justify-between text-xs text-emerald-500 font-semibold",
+                                                        span { "Preliminärt RUT-avdrag (50%):" }
+                                                        span { "-{rut_reduction} kr" }
+                                                    }
+                                                }
+                                            }
+
+                                            div { class: "flex items-center gap-2 pt-2.5 border-t border-border/20 text-xs text-muted-foreground",
+                                                input {
+                                                    r#type: "checkbox",
+                                                    id: "rut_checkbox",
+                                                    checked: is_rut,
+                                                    onclick: move |_| {
+                                                        let val = *use_rut.read();
+                                                        use_rut.set(!val);
+                                                    },
+                                                    class: "rounded border-border bg-background text-primary focus:ring-primary cursor-pointer"
+                                                }
+                                                label { r#for: "rut_checkbox", class: "font-bold cursor-pointer select-none text-foreground/80 hover:text-foreground", "Ansök om RUT-avdrag" }
+                                            }
+
+                                            div { class: "h-px bg-border/40 my-2", }
+                                            div { class: "flex items-center justify-between text-sm font-extrabold",
+                                                span { if is_rut { "Ditt pris efter RUT:" } else { "Totalt pris:" } }
+                                                span { class: "text-primary text-base", "{final_total} kr" }
+                                            }
+
+                                            div { class: "pt-4",
+                                                button {
+                                                    onclick: {
+                                                        let q_id = q.id.clone();
+                                                        move |_| on_accept_quote(q_id.clone())
+                                                    },
+                                                    class: "w-full rounded-lg bg-primary py-2.5 text-xs font-bold text-primary-foreground shadow hover:opacity-90 transition-all border-0 cursor-pointer flex items-center justify-center gap-2",
+                                                    components::LucideIcon { name: "thumbs-up", class: "h-4 w-4" }
+                                                    "Godkänn Flytoffert"
+                                                }
+                                            }
+                                        }
                                     }
-                                } else {
-                                    button {
-                                        onclick: {
-                                            let q_id = q.id.clone();
-                                            move |_| on_accept_quote(q_id.clone())
-                                        },
-                                        class: "w-full rounded-lg bg-primary py-2.5 text-xs font-bold text-primary-foreground shadow hover:opacity-90 transition-all border-0 cursor-pointer flex items-center justify-center gap-2",
-                                        components::LucideIcon { name: "thumbs-up", class: "h-4 w-4" }
-                                        "Godkänn Flytoffert"
+                                }
+                            } else {
+                                div { class: "space-y-3",
+                                    if let Some(ref inv) = invoice {
+                                        div { class: "space-y-2",
+                                            div { class: "flex items-center justify-center gap-2 p-2.5 rounded-lg bg-emerald-500/10 text-emerald-500 text-xs font-bold text-center border border-emerald-500/20 mb-2 select-none",
+                                                components::LucideIcon { name: "check-circle", class: "h-4 w-4" }
+                                                span { "Offert & Avtal Godkända" }
+                                            }
+                                            div { class: "text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60 mt-1 select-none", "Fakturaspecifikation" }
+                                            div { class: "flex items-center justify-between text-xs text-muted-foreground",
+                                                span { "Totalsumma (exkl. RUT):" }
+                                                span { class: "font-semibold text-foreground", "{inv.subtotal} kr" }
+                                            }
+                                            if inv.rut_deduction > 0.0 {
+                                                div { class: "flex items-center justify-between text-xs text-emerald-500 font-semibold",
+                                                    span { "RUT-avdrag (skattereduktion):" }
+                                                    span { "-{inv.rut_deduction} kr" }
+                                                }
+                                                div { class: "flex items-center justify-between text-xs text-muted-foreground",
+                                                    span { "Skatteverket (söks av oss):" }
+                                                    span { "{inv.tax_authority_amount} kr" }
+                                                }
+                                            }
+                                            div { class: "h-px bg-border/40 my-1", }
+                                            div { class: "flex items-center justify-between text-sm font-extrabold",
+                                                span { "Att betala (Kund):" }
+                                                span { class: "text-primary text-base", "{inv.customer_amount} kr" }
+                                            }
+                                            div { class: "flex items-center justify-between text-[10px] text-muted-foreground/75 pt-2",
+                                                span { "Fakturadatum:" }
+                                                span { "{inv.invoice_date}" }
+                                            }
+                                            div { class: "flex items-center justify-between text-[10px] text-muted-foreground/75",
+                                                span { "Förfallodatum:" }
+                                                span { "{inv.due_date}" }
+                                            }
+                                            
+                                            div { class: "pt-4",
+                                                if inv.status == "paid" {
+                                                    div { class: "flex items-center justify-center gap-2 p-2.5 rounded-lg bg-blue-500/10 text-blue-500 text-xs font-bold text-center border border-blue-500/20 select-none",
+                                                        components::LucideIcon { name: "credit-card", class: "h-4 w-4" }
+                                                        span { "Faktura Betald (Swish)" }
+                                                    }
+                                                } else {
+                                                    button {
+                                                        onclick: {
+                                                            let inv_id = inv.id.clone();
+                                                            move |_| on_pay_invoice(inv_id.clone())
+                                                        },
+                                                        class: "w-full rounded-lg bg-emerald-500 text-white py-2.5 text-xs font-bold shadow hover:opacity-90 hover:scale-[1.01] transition-all border-0 cursor-pointer flex items-center justify-center gap-2 select-none",
+                                                        components::LucideIcon { name: "credit-card", class: "h-4 w-4" }
+                                                        "Betala med Swish"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        div { class: "flex items-center justify-center gap-2 p-2.5 rounded-lg bg-emerald-500/10 text-emerald-500 text-xs font-bold text-center border border-emerald-500/20 select-none",
+                                            components::LucideIcon { name: "check-circle", class: "h-4 w-4" }
+                                            span { "Offert Godkänd" }
+                                        }
                                     }
                                 }
                             }
-                        }
+                        }                     }
                     }
                 } else {
                     components::Card {

@@ -19,6 +19,10 @@ pub fn TodosView(props: TodosViewProps) -> Element {
     let mut new_todo_text = use_signal(String::new);
     let mut active_filter = use_signal(|| "all".to_string());
 
+    let mut context_menu_open = use_signal(|| false);
+    let mut context_menu_pos = use_signal(|| (0, 0));
+    let mut context_menu_todo = use_signal(|| Option::<TodoItem>::None);
+
     // Filter todos (memoized signal)
     let filtered_todos = use_memo(move || {
         let current_todos = state.todos.read();
@@ -114,9 +118,17 @@ pub fn TodosView(props: TodosViewProps) -> Element {
                         let is_completed = item.completed;
                         let text = item.text.clone();
 
+                        let item_c = item.clone();
                         rsx! {
                             div {
                                 key: "{item.id}",
+                                oncontextmenu: move |evt| {
+                                    evt.prevent_default();
+                                    let coords = evt.client_coordinates();
+                                    context_menu_pos.set((coords.x as i32, coords.y as i32));
+                                    context_menu_todo.set(Some(item_c.clone()));
+                                    context_menu_open.set(true);
+                                },
                                 class: "group transition-all duration-200 hover:translate-x-1",
                                 components::Card {
                                     style: format!(
@@ -170,6 +182,49 @@ pub fn TodosView(props: TodosViewProps) -> Element {
                             }
                         }
                     })}
+                }
+            }
+
+            // Context Menu Overlay
+            if let Some(todo) = context_menu_todo.read().clone() {
+                {
+                    let todo_id = todo.id.clone();
+                    let todo_text = todo.text.clone();
+                    let uid = props.active_user_id.read().clone();
+                    let is_completed = todo.completed;
+
+                    rsx! {
+                        components::ContextMenu {
+                            open: *context_menu_open.read(),
+                            x: context_menu_pos.read().0,
+                            y: context_menu_pos.read().1,
+                            onclose: move |_| context_menu_open.set(false),
+
+                            button {
+                                class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                                onclick: move |_| {
+                                    let id = todo_id.clone();
+                                    let u = uid.clone();
+                                    spawn(async move {
+                                        let _ = yntra_core::toggle_todo(u, id).await;
+                                    });
+                                    context_menu_open.set(false);
+                                },
+                                components::LucideIcon { name: if is_completed { "square" } else { "check-square" }, size: "14" }
+                                if is_completed { "Mark Active" } else { "Mark Completed" }
+                            }
+                            button {
+                                class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                                onclick: move |_| {
+                                    let js = format!("navigator.clipboard.writeText({:?});", todo_text);
+                                    let _ = dioxus::document::eval(&js);
+                                    context_menu_open.set(false);
+                                },
+                                components::LucideIcon { name: "copy", size: "14" }
+                                "Copy Todo Text"
+                            }
+                        }
+                    }
                 }
             }
         }

@@ -16,6 +16,10 @@ pub fn DynamicList(props: DynamicListProps) -> Element {
         .unwrap_or_else(|_| serde_json::Value::Array(Vec::new()));
     let columns = ui_config_val.as_array().cloned().unwrap_or_default();
 
+    let mut context_menu_open = use_signal(|| false);
+    let mut context_menu_pos = use_signal(|| (0, 0));
+    let mut context_menu_entity = use_signal(|| Option::<DynamicEntity>::None);
+
     rsx! {
         div { class: "w-full overflow-x-auto rounded-lg border border-border bg-card/20 backdrop-blur-md",
             table { class: "w-full border-collapse text-left text-sm text-foreground",
@@ -51,9 +55,19 @@ pub fn DynamicList(props: DynamicListProps) -> Element {
                                 let entity_data: serde_json::Value = serde_json::from_str(&entity.data).unwrap_or_default();
                                 let e_id = entity.id.clone();
                                 let entity_clone = entity.clone();
+                                let entity_context = entity.clone();
                                 let entity_delete_id = entity.id.clone();
                                 rsx! {
-                                    tr { key: "{e_id}", class: "hover:bg-white/[0.01] transition-colors",
+                                    tr {
+                                        key: "{e_id}",
+                                        class: "hover:bg-white/[0.01] transition-colors",
+                                        oncontextmenu: move |evt| {
+                                            evt.prevent_default();
+                                            let coords = evt.client_coordinates();
+                                            context_menu_pos.set((coords.x as i32, coords.y as i32));
+                                            context_menu_entity.set(Some(entity_context.clone()));
+                                            context_menu_open.set(true);
+                                        },
                                         if columns.is_empty() {
                                             td { class: "p-4 font-medium text-foreground",
                                                 "{entity.data}"
@@ -90,6 +104,53 @@ pub fn DynamicList(props: DynamicListProps) -> Element {
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Context Menu Overlay
+            if let Some(ent) = context_menu_entity.read().clone() {
+                {
+                    let ent_edit = ent.clone();
+                    let ent_delete = ent.clone();
+                    let data_payload = ent.data.clone();
+
+                    rsx! {
+                        crate::components::ContextMenu {
+                            open: *context_menu_open.read(),
+                            x: context_menu_pos.read().0,
+                            y: context_menu_pos.read().1,
+                            onclose: move |_| context_menu_open.set(false),
+
+                            button {
+                                class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                                onclick: move |_| {
+                                    props.onedit.call(ent_edit.clone());
+                                    context_menu_open.set(false);
+                                },
+                                crate::components::LucideIcon { name: "edit", size: "14" }
+                                "Edit Record"
+                            }
+                            button {
+                                class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-destructive flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                                onclick: move |_| {
+                                    props.ondelete.call(ent_delete.id.clone());
+                                    context_menu_open.set(false);
+                                },
+                                crate::components::LucideIcon { name: "trash-2", size: "14" }
+                                "Delete Record"
+                            }
+                            button {
+                                class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                                onclick: move |_| {
+                                    let js = format!("navigator.clipboard.writeText({:?});", data_payload);
+                                    let _ = dioxus::document::eval(&js);
+                                    context_menu_open.set(false);
+                                },
+                                crate::components::LucideIcon { name: "copy", size: "14" }
+                                "Copy JSON Payload"
                             }
                         }
                     }

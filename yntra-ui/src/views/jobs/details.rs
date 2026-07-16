@@ -20,11 +20,31 @@ pub struct JobDetailsProps {
 pub fn JobDetails(props: JobDetailsProps) -> Element {
     let job = props.job;
     let active_user_id = props.active_user_id;
+    let uid_for_save = active_user_id.clone();
+    let uid_for_calc = active_user_id.clone();
+    let uid_for_delete = active_user_id.clone();
     let region = props.region;
     let mut checklist_state = props.checklist_state;
     let mut completion_report_state = props.completion_report_state;
     let inventories = props.inventories;
     let quote = props.quote;
+
+    let quote_id_for_inv = quote.as_ref().map(|q| q.id.clone()).unwrap_or_default();
+    let uid_for_inv = active_user_id.clone();
+    let db_trig_val = *props.db_trigger.read();
+    let invoice_res = use_resource(move || {
+        let _ = db_trig_val;
+        let uid = uid_for_inv.clone();
+        let qid = quote_id_for_inv.clone();
+        async move {
+            if qid.is_empty() {
+                None
+            } else {
+                yntra_core::get_move_invoice(uid, qid).await.unwrap_or(None)
+            }
+        }
+    });
+    let invoice = invoice_res.read().clone().flatten();
 
     let state = use_context::<crate::state::AppState>();
     let workspace_opt = state.workspace.read().clone();
@@ -179,26 +199,200 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                 }
             }
 
-            // Moving Inventory list
-            if !inventories.is_empty() {
-                div { class: "border-t border-border/40 pt-4 flex flex-col gap-3",
-                    h3 { class: "text-sm font-extrabold flex items-center gap-1.5",
-                        style: "margin: 0;",
-                        components::LucideIcon { name: "box", size: "16", class: "accent-text" }
-                        "Flyttinventarie & Cargo ({total_vol:.1} m³)"
-                    }
-                    div { class: "grid grid-cols-1 gap-2 sm:grid-cols-2",
-                        for item in inventories.iter() {
-                            div {
-                                key: "{item.id}",
-                                class: "flex items-center justify-between p-2.5 rounded-lg border border-border/20 bg-secondary/5",
-                                div {
-                                    div { class: "text-xs font-bold text-foreground", "{item.item_name}" }
-                                    div { class: "text-[10px] text-muted-foreground", "{item.item_category}" }
+            // Moving Inventory & Cargo Section
+            {
+                let active_role = state.active_user_role.read().clone();
+                let is_staff = active_role != "client" && active_role != "anonymous";
+                let mut show_add_form = use_signal(|| false);
+                let mut new_item_name = use_signal(String::new);
+                let mut new_item_category = use_signal(|| "Möbler".to_string());
+                let mut new_item_qty = use_signal(|| 1);
+                let mut new_item_vol = use_signal(|| 0.5);
+                let mut new_item_notes = use_signal(String::new);
+
+                rsx! {
+                    div { class: "border-t border-border/40 pt-4 flex flex-col gap-3",
+                        h3 { class: "text-sm font-extrabold flex items-center gap-1.5",
+                            style: "margin: 0;",
+                            components::LucideIcon { name: "box", size: "16", class: "accent-text" }
+                            "Flyttinventarie & Cargo ({total_vol:.1} m³)"
+                        }
+                        
+                        if inventories.is_empty() {
+                            p { class: "text-xs text-muted-foreground italic my-1", "Inga inventarier tillagda än." }
+                        } else {
+                            div { class: "grid grid-cols-1 gap-2 sm:grid-cols-2",
+                                for item in inventories.iter() {
+                                    {
+                                        let item_id = item.id.clone();
+                                        let item_name = item.item_name.clone();
+                                        let item_category = item.item_category.clone();
+                                        let qty = item.quantity;
+                                        let vol = item.estimated_volume_m3 * item.quantity as f64;
+                                        let uid = uid_for_delete.clone();
+                                        rsx! {
+                                            div {
+                                                key: "{item_id}",
+                                                class: "flex items-center justify-between p-2.5 rounded-lg border border-border/20 bg-secondary/5",
+                                                div {
+                                                    div { class: "text-xs font-bold text-foreground", "{item_name}" }
+                                                    div { class: "text-[10px] text-muted-foreground", "{item_category}" }
+                                                }
+                                                div { class: "flex items-center gap-3 text-right",
+                                                    div {
+                                                        div { class: "text-xs font-extrabold text-primary", "{qty} st" }
+                                                        div { class: "text-[10px] text-muted-foreground font-semibold", "{vol} m³" }
+                                                    }
+                                                    if is_staff {
+                                                        button {
+                                                            onclick: move |_| {
+                                                                let i_id = item_id.clone();
+                                                                let uid_capture = uid.clone();
+                                                                let mut db_trig = props.db_trigger;
+                                                                spawn(async move {
+                                                                    let _ = yntra_core::delete_move_inventory_item(uid_capture, i_id).await;
+                                                                    let current = *db_trig.read();
+                                                                    db_trig.set(current + 1);
+                                                                });
+                                                            },
+                                                            class: "p-1 rounded text-red-500 hover:bg-red-500/10 border-0 bg-transparent cursor-pointer flex items-center justify-center",
+                                                            title: "Ta bort",
+                                                            components::LucideIcon { name: "trash-2", size: "14" }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
-                                div { class: "text-right",
-                                    div { class: "text-xs font-extrabold text-primary", "{item.quantity} st" }
-                                    div { class: "text-[10px] text-muted-foreground font-semibold", "{item.estimated_volume_m3 * item.quantity as f64} m³" }
+                            }
+                        }
+                        
+                        // Inline Add Inventory Form for staff
+                        if is_staff {
+                            div { class: "mt-2 border border-border/30 rounded-lg p-3 bg-secondary/5",
+                                if !*show_add_form.read() {
+                                    button {
+                                        onclick: move |_| show_add_form.set(true),
+                                        class: "w-full py-2 border border-dashed border-border hover:border-primary/50 rounded-lg text-xs font-bold text-muted-foreground hover:text-primary bg-transparent cursor-pointer flex items-center justify-center gap-1.5 transition-all",
+                                        components::LucideIcon { name: "plus", size: "14" }
+                                        "Lägg till inventarie"
+                                    }
+                                } else {
+                                    div { class: "flex flex-col gap-2.5",
+                                        div { class: "flex justify-between items-center",
+                                            span { class: "text-[11px] font-bold text-muted-foreground uppercase", "Ny flyttartikel" }
+                                            button {
+                                                onclick: move |_| show_add_form.set(false),
+                                                class: "text-[10px] text-muted-foreground hover:text-foreground border-0 bg-transparent cursor-pointer",
+                                                "Avbryt"
+                                            }
+                                        }
+                                        
+                                        div { class: "grid grid-cols-2 gap-2",
+                                            div { class: "col-span-2 sm:col-span-1",
+                                                label { class: "text-[10px] text-muted-foreground block mb-0.5", "Artikelnamn" }
+                                                input {
+                                                    r#type: "text",
+                                                    placeholder: "t.ex. Soffa, Kartong, Säng",
+                                                    value: "{new_item_name}",
+                                                    oninput: move |e: FormEvent| new_item_name.set(e.value()),
+                                                    class: "w-full text-xs p-1.5 rounded border border-border bg-background text-foreground focus:outline-none focus:border-primary",
+                                                }
+                                            }
+                                            div { class: "col-span-2 sm:col-span-1",
+                                                label { class: "text-[10px] text-muted-foreground block mb-0.5", "Kategori" }
+                                                select {
+                                                    value: "{new_item_category}",
+                                                    onchange: move |e: FormEvent| new_item_category.set(e.value()),
+                                                    class: "w-full text-xs p-1.5 rounded border border-border bg-background text-foreground focus:outline-none focus:border-primary",
+                                                    option { value: "Möbler", "Möbler" }
+                                                    option { value: "Kartonger", "Kartonger" }
+                                                    option { value: "Vitvaror", "Vitvaror" }
+                                                    option { value: "Övrigt", "Övrigt" }
+                                                }
+                                            }
+                                        }
+                                        
+                                        div { class: "grid grid-cols-2 gap-2",
+                                            div {
+                                                label { class: "text-[10px] text-muted-foreground block mb-0.5", "Antal" }
+                                                input {
+                                                    r#type: "number",
+                                                    min: "1",
+                                                    value: "{new_item_qty}",
+                                                    oninput: move |e: FormEvent| new_item_qty.set(e.value().parse().unwrap_or(1)),
+                                                    class: "w-full text-xs p-1.5 rounded border border-border bg-background text-foreground focus:outline-none focus:border-primary",
+                                                }
+                                            }
+                                            div {
+                                                label { class: "text-[10px] text-muted-foreground block mb-0.5", "Volym per st (m³)" }
+                                                input {
+                                                    r#type: "number",
+                                                    step: "0.05",
+                                                    min: "0.01",
+                                                    value: "{new_item_vol}",
+                                                    oninput: move |e: FormEvent| new_item_vol.set(e.value().parse().unwrap_or(0.5)),
+                                                    class: "w-full text-xs p-1.5 rounded border border-border bg-background text-foreground focus:outline-none focus:border-primary",
+                                                }
+                                            }
+                                        }
+
+                                        div {
+                                            label { class: "text-[10px] text-muted-foreground block mb-0.5", "Hanteringsanmärkningar" }
+                                            input {
+                                                r#type: "text",
+                                                placeholder: "t.ex. Bräcklig, tung",
+                                                value: "{new_item_notes}",
+                                                oninput: move |e: FormEvent| new_item_notes.set(e.value()),
+                                                class: "w-full text-xs p-1.5 rounded border border-border bg-background text-foreground focus:outline-none focus:border-primary",
+                                            }
+                                        }
+
+                                        button {
+                                            onclick: {
+                                                let j_id = job.id.clone();
+                                                let uid = uid_for_save.clone();
+                                                let mut db_trig = props.db_trigger;
+                                                move |_| {
+                                                    let name = new_item_name.read().trim().to_string();
+                                                    if name.is_empty() { return; }
+                                                    let cat = new_item_category.read().clone();
+                                                    let qty = *new_item_qty.read();
+                                                    let vol = *new_item_vol.read();
+                                                    let notes_str = new_item_notes.read().trim().to_string();
+                                                    let notes = if notes_str.is_empty() { None } else { Some(notes_str) };
+
+                                                    let j_id = j_id.clone();
+                                                    let uid = uid.clone();
+                                                    
+                                                    // reset inputs
+                                                    new_item_name.set(String::new());
+                                                    new_item_notes.set(String::new());
+                                                    new_item_qty.set(1);
+                                                    new_item_vol.set(0.5);
+                                                    show_add_form.set(false);
+
+                                                    spawn(async move {
+                                                        let _ = yntra_core::create_move_inventory_item(
+                                                            uid,
+                                                            j_id,
+                                                            cat,
+                                                            name,
+                                                            qty,
+                                                            vol,
+                                                            notes
+                                                        ).await;
+                                                        let current = *db_trig.read();
+                                                        db_trig.set(current + 1);
+                                                    });
+                                                }
+                                            },
+                                            class: "w-full py-2 bg-primary hover:opacity-90 rounded-lg text-xs font-bold text-primary-foreground border-0 cursor-pointer flex items-center justify-center gap-1 transition-all",
+                                            components::LucideIcon { name: "check", size: "14" }
+                                            "Spara artikel"
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -207,38 +401,94 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
             }
 
             // Quote details card
-            if let Some(ref q) = quote {
-                div { class: "border-t border-border/40 pt-4 flex flex-col gap-3",
-                    h3 { class: "text-sm font-extrabold flex items-center gap-1.5",
-                        style: "margin: 0;",
-                        components::LucideIcon { name: "credit-card", size: "16", class: "accent-text" }
-                        "Flyttoffert"
-                        span {
-                            class: if q.status == "accepted" { "ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-500" } else { "ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-500" },
-                            if q.status == "accepted" { "Godkänd" } else { "Skickad" }
+            {
+                let active_role = state.active_user_role.read().clone();
+                let is_staff = active_role != "client" && active_role != "anonymous";
+                rsx! {
+                    div { class: "border-t border-border/40 pt-4 flex flex-col gap-3",
+                        h3 { class: "text-sm font-extrabold flex items-center gap-1.5",
+                            style: "margin: 0;",
+                            components::LucideIcon { name: "credit-card", size: "16", class: "accent-text" }
+                            "Flyttoffert"
+                            if let Some(ref q) = quote {
+                                span {
+                                    class: if q.status == "accepted" { "ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-500" } else { "ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-500" },
+                                    if q.status == "accepted" { "Godkänd" } else { "Skickad" }
+                                }
+                            }
                         }
-                    }
-                    div { class: "p-4 rounded-lg border border-border/20 bg-secondary/5 grid grid-cols-2 sm:grid-cols-4 gap-4",
-                        div {
-                            div { class: "text-[10px] text-muted-foreground font-semibold", "Baspris" }
-                            div { class: "text-xs font-bold text-foreground mt-0.5", "{q.base_price} kr" }
-                         }
-                         div {
-                             div { class: "text-[10px] text-muted-foreground font-semibold", "Distans" }
-                             div { class: "text-xs font-bold text-foreground mt-0.5", "{q.distance_fee} kr" }
-                         }
-                         div {
-                             div { class: "text-[10px] text-muted-foreground font-semibold", "Trappor" }
-                             div { class: "text-xs font-bold text-foreground mt-0.5", "{q.stairs_surcharge} kr" }
-                         }
-                         div {
-                             div { class: "text-[10px] text-muted-foreground font-semibold", "Material" }
-                             div { class: "text-xs font-bold text-foreground mt-0.5", "{q.packing_supplies_fee} kr" }
-                         }
-                    }
-                    div { class: "flex items-center justify-between text-xs font-bold text-foreground px-1",
-                        span { "Totalt Offerterat Pris:" }
-                        span { class: "text-sm text-primary font-extrabold", "{q.total_price} kr" }
+                        if let Some(ref q) = quote {
+                            div { class: "p-4 rounded-lg border border-border/20 bg-secondary/5 grid grid-cols-2 sm:grid-cols-4 gap-4",
+                                div {
+                                    div { class: "text-[10px] text-muted-foreground font-semibold", "Baspris" }
+                                    div { class: "text-xs font-bold text-foreground mt-0.5", "{q.base_price} kr" }
+                                 }
+                                 div {
+                                     div { class: "text-[10px] text-muted-foreground font-semibold", "Distans" }
+                                     div { class: "text-xs font-bold text-foreground mt-0.5", "{q.distance_fee} kr" }
+                                 }
+                                 div {
+                                     div { class: "text-[10px] text-muted-foreground font-semibold", "Trappor" }
+                                     div { class: "text-xs font-bold text-foreground mt-0.5", "{q.stairs_surcharge} kr" }
+                                 }
+                                 div {
+                                     div { class: "text-[10px] text-muted-foreground font-semibold", "Material" }
+                                     div { class: "text-xs font-bold text-foreground mt-0.5", "{q.packing_supplies_fee} kr" }
+                                 }
+                            }
+                            div { class: "flex items-center justify-between text-xs font-bold text-foreground px-1",
+                                span { "Totalt Offerterat Pris:" }
+                                span { class: "text-sm text-primary font-extrabold", "{q.total_price} kr" }
+                            }
+                            if let Some(ref inv) = invoice {
+                                div { class: "mt-3 p-3 rounded bg-muted/20 border border-border/10 space-y-1.5",
+                                    div { class: "text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground", "Fakturainformation" }
+                                    div { class: "flex items-center justify-between text-[11px] text-muted-foreground",
+                                        span { "RUT-avdrag:" }
+                                        span { class: "font-semibold text-foreground", "{inv.rut_deduction} kr" }
+                                    }
+                                    div { class: "flex items-center justify-between text-[11px] text-muted-foreground",
+                                        span { "Kundbelopp:" }
+                                        span { class: "font-semibold text-foreground", "{inv.customer_amount} kr" }
+                                    }
+                                    div { class: "flex items-center justify-between text-[11px] text-muted-foreground",
+                                        span { "Skatteverket (RUT):" }
+                                        span { class: "font-semibold text-foreground", "{inv.tax_authority_amount} kr" }
+                                    }
+                                    div { class: "flex items-center justify-between text-[11px] text-muted-foreground pt-1 border-t border-border/10",
+                                        span { "Fakturastatus:" }
+                                        span {
+                                            class: if inv.status == "paid" { "text-emerald-500 font-bold" } else { "text-amber-500 font-bold" },
+                                            if inv.status == "paid" { "Betald" } else { "Obetald" }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            p { class: "text-xs text-muted-foreground italic my-1", "Ingen offert skapad för detta uppdrag." }
+                        }
+
+                        if is_staff {
+                            button {
+                                onclick: {
+                                    let j_id = job.id.clone();
+                                    let uid = uid_for_calc.clone();
+                                    let mut db_trig = props.db_trigger;
+                                    move |_| {
+                                        let j_id = j_id.clone();
+                                        let uid = uid.clone();
+                                        spawn(async move {
+                                            let _ = yntra_core::calculate_and_save_move_quote(uid, j_id).await;
+                                            let current = *db_trig.read();
+                                            db_trig.set(current + 1);
+                                        });
+                                    }
+                                },
+                                class: "w-full py-2 bg-primary hover:opacity-90 rounded-lg text-xs font-bold text-primary-foreground border-0 cursor-pointer flex items-center justify-center gap-1.5 transition-all",
+                                components::LucideIcon { name: "calculator", size: "14" }
+                                if quote.is_some() { "Beräkna & uppdatera offert" } else { "Beräkna offert automatiskt" }
+                            }
+                        }
                     }
                 }
             }
@@ -260,38 +510,44 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
             }
 
             // Action Buttons
-            div { class: "flex gap-3 border-t border-border pt-5",
-                if job_status == "assigned" {
-                    components::Button {
-                        variant: components::ButtonVariant::Primary,
-                        onclick: move |_| {
-                            let job_id = job_id_status.clone();
-                            let uid = active_user_id.clone();
-                            spawn(async move {
-                                let _ = yntra_core::update_job_status(uid, job_id, "in_progress".to_string()).await;
-                            });
-                        },
-                        "{t(\"jobs-action-start\", &region)}"
-                    }
-                } else if job_status == "in_progress" {
-                    components::Button {
-                        variant: components::ButtonVariant::Primary,
-                        onclick: move |_| {
-                            let checklist_str = serde_json::to_string(&*checklist_state.read()).unwrap();
-                            let report_str = completion_report_state.read().clone();
-                            let job_id = job_id_submit.clone();
-                            let uid = active_user_id.clone();
-                            spawn(async move {
-                                let _ = yntra_core::submit_job_completion(uid, job_id, checklist_str, report_str).await;
-                            });
-                        },
-                        "{t(\"jobs-action-complete\", &region)}"
-                    }
-                } else {
-                    div { class: "flex items-center text-sm font-bold",
-                    style: "gap: 0.35rem; color: hsl(158.1, 64.4%, 51.6%);",
-                        components::LucideIcon { name: "check-circle", size: "18" }
-                        "{t(\"jobs-action-archived\", &region)}"
+            {
+                let uid_for_start = active_user_id.clone();
+                let uid_for_complete = active_user_id.clone();
+                rsx! {
+                    div { class: "flex gap-3 border-t border-border pt-5",
+                        if job_status == "assigned" {
+                            components::Button {
+                                variant: components::ButtonVariant::Primary,
+                                onclick: move |_| {
+                                    let job_id = job_id_status.clone();
+                                    let uid = uid_for_start.clone();
+                                    spawn(async move {
+                                        let _ = yntra_core::update_job_status(uid, job_id, "in_progress".to_string()).await;
+                                    });
+                                },
+                                "{t(\"jobs-action-start\", &region)}"
+                            }
+                        } else if job_status == "in_progress" {
+                            components::Button {
+                                variant: components::ButtonVariant::Primary,
+                                onclick: move |_| {
+                                    let checklist_str = serde_json::to_string(&*checklist_state.read()).unwrap();
+                                    let report_str = completion_report_state.read().clone();
+                                    let job_id = job_id_submit.clone();
+                                    let uid = uid_for_complete.clone();
+                                    spawn(async move {
+                                        let _ = yntra_core::submit_job_completion(uid, job_id, checklist_str, report_str).await;
+                                    });
+                                },
+                                "{t(\"jobs-action-complete\", &region)}"
+                            }
+                        } else {
+                            div { class: "flex items-center text-sm font-bold",
+                            style: "gap: 0.35rem; color: hsl(158.1, 64.4%, 51.6%);",
+                                components::LucideIcon { name: "check-circle", size: "18" }
+                                "{t(\"jobs-action-archived\", &region)}"
+                            }
+                        }
                     }
                 }
             }

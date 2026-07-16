@@ -57,3 +57,5 @@ pub mod dynamic_form;
 pub use dynamic_form::DynamicForm;
 pub mod dynamic_list;
 pub use dynamic_list::DynamicList;
+pub mod suggestion_input;
+pub use suggestion_input::SuggestionInput;

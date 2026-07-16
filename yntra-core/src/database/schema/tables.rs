@@ -244,6 +244,37 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             updated_at INTEGER NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS vehicles (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL DEFAULT 'workspace-1',
+            name TEXT NOT NULL,
+            license_plate TEXT NOT NULL,
+            capacity_m3 REAL NOT NULL,
+            status TEXT NOT NULL,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced'))
+        );
+
+        CREATE TABLE IF NOT EXISTS job_crew (
+            job_ticket_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'mover',
+            PRIMARY KEY(job_ticket_id, user_id),
+            FOREIGN KEY(job_ticket_id) REFERENCES job_tickets(id) ON DELETE CASCADE,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS move_signatures (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL DEFAULT 'workspace-1',
+            job_ticket_id TEXT NOT NULL,
+            signer_name TEXT NOT NULL,
+            signature_data_base64 TEXT NOT NULL,
+            signed_at INTEGER NOT NULL,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(job_ticket_id) REFERENCES job_tickets(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS job_tickets (
             id TEXT PRIMARY KEY,
             workspace_id TEXT NOT NULL,
@@ -267,7 +298,9 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             destination_has_elevator INTEGER DEFAULT 0,
             origin_parking_permit_needed INTEGER DEFAULT 0,
             destination_parking_permit_needed INTEGER DEFAULT 0,
-            FOREIGN KEY(assigned_user_id) REFERENCES users(id)
+            assigned_vehicle_id TEXT,
+            FOREIGN KEY(assigned_user_id) REFERENCES users(id),
+            FOREIGN KEY(assigned_vehicle_id) REFERENCES vehicles(id)
         );
 
         CREATE TABLE IF NOT EXISTS move_inventory (
@@ -298,6 +331,23 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             updated_at INTEGER NOT NULL DEFAULT 0,
             sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
             FOREIGN KEY(job_ticket_id) REFERENCES job_tickets(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS move_invoices (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL DEFAULT 'workspace-1',
+            quote_id TEXT NOT NULL,
+            customer_id TEXT NOT NULL,
+            invoice_date TEXT NOT NULL,
+            due_date TEXT NOT NULL,
+            subtotal REAL NOT NULL,
+            rut_deduction REAL NOT NULL,
+            customer_amount REAL NOT NULL,
+            tax_authority_amount REAL NOT NULL,
+            status TEXT NOT NULL,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(quote_id) REFERENCES move_quotes(id)
         );
 
         CREATE TABLE IF NOT EXISTS invitations (
@@ -587,7 +637,8 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
         CREATE INDEX IF NOT EXISTS idx_move_inventory_job ON move_inventory(job_ticket_id);
         CREATE INDEX IF NOT EXISTS idx_move_quotes_job ON move_quotes(job_ticket_id);
         CREATE INDEX IF NOT EXISTS idx_move_inventory_job_ticket ON move_inventory(job_ticket_id);
-        CREATE INDEX IF NOT EXISTS idx_move_quotes_job_ticket ON move_quotes(job_ticket_id);"
+        CREATE INDEX IF NOT EXISTS idx_move_quotes_job_ticket ON move_quotes(job_ticket_id);
+        CREATE INDEX IF NOT EXISTS idx_move_invoices_quote ON move_invoices(quote_id);"
     )
     .await
     .map_err(|e| YntraError::DbError(e.to_string()))?;

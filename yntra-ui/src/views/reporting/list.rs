@@ -1,7 +1,7 @@
 use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
-use yntra_core::ReportItem;
+use yntra_core::{ReportItem, update_report_status};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct ReportsListProps {
@@ -15,6 +15,10 @@ pub struct ReportsListProps {
 
 #[component]
 pub fn ReportsList(props: ReportsListProps) -> Element {
+    let state = use_context::<crate::state::AppState>();
+    let requester_id = state.active_user_id.read().clone();
+    let is_manager = *state.active_user_role.read() == "admin" || *state.active_user_role.read() == "platform_admin";
+
     let reports = props.reports.clone();
     let region = props.region;
 
@@ -22,6 +26,10 @@ pub fn ReportsList(props: ReportsListProps) -> Element {
     let mut report_type_filter = props.report_type_filter;
     let mut selected_report_id = props.selected_report_id;
     let mut show_report_details_modal = props.show_report_details_modal;
+
+    let mut context_menu_open = use_signal(|| false);
+    let mut context_menu_pos = use_signal(|| (0, 0));
+    let mut context_menu_report = use_signal(|| Option::<ReportItem>::None);
 
     let mut status_filter_open = use_signal(|| false);
     let mut type_filter_open = use_signal(|| false);
@@ -249,9 +257,17 @@ pub fn ReportsList(props: ReportsListProps) -> Element {
                                         _ => "yntra-badge warning",
                                     };
 
+                                    let r_c = r.clone();
                                     rsx! {
                                         tr {
                                             key: "{r_id}",
+                                            oncontextmenu: move |evt| {
+                                                evt.prevent_default();
+                                                let coords = evt.client_coordinates();
+                                                context_menu_pos.set((coords.x as i32, coords.y as i32));
+                                                context_menu_report.set(Some(r_c.clone()));
+                                                context_menu_open.set(true);
+                                            },
                                             td {
                                                 span { class: "yntra-badge", "{type_badge_label}" }
                                             }
@@ -274,6 +290,74 @@ pub fn ReportsList(props: ReportsListProps) -> Element {
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Context Menu Overlay
+            if let Some(rep) = context_menu_report.read().clone() {
+                {
+                    let rep_id = rep.id.clone();
+                    let rep_status = rep.status.clone();
+                    let is_resolved = rep_status == "resolved";
+                    let is_reviewed = rep_status == "reviewed";
+
+                    let req_id_c = requester_id.clone();
+                    let rep_id_c = rep.id.clone();
+                    let req_id_c2 = requester_id.clone();
+                    let rep_id_c2 = rep.id.clone();
+                    let rep_id_c3 = rep.id.clone();
+
+                    rsx! {
+                        components::ContextMenu {
+                            open: *context_menu_open.read(),
+                            x: context_menu_pos.read().0,
+                            y: context_menu_pos.read().1,
+                            onclose: move |_| context_menu_open.set(false),
+
+                            if is_manager {
+                                if !is_resolved {
+                                    button {
+                                        class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                                        onclick: move |_| {
+                                            let uid = req_id_c.clone();
+                                            let rid = rep_id_c.clone();
+                                            spawn(async move {
+                                                let _ = update_report_status(uid, rid, "resolved".to_string()).await;
+                                            });
+                                            context_menu_open.set(false);
+                                        },
+                                        components::LucideIcon { name: "check-circle", size: "14" }
+                                        "Mark Resolved"
+                                    }
+                                }
+                                if !is_reviewed {
+                                    button {
+                                        class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                                        onclick: move |_| {
+                                            let uid = req_id_c2.clone();
+                                            let rid = rep_id_c2.clone();
+                                            spawn(async move {
+                                                let _ = update_report_status(uid, rid, "reviewed".to_string()).await;
+                                            });
+                                            context_menu_open.set(false);
+                                        },
+                                        components::LucideIcon { name: "clock", size: "14" }
+                                        "Mark Reviewed"
+                                    }
+                                }
+                            }
+                            button {
+                                class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                                onclick: move |_| {
+                                    selected_report_id.set(Some(rep_id_c3.clone()));
+                                    show_report_details_modal.set(true);
+                                    context_menu_open.set(false);
+                                },
+                                components::LucideIcon { name: "file-text", size: "14" }
+                                "View Details"
                             }
                         }
                     }

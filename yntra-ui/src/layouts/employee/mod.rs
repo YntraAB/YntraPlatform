@@ -450,6 +450,130 @@ pub fn EmployeeLayout() -> Element {
                                     }
                                 }
 
+                                "academics" => {
+                                    let use_custom = get_block_use_custom_ui(&workspace, "academics");
+                                    if use_custom {
+                                        rsx! {
+                                            views::AcademicsView {
+                                                active_user_id: active_user_id.read().clone(),
+                                                workspace_id: workspace.id.clone(),
+                                                block_id: active_section.read().clone(),
+                                                db_trigger: db_trigger,
+                                                locale: auth_region.read().clone(),
+                                            }
+                                        }
+                                    } else {
+                                        rsx! {
+                                            views::DynamicBlockView {
+                                                active_user_id: active_user_id.read().clone(),
+                                                workspace_id: workspace.id.clone(),
+                                                block_id: active_section.read().clone(),
+                                                db_trigger: db_trigger,
+                                                locale: auth_region.read().clone(),
+                                            }
+                                        }
+                                    }
+                                }
+
+                                "attendance" => {
+                                    let use_custom = get_block_use_custom_ui(&workspace, "attendance");
+                                    if use_custom {
+                                        rsx! {
+                                            views::AttendanceView {
+                                                active_user_id: active_user_id.read().clone(),
+                                                workspace_id: workspace.id.clone(),
+                                                block_id: active_section.read().clone(),
+                                                db_trigger: db_trigger,
+                                                locale: auth_region.read().clone(),
+                                            }
+                                        }
+                                    } else {
+                                        rsx! {
+                                            views::DynamicBlockView {
+                                                active_user_id: active_user_id.read().clone(),
+                                                workspace_id: workspace.id.clone(),
+                                                block_id: active_section.read().clone(),
+                                                db_trigger: db_trigger,
+                                                locale: auth_region.read().clone(),
+                                            }
+                                        }
+                                    }
+                                }
+
+                                "finance" => {
+                                    let use_custom = get_block_use_custom_ui(&workspace, "finance");
+                                    if use_custom {
+                                        rsx! {
+                                            views::FinanceView {
+                                                active_user_id: active_user_id.read().clone(),
+                                                workspace_id: workspace.id.clone(),
+                                                block_id: active_section.read().clone(),
+                                                db_trigger: db_trigger,
+                                                locale: auth_region.read().clone(),
+                                            }
+                                        }
+                                    } else {
+                                        rsx! {
+                                            views::DynamicBlockView {
+                                                active_user_id: active_user_id.read().clone(),
+                                                workspace_id: workspace.id.clone(),
+                                                block_id: active_section.read().clone(),
+                                                db_trigger: db_trigger,
+                                                locale: auth_region.read().clone(),
+                                            }
+                                        }
+                                    }
+                                }
+
+                                "library" => {
+                                    let use_custom = get_block_use_custom_ui(&workspace, "library");
+                                    if use_custom {
+                                        rsx! {
+                                            views::LibraryView {
+                                                active_user_id: active_user_id.read().clone(),
+                                                workspace_id: workspace.id.clone(),
+                                                block_id: active_section.read().clone(),
+                                                db_trigger: db_trigger,
+                                                locale: auth_region.read().clone(),
+                                            }
+                                        }
+                                    } else {
+                                        rsx! {
+                                            views::DynamicBlockView {
+                                                active_user_id: active_user_id.read().clone(),
+                                                workspace_id: workspace.id.clone(),
+                                                block_id: active_section.read().clone(),
+                                                db_trigger: db_trigger,
+                                                locale: auth_region.read().clone(),
+                                            }
+                                        }
+                                    }
+                                }
+
+                                "health_clinic" => {
+                                    rsx! {
+                                        views::HealthClinicView {
+                                            active_user_id: active_user_id.read().clone(),
+                                            workspace_id: workspace.id.clone(),
+                                            block_id: active_section.read().clone(),
+                                            db_trigger: db_trigger,
+                                            locale: auth_region.read().clone(),
+                                        }
+                                    }
+                                }
+
+                                "report_cards" => {
+                                    rsx! {
+                                        views::ReportCardsView {
+                                            active_user_id: active_user_id.read().clone(),
+                                            workspace_id: workspace.id.clone(),
+                                            block_id: active_section.read().clone(),
+                                            db_trigger: db_trigger,
+                                            locale: auth_region.read().clone(),
+                                        }
+                                    }
+                                }
+
                                 _ => {
                                     rsx! {
                                         views::DynamicBlockView {

@@ -148,11 +148,47 @@ pub fn DirectoryView(props: DirectoryViewProps) -> Element {
     // Step background colours were moved to team_wizard.rs
 
     let ws_id = workspace.id.clone();
+    let modules_active: serde_json::Value =
+        serde_json::from_str(&workspace.modules_active).unwrap_or_default();
+    let is_school = modules_active
+        .get("academics")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let mut active_tab = use_signal(|| "staff".to_string());
 
     rsx! {
         div { class: "flex flex-col h-full w-full bg-background box-border overflow-hidden",
+            if is_school {
+                div { class: "flex items-center gap-4 border-b border-border px-6 py-2 bg-muted/10 shrink-0",
+                    button {
+                        class: format!(
+                            "text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors {}",
+                            if *active_tab.read() == "staff" { "bg-primary text-primary-foreground" } else { "text-muted-foreground hover:bg-muted" }
+                        ),
+                        onclick: move |_| active_tab.set("staff".to_string()),
+                        "Staff & Teams"
+                    }
+                    button {
+                        class: format!(
+                            "text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors {}",
+                            if *active_tab.read() == "students" { "bg-primary text-primary-foreground" } else { "text-muted-foreground hover:bg-muted" }
+                        ),
+                        onclick: move |_| active_tab.set("students".to_string()),
+                        "Students & Parents"
+                    }
+                }
+            }
+
             // Sub-view Routing
-            if current_dir_level == "workspaces" {
+            if is_school && *active_tab.read() == "students" {
+                crate::views::school::StudentDirectoryView {
+                    active_user_id: active_user.id.clone(),
+                    workspace_id: workspace.id.clone(),
+                    block_id: "students".to_string(),
+                    db_trigger: db_trigger,
+                    locale: region.clone(),
+                }
+            } else if current_dir_level == "workspaces" {
                 WorkspacesList {
                     is_platform_admin,
                 }
