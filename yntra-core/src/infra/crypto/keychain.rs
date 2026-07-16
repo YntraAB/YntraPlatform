@@ -13,10 +13,26 @@ pub trait SecureStorageProvider: Send + Sync {
 static SECURE_STORAGE_PROVIDER: std::sync::OnceLock<Box<dyn SecureStorageProvider>> =
     std::sync::OnceLock::new();
 
+#[cfg(not(target_arch = "wasm32"))]
+static FALLBACK_KEYRING: std::sync::OnceLock<std::sync::RwLock<std::collections::HashMap<String, String>>> =
+    std::sync::OnceLock::new();
+
+#[cfg(not(target_arch = "wasm32"))]
+fn get_fallback_keyring() -> &'static std::sync::RwLock<std::collections::HashMap<String, String>> {
+    FALLBACK_KEYRING.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()))
+}
+
 /// Registers a secure storage provider callback for handling system secrets.
 #[uniffi::export]
 pub fn register_secure_storage_provider(provider: Box<dyn SecureStorageProvider>) -> bool {
     SECURE_STORAGE_PROVIDER.set(provider).is_ok()
+}
+
+static DATABASE_PEPPER: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+#[uniffi::export]
+pub fn set_database_pepper(pepper: String) -> bool {
+    DATABASE_PEPPER.set(pepper).is_ok()
 }
 
 pub(crate) fn get_local_client_pepper() -> Result<String, YntraError> {
@@ -65,6 +81,9 @@ pub(crate) fn get_local_client_pepper() -> Result<String, YntraError> {
                 }
             }
         }
+        if let Some(pepper) = DATABASE_PEPPER.get() {
+            return Ok(pepper.clone());
+        }
         static SESSION_PEPPER: std::sync::OnceLock<String> = std::sync::OnceLock::new();
         if let Some(pepper) = SESSION_PEPPER.get() {
             return Ok(pepper.clone());
@@ -99,11 +118,20 @@ pub async fn get_local_secret(key: &str) -> Result<Option<String>, YntraError> {
                     Ok(Some(secret))
                 }
             }
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(e) => Err(YntraError::CryptoError(format!(
-                "Keyring access failed: {:?}",
-                e
-            ))),
+            Err(e) => {
+                if cfg!(test) || std::env::var("CI").is_ok() {
+                    if let Some(val) = get_fallback_keyring().read().unwrap().get(&key).cloned() {
+                        return Ok(Some(val));
+                    }
+                }
+                match e {
+                    keyring::Error::NoEntry => Ok(None),
+                    err => Err(YntraError::CryptoError(format!(
+                        "Keyring access failed: {:?}",
+                        err
+                    ))),
+                }
+            }
         }
     })
     .await
@@ -131,14 +159,18 @@ pub async fn set_local_secret(key: &str, value: &str) -> Result<(), YntraError> 
             .map_err(|e| YntraError::CryptoError(format!("Failed to access keyring: {:?}", e)))?;
         if value.is_empty() {
             let _ = entry.delete_credential();
+            if cfg!(test) || std::env::var("CI").is_ok() {
+                get_fallback_keyring().write().unwrap().remove(&key);
+            }
             Ok(())
         } else {
             if let Err(e) = entry.set_password(&value) {
                 if cfg!(test) || std::env::var("CI").is_ok() {
                     tracing::warn!(
-                        "Keyring write failed in test/CI environment (swallowing): {:?}",
+                        "Keyring write failed in test/CI environment, writing to in-memory fallback: {:?}",
                         e
                     );
+                    get_fallback_keyring().write().unwrap().insert(key.clone(), value.clone());
                     Ok(())
                 } else {
                     Err(YntraError::CryptoError(format!(
@@ -147,6 +179,9 @@ pub async fn set_local_secret(key: &str, value: &str) -> Result<(), YntraError> 
                     )))
                 }
             } else {
+                if cfg!(test) || std::env::var("CI").is_ok() {
+                    get_fallback_keyring().write().unwrap().insert(key.clone(), value.clone());
+                }
                 Ok(())
             }
         }
@@ -196,6 +231,10 @@ pub async fn set_local_epoch_if_greater(
 
         let cached_epoch = if let Ok(val) = entry.get_password() {
             val.parse::<u64>().unwrap_or(0)
+        } else if cfg!(test) || std::env::var("CI").is_ok() {
+            get_fallback_keyring().read().unwrap().get(&key)
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(0)
         } else {
             0
         };
@@ -211,9 +250,10 @@ pub async fn set_local_epoch_if_greater(
             if let Err(e) = entry.set_password(&current_epoch.to_string()) {
                 if cfg!(test) || std::env::var("CI").is_ok() {
                     tracing::warn!(
-                        "Keyring write failed in test/CI environment (swallowing): {:?}",
+                        "Keyring write failed in test/CI environment, writing to in-memory fallback: {:?}",
                         e
                     );
+                    get_fallback_keyring().write().unwrap().insert(key.clone(), current_epoch.to_string());
                     Ok(current_epoch)
                 } else {
                     Err(YntraError::CryptoError(format!(
@@ -222,6 +262,9 @@ pub async fn set_local_epoch_if_greater(
                     )))
                 }
             } else {
+                if cfg!(test) || std::env::var("CI").is_ok() {
+                    get_fallback_keyring().write().unwrap().insert(key.clone(), current_epoch.to_string());
+                }
                 Ok(current_epoch)
             }
         } else {
@@ -508,7 +551,7 @@ pub fn encrypt_workspace_key_with_password(
         .map_err(|_| YntraError::CryptoError("Envelope encryption failed".to_string()))?;
 
     Ok(format!(
-        "envelope:{}:{}:{}",
+        "envelope:v3:{}:{}:{}",
         const_hex::encode(&salt),
         const_hex::encode(&nonce_bytes),
         const_hex::encode(&ciphertext)
@@ -531,28 +574,34 @@ pub fn decrypt_workspace_key_with_password(
     }
 
     let parts: Vec<&str> = encrypted_envelope[9..].split(':').collect();
-    if parts.len() != 3 {
+    if parts.len() != 3 && parts.len() != 4 {
         password.zeroize();
         return Err(YntraError::CryptoError(
             "Invalid envelope structure".to_string(),
         ));
     }
 
-    let salt = match const_hex::decode(parts[0]) {
+    let (version, salt_str, nonce_str, ciphertext_str) = if parts.len() == 4 {
+        (Some(parts[0]), parts[1], parts[2], parts[3])
+    } else {
+        (None, parts[0], parts[1], parts[2])
+    };
+
+    let salt = match const_hex::decode(salt_str) {
         Ok(s) => s,
         Err(_) => {
             password.zeroize();
             return Err(YntraError::CryptoError("Invalid envelope salt".to_string()));
         }
     };
-    let nonce_bytes = match const_hex::decode(parts[1]) {
+    let nonce_bytes = match const_hex::decode(nonce_str) {
         Ok(n) => n,
         Err(_) => {
             password.zeroize();
             return Err(YntraError::CryptoError("Invalid envelope nonce".to_string()));
         }
     };
-    let ciphertext = match const_hex::decode(parts[2]) {
+    let ciphertext = match const_hex::decode(ciphertext_str) {
         Ok(c) => c,
         Err(_) => {
             password.zeroize();
@@ -560,60 +609,70 @@ pub fn decrypt_workspace_key_with_password(
         }
     };
 
-    // Try with memory-efficient parameters (m=12288, t=3) first
-    let mut derived_key = zeroize::Zeroizing::new([0u8; 32]);
-    let params_v3 = match Params::new(12288, 3, 1, Some(32)) {
-        Ok(p) => p,
-        Err(_) => {
-            password.zeroize();
-            return Err(YntraError::CryptoError("Argon2 params invalid".to_string()));
-        }
-    };
-    let argon2_v3 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params_v3);
     let mut decrypted = None;
 
-    if argon2_v3
-        .hash_password_into(password.as_bytes(), &salt, &mut *derived_key)
-        .is_ok()
-    {
-        let cipher = XChaCha20Poly1305::new(Key::from_slice(&*derived_key));
-        let nonce = XNonce::from_slice(&nonce_bytes);
-        if let Ok(plaintext) = cipher.decrypt(nonce, ciphertext.as_slice()) {
-            decrypted = Some(plaintext);
-        }
-    }
+    if let Some(v_str) = version {
+        // Versioned envelope: use EXACT parameters for the given version (no sequential retry)
+        let params = match v_str {
+            "v3" => Params::new(12288, 3, 1, Some(32)),
+            "v2" => Params::new(19456, 3, 1, Some(32)),
+            "v1" => Params::new(19456, 2, 1, Some(32)),
+            _ => {
+                password.zeroize();
+                return Err(YntraError::CryptoError(format!("Unsupported envelope version: {}", v_str)));
+            }
+        }.map_err(|_| YntraError::CryptoError("Argon2 params invalid".to_string()))?;
 
-    // Fallback to old default (m=19456, t=3) if decryption failed
-    if decrypted.is_none() {
-        let mut derived_key_v2 = zeroize::Zeroizing::new([0u8; 32]);
-        if let Ok(params_v2) = Params::new(19456, 3, 1, Some(32)) {
-            let argon2_v2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params_v2);
-            if argon2_v2
-                .hash_password_into(password.as_bytes(), &salt, &mut *derived_key_v2)
-                .is_ok()
-            {
-                let cipher = XChaCha20Poly1305::new(Key::from_slice(&*derived_key_v2));
+        let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+        let mut derived_key = zeroize::Zeroizing::new([0u8; 32]);
+        if argon2.hash_password_into(password.as_bytes(), &salt, &mut *derived_key).is_ok() {
+            let cipher = XChaCha20Poly1305::new(Key::from_slice(&*derived_key));
+            let nonce = XNonce::from_slice(&nonce_bytes);
+            if let Ok(plaintext) = cipher.decrypt(nonce, ciphertext.as_slice()) {
+                decrypted = Some(plaintext);
+            }
+        }
+    } else {
+        // Legacy envelope: sequential fallback (legacy compatibility path)
+        // Try v3 (m=12288, t=3) first (since some legacy envelopes might be v3 without prefix)
+        let mut derived_key_v3 = zeroize::Zeroizing::new([0u8; 32]);
+        if let Ok(params_v3) = Params::new(12288, 3, 1, Some(32)) {
+            let argon2_v3 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params_v3);
+            if argon2_v3.hash_password_into(password.as_bytes(), &salt, &mut *derived_key_v3).is_ok() {
+                let cipher = XChaCha20Poly1305::new(Key::from_slice(&*derived_key_v3));
                 let nonce = XNonce::from_slice(&nonce_bytes);
                 if let Ok(plaintext) = cipher.decrypt(nonce, ciphertext.as_slice()) {
                     decrypted = Some(plaintext);
                 }
             }
         }
-    }
 
-    // Legacy fallback to t=2 (m=19456, t=2) if decryption failed
-    if decrypted.is_none() {
-        let mut derived_key_legacy = zeroize::Zeroizing::new([0u8; 32]);
-        if let Ok(params_v1) = Params::new(19456, 2, 1, Some(32)) {
-            let argon2_v1 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params_v1);
-            if argon2_v1
-                .hash_password_into(password.as_bytes(), &salt, &mut *derived_key_legacy)
-                .is_ok()
-            {
-                let cipher = XChaCha20Poly1305::new(Key::from_slice(&*derived_key_legacy));
-                let nonce = XNonce::from_slice(&nonce_bytes);
-                if let Ok(plaintext) = cipher.decrypt(nonce, ciphertext.as_slice()) {
-                    decrypted = Some(plaintext);
+        // Try v2 (m=19456, t=3) next
+        if decrypted.is_none() {
+            let mut derived_key_v2 = zeroize::Zeroizing::new([0u8; 32]);
+            if let Ok(params_v2) = Params::new(19456, 3, 1, Some(32)) {
+                let argon2_v2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params_v2);
+                if argon2_v2.hash_password_into(password.as_bytes(), &salt, &mut *derived_key_v2).is_ok() {
+                    let cipher = XChaCha20Poly1305::new(Key::from_slice(&*derived_key_v2));
+                    let nonce = XNonce::from_slice(&nonce_bytes);
+                    if let Ok(plaintext) = cipher.decrypt(nonce, ciphertext.as_slice()) {
+                        decrypted = Some(plaintext);
+                    }
+                }
+            }
+        }
+
+        // Try v1 (m=19456, t=2) last
+        if decrypted.is_none() {
+            let mut derived_key_v1 = zeroize::Zeroizing::new([0u8; 32]);
+            if let Ok(params_v1) = Params::new(19456, 2, 1, Some(32)) {
+                let argon2_v1 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params_v1);
+                if argon2_v1.hash_password_into(password.as_bytes(), &salt, &mut *derived_key_v1).is_ok() {
+                    let cipher = XChaCha20Poly1305::new(Key::from_slice(&*derived_key_v1));
+                    let nonce = XNonce::from_slice(&nonce_bytes);
+                    if let Ok(plaintext) = cipher.decrypt(nonce, ciphertext.as_slice()) {
+                        decrypted = Some(plaintext);
+                    }
                 }
             }
         }
@@ -746,6 +805,18 @@ mod keychain_tests {
             const_hex::encode(&nonce_bytes),
             const_hex::encode(&ciphertext)
         );
+
+        let decrypted = decrypt_workspace_key_with_password(password.to_string(), &envelope).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_argon2id_v3_versioned_decryption() {
+        let password = "my-secure-password";
+        let plaintext = b"workspace-secret-key-bytes-123456";
+
+        let envelope = encrypt_workspace_key_with_password(password.to_string(), plaintext.to_vec()).unwrap();
+        assert!(envelope.starts_with("envelope:v3:"));
 
         let decrypted = decrypt_workspace_key_with_password(password.to_string(), &envelope).unwrap();
         assert_eq!(decrypted, plaintext);
