@@ -121,17 +121,10 @@ pub struct DbConnection {
 impl Drop for DbConnection {
     fn drop(&mut self) {
         let guard = self._guard.take();
-        let was_in_tx = self
-            .in_transaction
-            .load(std::sync::atomic::Ordering::SeqCst);
-        if was_in_tx {
-            wasm_bindgen_futures::spawn_local(async move {
-                let _ = js_execute_sql("execute", "ROLLBACK", wasm_bindgen::JsValue::null()).await;
-                drop(guard);
-            });
-        } else {
+        wasm_bindgen_futures::spawn_local(async move {
+            let _ = js_execute_sql("execute", "ROLLBACK", wasm_bindgen::JsValue::null()).await;
             drop(guard);
-        }
+        });
     }
 }
 

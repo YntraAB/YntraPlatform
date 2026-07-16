@@ -285,19 +285,19 @@ pub struct DbConnection {
 impl Drop for DbConnection {
     fn drop(&mut self) {
         if let Some(conn) = self.inner.take() {
-            let was_in_tx = self
-                .in_transaction
-                .load(std::sync::atomic::Ordering::SeqCst);
             let permit = self._permit.take();
-            if was_in_tx {
-                let rt = get_runtime();
-                rt.spawn(async move {
-                    // Try to rollback the active transaction. If it fails, discard connection.
-                    if let Err(e) = conn.execute("ROLLBACK", ()).await {
-                        tracing::warn!("Failed to rollback database connection on drop: {:?}. Discarding connection.", e);
-                        return;
+            let rt = get_runtime();
+            rt.spawn(async move {
+                let mut is_clean = true;
+                if let Err(e) = conn.execute("ROLLBACK", ()).await {
+                    let err_str = e.to_string();
+                    if !err_str.contains("no transaction is active") {
+                        tracing::warn!("Failed to rollback database connection on drop: {}. Discarding connection.", err_str);
+                        is_clean = false;
                     }
-                    
+                }
+                
+                if is_clean {
                     let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
                     let mut conns = pool.lock().unwrap_or_else(|e| {
                         tracing::error!("Database connection pool lock is poisoned on release. Recovering by clearing the pool.");
@@ -307,18 +307,8 @@ impl Drop for DbConnection {
                     });
                     conns.push_back(conn);
                     drop(permit);
-                });
-            } else {
-                let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
-                let mut conns = pool.lock().unwrap_or_else(|e| {
-                    tracing::error!("Database connection pool lock is poisoned on release. Recovering by clearing the pool.");
-                    let mut guard = e.into_inner();
-                    guard.clear();
-                    guard
-                });
-                conns.push_back(conn);
-                drop(permit);
-            }
+                }
+            });
         }
     }
 }
@@ -650,6 +640,38 @@ mod tests {
             .unwrap();
         conn_new
             .execute("DELETE FROM workspaces WHERE id = 'ws-tx-drop'", ())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_transaction_leakage_on_batch_failure() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+
+        // 1. Setup
+        let conn = acquire_connection().await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-tx-leak', 'Tx Leak WS', '[]', '{}')", ()).await.unwrap();
+
+        // 2. Execute a batch that fails midway (opens transaction but fails on insert constraint)
+        {
+            let conn_tx = acquire_connection().await.unwrap();
+            let batch_sql = "BEGIN TRANSACTION; INSERT INTO users (id, workspace_id, email, role) VALUES ('user-tx-leak-1', 'ws-tx-leak', 'user1@tx.io', 'user'); INSERT INTO users (id, workspace_id, email, role) VALUES ('user-tx-leak-1', 'ws-tx-leak', 'user1@tx.io', 'user');"; 
+            let res = conn_tx.execute_batch(batch_sql).await;
+            assert!(res.is_err()); // The batch must fail
+        }
+
+        // Give the background task time to finalize dropping the connection
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // 3. Acquire a connection from the pool and try to start a new transaction.
+        let conn_new = acquire_connection().await.unwrap();
+        let res_tx = conn_new.begin_transaction().await;
+        assert!(res_tx.is_ok(), "Expected connection to be clean, but got error: {:?}", res_tx);
+        conn_new.rollback().await.unwrap();
+
+        // Cleanup
+        conn_new
+            .execute("DELETE FROM workspaces WHERE id = 'ws-tx-leak'", ())
             .await
             .unwrap();
     }
