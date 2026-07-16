@@ -88,16 +88,6 @@ fn check_insecure_dev_bypass() -> bool {
             }
         }
     }
-    #[cfg(target_arch = "wasm32")]
-    {
-        if let Some(window) = web_sys::window() {
-            if let Ok(Some(storage)) = window.local_storage() {
-                if let Ok(Some(val)) = storage.get_item("YNTRA_INSECURE_DEV_BYPASS_SIGNATURES") {
-                    return val == "1" || val.to_lowercase() == "true";
-                }
-            }
-        }
-    }
     false
 }
 
@@ -163,9 +153,14 @@ pub fn invalidate_auth_context_cache_for_sql(sql: &str, table: &str) {
         while let Some(c) = chars.next() {
             if c == '\'' {
                 if in_quote {
-                    literals.push(current_lit.clone());
-                    current_lit.clear();
-                    in_quote = false;
+                    if chars.peek() == Some(&'\'') {
+                        chars.next(); // consume the escaped quote
+                        current_lit.push('\'');
+                    } else {
+                        literals.push(current_lit.clone());
+                        current_lit.clear();
+                        in_quote = false;
+                    }
                 } else {
                     in_quote = true;
                 }
@@ -935,6 +930,37 @@ mod tests {
         {
             let cache = AUTH_CONTEXT_CACHE.get().unwrap().read().unwrap();
             assert!(cache.is_empty());
+        }
+
+        // 5. Test escaped single quotes (e.g. O'Brien) do not cause parse corruption
+        let ctx_obrien = AuthContext {
+            user_id: "O'Brien".to_string(),
+            role: "user".to_string(),
+            workspace_id: "ws-obrien".to_string(),
+            is_admin: false,
+            workspace_settings: None,
+        };
+        let ctx_other = AuthContext {
+            user_id: "user-cache-test-2".to_string(),
+            role: "admin".to_string(),
+            workspace_id: "ws-cache-test-2".to_string(),
+            is_admin: true,
+            workspace_settings: None,
+        };
+        if let Ok(mut cache) = AUTH_CONTEXT_CACHE.get().unwrap().write() {
+            cache.insert("O'Brien".to_string(), ctx_obrien);
+            cache.insert("user-cache-test-2".to_string(), ctx_other);
+        }
+
+        // SQL containing escaped single quote in name, but targeting user O'Brien
+        let sql_escaped = "UPDATE users SET name = 'O''Brien' WHERE id = 'O''Brien'";
+        invalidate_auth_context_cache_for_sql(sql_escaped, "users");
+
+        // Verify O'Brien is correctly invalidated, but user-cache-test-2 is NOT!
+        {
+            let cache = AUTH_CONTEXT_CACHE.get().unwrap().read().unwrap();
+            assert!(!cache.contains_key("O'Brien"));
+            assert!(cache.contains_key("user-cache-test-2"));
         }
     }
 
