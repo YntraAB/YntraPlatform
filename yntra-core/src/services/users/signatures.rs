@@ -89,17 +89,22 @@ pub async fn ensure_user_role_signature_impl(
             let pub_hex = keys.public_key();
             let priv_hex = keys.private_key();
 
-            let now_ms = crate::infra::time::get_current_time_ms();
-            conn.execute(
-                "UPDATE workspaces SET creator_public_key = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
-                crate::params![pub_hex, now_ms, workspace_id],
-            ).await?;
-
+            // SOTA: Write private key to secure keyring first to prevent permanent lockout on keyring write failure.
             crate::infra::crypto::set_local_secret(&private_key_setting, &priv_hex).await?;
 
+            let now_ms = crate::infra::time::get_current_time_ms();
+            if let Err(e) = conn.execute(
+                "UPDATE workspaces SET creator_public_key = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
+                crate::params![pub_hex.clone(), now_ms, workspace_id],
+            ).await {
+                // Best effort rollback: clean up keyring secret to avoid leaving orphaned key if DB update fails.
+                let _ = crate::infra::crypto::set_local_secret(&private_key_setting, "").await;
+                return Err(e);
+            }
+
             *cached_pk = Some(pub_hex.clone());
-            *cached_sk = Some(priv_hex.clone());
-            active_sk = Some(priv_hex.clone());
+            *cached_sk = Some((*priv_hex).clone());
+            active_sk = Some((*priv_hex).clone());
         } else {
             let private_key_bytes = zeroize::Zeroizing::new(
                 const_hex::decode(creator_sk_val)
