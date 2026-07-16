@@ -191,6 +191,7 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
     let mut show_report_time_modal = use_signal(|| false);
     let mut show_customize_modal = use_signal(|| false);
     let mut todo_input = use_signal(String::new);
+    let mut temp_selected_widgets = use_signal(Vec::<String>::new);
 
     let is_client = active_user.role == "client";
     let locale = auth_region.read().clone();
@@ -220,6 +221,45 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
             }
         }
     });
+
+    let academic_overview = {
+        let active_user_id = active_user.id.clone();
+        let ws_id = workspace.id.clone();
+        use_resource(move || {
+            let _trig = db_trigger.read();
+            let active_user_id = active_user_id.clone();
+            let ws_id = ws_id.clone();
+            async move {
+                yntra_core::get_academic_overview(active_user_id, ws_id).await
+            }
+        })
+    };
+
+    let library_overview = {
+        let active_user_id = active_user.id.clone();
+        let ws_id = workspace.id.clone();
+        use_resource(move || {
+            let _trig = db_trigger.read();
+            let active_user_id = active_user_id.clone();
+            let ws_id = ws_id.clone();
+            async move {
+                yntra_core::get_library_overview(active_user_id, ws_id).await
+            }
+        })
+    };
+
+    let finance_overview = {
+        let active_user_id = active_user.id.clone();
+        let ws_id = workspace.id.clone();
+        use_resource(move || {
+            let _trig = db_trigger.read();
+            let active_user_id = active_user_id.clone();
+            let ws_id = ws_id.clone();
+            async move {
+                yntra_core::get_finance_overview(active_user_id, ws_id).await
+            }
+        })
+    };
 
     // Parse active modules from workspace
     let modules_active: serde_json::Value =
@@ -295,6 +335,17 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
     } else {
         allowed_widgets.iter().map(|w| w.id.to_string()).collect()
     };
+
+    let default_widgets: Vec<String> = allowed_widgets.iter().map(|w| w.id.to_string()).collect();
+
+    use_effect({
+        let selected_widgets = selected_widgets.clone();
+        move || {
+            if *show_customize_modal.read() {
+                temp_selected_widgets.set(selected_widgets.clone());
+            }
+        }
+    });
 
     // Widget custom translation helper
     let get_widget_label = |id: &str, locale: &str| -> String {
@@ -490,15 +541,10 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
     let active_todos = active_todos_memo.read();
     let today_hours = *today_hours_memo.read();
 
-    let course_count = 0;
-    let slot_count = 0;
-    let (total_books, available_copies) = (0, 0);
-
     struct RenderedWidget {
         id: String,
         label: String,
         icon: String,
-        checked: bool,
     }
 
     let rendered_allowed_widgets: Vec<RenderedWidget> = allowed_widgets
@@ -507,7 +553,6 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
             id: w.id.to_string(),
             label: get_widget_label(w.id, &locale),
             icon: w.block_id.to_string(),
-            checked: selected_widgets.contains(&w.id.to_string()),
         })
         .collect();
 
@@ -1000,38 +1045,64 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                             }
                             components::CardContent {
                                 class: "flex flex-1 flex-col justify-between",
-                                div {
-                                    class: "flex flex-col gap-4 py-2",
-                                    div {
-                                        class: "flex justify-between items-center",
-                                        span {
-                                            class: "text-sm font-medium",
-                                            match locale.as_str() {
-                                                "sv" => "Mina kurser",
-                                                "no" => "Mine kurs",
-                                                "da" => "Mine kurser",
-                                                _ => "My courses"
+                                match &*academic_overview.read() {
+                                    Some(Ok(overview)) => rsx! {
+                                        div {
+                                            class: "flex flex-col gap-4 py-2",
+                                            div {
+                                                class: "flex justify-between items-center",
+                                                span {
+                                                    class: "text-sm font-medium",
+                                                    match locale.as_str() {
+                                                        "sv" => "Mina kurser",
+                                                        "no" => "Mine kurs",
+                                                        "da" => "Mine kurser",
+                                                        _ => "My courses"
+                                                    }
+                                                }
+                                                span {
+                                                    class: "flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground",
+                                                    "{overview.course_count}"
+                                                }
+                                            }
+                                            div {
+                                                class: "flex justify-between items-center",
+                                                span {
+                                                    class: "text-sm font-medium",
+                                                    match locale.as_str() {
+                                                        "sv" => "Schematillfällen",
+                                                        "no" => "Timeplantimer",
+                                                        "da" => "Skematimer",
+                                                        _ => "Timetable slots"
+                                                    }
+                                                }
+                                                span {
+                                                    class: "flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground",
+                                                    "{overview.slot_count}"
+                                                }
                                             }
                                         }
-                                        span {
-                                            class: "flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground",
-                                            "{course_count}"
-                                        }
-                                    }
-                                    div {
-                                        class: "flex justify-between items-center",
-                                        span {
-                                            class: "text-sm font-medium",
+                                    },
+                                    Some(Err(_)) => rsx! {
+                                        div { class: "text-xs text-destructive py-2",
                                             match locale.as_str() {
-                                                "sv" => "Schematillfällen",
-                                                "no" => "Timeplantimer",
-                                                "da" => "Skematimer",
-                                                _ => "Timetable slots"
+                                                "sv" => "Kunde inte ladda kursinformation.",
+                                                "no" => "Kunne ikke laste kursinformasjon.",
+                                                "da" => "Kunne ikke indlæse kursusinformation.",
+                                                _ => "Failed to load academic information."
                                             }
                                         }
-                                        span {
-                                            class: "flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground",
-                                            "{slot_count}"
+                                    },
+                                    None => rsx! {
+                                        div { class: "flex flex-col gap-4 py-2 animate-pulse",
+                                            div { class: "flex justify-between items-center",
+                                                div { class: "h-4 bg-muted rounded w-24" }
+                                                div { class: "h-6 w-6 rounded-full bg-muted" }
+                                            }
+                                            div { class: "flex justify-between items-center",
+                                                div { class: "h-4 bg-muted rounded w-32" }
+                                                div { class: "h-6 w-6 rounded-full bg-muted" }
+                                            }
                                         }
                                     }
                                 }
@@ -1077,38 +1148,64 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                             }
                             components::CardContent {
                                 class: "flex flex-1 flex-col justify-between",
-                                div {
-                                    class: "flex flex-col gap-4 py-2",
-                                    div {
-                                        class: "flex justify-between items-center",
-                                        span {
-                                            class: "text-sm font-medium",
-                                            match locale.as_str() {
-                                                "sv" => "Böcker i katalog",
-                                                "no" => "Bøker i katalog",
-                                                "da" => "Bøger i katalog",
-                                                _ => "Catalog books"
+                                match &*library_overview.read() {
+                                    Some(Ok(overview)) => rsx! {
+                                        div {
+                                            class: "flex flex-col gap-4 py-2",
+                                            div {
+                                                class: "flex justify-between items-center",
+                                                span {
+                                                    class: "text-sm font-medium",
+                                                    match locale.as_str() {
+                                                        "sv" => "Böcker i katalog",
+                                                        "no" => "Bøker i katalog",
+                                                        "da" => "Bøger i katalog",
+                                                        _ => "Catalog books"
+                                                    }
+                                                }
+                                                span {
+                                                    class: "flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground",
+                                                    "{overview.total_books}"
+                                                }
+                                            }
+                                            div {
+                                                class: "flex justify-between items-center",
+                                                span {
+                                                    class: "text-sm font-medium",
+                                                    match locale.as_str() {
+                                                        "sv" => "Tillgängliga exemplar",
+                                                        "no" => "Tilgjengelige eksemplarer",
+                                                        "da" => "Tilgængelige eksemplarer",
+                                                        _ => "Available copies"
+                                                    }
+                                                }
+                                                span {
+                                                    class: "flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground",
+                                                    "{overview.available_copies}"
+                                                }
                                             }
                                         }
-                                        span {
-                                            class: "flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground",
-                                            "{total_books}"
-                                        }
-                                    }
-                                    div {
-                                        class: "flex justify-between items-center",
-                                        span {
-                                            class: "text-sm font-medium",
+                                    },
+                                    Some(Err(_)) => rsx! {
+                                        div { class: "text-xs text-destructive py-2",
                                             match locale.as_str() {
-                                                "sv" => "Tillgängliga exemplar",
-                                                "no" => "Tilgjengelige eksemplarer",
-                                                "da" => "Tilgængelige eksemplarer",
-                                                _ => "Available copies"
+                                                "sv" => "Kunde inte ladda biblioteksinformation.",
+                                                "no" => "Kunne ikke laste biblioteksinformasjon.",
+                                                "da" => "Kunne ikke indlæse biblioteksinformation.",
+                                                _ => "Failed to load library information."
                                             }
                                         }
-                                        span {
-                                            class: "flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground",
-                                            "{available_copies}"
+                                    },
+                                    None => rsx! {
+                                        div { class: "flex flex-col gap-4 py-2 animate-pulse",
+                                            div { class: "flex justify-between items-center",
+                                                div { class: "h-4 bg-muted rounded w-24" }
+                                                div { class: "h-6 w-6 rounded-full bg-muted" }
+                                            }
+                                            div { class: "flex justify-between items-center",
+                                                div { class: "h-4 bg-muted rounded w-32" }
+                                                div { class: "h-6 w-6 rounded-full bg-muted" }
+                                            }
                                         }
                                     }
                                 }
@@ -1156,14 +1253,70 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                             }
                             components::CardContent {
                                 class: "flex flex-1 flex-col justify-between",
-                                div {
-                                    class: "flex flex-col gap-4 py-2",
-                                    p { class: "text-xs text-muted-foreground m-0 leading-relaxed",
-                                        match locale.as_str() {
-                                            "sv" => "Se fakturor, registrera inbetalningar och ställ ut nya fordringar.",
-                                            "no" => "Se fakturaer, registrer innbetalinger og utsted nye krav.",
-                                            "da" => "Se fakturaer, registrer indbetalinger og udsted nye krav.",
-                                            _ => "Review school billing invoices, track incoming tuition, and dispatch claims."
+                                match &*finance_overview.read() {
+                                    Some(Ok(overview)) => {
+                                        let total_due_formatted = match locale.as_str() {
+                                            "sv" | "no" | "da" => format!("{:.0} kr", overview.total_due_amount),
+                                            _ => format!("${:.2}", overview.total_due_amount),
+                                        };
+                                        rsx! {
+                                            div {
+                                                class: "flex flex-col gap-4 py-2",
+                                                div {
+                                                    class: "flex justify-between items-center",
+                                                    span {
+                                                        class: "text-sm font-medium",
+                                                        match locale.as_str() {
+                                                            "sv" => "Obetalda fakturor",
+                                                            "no" => "Ubetalte fakturaer",
+                                                            "da" => "Ubetalte fakturaer",
+                                                            _ => "Unpaid invoices"
+                                                        }
+                                                    }
+                                                    span {
+                                                        class: "flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground",
+                                                        "{overview.unpaid_invoice_count}"
+                                                    }
+                                                }
+                                                div {
+                                                    class: "flex justify-between items-center",
+                                                    span {
+                                                        class: "text-sm font-medium",
+                                                        match locale.as_str() {
+                                                            "sv" => "Utestående belopp",
+                                                            "no" => "Utestående beløp",
+                                                            "da" => "Udestående beløb",
+                                                            _ => "Total outstanding"
+                                                        }
+                                                    }
+                                                    span {
+                                                        class: "text-sm font-bold text-foreground",
+                                                        "{total_due_formatted}"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    },
+                                    Some(Err(_)) => rsx! {
+                                        div { class: "text-xs text-destructive py-2",
+                                            match locale.as_str() {
+                                                "sv" => "Kunde inte ladda ekonomiinformation.",
+                                                "no" => "Kunne ikke laste økonomiinformasjon.",
+                                                "da" => "Kunne ikke indlæse økonomiinformation.",
+                                                _ => "Failed to load finance information."
+                                            }
+                                        }
+                                    },
+                                    None => rsx! {
+                                        div { class: "flex flex-col gap-4 py-2 animate-pulse",
+                                            div { class: "flex justify-between items-center",
+                                                div { class: "h-4 bg-muted rounded w-24" }
+                                                div { class: "h-6 w-6 rounded-full bg-muted" }
+                                            }
+                                            div { class: "flex justify-between items-center",
+                                                div { class: "h-4 bg-muted rounded w-32" }
+                                                div { class: "h-6 bg-muted rounded w-16" }
+                                            }
                                         }
                                     }
                                 }
@@ -1206,6 +1359,12 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                 components::Card {
                     class: "w-full max-w-md shadow-2xl border-border bg-card animate-in fade-in zoom-in-95 duration-200",
                     components::CardHeader {
+                        class: "relative pr-12",
+                        button {
+                            class: "absolute right-4 top-4 rounded-full p-1.5 hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer transition-colors border-0 bg-transparent flex items-center justify-center",
+                            onclick: move |_| show_customize_modal.set(false),
+                            components::LucideIcon { name: "x", class: "h-4 w-4" }
+                        }
                         components::CardTitle { class: "text-lg flex items-center gap-2",
                             components::LucideIcon { name: "settings-2", class: "h-5 w-5 text-primary" }
                             "{t_customize}"
@@ -1222,67 +1381,125 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                     components::CardContent {
                         class: "space-y-4 max-h-[60vh] overflow-y-auto py-2",
                         for w in rendered_allowed_widgets.iter() {
-                            div {
-                                key: "{w.id}",
-                                class: "flex items-center justify-between p-3 rounded-lg border border-border/50 bg-white/[0.015] hover:bg-white/[0.03] transition-colors",
-                                div { class: "flex items-center gap-3",
-                                    div { class: "rounded-lg p-2 bg-primary/10 text-primary",
-                                        components::LucideIcon { name: &w.icon, class: "h-4 w-4" }
-                                    }
-                                    span { class: "text-sm font-semibold text-foreground", "{w.label}" }
-                                }
-                                components::Switch {
-                                    checked: w.checked,
-                                    onchange: {
-                                        let w_id = w.id.clone();
-                                        let selected_widgets = selected_widgets.clone();
-                                        let active_user = active_user.clone();
-                                        move |val| {
-                                            let mut next_selected = selected_widgets.clone();
-                                            if val {
-                                                if !next_selected.contains(&w_id) {
-                                                    next_selected.push(w_id.clone());
-                                                }
-                                            } else {
-                                                next_selected.retain(|x| x != &w_id);
+                            {
+                                let is_checked = temp_selected_widgets.read().contains(&w.id);
+                                let row_class = if is_checked {
+                                    "flex items-center justify-between p-3 rounded-lg border border-primary/20 bg-primary/[0.02] hover:bg-primary/[0.04] transition-all duration-200 hover:scale-[1.01] hover:shadow-sm"
+                                } else {
+                                    "flex items-center justify-between p-3 rounded-lg border border-border/40 bg-white/[0.005] hover:bg-white/[0.015] transition-all duration-200 opacity-60 saturate-50 hover:opacity-80"
+                                };
+                                rsx! {
+                                    div {
+                                        key: "{w.id}",
+                                        class: "{row_class}",
+                                        div { class: "flex items-center gap-3",
+                                            div {
+                                                class: if is_checked {
+                                                    "rounded-lg p-2 bg-primary/10 text-primary transition-colors"
+                                                } else {
+                                                    "rounded-lg p-2 bg-muted/20 text-muted-foreground transition-colors"
+                                                },
+                                                components::LucideIcon { name: &w.icon, class: "h-4 w-4" }
                                             }
-
-                                            let mut new_prefs: serde_json::Value = serde_json::from_str(&active_user.preferences).unwrap_or_default();
-                                            new_prefs.as_object_mut().unwrap().insert(
-                                                "dashboard_widgets".to_string(),
-                                                serde_json::to_value(next_selected).unwrap()
-                                            );
-
-                                            let pref_json = serde_json::to_string(&new_prefs).unwrap_or_default();
-                                            let req_id = active_user.id.clone();
-                                            let u_id = active_user.id.clone();
-                                            let u_name = active_user.full_name.clone();
-                                            let u_phone = active_user.phone.clone();
-
-                                            spawn(async move {
-                                                let _ = yntra_core::update_user_profile(
-                                                    req_id,
-                                                    u_id,
-                                                    u_name,
-                                                    u_phone,
-                                                    pref_json
-                                                ).await;
-                                            });
+                                            span {
+                                                class: if is_checked {
+                                                    "text-sm font-semibold text-foreground transition-colors"
+                                                } else {
+                                                    "text-sm font-medium text-muted-foreground transition-colors"
+                                                },
+                                                "{w.label}"
+                                            }
+                                        }
+                                        components::Switch {
+                                            checked: is_checked,
+                                            onchange: {
+                                                let w_id = w.id.clone();
+                                                let mut temp_selected_widgets = temp_selected_widgets.clone();
+                                                move |val| {
+                                                    let mut current = temp_selected_widgets.read().clone();
+                                                    if val {
+                                                        if !current.contains(&w_id) {
+                                                            current.push(w_id.clone());
+                                                            temp_selected_widgets.set(current);
+                                                        }
+                                                    } else {
+                                                        current.retain(|x| x != &w_id);
+                                                        temp_selected_widgets.set(current);
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
                     }
-                    div { class: "p-4 border-t border-border flex justify-end",
+                    div { class: "p-4 border-t border-border flex justify-between items-center gap-2",
                         components::Button {
-                            variant: components::ButtonVariant::Secondary,
-                            onclick: move |_| show_customize_modal.set(false),
+                            variant: components::ButtonVariant::Outline,
+                            onclick: {
+                                let mut temp_selected_widgets = temp_selected_widgets.clone();
+                                let default_widgets = default_widgets.clone();
+                                move |_| {
+                                    temp_selected_widgets.set(default_widgets.clone());
+                                }
+                            },
                             match locale.as_str() {
-                                "sv" => "Stäng",
-                                "no" => "Lukk",
-                                "da" => "Luk",
-                                _ => "Close"
+                                "sv" => "Återställ",
+                                "no" => "Nullstill",
+                                "da" => "Nulstil",
+                                _ => "Reset"
+                            }
+                        }
+                        div { class: "flex gap-2",
+                            components::Button {
+                                variant: components::ButtonVariant::Secondary,
+                                onclick: move |_| show_customize_modal.set(false),
+                                match locale.as_str() {
+                                    "sv" => "Avbryt",
+                                    "no" => "Avbryt",
+                                    "da" => "Annuller",
+                                    _ => "Cancel"
+                                }
+                            }
+                            components::Button {
+                                variant: components::ButtonVariant::Primary,
+                                onclick: {
+                                    let temp_selected_widgets = temp_selected_widgets.clone();
+                                    let active_user = active_user.clone();
+                                    move |_| {
+                                        let next_selected = temp_selected_widgets.read().clone();
+                                        let mut new_prefs: serde_json::Value = serde_json::from_str(&active_user.preferences).unwrap_or_default();
+                                        new_prefs.as_object_mut().unwrap().insert(
+                                            "dashboard_widgets".to_string(),
+                                            serde_json::to_value(next_selected).unwrap()
+                                        );
+
+                                        let pref_json = serde_json::to_string(&new_prefs).unwrap_or_default();
+                                        let req_id = active_user.id.clone();
+                                        let u_id = active_user.id.clone();
+                                        let u_name = active_user.full_name.clone();
+                                        let u_phone = active_user.phone.clone();
+
+                                        spawn(async move {
+                                            let _ = yntra_core::update_user_profile(
+                                                req_id,
+                                                u_id,
+                                                u_name,
+                                                u_phone,
+                                                pref_json
+                                            ).await;
+                                        });
+
+                                        show_customize_modal.set(false);
+                                    }
+                                },
+                                match locale.as_str() {
+                                    "sv" => "Spara",
+                                    "no" => "Lagre",
+                                    "da" => "Gem",
+                                    _ => "Save"
+                                }
                             }
                         }
                     }
