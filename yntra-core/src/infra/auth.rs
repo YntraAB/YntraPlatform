@@ -1,9 +1,39 @@
 use crate::YntraError;
 use crate::database::DbConnection;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{OnceLock, RwLock};
 
-static AUTH_CONTEXT_CACHE: OnceLock<RwLock<HashMap<String, AuthContext>>> = OnceLock::new();
+pub fn validate_id(id: &str, field_name: &str) -> Result<(), YntraError> {
+    if id.len() > 128 {
+        return Err(YntraError::ValidationError(format!(
+            "{} exceeds maximum length of 128 characters",
+            field_name
+        )));
+    }
+    if !id.chars().all(|c| {
+        c.is_ascii_alphanumeric()
+            || c == '-'
+            || c == '_'
+            || c == '.'
+            || c == '@'
+            || c == ':'
+    }) {
+        return Err(YntraError::ValidationError(format!(
+            "{} contains invalid characters",
+            field_name
+        )));
+    }
+    Ok(())
+}
+
+struct BoundedAuthCache {
+    map: HashMap<String, AuthContext>,
+    order: VecDeque<String>,
+}
+
+const CACHE_LIMIT: usize = 1000;
+
+static AUTH_CONTEXT_CACHE: OnceLock<RwLock<BoundedAuthCache>> = OnceLock::new();
 
 fn is_production() -> bool {
     // Compile-time check: release profiles (without debug assertions) are production
@@ -95,46 +125,73 @@ static WORKSPACE_LOCKS: OnceLock<std::sync::Mutex<HashMap<String, std::sync::Arc
 
 pub fn invalidate_auth_context_cache() {
     if let Ok(mut cache) = AUTH_CONTEXT_CACHE
-        .get_or_init(|| RwLock::new(HashMap::new()))
+        .get_or_init(|| RwLock::new(BoundedAuthCache {
+            map: HashMap::new(),
+            order: VecDeque::new(),
+        }))
         .write()
     {
-        cache.clear();
+        cache.map.clear();
+        cache.order.clear();
     }
 }
 
 pub fn invalidate_auth_context_cache_for_user(user_id: &str) {
     if let Ok(mut cache) = AUTH_CONTEXT_CACHE
-        .get_or_init(|| RwLock::new(HashMap::new()))
+        .get_or_init(|| RwLock::new(BoundedAuthCache {
+            map: HashMap::new(),
+            order: VecDeque::new(),
+        }))
         .write()
     {
-        cache.remove(user_id);
+        cache.map.remove(user_id);
     }
 }
 
 pub fn invalidate_auth_context_cache_for_workspace(workspace_id: &str) {
     if let Ok(mut cache) = AUTH_CONTEXT_CACHE
-        .get_or_init(|| RwLock::new(HashMap::new()))
+        .get_or_init(|| RwLock::new(BoundedAuthCache {
+            map: HashMap::new(),
+            order: VecDeque::new(),
+        }))
         .write()
     {
-        cache.retain(|_, context| context.workspace_id != workspace_id);
+        cache.map.retain(|_, context| context.workspace_id != workspace_id);
     }
 }
 
 pub fn insert_auth_context_cache(user_id: &str, context: AuthContext) {
     if let Ok(mut cache) = AUTH_CONTEXT_CACHE
-        .get_or_init(|| RwLock::new(HashMap::new()))
+        .get_or_init(|| RwLock::new(BoundedAuthCache {
+            map: HashMap::new(),
+            order: VecDeque::new(),
+        }))
         .write()
     {
-        cache.insert(user_id.to_string(), context);
+        while cache.map.len() >= CACHE_LIMIT {
+            if let Some(oldest_user) = cache.order.pop_front() {
+                if cache.map.remove(&oldest_user).is_some() {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        if cache.map.insert(user_id.to_string(), context).is_none() {
+            cache.order.push_back(user_id.to_string());
+        }
     }
 }
 
 pub fn get_auth_context_cache(user_id: &str) -> Option<AuthContext> {
     if let Ok(cache) = AUTH_CONTEXT_CACHE
-        .get_or_init(|| RwLock::new(HashMap::new()))
+        .get_or_init(|| RwLock::new(BoundedAuthCache {
+            map: HashMap::new(),
+            order: VecDeque::new(),
+        }))
         .read()
     {
-        cache.get(user_id).cloned()
+        cache.map.get(user_id).cloned()
     } else {
         None
     }
@@ -142,7 +199,10 @@ pub fn get_auth_context_cache(user_id: &str) -> Option<AuthContext> {
 
 pub fn invalidate_auth_context_cache_for_sql(sql: &str, table: &str) {
     if let Ok(mut cache) = AUTH_CONTEXT_CACHE
-        .get_or_init(|| RwLock::new(HashMap::new()))
+        .get_or_init(|| RwLock::new(BoundedAuthCache {
+            map: HashMap::new(),
+            order: VecDeque::new(),
+        }))
         .write()
     {
         let has_placeholders = sql.contains('?');
@@ -170,14 +230,15 @@ pub fn invalidate_auth_context_cache_for_sql(sql: &str, table: &str) {
         }
 
         if has_placeholders || literals.is_empty() {
-            cache.clear();
+            cache.map.clear();
+            cache.order.clear();
         } else {
             if table == "users" {
                 for lit in literals {
-                    cache.remove(&lit);
+                    cache.map.remove(&lit);
                 }
             } else if table == "workspaces" {
-                cache.retain(|_, context| {
+                cache.map.retain(|_, context| {
                     !literals.iter().any(|lit| lit == &context.workspace_id)
                 });
             }
@@ -194,24 +255,28 @@ pub struct AuthContext {
     pub workspace_settings: Option<String>,
 }
 
-fn extract_auth_epoch(settings_str: &str) -> u64 {
+fn extract_auth_epoch(settings_str: &str) -> Result<u64, YntraError> {
     #[derive(serde::Deserialize)]
     struct Settings {
         auth_epoch: Option<u64>,
     }
-    serde_json::from_str::<Settings>(settings_str)
-        .ok()
-        .and_then(|s| s.auth_epoch)
-        .unwrap_or(0)
+    match serde_json::from_str::<Settings>(settings_str) {
+        Ok(s) => Ok(s.auth_epoch.unwrap_or(0)),
+        Err(e) => Err(YntraError::AuthError(format!("Malformed workspace settings: {}", e))),
+    }
 }
 
 impl AuthContext {
     pub async fn authorize(conn: &DbConnection, user_id: &str) -> Result<Self, YntraError> {
+        validate_id(user_id, "User ID")?;
         if let Ok(cache) = AUTH_CONTEXT_CACHE
-            .get_or_init(|| RwLock::new(HashMap::new()))
+            .get_or_init(|| RwLock::new(BoundedAuthCache {
+                map: HashMap::new(),
+                order: VecDeque::new(),
+            }))
             .read()
         {
-            if let Some(cached) = cache.get(user_id) {
+            if let Some(cached) = cache.map.get(user_id) {
                 return Ok(cached.clone());
             }
         }
@@ -255,8 +320,11 @@ impl AuthContext {
             ))
         })?;
 
-        // Parse auth_epoch from workspace settings (zero-allocation parsing)
-        let current_epoch = ws_settings.as_deref().map(extract_auth_epoch).unwrap_or(0);
+        // Parse auth_epoch from workspace settings
+        let current_epoch = match ws_settings.as_deref() {
+            Some(s) => extract_auth_epoch(s)?,
+            None => 0,
+        };
 
         // Verification is required for all active roles (except anonymous and deleted)
         let needs_signature = role != "anonymous" && role != "deleted";
@@ -483,12 +551,7 @@ impl AuthContext {
             is_admin,
             workspace_settings: ws_settings,
         };
-        if let Ok(mut cache) = AUTH_CONTEXT_CACHE
-            .get_or_init(|| RwLock::new(HashMap::new()))
-            .write()
-        {
-            cache.insert(user_id.to_string(), auth.clone());
-        }
+        insert_auth_context_cache(user_id, auth.clone());
         Ok(auth)
     }
 }
@@ -791,26 +854,58 @@ mod tests {
     fn test_extract_auth_epoch_json_safety() {
         // Valid JSON settings with auth_epoch
         let valid_json = "{\"auth_epoch\": 5, \"workspace_name\": \"test\"}";
-        assert_eq!(extract_auth_epoch(valid_json), 5);
+        assert_eq!(extract_auth_epoch(valid_json).unwrap(), 5);
 
         // Invalid JSON settings (contains auth_epoch as a substring/value but not key)
         let name_hijack_json = "{\"name\": \"auth_epoch 9999 testing\", \"other\": 1}";
-        assert_eq!(extract_auth_epoch(name_hijack_json), 0);
+        assert_eq!(extract_auth_epoch(name_hijack_json).unwrap(), 0);
 
-        // Malformed JSON should return default (0)
+        // Malformed JSON should return an error
         let malformed_json = "{malformed auth_epoch: 123}";
-        assert_eq!(extract_auth_epoch(malformed_json), 0);
+        assert!(extract_auth_epoch(malformed_json).is_err());
 
         // Nested JSON containing brace/bracket in string value (bug regression test)
         let nested_brace_json = "{\"some_obj\": {\"nested_str\": \"}\"}, \"auth_epoch\": 10}";
-        assert_eq!(extract_auth_epoch(nested_brace_json), 10);
+        assert_eq!(extract_auth_epoch(nested_brace_json).unwrap(), 10);
 
         let nested_bracket_json = "{\"some_arr\": [\"foo\", \"bar\", \"]\"], \"auth_epoch\": 42}";
-        assert_eq!(extract_auth_epoch(nested_bracket_json), 42);
+        assert_eq!(extract_auth_epoch(nested_bracket_json).unwrap(), 42);
 
         // Value hijacking regression test
         let value_hijack_json = "{\"name\": \"auth_epoch\", \"auth_epoch\": 5}";
-        assert_eq!(extract_auth_epoch(value_hijack_json), 5);
+        assert_eq!(extract_auth_epoch(value_hijack_json).unwrap(), 5);
+    }
+
+    #[test]
+    fn test_bounded_auth_cache_eviction() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        invalidate_auth_context_cache();
+
+        // Populate up to CACHE_LIMIT + 5 items
+        for i in 0..(CACHE_LIMIT + 5) {
+            let ctx = AuthContext {
+                user_id: format!("user-{}", i),
+                role: "user".to_string(),
+                workspace_id: "ws-1".to_string(),
+                is_admin: false,
+                workspace_settings: None,
+            };
+            insert_auth_context_cache(&format!("user-{}", i), ctx);
+        }
+
+        // Verify size is exactly CACHE_LIMIT
+        let cache = AUTH_CONTEXT_CACHE.get().unwrap().read().unwrap();
+        assert_eq!(cache.map.len(), CACHE_LIMIT);
+
+        // Verify oldest 5 users (0 to 4) are evicted
+        for i in 0..5 {
+            assert!(!cache.map.contains_key(&format!("user-{}", i)));
+        }
+
+        // Verify users 5 to 1004 are still present
+        for i in 5..(CACHE_LIMIT + 5) {
+            assert!(cache.map.contains_key(&format!("user-{}", i)));
+        }
     }
 
     #[test]
@@ -861,19 +956,14 @@ mod tests {
             workspace_settings: None,
         };
 
-        if let Ok(mut cache) = AUTH_CONTEXT_CACHE
-            .get_or_init(|| RwLock::new(HashMap::new()))
-            .write()
-        {
-            cache.insert("user-cache-test-1".to_string(), ctx1);
-            cache.insert("user-cache-test-2".to_string(), ctx2);
-        }
+        insert_auth_context_cache("user-cache-test-1", ctx1);
+        insert_auth_context_cache("user-cache-test-2", ctx2);
 
         // Verify they are cached
         {
             let cache = AUTH_CONTEXT_CACHE.get().unwrap().read().unwrap();
-            assert!(cache.contains_key("user-cache-test-1"));
-            assert!(cache.contains_key("user-cache-test-2"));
+            assert!(cache.map.contains_key("user-cache-test-1"));
+            assert!(cache.map.contains_key("user-cache-test-2"));
         }
 
         // 2. Perform a write that targets user-cache-test-1 using a SQL statement
@@ -883,8 +973,8 @@ mod tests {
         // Verify user-cache-test-1 is invalidated, but user-cache-test-2 is NOT!
         {
             let cache = AUTH_CONTEXT_CACHE.get().unwrap().read().unwrap();
-            assert!(!cache.contains_key("user-cache-test-1"));
-            assert!(cache.contains_key("user-cache-test-2"));
+            assert!(!cache.map.contains_key("user-cache-test-1"));
+            assert!(cache.map.contains_key("user-cache-test-2"));
         }
 
         // Repopulate user-cache-test-1
@@ -895,9 +985,7 @@ mod tests {
             is_admin: false,
             workspace_settings: None,
         };
-        if let Ok(mut cache) = AUTH_CONTEXT_CACHE.get().unwrap().write() {
-            cache.insert("user-cache-test-1".to_string(), ctx1);
-        }
+        insert_auth_context_cache("user-cache-test-1", ctx1);
 
         // 3. Perform a write that targets ws-cache-test-1 using a SQL statement
         let sql_ws = "UPDATE workspaces SET settings = '{}' WHERE id = 'ws-cache-test-1'";
@@ -906,8 +994,8 @@ mod tests {
         // Verify user-cache-test-1 (which belongs to ws-cache-test-1) is invalidated, but user-cache-test-2 is NOT!
         {
             let cache = AUTH_CONTEXT_CACHE.get().unwrap().read().unwrap();
-            assert!(!cache.contains_key("user-cache-test-1"));
-            assert!(cache.contains_key("user-cache-test-2"));
+            assert!(!cache.map.contains_key("user-cache-test-1"));
+            assert!(cache.map.contains_key("user-cache-test-2"));
         }
 
         // Repopulate user-cache-test-1
@@ -918,9 +1006,7 @@ mod tests {
             is_admin: false,
             workspace_settings: None,
         };
-        if let Ok(mut cache) = AUTH_CONTEXT_CACHE.get().unwrap().write() {
-            cache.insert("user-cache-test-1".to_string(), ctx1);
-        }
+        insert_auth_context_cache("user-cache-test-1", ctx1);
 
         // 4. Perform a SQL write with placeholders (should fall back to clearing everything)
         let sql_placeholder = "UPDATE users SET role = ?1 WHERE id = ?2";
@@ -929,7 +1015,7 @@ mod tests {
         // Verify EVERYTHING is cleared
         {
             let cache = AUTH_CONTEXT_CACHE.get().unwrap().read().unwrap();
-            assert!(cache.is_empty());
+            assert!(cache.map.is_empty());
         }
 
         // 5. Test escaped single quotes (e.g. O'Brien) do not cause parse corruption
@@ -947,10 +1033,8 @@ mod tests {
             is_admin: true,
             workspace_settings: None,
         };
-        if let Ok(mut cache) = AUTH_CONTEXT_CACHE.get().unwrap().write() {
-            cache.insert("O'Brien".to_string(), ctx_obrien);
-            cache.insert("user-cache-test-2".to_string(), ctx_other);
-        }
+        insert_auth_context_cache("O'Brien", ctx_obrien);
+        insert_auth_context_cache("user-cache-test-2", ctx_other);
 
         // SQL containing escaped single quote in name, but targeting user O'Brien
         let sql_escaped = "UPDATE users SET name = 'O''Brien' WHERE id = 'O''Brien'";
@@ -959,8 +1043,8 @@ mod tests {
         // Verify O'Brien is correctly invalidated, but user-cache-test-2 is NOT!
         {
             let cache = AUTH_CONTEXT_CACHE.get().unwrap().read().unwrap();
-            assert!(!cache.contains_key("O'Brien"));
-            assert!(cache.contains_key("user-cache-test-2"));
+            assert!(!cache.map.contains_key("O'Brien"));
+            assert!(cache.map.contains_key("user-cache-test-2"));
         }
     }
 
@@ -1015,5 +1099,32 @@ mod tests {
         // Try lock 1 again - should timeout/block
         let try_lock1_again = tokio::time::timeout(std::time::Duration::from_millis(50), lock1.lock()).await;
         assert!(try_lock1_again.is_err(), "Lock 1 should be blocked while guard is held");
+    }
+
+    #[test]
+    fn test_validate_id_scenarios() {
+        assert!(validate_id("valid-user-128_id", "User ID").is_ok());
+        assert!(validate_id("valid.email@yntra.se", "User ID").is_ok());
+        assert!(validate_id("ws:workspace-abc.123", "Workspace ID").is_ok());
+
+        // Oversized ID (129 chars)
+        let oversized = "a".repeat(129);
+        let res = validate_id(&oversized, "User ID");
+        assert!(res.is_err());
+        if let Err(YntraError::ValidationError(msg)) = res {
+            assert!(msg.contains("exceeds maximum length"));
+        } else {
+            panic!("Expected ValidationError");
+        }
+
+        // Invalid characters
+        let invalid = "user;drop table users;";
+        let res2 = validate_id(invalid, "User ID");
+        assert!(res2.is_err());
+        if let Err(YntraError::ValidationError(msg)) = res2 {
+            assert!(msg.contains("contains invalid characters"));
+        } else {
+            panic!("Expected ValidationError");
+        }
     }
 }
