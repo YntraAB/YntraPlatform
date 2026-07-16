@@ -10,7 +10,7 @@ pub(crate) fn hash_password_argon2(password: &str) -> Result<String, YntraError>
     use argon2::{Algorithm, Params, Version};
     let salt = SaltString::generate(&mut OsRng);
 
-    let params = Params::new(19456, 2, 1, Some(32))
+    let params = Params::new(12288, 3, 1, Some(32))
         .map_err(|e| YntraError::CryptoError(format!("Argon2 params invalid: {}", e)))?;
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
 

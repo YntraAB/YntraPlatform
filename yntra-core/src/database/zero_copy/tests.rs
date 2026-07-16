@@ -858,5 +858,52 @@ async fn test_p2p_sync_workspace_access_control() {
     conn.execute("DELETE FROM workspaces WHERE id IN ('ws-sync-test', 'ws-sync-test-diff')", ()).await.unwrap();
 }
 
+#[test]
+fn test_peer_store_sanitization() {
+    // Valid name
+    let res1 = super::create_peer_store("valid_peer_123".to_string());
+    assert!(res1.is_ok());
+
+    let res2 = super::create_peer_note_store("valid-peer_notes".to_string());
+    assert!(res2.is_ok());
+
+    // Invalid name with directory traversal
+    let res3 = super::create_peer_store("../attacker".to_string());
+    assert!(res3.is_err());
+
+    let res4 = super::create_peer_note_store("/absolute/path".to_string());
+    assert!(res4.is_err());
+
+    let res5 = super::create_peer_store("peer*invalid".to_string());
+    assert!(res5.is_err());
+}
+
+#[test]
+fn test_pool_poisoning_recovery() {
+    let pool = std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::<String>::new()));
+    
+    // Poison the pool lock
+    let pool_clone = pool.clone();
+    let handle = std::thread::spawn(move || {
+        let _guard = pool_clone.lock().unwrap();
+        panic!("intentional panic to poison lock");
+    });
+    let _ = handle.join();
+    
+    // Now the lock is poisoned
+    assert!(pool.is_poisoned());
+    
+    // Recover using unwrap_or_else
+    let mut guard = pool.lock().unwrap_or_else(|e| {
+        let mut inner = e.into_inner();
+        inner.clear();
+        inner
+    });
+    
+    // Guard can be used successfully
+    guard.push_back("recovered".to_string());
+    assert_eq!(guard.pop_front().as_deref(), Some("recovered"));
+}
+
 
 

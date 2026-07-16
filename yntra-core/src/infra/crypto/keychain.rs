@@ -478,7 +478,7 @@ pub fn encrypt_workspace_key_with_password(
     }
 
     let mut derived_key = zeroize::Zeroizing::new([0u8; 32]);
-    let params = match Params::new(19456, 3, 1, Some(32)) {
+    let params = match Params::new(12288, 3, 1, Some(32)) {
         Ok(p) => p,
         Err(_) => {
             password.zeroize();
@@ -560,19 +560,19 @@ pub fn decrypt_workspace_key_with_password(
         }
     };
 
-    // Try with OWASP 2024 recommended parameters (t=3) first
+    // Try with memory-efficient parameters (m=12288, t=3) first
     let mut derived_key = zeroize::Zeroizing::new([0u8; 32]);
-    let params_v2 = match Params::new(19456, 3, 1, Some(32)) {
+    let params_v3 = match Params::new(12288, 3, 1, Some(32)) {
         Ok(p) => p,
         Err(_) => {
             password.zeroize();
             return Err(YntraError::CryptoError("Argon2 params invalid".to_string()));
         }
     };
-    let argon2_v2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params_v2);
+    let argon2_v3 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params_v3);
     let mut decrypted = None;
 
-    if argon2_v2
+    if argon2_v3
         .hash_password_into(password.as_bytes(), &salt, &mut *derived_key)
         .is_ok()
     {
@@ -583,25 +583,38 @@ pub fn decrypt_workspace_key_with_password(
         }
     }
 
-    // Legacy fallback to t=2 if t=3 decryption failed
+    // Fallback to old default (m=19456, t=3) if decryption failed
+    if decrypted.is_none() {
+        let mut derived_key_v2 = zeroize::Zeroizing::new([0u8; 32]);
+        if let Ok(params_v2) = Params::new(19456, 3, 1, Some(32)) {
+            let argon2_v2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params_v2);
+            if argon2_v2
+                .hash_password_into(password.as_bytes(), &salt, &mut *derived_key_v2)
+                .is_ok()
+            {
+                let cipher = XChaCha20Poly1305::new(Key::from_slice(&*derived_key_v2));
+                let nonce = XNonce::from_slice(&nonce_bytes);
+                if let Ok(plaintext) = cipher.decrypt(nonce, ciphertext.as_slice()) {
+                    decrypted = Some(plaintext);
+                }
+            }
+        }
+    }
+
+    // Legacy fallback to t=2 (m=19456, t=2) if decryption failed
     if decrypted.is_none() {
         let mut derived_key_legacy = zeroize::Zeroizing::new([0u8; 32]);
-        let params_v1 = match Params::new(19456, 2, 1, Some(32)) {
-            Ok(p) => p,
-            Err(_) => {
-                password.zeroize();
-                return Err(YntraError::CryptoError("Argon2 params invalid".to_string()));
-            }
-        };
-        let argon2_v1 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params_v1);
-        if argon2_v1
-            .hash_password_into(password.as_bytes(), &salt, &mut *derived_key_legacy)
-            .is_ok()
-        {
-            let cipher = XChaCha20Poly1305::new(Key::from_slice(&*derived_key_legacy));
-            let nonce = XNonce::from_slice(&nonce_bytes);
-            if let Ok(plaintext) = cipher.decrypt(nonce, ciphertext.as_slice()) {
-                decrypted = Some(plaintext);
+        if let Ok(params_v1) = Params::new(19456, 2, 1, Some(32)) {
+            let argon2_v1 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params_v1);
+            if argon2_v1
+                .hash_password_into(password.as_bytes(), &salt, &mut *derived_key_legacy)
+                .is_ok()
+            {
+                let cipher = XChaCha20Poly1305::new(Key::from_slice(&*derived_key_legacy));
+                let nonce = XNonce::from_slice(&nonce_bytes);
+                if let Ok(plaintext) = cipher.decrypt(nonce, ciphertext.as_slice()) {
+                    decrypted = Some(plaintext);
+                }
             }
         }
     }
@@ -705,5 +718,36 @@ mod keychain_tests {
         assert_eq!(decrypted, plaintext);
 
         assert!(decrypt_workspace_key_with_password("wrong-password".to_string(), &envelope).is_err());
+    }
+
+    #[test]
+    fn test_argon2id_v2_fallback_decryption() {
+        use argon2::{Algorithm, Argon2, Params, Version};
+        use chacha20poly1305::{Key, KeyInit, XChaCha20Poly1305, XNonce};
+
+        let password = "my-secure-password";
+        let plaintext = b"workspace-secret-key-bytes-654321";
+
+        let salt = [2u8; 16];
+        let nonce_bytes = [3u8; 24];
+
+        let mut derived_key = zeroize::Zeroizing::new([0u8; 32]);
+        let params_v2 = Params::new(19456, 3, 1, Some(32)).unwrap();
+        let argon2_v2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params_v2);
+        argon2_v2.hash_password_into(password.as_bytes(), &salt, &mut *derived_key).unwrap();
+
+        let cipher = XChaCha20Poly1305::new(Key::from_slice(&*derived_key));
+        let nonce = XNonce::from_slice(&nonce_bytes);
+        let ciphertext = cipher.encrypt(nonce, plaintext.as_slice()).unwrap();
+
+        let envelope = format!(
+            "envelope:{}:{}:{}",
+            const_hex::encode(&salt),
+            const_hex::encode(&nonce_bytes),
+            const_hex::encode(&ciphertext)
+        );
+
+        let decrypted = decrypt_workspace_key_with_password(password.to_string(), &envelope).unwrap();
+        assert_eq!(decrypted, plaintext);
     }
 }

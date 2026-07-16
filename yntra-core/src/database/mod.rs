@@ -49,6 +49,17 @@ pub fn track_write(sql: &str) {
             crate::infra::auth::invalidate_auth_context_cache_for_sql(sql, &table);
         }
         crate::infra::observer::set_last_modified_table(&table);
+    } else {
+        let sql_upper = sql.to_uppercase();
+        if sql_upper.contains("INSERT") || sql_upper.contains("UPDATE") || sql_upper.contains("DELETE") {
+            let sql_clean = self::parser::clean_sql(&sql_upper);
+            let has_users = sql_clean.contains("USERS") || sql_clean.contains("`USERS`") || sql_clean.contains("\"USERS\"");
+            let has_workspaces = sql_clean.contains("WORKSPACES") || sql_clean.contains("`WORKSPACES`") || sql_clean.contains("\"WORKSPACES\"");
+            if has_users || has_workspaces {
+                tracing::warn!("SQL write parser failed to extract table name. Invalidating entire auth context cache to ensure security.");
+                crate::infra::auth::invalidate_auth_context_cache();
+            }
+        }
     }
 }
 
@@ -59,6 +70,17 @@ pub fn track_write_batch(sql: &str) {
                 crate::infra::auth::invalidate_auth_context_cache_for_sql(stmt, &table);
             }
             crate::infra::observer::set_last_modified_table(&table);
+        } else {
+            let sql_upper = stmt.to_uppercase();
+            if sql_upper.contains("INSERT") || sql_upper.contains("UPDATE") || sql_upper.contains("DELETE") {
+                let sql_clean = self::parser::clean_sql(&sql_upper);
+                let has_users = sql_clean.contains("USERS") || sql_clean.contains("`USERS`") || sql_clean.contains("\"USERS\"");
+                let has_workspaces = sql_clean.contains("WORKSPACES") || sql_clean.contains("`WORKSPACES`") || sql_clean.contains("\"WORKSPACES\"");
+                if has_users || has_workspaces {
+                    tracing::warn!("SQL batch write parser failed to extract table name. Invalidating entire auth context cache to ensure security.");
+                    crate::infra::auth::invalidate_auth_context_cache();
+                }
+            }
         }
     }
 }
@@ -108,5 +130,28 @@ mod tests {
             check_transaction_sql("   -- comment\n   ROLLBACK;"),
             Some(false)
         );
+    }
+
+    #[tokio::test]
+    async fn test_track_write_parser_fallback() {
+        let _lock = DB_TEST_LOCK.lock().unwrap();
+        let ws_id = "test-fallback-ws".to_string();
+        let user_id = "test-fallback-user".to_string();
+        crate::infra::auth::insert_auth_context_cache(&user_id, crate::infra::auth::AuthContext {
+            user_id: user_id.clone(),
+            workspace_id: ws_id.clone(),
+            role: "admin".to_string(),
+            is_admin: true,
+            workspace_settings: None,
+        });
+
+        // Ensure it is cached
+        assert!(crate::infra::auth::get_auth_context_cache(&user_id).is_some());
+
+        // Run a query with leading semicolon to trigger parsing failure but containing USERS
+        track_write("; UPDATE users SET name = 'fail'");
+
+        // Cache must be invalidated (cleared entirely)
+        assert!(crate::infra::auth::get_auth_context_cache(&user_id).is_none());
     }
 }

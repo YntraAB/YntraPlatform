@@ -33,7 +33,7 @@ pub async fn update_workspace_modules(
     workspace_id: String,
     modules_json: String,
 ) -> Result<(), YntraError> {
-    println!(
+    tracing::info!(
         "update_workspace_modules FFI called: requester_user_id={}, workspace_id={}, modules_json={}",
         requester_user_id, workspace_id, modules_json
     );

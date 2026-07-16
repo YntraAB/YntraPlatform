@@ -152,7 +152,7 @@ fn get_note_store_path(workspace_id: &str) -> String {
 }
 
 pub fn get_note_store(workspace_id: &str) -> ZeroCopyNoteStore {
-    let mut stores = NOTE_STORES.lock().unwrap();
+    let mut stores = NOTE_STORES.lock().unwrap_or_else(|e| e.into_inner());
     stores
         .entry(workspace_id.to_string())
         .or_insert_with(|| {

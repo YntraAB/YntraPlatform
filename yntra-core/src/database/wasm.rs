@@ -24,6 +24,10 @@ impl<F> SendFuture<F> {
     }
 }
 
+#[cfg(target_feature = "atomics")]
+unsafe impl<F: Send> Send for SendFuture<F> {}
+
+#[cfg(not(target_feature = "atomics"))]
 unsafe impl<F> Send for SendFuture<F> {}
 
 impl<F: Future> Future for SendFuture<F> {

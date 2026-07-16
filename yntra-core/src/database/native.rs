@@ -134,11 +134,9 @@ where
     }
 }
 
-pub async fn init_database_async() -> Result<(), YntraError> {
-    if DATABASE.get().is_some() {
-        return Ok(());
-    }
+static INIT_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+async fn build_and_setup_database() -> Result<libsql::Database, YntraError> {
     let db_path = if cfg!(test) {
         "file:memdb1?mode=memory&cache=shared".to_string()
     } else {
@@ -166,7 +164,9 @@ pub async fn init_database_async() -> Result<(), YntraError> {
     };
 
     if is_replica {
-        let _ = db.sync().await;
+        if let Err(e) = db.sync().await {
+            tracing::warn!("Failed to sync replica database with remote on startup: {:?}", e);
+        }
     }
 
     #[cfg(test)]
@@ -184,62 +184,44 @@ pub async fn init_database_async() -> Result<(), YntraError> {
     };
     super::schema::setup_schema(&conn).await.map_err(|e| YntraError::DbError(e.to_string()))?;
     
+    Ok(db)
+}
+
+pub async fn init_database_async() -> Result<(), YntraError> {
+    if DATABASE.get().is_some() {
+        return Ok(());
+    }
+
+    let _guard = INIT_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+
+    if DATABASE.get().is_some() {
+        return Ok(());
+    }
+
+    let db = block_on(async {
+        build_and_setup_database().await
+    })?;
     let _ = DATABASE.set(db);
     Ok(())
 }
 
 pub fn get_database() -> &'static libsql::Database {
-    DATABASE.get_or_init(|| {
-        tracing::warn!("get_database() called synchronously before async initialization! Falling back to block_on.");
-        block_on(async {
-            let db_path = if cfg!(test) {
-                "file:memdb1?mode=memory&cache=shared".to_string()
-            } else {
-                get_database_path("yntra_local.db")
-            };
-            let credentials = if let Some(creds) = super::sync::get_configured_credentials() {
-                Some(creds)
-            } else if let (Ok(url), Ok(token)) = (std::env::var("LIBSQL_URL"), std::env::var("LIBSQL_AUTH_TOKEN")) {
-                Some((url, token))
-            } else {
-                None
-            };
-            let is_replica = credentials.is_some();
+    if let Some(db) = DATABASE.get() {
+        return db;
+    }
 
-            let db = if let Some((url, token)) = credentials {
-                libsql::Builder::new_remote_replica(&db_path, url, token)
-                    .build()
-                    .await
-                    .expect("Failed to build remote replica database")
-            } else {
-                libsql::Builder::new_local(&db_path)
-                    .build()
-                    .await
-                    .expect("Failed to build local database")
-            };
+    let _guard = INIT_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
 
-            if is_replica {
-                let _ = db.sync().await;
-            }
+    if let Some(db) = DATABASE.get() {
+        return db;
+    }
 
-            #[cfg(test)]
-            {
-                let keep_alive = db.connect().expect("Failed to create keep-alive connection");
-                let _ = KEEP_ALIVE_CONN.set(keep_alive);
-            }
-            
-            let raw_conn = db.connect().expect("Failed to connect to libSQL database for schema setup");
-            let _ = raw_conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;").await;
-            let conn = DbConnection {
-                inner: Some(raw_conn),
-                in_transaction: std::sync::atomic::AtomicBool::new(false),
-                _permit: None,
-            };
-            super::schema::setup_schema(&conn).await.expect("Failed to initialize database schema");
-            
-            db
-        })
-     })
+    tracing::warn!("get_database() called synchronously before async initialization! Falling back to block_on.");
+    let db = block_on(async {
+        build_and_setup_database().await.expect("Failed to initialize database")
+    });
+    let _ = DATABASE.set(db);
+    DATABASE.get().unwrap()
 }
 
 static SEMAPHORE: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
@@ -265,7 +247,12 @@ pub async fn acquire_connection() -> Result<DbConnection, YntraError> {
     // Try to pop a connection from the pool and return it immediately
     // (A SELECT 1 query is redundant for local SQLite connections)
     let conn_opt = {
-        let mut conns = pool.lock().unwrap();
+        let mut conns = pool.lock().unwrap_or_else(|e| {
+            tracing::error!("Database connection pool lock is poisoned. Recovering by clearing the pool.");
+            let mut guard = e.into_inner();
+            guard.clear();
+            guard
+        });
         conns.pop_front()
     };
 
@@ -312,16 +299,24 @@ impl Drop for DbConnection {
                     }
                     
                     let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
-                    if let Ok(mut conns) = pool.lock() {
-                        conns.push_back(conn);
-                    }
+                    let mut conns = pool.lock().unwrap_or_else(|e| {
+                        tracing::error!("Database connection pool lock is poisoned on release. Recovering by clearing the pool.");
+                        let mut guard = e.into_inner();
+                        guard.clear();
+                        guard
+                    });
+                    conns.push_back(conn);
                     drop(permit);
                 });
             } else {
                 let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
-                if let Ok(mut conns) = pool.lock() {
-                    conns.push_back(conn);
-                }
+                let mut conns = pool.lock().unwrap_or_else(|e| {
+                    tracing::error!("Database connection pool lock is poisoned on release. Recovering by clearing the pool.");
+                    let mut guard = e.into_inner();
+                    guard.clear();
+                    guard
+                });
+                conns.push_back(conn);
                 drop(permit);
             }
         }

@@ -117,13 +117,13 @@ impl WorkspaceKeyPair {
 
     /// Returns the private key hex string.
     pub fn private_key(&self) -> String {
-        self.private_key.lock().unwrap().clone()
+        self.private_key.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 }
 
 impl Drop for WorkspaceKeyPair {
     fn drop(&mut self) {
-        self.private_key.lock().unwrap().zeroize();
+        self.private_key.lock().unwrap_or_else(|e| e.into_inner()).zeroize();
     }
 }
 

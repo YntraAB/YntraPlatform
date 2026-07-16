@@ -1124,6 +1124,9 @@ define_zero_copy_store!(
 /// Creates a new ZeroCopyStore peer instance.
 #[uniffi::export]
 pub fn create_peer_store(name: String) -> Result<ZeroCopyStore, YntraError> {
+    if name.chars().any(|c| !c.is_alphanumeric() && c != '_' && c != '-') {
+        return Err(YntraError::DbError("Invalid peer store name: must be alphanumeric, underscores, or hyphens".to_string()));
+    }
     #[cfg(not(target_arch = "wasm32"))]
     {
         let path = std::env::temp_dir()
@@ -1143,6 +1146,9 @@ pub fn create_peer_store(name: String) -> Result<ZeroCopyStore, YntraError> {
 /// Creates a new ZeroCopyNoteStore peer instance.
 #[uniffi::export]
 pub fn create_peer_note_store(name: String) -> Result<ZeroCopyNoteStore, YntraError> {
+    if name.chars().any(|c| !c.is_alphanumeric() && c != '_' && c != '-') {
+        return Err(YntraError::DbError("Invalid peer store name: must be alphanumeric, underscores, or hyphens".to_string()));
+    }
     #[cfg(not(target_arch = "wasm32"))]
     {
         let path = std::env::temp_dir()

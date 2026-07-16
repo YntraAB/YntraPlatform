@@ -14,22 +14,23 @@ fn get_audit_store_path(workspace_id: &str) -> String {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn get_audit_store_path(workspace_id: &str) -> String {
-    let path = if cfg!(test) {
-        std::env::temp_dir()
+    #[cfg(test)]
+    {
+        let path = std::env::temp_dir()
             .join(format!("yntra_zero_copy_audit_{}_test.db", workspace_id))
             .to_string_lossy()
-            .to_string()
-    } else {
-        crate::database::native::get_database_path(&format!("yntra_zero_copy_audit_{}.db", workspace_id))
-    };
-    if cfg!(test) {
+            .to_string();
         let _ = std::fs::remove_file(&path);
+        path
     }
-    path
+    #[cfg(not(test))]
+    {
+        crate::database::native::get_database_path(&format!("yntra_zero_copy_audit_{}.db", workspace_id))
+    }
 }
 
 pub(crate) fn get_audit_store(workspace_id: &str) -> Arc<crate::ZeroCopyAuditStore> {
-    let mut stores = AUDIT_STORES.lock().unwrap();
+    let mut stores = AUDIT_STORES.lock().unwrap_or_else(|e| e.into_inner());
     stores
         .entry(workspace_id.to_string())
         .or_insert_with(|| {

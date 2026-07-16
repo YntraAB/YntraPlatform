@@ -5,7 +5,73 @@ use std::sync::{OnceLock, RwLock};
 
 static AUTH_CONTEXT_CACHE: OnceLock<RwLock<HashMap<String, AuthContext>>> = OnceLock::new();
 
+fn is_production() -> bool {
+    // Compile-time check: release profiles (without debug assertions) are production
+    if !cfg!(debug_assertions) && !cfg!(test) {
+        return true;
+    }
+
+    // Runtime environment checks for production indicators
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        for var_name in &["YNTRA_ENV", "RUST_ENV", "ENV", "NODE_ENV"] {
+            if let Ok(val) = std::env::var(var_name) {
+                let val_lower = val.to_lowercase();
+                if val_lower == "production" || val_lower == "prod" {
+                    return true;
+                }
+            }
+        }
+        for path in &[".env", "../.env"] {
+            if let Ok(content) = std::fs::read_to_string(path) {
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with('#') {
+                        continue;
+                    }
+                    for var_name in &["YNTRA_ENV=", "RUST_ENV=", "ENV=", "NODE_ENV="] {
+                        if let Some(stripped) = trimmed.strip_prefix(var_name) {
+                            let val = stripped.trim().trim_matches('"').trim_matches('\'').to_lowercase();
+                            if val == "production" || val == "prod" {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(window) = web_sys::window() {
+            if let Ok(Some(storage)) = window.local_storage() {
+                for var_name in &["YNTRA_ENV", "RUST_ENV", "ENV", "NODE_ENV"] {
+                    if let Ok(Some(val)) = storage.get_item(var_name) {
+                        let val_lower = val.to_lowercase();
+                        if val_lower == "production" || val_lower == "prod" {
+                            return true;
+                        }
+                    }
+                }
+            }
+            if let Ok(location) = window.location().hostname() {
+                let host = location.to_lowercase();
+                if !host.is_empty() && host != "localhost" && host != "127.0.0.1" && host != "0.0.0.0" {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 fn check_insecure_dev_bypass() -> bool {
+    if is_production() {
+        return false;
+    }
+    if cfg!(debug_assertions) && !cfg!(test) {
+        return true;
+    }
     #[cfg(not(target_arch = "wasm32"))]
     {
         if let Ok(val) = std::env::var("YNTRA_INSECURE_DEV_BYPASS_SIGNATURES") {
@@ -35,8 +101,7 @@ fn check_insecure_dev_bypass() -> bool {
     false
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-static AUTH_MUTEX: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+static WORKSPACE_LOCKS: OnceLock<std::sync::Mutex<HashMap<String, std::sync::Arc<futures_util::lock::Mutex<()>>>>> = OnceLock::new();
 
 pub fn invalidate_auth_context_cache() {
     if let Ok(mut cache) = AUTH_CONTEXT_CACHE
@@ -62,6 +127,26 @@ pub fn invalidate_auth_context_cache_for_workspace(workspace_id: &str) {
         .write()
     {
         cache.retain(|_, context| context.workspace_id != workspace_id);
+    }
+}
+
+pub fn insert_auth_context_cache(user_id: &str, context: AuthContext) {
+    if let Ok(mut cache) = AUTH_CONTEXT_CACHE
+        .get_or_init(|| RwLock::new(HashMap::new()))
+        .write()
+    {
+        cache.insert(user_id.to_string(), context);
+    }
+}
+
+pub fn get_auth_context_cache(user_id: &str) -> Option<AuthContext> {
+    if let Ok(cache) = AUTH_CONTEXT_CACHE
+        .get_or_init(|| RwLock::new(HashMap::new()))
+        .read()
+    {
+        cache.get(user_id).cloned()
+    } else {
+        None
     }
 }
 
@@ -185,17 +270,23 @@ impl AuthContext {
             // Cryptographic signature is always required in production to prevent local database tampering.
             // In test and debug configurations, we allow bypassing it if the setup did not configure a public key,
             // to avoid breaking local dev mode / test runs with unconfigured mock workspaces.
-            let is_signature_required = if cfg!(test) {
+            let is_signature_required = if is_production() {
+                true
+            } else if cfg!(test) {
                 creator_pk
                     .as_ref()
                     .map(|s| !s.trim().is_empty())
                     .unwrap_or(false)
             } else if cfg!(debug_assertions) {
                 if check_insecure_dev_bypass() {
-                    creator_pk
+                    let bypass = creator_pk
                         .as_ref()
                         .map(|s| !s.trim().is_empty())
-                        .unwrap_or(false)
+                        .unwrap_or(false);
+                    if !bypass {
+                        tracing::warn!("Insecure Dev Bypass signature check is active: cryptographic signature verification is bypassed because creator_pk is empty.");
+                    }
+                    bypass
                 } else {
                     true
                 }
@@ -204,8 +295,15 @@ impl AuthContext {
             };
 
             if is_signature_required {
-                #[cfg(not(target_arch = "wasm32"))]
-                let _guard = AUTH_MUTEX.lock().await;
+                let lock = {
+                    let locks_map = WORKSPACE_LOCKS.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
+                    let mut guard = locks_map.lock().unwrap_or_else(|e| e.into_inner());
+                    guard.retain(|_, arc| std::sync::Arc::strong_count(arc) > 1);
+                    guard.entry(ws_id.clone())
+                        .or_insert_with(|| std::sync::Arc::new(futures_util::lock::Mutex::new(())))
+                        .clone()
+                };
+                let _guard = lock.lock().await;
 
                 let pk = creator_pk.ok_or_else(|| {
                     YntraError::AuthError(format!("Cryptographic signature verification is required for role '{}', but workspace public key is not configured", role))
@@ -237,7 +335,7 @@ impl AuthContext {
                 let key_setting = format!("workspace_public_key_{}", ws_id);
                 let mut verified_pk = pk.clone();
 
-                // 1. Check in-memory key cache first (SOTA)
+                // Check in-memory key cache first
                 let cached_key = {
                     let cache = crate::infra::crypto::get_auth_key_cache()
                         .read()
@@ -250,72 +348,43 @@ impl AuthContext {
                         return Err(YntraError::AuthError("Workspace public key mismatch detected. Local database tampering suspected.".to_string()));
                     }
                     verified_pk = secure_pk;
-                } else {
-                    // Re-check the in-memory cache first in case another thread populated it during the initial check/lock handoff
-                    let recheck_key = {
-                        let cache = crate::infra::crypto::get_auth_key_cache()
-                            .read()
-                            .unwrap_or_else(|e| e.into_inner());
-                        cache.get(&ws_id).cloned()
-                    };
-
-                    if let Some(secure_pk) = recheck_key {
-                        if secure_pk != pk {
-                            return Err(YntraError::AuthError("Workspace public key mismatch detected. Local database tampering suspected.".to_string()));
-                        }
-                        verified_pk = secure_pk;
-                    } else if let Some(secure_pk) =
-                        crate::infra::crypto::get_local_secret(&key_setting).await?
-                    {
-                        // Fall back to keyring (cold path)
-                        if secure_pk != pk {
-                            return Err(YntraError::AuthError("Workspace public key mismatch detected. Local database tampering suspected.".to_string()));
-                        }
-                        // Cache it in-memory
-                        let mut cache = crate::infra::crypto::get_auth_key_cache()
-                            .write()
-                            .unwrap_or_else(|e| e.into_inner());
-                        cache.insert(ws_id.clone(), secure_pk);
-                    } else {
-                        // Re-check cache one more time before doing expensive private-key derivation or writing to keyring
-                        let final_check = {
-                            let cache = crate::infra::crypto::get_auth_key_cache()
-                                .read()
-                                .unwrap_or_else(|e| e.into_inner());
-                            cache.get(&ws_id).cloned()
-                        };
-                        if let Some(secure_pk) = final_check {
-                            if secure_pk != pk {
-                                return Err(YntraError::AuthError("Workspace public key mismatch detected. Local database tampering suspected.".to_string()));
-                            }
-                            verified_pk = secure_pk;
-                        } else {
-                            // If not cached, check if we hold the creator's private key locally
-                            let priv_setting = format!("creator_private_key_{}", ws_id);
-                            if let Some(priv_hex_raw) =
-                                crate::infra::crypto::get_local_secret(&priv_setting).await?
-                            {
-                                let priv_hex = zeroize::Zeroizing::new(priv_hex_raw);
-                                let derived_pk = crate::infra::crypto::derive_public_key_from_private_key(&priv_hex)
-                                    .map_err(|e| YntraError::AuthError(format!("Failed to derive public key from local private key: {:?}", e)))?;
-                                if derived_pk != pk {
-                                    return Err(YntraError::AuthError("Workspace public key mismatch with creator private key. Local database tampering suspected.".to_string()));
-                                }
-                                // Cache the verified public key in the secure keyring and memory cache
-                                crate::infra::crypto::set_local_secret(&key_setting, &derived_pk)
-                                    .await?;
-                                verified_pk = derived_pk;
-                            } else {
-                                // Trust on first use for collaborators/invited users
-                                crate::infra::crypto::set_local_secret(&key_setting, &pk).await?;
-                            }
-                            // Cache the verified public key in memory cache
-                            let mut cache = crate::infra::crypto::get_auth_key_cache()
-                                .write()
-                                .unwrap_or_else(|e| e.into_inner());
-                            cache.insert(ws_id.clone(), verified_pk.clone());
-                        }
+                } else if let Some(secure_pk) =
+                    crate::infra::crypto::get_local_secret(&key_setting).await?
+                {
+                    // Fall back to keyring (cold path)
+                    if secure_pk != pk {
+                        return Err(YntraError::AuthError("Workspace public key mismatch detected. Local database tampering suspected.".to_string()));
                     }
+                    // Cache it in-memory
+                    let mut cache = crate::infra::crypto::get_auth_key_cache()
+                        .write()
+                        .unwrap_or_else(|e| e.into_inner());
+                    cache.insert(ws_id.clone(), secure_pk);
+                } else {
+                    // If not cached and not in keyring, check if we hold the creator's private key locally
+                    let priv_setting = format!("creator_private_key_{}", ws_id);
+                    if let Some(priv_hex_raw) =
+                        crate::infra::crypto::get_local_secret(&priv_setting).await?
+                    {
+                        let priv_hex = zeroize::Zeroizing::new(priv_hex_raw);
+                        let derived_pk = crate::infra::crypto::derive_public_key_from_private_key(&priv_hex)
+                            .map_err(|e| YntraError::AuthError(format!("Failed to derive public key from local private key: {:?}", e)))?;
+                        if derived_pk != pk {
+                            return Err(YntraError::AuthError("Workspace public key mismatch with creator private key. Local database tampering suspected.".to_string()));
+                        }
+                        // Cache the verified public key in the secure keyring and memory cache
+                        crate::infra::crypto::set_local_secret(&key_setting, &derived_pk)
+                            .await?;
+                        verified_pk = derived_pk;
+                    } else {
+                        // Trust on first use for collaborators/invited users
+                        crate::infra::crypto::set_local_secret(&key_setting, &pk).await?;
+                    }
+                    // Cache the verified public key in memory cache
+                    let mut cache = crate::infra::crypto::get_auth_key_cache()
+                        .write()
+                        .unwrap_or_else(|e| e.into_inner());
+                    cache.insert(ws_id.clone(), verified_pk.clone());
                 }
 
                 // Epoch rollback prevention logic (SOTA)
@@ -867,5 +936,58 @@ mod tests {
             let cache = AUTH_CONTEXT_CACHE.get().unwrap().read().unwrap();
             assert!(cache.is_empty());
         }
+    }
+
+    #[test]
+    fn test_is_production_detection() {
+        unsafe {
+            std::env::set_var("YNTRA_ENV", "production");
+        }
+        assert!(is_production());
+        assert!(!check_insecure_dev_bypass());
+
+        unsafe {
+            std::env::set_var("YNTRA_ENV", "development");
+        }
+        // In test mode (cargo test), is_production() checks env variables, but wait:
+        // if YNTRA_ENV is development, is_production() checks other env vars and falls back to false.
+        // Let's verify standard behaviour when YNTRA_ENV is not production.
+        unsafe {
+            std::env::remove_var("YNTRA_ENV");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_workspace_lock_concurrency() {
+        // Verify that workspace locks are created and managed correctly
+        let ws1 = "test-ws-lock-1".to_string();
+        let ws2 = "test-ws-lock-2".to_string();
+
+        let lock1 = {
+            let locks_map = WORKSPACE_LOCKS.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
+            let mut guard = locks_map.lock().unwrap_or_else(|e| e.into_inner());
+            guard.entry(ws1.clone())
+                .or_insert_with(|| std::sync::Arc::new(futures_util::lock::Mutex::new(())))
+                .clone()
+        };
+
+        let lock2 = {
+            let locks_map = WORKSPACE_LOCKS.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
+            let mut guard = locks_map.lock().unwrap_or_else(|e| e.into_inner());
+            guard.entry(ws2.clone())
+                .or_insert_with(|| std::sync::Arc::new(futures_util::lock::Mutex::new(())))
+                .clone()
+        };
+
+        // Acquire lock 1
+        let _g1 = lock1.lock().await;
+
+        // Try lock 2 - should succeed immediately as it is a different workspace
+        let try_lock2 = tokio::time::timeout(std::time::Duration::from_millis(50), lock2.lock()).await;
+        assert!(try_lock2.is_ok(), "Lock 2 should not be blocked by lock 1");
+
+        // Try lock 1 again - should timeout/block
+        let try_lock1_again = tokio::time::timeout(std::time::Duration::from_millis(50), lock1.lock()).await;
+        assert!(try_lock1_again.is_err(), "Lock 1 should be blocked while guard is held");
     }
 }

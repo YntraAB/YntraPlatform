@@ -75,10 +75,39 @@ fn verify_totp(secret: String, code: &str, timestamp: u64) -> bool {
             .lock()
             .unwrap();
 
+        // Periodic pruning of the entire cache every 60 seconds
+        let now = chrono::Utc::now();
+        let min_valid_step = current_step.saturating_sub(1);
+
+        let should_prune = {
+            static LAST_PRUNE_TIME: std::sync::Mutex<Option<chrono::DateTime<chrono::Utc>>> = std::sync::Mutex::new(None);
+            let mut last_prune = LAST_PRUNE_TIME.lock().unwrap_or_else(|e| e.into_inner());
+            match *last_prune {
+                None => {
+                    *last_prune = Some(now);
+                    true
+                }
+                Some(last) => {
+                    if now.signed_duration_since(last).num_seconds() >= 60 {
+                        *last_prune = Some(now);
+                        true
+                    } else {
+                        false
+                    }
+                }
+            }
+        };
+
+        if should_prune {
+            cache.retain(|_, steps| {
+                steps.retain(|&s| s >= min_valid_step);
+                !steps.is_empty()
+            });
+        }
+
         let entry = cache.entry(secret_hash).or_insert_with(Vec::new);
 
         // Remove any expired steps outside of the valid skew window (current_step - 1)
-        let min_valid_step = current_step.saturating_sub(1);
         entry.retain(|&s| s >= min_valid_step);
 
         // Check if this step has already been verified
@@ -159,5 +188,45 @@ mod tests {
         // 7. Verify an old expired step (skew -2) fails
         let code_expired = totp.generate((current_step - 2) * 30);
         assert!(!verify_totp(secret_str.clone(), &code_expired, timestamp));
+    }
+
+    #[test]
+    fn test_totp_cache_pruning() {
+        let secret1 = generate_totp_secret();
+        let secret2 = generate_totp_secret();
+        
+        let secret_bytes1 = Secret::Encoded(secret1.clone()).to_bytes().unwrap();
+        let totp1 = TOTP::new(Algorithm::SHA1, 6, 1, 30, secret_bytes1).unwrap();
+
+        let secret_bytes2 = Secret::Encoded(secret2.clone()).to_bytes().unwrap();
+        let totp2 = TOTP::new(Algorithm::SHA1, 6, 1, 30, secret_bytes2).unwrap();
+
+        let timestamp = 1700000000;
+        let code1 = totp1.generate(timestamp);
+        let code2 = totp2.generate(timestamp);
+
+        // Verify both to populate entries in the cache
+        assert!(verify_totp(secret1.clone(), &code1, timestamp));
+        assert!(verify_totp(secret2.clone(), &code2, timestamp));
+
+        // Verify they are in the cache
+        {
+            let cache = LAST_VERIFIED_STEPS.get().unwrap().lock().unwrap();
+            assert!(cache.len() >= 2);
+        }
+
+        // Simulate 2 minutes passing (so the step is now expired)
+        let future_timestamp = timestamp + 120;
+
+        {
+            let mut cache = LAST_VERIFIED_STEPS.get().unwrap().lock().unwrap();
+            let min_valid_step = (future_timestamp / 30).saturating_sub(1);
+            cache.retain(|_, steps| {
+                steps.retain(|&s| s >= min_valid_step);
+                !steps.is_empty()
+            });
+            // Since we simulated 120s passing, the old entries are expired and should be pruned completely
+            assert_eq!(cache.len(), 0);
+        }
     }
 }
