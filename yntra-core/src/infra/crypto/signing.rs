@@ -105,7 +105,7 @@ use zeroize::Zeroize;
 #[derive(uniffi::Object)]
 pub struct WorkspaceKeyPair {
     public_key: String,
-    private_key: Mutex<String>,
+    private_key: Mutex<zeroize::Zeroizing<String>>,
 }
 
 #[uniffi::export]
@@ -120,9 +120,7 @@ impl WorkspaceKeyPair {
 impl WorkspaceKeyPair {
     /// Returns the private key hex string.
     pub fn private_key(&self) -> zeroize::Zeroizing<String> {
-        zeroize::Zeroizing::new(
-            self.private_key.lock().unwrap_or_else(|e| e.into_inner()).clone()
-        )
+        self.private_key.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 }
 
@@ -143,7 +141,7 @@ pub fn generate_workspace_keypair() -> Result<Arc<WorkspaceKeyPair>, YntraError>
     private_key_bytes.zeroize();
     Ok(Arc::new(WorkspaceKeyPair {
         public_key: public_key_hex,
-        private_key: Mutex::new(private_key_hex),
+        private_key: Mutex::new(zeroize::Zeroizing::new(private_key_hex)),
     }))
 }
 
@@ -157,56 +155,141 @@ pub fn verify_role_signature(
     signature_hex: &str,
 ) -> bool {
     let parts: Vec<&str> = signature_hex.split(':').collect();
-    let (epoch, expires_at, sig_hex) = match parts.len() {
-        3 => {
-            let epoch = match parts[0].parse::<u64>() {
-                Ok(val) => val,
-                Err(_) => return false,
-            };
-            let expires = match parts[1].parse::<i64>() {
-                Ok(val) => val,
-                Err(_) => return false,
-            };
-            (epoch, expires, parts[2])
+    let mut is_valid = true;
+
+    let (epoch_str, expires_str, sig_hex_str) = match parts.len() {
+        3 => (parts[0], parts[1], parts[2]),
+        2 => ("0", parts[0], parts[1]),
+        _ => {
+            is_valid = false;
+            ("0", "0", "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000")
         }
-        2 => {
-            let expires = match parts[0].parse::<i64>() {
-                Ok(val) => val,
-                Err(_) => return false,
-            };
-            (0, expires, parts[1])
+    };
+
+    let epoch = match epoch_str.parse::<u64>() {
+        Ok(val) => val,
+        Err(_) => {
+            is_valid = false;
+            0
         }
-        _ => return false,
     };
 
-    let current_time = chrono::Utc::now().timestamp();
+    let expires_at = match expires_str.parse::<i64>() {
+        Ok(val) => val,
+        Err(_) => {
+            is_valid = false;
+            0
+        }
+    };
 
-    if current_time > expires_at {
-        tracing::warn!("Role signature for user {} has expired", user_id);
-        return false;
-    }
+    let pub_hex = if public_key_hex.len() == 64 {
+        public_key_hex
+    } else {
+        is_valid = false;
+        "0000000000000000000000000000000000000000000000000000000000000000"
+    };
 
-    let public_key_bytes = match const_hex::decode(public_key_hex) {
+    let public_key_bytes = match const_hex::decode(pub_hex) {
         Ok(b) => b,
-        Err(_) => return false,
+        Err(_) => {
+            is_valid = false;
+            vec![0u8; 32]
+        }
     };
-    let signature_bytes = match const_hex::decode(sig_hex) {
-        Ok(b) => b,
-        Err(_) => return false,
-    };
+
     let public_key_array: [u8; 32] = match public_key_bytes.try_into() {
         Ok(a) => a,
-        Err(_) => return false,
+        Err(_) => {
+            is_valid = false;
+            [0u8; 32]
+        }
     };
+
     let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(&public_key_array) {
         Ok(k) => k,
-        Err(_) => return false,
+        Err(_) => {
+            is_valid = false;
+            ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]).verifying_key()
+        }
     };
+
+    let sig_hex = if sig_hex_str.len() == 128 {
+        sig_hex_str
+    } else {
+        is_valid = false;
+        "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    };
+
+    let signature_bytes = match const_hex::decode(sig_hex) {
+        Ok(b) => b,
+        Err(_) => {
+            is_valid = false;
+            vec![0u8; 64]
+        }
+    };
+
     let signature_array: [u8; 64] = match signature_bytes.try_into() {
         Ok(a) => a,
-        Err(_) => return false,
+        Err(_) => {
+            is_valid = false;
+            [0u8; 64]
+        }
     };
+
     let signature = ed25519_dalek::Signature::from_bytes(&signature_array);
     let message = construct_role_signature_message(user_id, role, workspace_id, expires_at, epoch);
-    verifying_key.verify(&message, &signature).is_ok()
+    let verified = verifying_key.verify(&message, &signature).is_ok();
+
+    let current_time = chrono::Utc::now().timestamp();
+    let time_valid = current_time <= expires_at;
+
+    let final_valid = is_valid & verified & time_valid;
+
+    if !final_valid {
+        if current_time > expires_at && is_valid {
+            tracing::warn!("Role signature for user {} has expired", user_id);
+        }
+    }
+
+    final_valid
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_verify_role_signature_timing_resistant() {
+        let keys = generate_workspace_keypair().unwrap();
+        let pub_hex = keys.public_key();
+        let priv_hex = keys.private_key();
+
+        // 1. Valid signature
+        let sig_hex = generate_role_signature(&priv_hex, "user-1", "admin", "ws-1").unwrap();
+        assert!(verify_role_signature(&pub_hex, "user-1", "admin", "ws-1", &sig_hex));
+
+        // 2. Invalid role
+        assert!(!verify_role_signature(&pub_hex, "user-1", "member", "ws-1", &sig_hex));
+
+        // 3. Invalid user
+        assert!(!verify_role_signature(&pub_hex, "user-2", "admin", "ws-1", &sig_hex));
+
+        // 4. Invalid workspace
+        assert!(!verify_role_signature(&pub_hex, "user-1", "admin", "ws-2", &sig_hex));
+
+        // 5. Malformed signature string (invalid colons / components)
+        assert!(!verify_role_signature(&pub_hex, "user-1", "admin", "ws-1", "invalid_format"));
+        assert!(!verify_role_signature(&pub_hex, "user-1", "admin", "ws-1", "123:invalid_format"));
+
+        // 6. Invalid hex signature
+        assert!(!verify_role_signature(&pub_hex, "user-1", "admin", "ws-1", "0:123456789:not_hex"));
+
+        // 7. Invalid length hex signature
+        assert!(!verify_role_signature(&pub_hex, "user-1", "admin", "ws-1", "0:123456789:aabbcc"));
+
+        // 8. Expired signature
+        let current_time = chrono::Utc::now().timestamp();
+        let expired_sig = generate_role_signature_v2(&priv_hex, "user-1", "admin", "ws-1", current_time - 10, 0).unwrap();
+        assert!(!verify_role_signature(&pub_hex, "user-1", "admin", "ws-1", &expired_sig));
+    }
 }
