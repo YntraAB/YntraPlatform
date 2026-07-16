@@ -136,13 +136,13 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
             .unwrap_or(false);
 
         if is_school {
-            "Dev: School".to_string()
+            "School Template".to_string()
         } else if is_moving_company {
-            "Dev: Operations".to_string()
+            "Moving Company Template".to_string()
         } else if is_assistance {
-            "Dev: Care".to_string()
+            "Care Template".to_string()
         } else {
-            "Dev: General".to_string()
+            "General Template".to_string()
         }
     };
 
@@ -344,6 +344,7 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                                             "journals": false,
                                             "time": false,
                                             "jobs": false,
+                                            "moving_company": false,
                                         });
                                         yntra_core::update_workspace_modules(user_id, ws_id, school_modules.to_string()).await?;
                                         let current = *db_trigger.read();
@@ -380,6 +381,7 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                                             "finance": false,
                                             "library": false,
                                             "timetable": false,
+                                            "moving_company": false,
                                         });
                                         yntra_core::update_workspace_modules(user_id, ws_id, care_modules.to_string()).await?;
                                         let current = *db_trigger.read();
@@ -391,7 +393,7 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                             }
                         }
                         components::DropdownItem {
-                            label: "General Operations".to_string(),
+                            label: "Moving Company Template".to_string(),
                             onclick: {
                                 let user_id = active_user_id.read().clone();
                                 let ws_id = active_user.workspace_id.clone().unwrap_or_else(|| "workspace-1".to_string());
@@ -401,13 +403,14 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                                     let ws_id = ws_id.clone();
                                     let runner = runner.clone();
                                     runner.run(async move {
-                                        let general_modules = serde_json::json!({
+                                        let moving_modules = serde_json::json!({
                                             "jobs": true,
                                             "time": true,
                                             "todos": true,
                                             "messaging": true,
                                             "notes": true,
                                             "reporting": true,
+                                            "moving_company": true,
                                             "academics": false,
                                             "attendance": false,
                                             "finance": false,
@@ -417,7 +420,7 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                                             "medications": false,
                                             "journals": false,
                                         });
-                                        yntra_core::update_workspace_modules(user_id, ws_id, general_modules.to_string()).await?;
+                                        yntra_core::update_workspace_modules(user_id, ws_id, moving_modules.to_string()).await?;
                                         let current = *db_trigger.read();
                                         db_trigger.set(current + 1);
                                         Ok(())
