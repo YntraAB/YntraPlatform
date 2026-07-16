@@ -66,13 +66,31 @@ fn has_write_keyword(sql: &str) -> bool {
     let bytes = sql.as_bytes();
     let needles: &[&[u8]] = &[b"INSERT", b"UPDATE", b"DELETE"];
     for needle in needles {
-        if bytes.windows(needle.len()).any(|window| {
-            window
-                .iter()
-                .zip(*needle)
-                .all(|(&h, &n)| h.to_ascii_uppercase() == n)
-        }) {
-            return true;
+        let len = needle.len();
+        if bytes.len() < len {
+            continue;
+        }
+        for i in 0..=(bytes.len() - len) {
+            let window = &bytes[i..i + len];
+            let matches = window.iter().zip(*needle).all(|(&h, &n)| h.to_ascii_uppercase() == n);
+            if matches {
+                // Check word boundaries
+                let prev_ok = if i > 0 {
+                    let prev_char = bytes[i - 1];
+                    !prev_char.is_ascii_alphanumeric() && prev_char != b'_'
+                } else {
+                    true
+                };
+                let next_ok = if i + len < bytes.len() {
+                    let next_char = bytes[i + len];
+                    !next_char.is_ascii_alphanumeric() && next_char != b'_'
+                } else {
+                    true
+                };
+                if prev_ok && next_ok {
+                    return true;
+                }
+            }
         }
     }
     false
@@ -548,6 +566,9 @@ mod tests {
     #[test]
     fn test_extract_table_name_invalid_or_select() {
         assert_eq!(extract_table_name("SELECT * FROM todos"), None);
+        assert_eq!(extract_table_name("SELECT * FROM user_inserted_items"), None);
+        assert_eq!(extract_table_name("SELECT * FROM updated_logs"), None);
+        assert_eq!(extract_table_name("SELECT * FROM deleted_todos"), None);
         assert_eq!(extract_table_name("INSERT INTO"), None);
         assert_eq!(extract_table_name("UPDATE"), None);
         assert_eq!(extract_table_name("DELETE FROM"), None);

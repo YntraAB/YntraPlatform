@@ -17,11 +17,20 @@ pub async fn get_user_by_email(
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     let email_lower = email.trim().to_lowercase();
-    let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, email, full_name, phone, role, preferences, updated_at, sync_status FROM users WHERE LOWER(email) = ?1",
-    ).await?;
+    let (sql, params) = if auth.role == "platform_admin" {
+        (
+            "SELECT id, workspace_id, email, full_name, phone, role, preferences, updated_at, sync_status FROM users WHERE LOWER(email) = ?1",
+            crate::params![email_lower],
+        )
+    } else {
+        (
+            "SELECT id, workspace_id, email, full_name, phone, role, preferences, updated_at, sync_status FROM users WHERE LOWER(email) = ?1 AND workspace_id = ?2",
+            crate::params![email_lower, auth.workspace_id.clone()],
+        )
+    };
 
-    let mut rows = stmt.query(crate::params![email_lower]).await?;
+    let mut stmt = conn.prepare(sql).await?;
+    let mut rows = stmt.query(params).await?;
     if let Some(row) = rows.next().await? {
         let ws_id: Option<String> = row.get(1)?;
         if auth.role != "platform_admin" && ws_id.as_ref() != Some(&auth.workspace_id) {
@@ -868,5 +877,30 @@ mod tests {
         // Cleanup
         conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![&ws_id]).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![&ws_id]).await.unwrap();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_get_user_by_email_tenant_isolation() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let ws_a = format!("ws-a-{}", uuid::Uuid::new_v4());
+        let ws_b = format!("ws-b-{}", uuid::Uuid::new_v4());
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'WS A', '[]', '{}')", crate::params![&ws_a]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'WS B', '[]', '{}')", crate::params![&ws_b]).await.unwrap();
+
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('user-a', ?1, 'target@yntra.io', 'user')", crate::params![&ws_a]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('user-b', ?1, 'other@yntra.io', 'user')", crate::params![&ws_b]).await.unwrap();
+
+        // User B attempts to query User A's email (target@yntra.io)
+        let res = get_user_by_email("user-b".to_string(), "target@yntra.io".to_string()).await;
+        assert!(res.is_ok());
+        assert!(res.unwrap().is_none());
+
+        // Cleanup
+        conn.execute("DELETE FROM users WHERE workspace_id IN (?1, ?2)", crate::params![&ws_a, &ws_b]).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id IN (?1, ?2)", crate::params![&ws_a, &ws_b]).await.unwrap();
     }
 }

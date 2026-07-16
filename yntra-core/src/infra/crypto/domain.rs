@@ -20,10 +20,9 @@ impl CryptoDomain {
             (Self::LocalStorageIntegrity, 2) => Ok("Yntra Local Storage Integrity v2"),
             (Self::UserKeyDerivation, 1) => Ok("Yntra User Key Derivation Context"),
             (Self::PasskeyEnvelopeEncryption, 1) => Ok("Yntra Zero-Copy Passkey Envelope Encryption Key"),
-            _ => Err(YntraError::CryptoError(format!(
-                "Unsupported cryptographic domain version for {:?}: v{}",
-                self, version
-            ))),
+            _ => Err(YntraError::CryptoError(
+                "Unsupported cryptographic domain version".to_string(),
+            )),
         }
     }
 }
