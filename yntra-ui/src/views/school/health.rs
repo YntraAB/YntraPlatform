@@ -29,6 +29,11 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
     let mut new_inc_notes = use_signal(String::new);
     let new_inc_checkin = use_signal(|| "12:30".to_string());
 
+    // Context Menu signals
+    let mut health_context_menu_open = use_signal(|| false);
+    let mut health_context_menu_pos = use_signal(|| (0, 0));
+    let mut health_context_menu_val = use_signal(|| Option::<HealthIncident>::None);
+
     let db_trig_val = *db_trigger.read();
     let user_id_clone = user_id.clone();
     let ws_id_clone = ws_id.clone();
@@ -84,12 +89,22 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
                         div { class: "divide-y divide-border border rounded-xl overflow-hidden bg-background",
                             for inc in incidents.iter() {
                                 {
+                                    let inc_clone = inc.clone();
                                     let student_name = students.iter()
                                         .find(|s| s.id == inc.student_id)
                                         .map(|s| format!("{} {}", s.first_name, s.last_name))
                                         .unwrap_or_else(|| "Unknown Student".to_string());
                                     rsx! {
-                                        div { key: "{inc.id}", class: "p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs hover:bg-muted/10 transition-colors",
+                                        div {
+                                            key: "{inc.id}",
+                                            oncontextmenu: move |evt| {
+                                                evt.prevent_default();
+                                                let coords = evt.client_coordinates();
+                                                health_context_menu_pos.set((coords.x as i32, coords.y as i32));
+                                                health_context_menu_val.set(Some(inc_clone.clone()));
+                                                health_context_menu_open.set(true);
+                                            },
+                                            class: "p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs hover:bg-muted/10 transition-colors",
                                             div { class: "space-y-1",
                                                 div { class: "font-semibold text-sm text-foreground", "{student_name}" }
                                                 div { class: "text-xs text-muted-foreground", span { class: "font-bold text-foreground", "Reason: " } "{inc.visit_reason}" }
@@ -192,6 +207,43 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
                                 },
                                 "Log Visit"
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Incident Context Menu Overlay
+        if let Some(inc) = health_context_menu_val.read().clone() {
+            {
+                let mut inc_val = inc.clone();
+                let uid = user_id.clone();
+                let db_trig = db_trigger;
+
+                rsx! {
+                    crate::components::ContextMenu {
+                        open: *health_context_menu_open.read(),
+                        x: health_context_menu_pos.read().0,
+                        y: health_context_menu_pos.read().1,
+                        onclose: move |_| health_context_menu_open.set(false),
+
+                        button {
+                            class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                            onclick: move |_| {
+                                let now_str = chrono::Local::now().format("%H:%M").to_string();
+                                inc_val.checked_out_at = Some(now_str);
+                                let u = uid.clone();
+                                let incident = inc_val.clone();
+                                let mut d_trig = db_trig;
+                                spawn(async move {
+                                    let _ = save_health_incident(u, incident).await;
+                                });
+                                health_context_menu_open.set(false);
+                                let current = *d_trig.read();
+                                d_trig.set(current + 1);
+                            },
+                            crate::components::LucideIcon { name: "log-out", size: "14" }
+                            "Check Out Student"
                         }
                     }
                 }
