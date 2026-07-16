@@ -20,6 +20,32 @@ pub async fn setup_schema(conn: &DbConnection) -> Result<(), YntraError> {
     .await
     .map_err(|e| YntraError::DbError(e.to_string()))?;
 
+    // Ensure client pepper is loaded from database into the global static cache
+    let db_pepper: Option<String> = conn
+        .query_row(
+            "SELECT value FROM system_settings WHERE key = 'client_pepper'",
+            (),
+            |r| Ok(r.get(0)?),
+        )
+        .await
+        .ok();
+
+    if let Some(pepper) = db_pepper {
+        let _ = crate::infra::crypto::set_database_pepper(pepper);
+    } else {
+        // Generate new pepper and store it in database
+        let mut rand_bytes = [0u8; 32];
+        if getrandom::fill(&mut rand_bytes).is_ok() {
+            let new_pepper = const_hex::encode(&rand_bytes);
+            if conn.execute(
+                "INSERT INTO system_settings (key, value) VALUES ('client_pepper', ?1)",
+                crate::params![&new_pepper],
+            ).await.is_ok() {
+                let _ = crate::infra::crypto::set_database_pepper(new_pepper);
+            }
+        }
+    }
+
     // 2. Set up initial tables and migrations if version is 0
     let mut current_version: i32 = conn
         .query_row("PRAGMA user_version", (), |r| r.get(0))
