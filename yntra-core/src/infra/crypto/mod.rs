@@ -197,7 +197,6 @@ fn ensure_system_salt_initialized() -> Result<(), YntraError> {
 /// Sets the active workspace session key and workspace ID.
 #[uniffi::export]
 pub fn set_session_key(mut key_bytes: Vec<u8>, workspace_id: String) -> bool {
-    let _guard = PoisonGuard;
     let mut lock = match SESSION_KEY.lock() {
         Ok(l) => l,
         Err(poisoned) => {
@@ -206,6 +205,7 @@ pub fn set_session_key(mut key_bytes: Vec<u8>, workspace_id: String) -> bool {
             inner
         }
     };
+    let _guard = PoisonGuard;
     if let Some(mut old_sk) = lock.take() {
         old_sk.zeroize();
     }
@@ -230,22 +230,28 @@ pub fn set_session_key(mut key_bytes: Vec<u8>, workspace_id: String) -> bool {
 }
 
 pub fn get_session_key() -> Option<zeroize::Zeroizing<[u8; 32]>> {
-    let _guard = PoisonGuard;
     let lock = match SESSION_KEY.lock() {
         Ok(l) => l,
         Err(poisoned) => poisoned.into_inner(),
     };
+    let _guard = PoisonGuard;
+    if SESSION_KEY_IS_POISONED.load(std::sync::atomic::Ordering::SeqCst) {
+        return None;
+    }
     lock.as_ref().map(|sk| zeroize::Zeroizing::new(sk.new_key))
 }
 
 /// Checks if a session key is currently loaded.
 #[uniffi::export]
 pub fn is_session_key_set() -> bool {
-    let _guard = PoisonGuard;
     let lock = match SESSION_KEY.lock() {
         Ok(l) => l,
         Err(poisoned) => poisoned.into_inner(),
     };
+    let _guard = PoisonGuard;
+    if SESSION_KEY_IS_POISONED.load(std::sync::atomic::Ordering::SeqCst) {
+        return false;
+    }
     lock.is_some()
 }
 
@@ -266,10 +272,13 @@ pub async fn load_local_workspace_key(workspace_id: String, user_id: String) -> 
     }
 
     let key_name = format!("workspace_key_{}", workspace_id);
-    if let Ok(Some(key_hex)) = get_local_secret(&key_name).await {
+    if let Ok(Some(mut key_hex)) = get_local_secret(&key_name).await {
         if let Ok(key_bytes) = const_hex::decode(&key_hex) {
-            return set_session_key(key_bytes, workspace_id);
+            let res = set_session_key(key_bytes, workspace_id);
+            key_hex.zeroize();
+            return res;
         }
+        key_hex.zeroize();
     }
     false
 }
@@ -277,7 +286,6 @@ pub async fn load_local_workspace_key(workspace_id: String, user_id: String) -> 
 /// Clears the active session key and zeroizes cached workspace keys.
 #[uniffi::export]
 pub fn clear_session_key() {
-    let _guard = PoisonGuard;
     let mut lock = match SESSION_KEY.lock() {
         Ok(l) => l,
         Err(poisoned) => {
@@ -286,6 +294,7 @@ pub fn clear_session_key() {
             inner
         }
     };
+    let _guard = PoisonGuard;
     if let Some(mut old_sk) = lock.take() {
         old_sk.zeroize();
     }
@@ -323,11 +332,11 @@ fn get_encryption_keys_internal(
 
     let mut session_key_bytes = zeroize::Zeroizing::new([0u8; 32]);
     {
-        let _guard = PoisonGuard;
         let lock = match SESSION_KEY.lock() {
             Ok(l) => l,
             Err(poisoned) => poisoned.into_inner(),
         };
+        let _guard = PoisonGuard;
         if SESSION_KEY_IS_POISONED.load(std::sync::atomic::Ordering::SeqCst) {
             hasher.zeroize();
             return Err(YntraError::CryptoError(
@@ -373,14 +382,28 @@ pub fn hex_decode(s: &str) -> Option<Vec<u8>> {
 #[uniffi::export]
 pub fn encrypt_field(data: &str, workspace_id: &str) -> Result<String, YntraError> {
     let cipher = WorkspaceCipher::new(workspace_id)?;
-    cipher.encrypt(data)
+    cipher.encrypt(data).map_err(|e| {
+        if let YntraError::CryptoError(ref msg) = e {
+            if msg == "session_key_missing" {
+                return YntraError::CryptoError("Session key is missing. Please unlock the workspace.".to_string());
+            }
+        }
+        e
+    })
 }
 
 /// Decrypts a single string field for the given workspace.
 #[uniffi::export]
 pub fn decrypt_field(encrypted_data: &str, workspace_id: &str) -> Result<String, YntraError> {
     let cipher = WorkspaceCipher::new(workspace_id)?;
-    cipher.decrypt(encrypted_data)
+    cipher.decrypt(encrypted_data).map_err(|e| {
+        if let YntraError::CryptoError(ref msg) = e {
+            if msg == "session_key_missing" {
+                return YntraError::CryptoError("Session key is missing. Please unlock the workspace.".to_string());
+            }
+        }
+        e
+    })
 }
 
 /// Encrypts a list of string fields for the given workspace.
@@ -434,13 +457,12 @@ pub fn decrypt_opt_field(encrypted_data: Option<String>, workspace_id: &str) -> 
     })
 }
 
-pub fn hash_anonymous_reporter(user_id: &str, workspace_id: &str) -> Result<String, YntraError> {
+pub fn hash_anonymous_reporter(user_id: &str, workspace_id: &str, report_id: &str) -> Result<String, YntraError> {
     let salt = get_system_salt_ref()?;
     let client_pepper = get_local_client_pepper()?;
 
     let context_str = CryptoDomain::WhistleblowerAnonymityHash.get_context(2)?;
-    let mut hasher =
-        blake3::Hasher::new_derive_key(context_str);
+    let mut hasher = blake3::Hasher::new_derive_key(context_str);
     hasher.update(&(salt.len() as u64).to_be_bytes());
     hasher.update(salt);
 
@@ -452,6 +474,9 @@ pub fn hash_anonymous_reporter(user_id: &str, workspace_id: &str) -> Result<Stri
 
     hasher.update(&(client_pepper.len() as u64).to_be_bytes());
     hasher.update(client_pepper.as_bytes());
+
+    hasher.update(&(report_id.len() as u64).to_be_bytes());
+    hasher.update(report_id.as_bytes());
 
     let mut output = [0u8; 32];
     hasher.finalize_xof().fill(&mut output);
@@ -647,9 +672,9 @@ mod tests {
         let _ = std::panic::catch_unwind(|| {
             let _lock = match SESSION_KEY.lock() {
                 Ok(g) => g,
-                Err(poisoned) => poisoned.into_inner(),
+                Err(p) => p.into_inner(),
             };
-            SESSION_KEY_IS_POISONED.store(true, std::sync::atomic::Ordering::SeqCst);
+            let _guard = PoisonGuard;
             panic!("poisoning lock when None");
         });
 
@@ -671,9 +696,9 @@ mod tests {
         let _ = std::panic::catch_unwind(|| {
             let _lock = match SESSION_KEY.lock() {
                 Ok(g) => g,
-                Err(poisoned) => poisoned.into_inner(),
+                Err(p) => p.into_inner(),
             };
-            SESSION_KEY_IS_POISONED.store(true, std::sync::atomic::Ordering::SeqCst);
+            let _guard = PoisonGuard;
             panic!("poisoning lock when Some");
         });
 
@@ -756,5 +781,20 @@ mod tests {
         assert_eq!(plaintexts, decrypted);
 
         clear_session_key();
+    }
+
+    #[test]
+    fn test_hash_anonymous_reporter_unlinkability() {
+        let _test_lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let user_id = "user-123";
+        let workspace_id = "workspace-abc";
+
+        let hash1 = hash_anonymous_reporter(user_id, workspace_id, "report-1").unwrap();
+        let hash2 = hash_anonymous_reporter(user_id, workspace_id, "report-2").unwrap();
+
+        assert_ne!(hash1, hash2);
+
+        let hash1_again = hash_anonymous_reporter(user_id, workspace_id, "report-1").unwrap();
+        assert_eq!(hash1, hash1_again);
     }
 }
