@@ -1,15 +1,14 @@
 use crate::infra::errors::YntraError;
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroizing;
 
 use curve25519_dalek::scalar::Scalar;
 use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
 use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
 
-fn derive_scalar_from_seed(passkey_seed: &str) -> Result<Scalar, YntraError> {
-    let seed_zeroed = zeroize::Zeroizing::new(passkey_seed.to_string());
+fn derive_scalar_from_seed(passkey_seed: &zeroize::Zeroizing<String>) -> Result<Scalar, YntraError> {
     let context_str = crate::infra::crypto::CryptoDomain::UserKeyDerivation.get_context(1)?;
     let mut key_hasher = blake3::Hasher::new_derive_key(context_str);
-    key_hasher.update(seed_zeroed.as_bytes());
+    key_hasher.update(passkey_seed.as_bytes());
     let mut private_key_bytes = zeroize::Zeroizing::new([0u8; 32]);
     key_hasher.finalize_xof().fill(&mut *private_key_bytes);
 
@@ -46,7 +45,10 @@ fn get_generator_h() -> EdwardsPoint {
 }
 
 #[allow(non_snake_case)]
-fn generate_schema_zkp(is_valid: bool) -> Result<(CompressedEdwardsY, Scalar, Scalar), YntraError> {
+fn generate_schema_zkp(
+    is_valid: bool,
+    commitment: &[u8; 32],
+) -> Result<(CompressedEdwardsY, Scalar, Scalar), YntraError> {
     let H = get_generator_h();
 
     let mut r_bytes = [0u8; 32];
@@ -71,9 +73,10 @@ fn generate_schema_zkp(is_valid: bool) -> Result<(CompressedEdwardsY, Scalar, Sc
     let T = k * H;
 
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"YNTRA_SCHEMA_ZKP_V1");
+    hasher.update(b"YNTRA_SCHEMA_ZKP_V2");
     hasher.update(&C.compress().to_bytes());
     hasher.update(&T.compress().to_bytes());
+    hasher.update(commitment);
     let e_hash = hasher.finalize();
     let e = Scalar::from_bytes_mod_order(*e_hash.as_bytes());
 
@@ -87,6 +90,7 @@ fn verify_schema_zkp(
     C_compressed: CompressedEdwardsY,
     e: Scalar,
     s: Scalar,
+    commitment: &[u8; 32],
 ) -> bool {
     let H = get_generator_h();
     let C = match C_compressed.decompress() {
@@ -100,9 +104,10 @@ fn verify_schema_zkp(
     let T_prime = s_H - e_C_G;
 
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"YNTRA_SCHEMA_ZKP_V1");
+    hasher.update(b"YNTRA_SCHEMA_ZKP_V2");
     hasher.update(&C_compressed.to_bytes());
     hasher.update(&T_prime.compress().to_bytes());
+    hasher.update(commitment);
     let e_hash = hasher.finalize();
     let e_prime = Scalar::from_bytes_mod_order(*e_hash.as_bytes());
 
@@ -123,19 +128,19 @@ impl ZkCryptoTrust {
 
     pub fn encrypt_workspace_field(
         &self,
-        mut passkey_seed: String,
-        mut plaintext: String,
+        passkey_seed: String,
+        plaintext: String,
     ) -> Result<String, YntraError> {
         use chacha20poly1305::aead::{Aead, KeyInit};
         use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 
-        let seed_zeroed = Zeroizing::new(passkey_seed.clone());
-        let plaintext_zeroed = Zeroizing::new(plaintext.clone());
+        let passkey_seed_zeroed = Zeroizing::new(passkey_seed);
+        let plaintext_zeroed = Zeroizing::new(plaintext);
 
         let context_str = crate::infra::crypto::CryptoDomain::PasskeyEnvelopeEncryption.get_context(1)?;
         let mut hasher =
             blake3::Hasher::new_derive_key(context_str);
-        hasher.update(seed_zeroed.as_bytes());
+        hasher.update(passkey_seed_zeroed.as_bytes());
         let mut key_bytes = Zeroizing::new([0u8; 32]);
         hasher.finalize_xof().fill(&mut *key_bytes);
 
@@ -144,17 +149,12 @@ impl ZkCryptoTrust {
 
         let mut nonce_bytes = [0u8; 24];
         if let Err(e) = getrandom::fill(&mut nonce_bytes) {
-            passkey_seed.zeroize();
-            plaintext.zeroize();
             return Err(YntraError::CryptoError(e.to_string()));
         }
         let nonce = XNonce::from_slice(&nonce_bytes);
 
         let ciphertext_bytes = cipher
             .encrypt(nonce, plaintext_zeroed.as_bytes());
-
-        passkey_seed.zeroize();
-        plaintext.zeroize();
 
         let ciphertext_bytes = ciphertext_bytes
             .map_err(|e| YntraError::CryptoError(e.to_string()))?;
@@ -168,23 +168,21 @@ impl ZkCryptoTrust {
 
     pub fn decrypt_workspace_field(
         &self,
-        mut passkey_seed: String,
+        passkey_seed: String,
         ciphertext_hex: String,
     ) -> Result<String, YntraError> {
         use chacha20poly1305::aead::{Aead, KeyInit};
         use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 
-        let seed_zeroed = Zeroizing::new(passkey_seed.clone());
+        let passkey_seed_zeroed = Zeroizing::new(passkey_seed);
         let payload = match const_hex::decode(&ciphertext_hex) {
             Ok(p) => p,
             Err(e) => {
-                passkey_seed.zeroize();
                 return Err(YntraError::CryptoError(e.to_string()));
             }
         };
 
         if payload.len() < 24 {
-            passkey_seed.zeroize();
             return Err(YntraError::CryptoError(
                 "Invalid ciphertext payload length".to_string(),
             ));
@@ -196,7 +194,7 @@ impl ZkCryptoTrust {
         let context_str = crate::infra::crypto::CryptoDomain::PasskeyEnvelopeEncryption.get_context(1)?;
         let mut hasher =
             blake3::Hasher::new_derive_key(context_str);
-        hasher.update(seed_zeroed.as_bytes());
+        hasher.update(passkey_seed_zeroed.as_bytes());
         let mut key_bytes = Zeroizing::new([0u8; 32]);
         hasher.finalize_xof().fill(&mut *key_bytes);
 
@@ -205,7 +203,6 @@ impl ZkCryptoTrust {
         let nonce = XNonce::from_slice(nonce_bytes);
 
         let decrypted_bytes = cipher.decrypt(nonce, ciphertext_bytes);
-        passkey_seed.zeroize();
 
         let decrypted_bytes = decrypted_bytes
             .map_err(|e| YntraError::CryptoError(e.to_string()))?;
@@ -218,20 +215,19 @@ impl ZkCryptoTrust {
 
     pub fn generate_compliance_proof(
         &self,
-        mut passkey_seed: String,
+        passkey_seed: String,
         data_hex: String,
         user_id: String,
         role: String,
     ) -> Result<String, YntraError> {
         let _ = user_id;
+        let passkey_seed_zeroed = zeroize::Zeroizing::new(passkey_seed);
         if data_hex.len() > 10_000_000 {
-            passkey_seed.zeroize();
             return Err(YntraError::CryptoError("Data payload is too large".to_string()));
         }
         let data_bytes = match const_hex::decode(&data_hex) {
             Ok(d) => d,
             Err(e) => {
-                passkey_seed.zeroize();
                 return Err(YntraError::CryptoError(e.to_string()));
             }
         };
@@ -241,20 +237,17 @@ impl ZkCryptoTrust {
         // Generate a random 32-byte salt (blinding factor)
         let mut salt_bytes = [0u8; 32];
         if let Err(e) = getrandom::fill(&mut salt_bytes) {
-            passkey_seed.zeroize();
             return Err(YntraError::CryptoError(e.to_string()));
         }
 
         // Derive user Ed25519 signing key from passkey_seed using blake3 derive_key
-        let seed_zeroed = zeroize::Zeroizing::new(passkey_seed.clone());
         let context_str = crate::infra::crypto::CryptoDomain::UserKeyDerivation.get_context(1)?;
         let mut key_hasher = blake3::Hasher::new_derive_key(context_str);
-        key_hasher.update(seed_zeroed.as_bytes());
+        key_hasher.update(passkey_seed_zeroed.as_bytes());
         let mut private_key_bytes = zeroize::Zeroizing::new([0u8; 32]);
         key_hasher.finalize_xof().fill(&mut *private_key_bytes);
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key_bytes);
         let public_key = signing_key.verifying_key();
-        passkey_seed.zeroize();
 
         // 1. Verify schema compliance of the Loro doc update
         let doc = loro::LoroDoc::new();
@@ -299,7 +292,7 @@ impl ZkCryptoTrust {
         let signature = signing_key.sign(commitment.as_bytes());
 
         // 5. Generate Schema Validity ZKP using the Schnorr-like sigma protocol
-        let (C_comp, schema_e, schema_s) = generate_schema_zkp(is_valid_schema)?;
+        let (C_comp, schema_e, schema_s) = generate_schema_zkp(is_valid_schema, commitment.as_bytes())?;
 
         let mut proof_builder = Vec::new();
         proof_builder.extend_from_slice(b"ZKP_PROOF_V3:");
@@ -357,8 +350,10 @@ impl ZkCryptoTrust {
             let schema_e = Scalar::from_bytes_mod_order(schema_e_bytes.try_into().unwrap());
             let schema_s = Scalar::from_bytes_mod_order(schema_s_bytes.try_into().unwrap());
 
+            let mut actual_commitment_arr = [0u8; 32];
+            actual_commitment_arr.copy_from_slice(actual_commitment);
             // Verify schema ZKP using verify_schema_zkp
-            let is_schema_valid = verify_schema_zkp(schema_C, schema_e, schema_s);
+            let is_schema_valid = verify_schema_zkp(schema_C, schema_e, schema_s, &actual_commitment_arr);
 
             let registered_public_key = const_hex::decode(&public_key_hex)
                 .map_err(|e| YntraError::CryptoError(e.to_string()))?;
@@ -436,27 +431,25 @@ impl ZkCryptoTrust {
 
     pub fn generate_role_proof(
         &self,
-        mut passkey_seed: String,
+        passkey_seed: String,
         user_id: String,
         role: String,
     ) -> Result<String, YntraError> {
         let _ = user_id;
+        let passkey_seed_zeroed = zeroize::Zeroizing::new(passkey_seed);
         let mut salt_bytes = [0u8; 32];
         if let Err(e) = getrandom::fill(&mut salt_bytes) {
-            passkey_seed.zeroize();
             return Err(YntraError::CryptoError(e.to_string()));
         }
 
         // Derive user Ed25519 signing key from passkey_seed using blake3 derive_key
-        let seed_zeroed = zeroize::Zeroizing::new(passkey_seed.clone());
         let context_str = crate::infra::crypto::CryptoDomain::UserKeyDerivation.get_context(1)?;
         let mut key_hasher = blake3::Hasher::new_derive_key(context_str);
-        key_hasher.update(seed_zeroed.as_bytes());
+        key_hasher.update(passkey_seed_zeroed.as_bytes());
         let mut private_key_bytes = zeroize::Zeroizing::new([0u8; 32]);
         key_hasher.finalize_xof().fill(&mut *private_key_bytes);
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key_bytes);
         let public_key = signing_key.verifying_key();
-        passkey_seed.zeroize();
 
         let mut hasher = blake3::Hasher::new();
         hasher.update(b"YNTRA_ZKP_ROLE_COMMITMENT_V3");
@@ -658,41 +651,37 @@ impl ZkCryptoTrust {
 
     pub fn derive_public_key(
         &self,
-        mut passkey_seed: String,
+        passkey_seed: String,
     ) -> Result<String, YntraError> {
-        let seed_zeroed = zeroize::Zeroizing::new(passkey_seed.clone());
+        let passkey_seed_zeroed = zeroize::Zeroizing::new(passkey_seed);
         let context_str = crate::infra::crypto::CryptoDomain::UserKeyDerivation.get_context(1)?;
         let mut key_hasher = blake3::Hasher::new_derive_key(context_str);
-        key_hasher.update(seed_zeroed.as_bytes());
+        key_hasher.update(passkey_seed_zeroed.as_bytes());
         let mut private_key_bytes = zeroize::Zeroizing::new([0u8; 32]);
         key_hasher.finalize_xof().fill(&mut *private_key_bytes);
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key_bytes);
-        passkey_seed.zeroize();
         Ok(const_hex::encode(signing_key.verifying_key().to_bytes()))
     }
 
     #[allow(non_snake_case)]
     pub fn generate_ring_compliance_proof(
         &self,
-        mut passkey_seed: String,
+        passkey_seed: String,
         data_hex: String,
         ring_public_keys: Vec<String>,
     ) -> Result<String, YntraError> {
-        let seed_zeroed = zeroize::Zeroizing::new(passkey_seed.clone());
+        let passkey_seed_zeroed = zeroize::Zeroizing::new(passkey_seed);
         if ring_public_keys.is_empty() {
-            passkey_seed.zeroize();
             return Err(YntraError::CryptoError("Ring cannot be empty".to_string()));
         }
 
         if data_hex.len() > 10_000_000 {
-            passkey_seed.zeroize();
             return Err(YntraError::CryptoError("Data payload is too large".to_string()));
         }
 
         let data_bytes = match const_hex::decode(&data_hex) {
             Ok(d) => d,
             Err(e) => {
-                passkey_seed.zeroize();
                 return Err(YntraError::CryptoError(e.to_string()));
             }
         };
@@ -705,12 +694,10 @@ impl ZkCryptoTrust {
             let pk_bytes = match const_hex::decode(pk_hex) {
                 Ok(b) => b,
                 Err(e) => {
-                    passkey_seed.zeroize();
                     return Err(YntraError::CryptoError(e.to_string()));
                 }
             };
             if pk_bytes.len() != 32 {
-                passkey_seed.zeroize();
                 return Err(YntraError::CryptoError("Invalid public key length".to_string()));
             }
             let mut arr = [0u8; 32];
@@ -718,7 +705,6 @@ impl ZkCryptoTrust {
             let point = match CompressedEdwardsY(arr).decompress() {
                 Some(p) => p,
                 None => {
-                    passkey_seed.zeroize();
                     return Err(YntraError::CryptoError("Invalid public key point".to_string()));
                 }
             };
@@ -726,14 +712,12 @@ impl ZkCryptoTrust {
         }
 
         // 2. Derive our signer keypair
-        let x = match derive_scalar_from_seed(&seed_zeroed) {
+        let x = match derive_scalar_from_seed(&passkey_seed_zeroed) {
             Ok(val) => val,
             Err(e) => {
-                passkey_seed.zeroize();
                 return Err(e);
             }
         };
-        passkey_seed.zeroize();
         let my_public_point = x * ED25519_BASEPOINT_POINT;
         let my_public_bytes = my_public_point.compress().to_bytes();
 
@@ -811,7 +795,7 @@ impl ZkCryptoTrust {
 
         // 5. Generate Schema Validity ZKP
         let is_valid_len = !data_bytes.is_empty() && data_bytes.len() < 10_000_000;
-        let (C_comp, schema_e, schema_s) = generate_schema_zkp(is_valid_len)?;
+        let (C_comp, schema_e, schema_s) = generate_schema_zkp(is_valid_len, data_hash_bytes)?;
 
         // 6. Serialize proof: c_0 || s_0 || s_1 || ... || s_{n-1} || C_comp || schema_e || schema_s
         let mut proof = Vec::new();
@@ -902,7 +886,11 @@ impl ZkCryptoTrust {
         let schema_e = Scalar::from_bytes_mod_order(e_bytes);
         let schema_s = Scalar::from_bytes_mod_order(s_schema_bytes);
 
-        if !verify_schema_zkp(schema_C, schema_e, schema_s) {
+        let data_hash_arr: [u8; 32] = match data_hash_bytes.clone().try_into() {
+            Ok(arr) => arr,
+            Err(_) => return Ok(false),
+        };
+        if !verify_schema_zkp(schema_C, schema_e, schema_s, &data_hash_arr) {
             return Ok(false);
         }
 
@@ -938,21 +926,19 @@ impl ZkCryptoTrust {
     #[allow(non_snake_case)]
     pub fn generate_ring_role_proof(
         &self,
-        mut passkey_seed: String,
+        passkey_seed: String,
         user_id: String,
         role: String,
         role_public_keys: Vec<String>,
     ) -> Result<String, YntraError> {
         let _ = user_id;
-        let seed_zeroed = zeroize::Zeroizing::new(passkey_seed.clone());
+        let passkey_seed_zeroed = zeroize::Zeroizing::new(passkey_seed);
         if role_public_keys.is_empty() {
-            passkey_seed.zeroize();
             return Err(YntraError::CryptoError("Role ring cannot be empty".to_string()));
         }
 
         let mut salt_bytes = [0u8; 32];
         if let Err(e) = getrandom::fill(&mut salt_bytes) {
-            passkey_seed.zeroize();
             return Err(YntraError::CryptoError(e.to_string()));
         }
 
@@ -968,12 +954,10 @@ impl ZkCryptoTrust {
             let pk_bytes = match const_hex::decode(pk_hex) {
                 Ok(b) => b,
                 Err(e) => {
-                    passkey_seed.zeroize();
                     return Err(YntraError::CryptoError(e.to_string()));
                 }
             };
             if pk_bytes.len() != 32 {
-                passkey_seed.zeroize();
                 return Err(YntraError::CryptoError("Invalid public key length".to_string()));
             }
             let mut arr = [0u8; 32];
@@ -981,21 +965,18 @@ impl ZkCryptoTrust {
             let point = match CompressedEdwardsY(arr).decompress() {
                 Some(p) => p,
                 None => {
-                    passkey_seed.zeroize();
                     return Err(YntraError::CryptoError("Invalid public key point".to_string()));
                 }
             };
             ring_points.push(point);
         }
 
-        let x = match derive_scalar_from_seed(&seed_zeroed) {
+        let x = match derive_scalar_from_seed(&passkey_seed_zeroed) {
             Ok(val) => val,
             Err(e) => {
-                passkey_seed.zeroize();
                 return Err(e);
             }
         };
-        passkey_seed.zeroize();
         let my_public_point = x * ED25519_BASEPOINT_POINT;
         let my_public_bytes = my_public_point.compress().to_bytes();
 

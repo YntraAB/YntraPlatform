@@ -132,12 +132,82 @@ fn test_zk_envelope_encryption_and_proof() {
 
     let invalid_role_proof = "not_a_valid_proof_hex_string_too_short".to_string();
     assert!(!trust.verify_proof(invalid_role_proof, "user_123".to_string(), "Admin".to_string(), public_key_hex.clone()));
+}
 
+#[test]
+fn test_zkp_schema_proof_hijacking_prevention() {
+    let trust = ZkCryptoTrust::new();
+    let passkey_seed_1 = "my_secure_seed_1".to_string();
+    let passkey_seed_2 = "my_secure_seed_2".to_string();
+
+    // Derive public keys for verification
+    let pk_hex_2 = trust.derive_public_key(passkey_seed_2.clone()).unwrap();
+
+    // 1. Generate valid proof 1 (representing a valid transaction/document)
+    let sensitive_data_1 = "Valid content".to_string();
+    let ciphertext_1 = trust.encrypt_workspace_field(passkey_seed_1.clone(), sensitive_data_1).unwrap();
+    let proof_1_hex = trust.generate_compliance_proof(
+        passkey_seed_1.clone(),
+        ciphertext_1.clone(),
+        "user_1".to_string(),
+        "user".to_string(),
+    ).unwrap();
+
+    let proof_1_bytes = const_hex::decode(&proof_1_hex).unwrap();
+    assert_eq!(proof_1_bytes.len(), 269);
+    // Extracted schema proof fields from proof 1
+    let schema_c_bytes = &proof_1_bytes[173..205];
+    let schema_e_bytes = &proof_1_bytes[205..237];
+    let schema_s_bytes = &proof_1_bytes[237..269];
+
+    // 2. Generate another valid proof 2 (representing a different transaction/document)
+    let sensitive_data_2 = "Different valid content".to_string();
+    let ciphertext_2 = trust.encrypt_workspace_field(passkey_seed_2.clone(), sensitive_data_2).unwrap();
+    let proof_2_hex = trust.generate_compliance_proof(
+        passkey_seed_2.clone(),
+        ciphertext_2.clone(),
+        "user_2".to_string(),
+        "user".to_string(),
+    ).unwrap();
+
+    let proof_2_bytes = const_hex::decode(&proof_2_hex).unwrap();
+    
+    // 3. Construct a forged proof payload:
+    // It uses all elements of proof 2 (so its signature matches ciphertext 2)
+    // but replaces the schema validation ZKP fields with the ones hijacked from proof 1!
+    let mut proof_forged_bytes = proof_2_bytes.clone();
+    proof_forged_bytes[173..205].copy_from_slice(schema_c_bytes);
+    proof_forged_bytes[205..237].copy_from_slice(schema_e_bytes);
+    proof_forged_bytes[237..269].copy_from_slice(schema_s_bytes);
+    
+    let proof_forged_hex = const_hex::encode(&proof_forged_bytes);
+    
+    // 4. Try to verify the forged proof against ciphertext 2's data hash.
+    // If our schema ZKP binding fix works, it must fail because the schema ZKP was bound
+    // to ciphertext 1's commitment, not ciphertext 2's!
+    let ciphertext_2_bytes = const_hex::decode(&ciphertext_2).unwrap();
+    let data_hash_2 = blake3::hash(&ciphertext_2_bytes);
+    let data_hash_2_hex = const_hex::encode(data_hash_2.as_bytes());
+
+    let is_valid = trust.verify_compliance_proof(
+        proof_forged_hex,
+        "user_2".to_string(),
+        "user".to_string(),
+        data_hash_2_hex,
+        pk_hex_2,
+    ).unwrap();
+
+    assert!(!is_valid, "ZKP Schema Proof Hijacking succeeded! The system accepted a transposed schema proof!");
+}
+
+#[test]
+fn test_ring_signatures_aos() {
     // --- Test Ring Signatures (AOS ZKP) ---
     let passkey_seed_1 = "seed_1_secret".to_string();
     let passkey_seed_2 = "seed_2_secret".to_string();
     let passkey_seed_3 = "seed_3_secret".to_string();
 
+    let trust = ZkCryptoTrust::new();
     let pk_1 = trust.derive_public_key(passkey_seed_1.clone()).unwrap();
     let pk_2 = trust.derive_public_key(passkey_seed_2.clone()).unwrap();
     let pk_3 = trust.derive_public_key(passkey_seed_3.clone()).unwrap();
@@ -904,6 +974,211 @@ fn test_pool_poisoning_recovery() {
     guard.push_back("recovered".to_string());
     assert_eq!(guard.pop_front().as_deref(), Some("recovered"));
 }
+
+#[test]
+fn test_zkp_schema_proof_hijacking_variants() {
+    let trust = ZkCryptoTrust::new();
+    let passkey_seed_1 = "my_secure_seed_1".to_string();
+    let passkey_seed_2 = "my_secure_seed_2".to_string();
+
+    let pk_hex_2 = trust.derive_public_key(passkey_seed_2.clone()).unwrap();
+
+    let sensitive_data_1 = "Valid content".to_string();
+    let ciphertext_1 = trust.encrypt_workspace_field(passkey_seed_1.clone(), sensitive_data_1).unwrap();
+    let proof_1_hex = trust.generate_compliance_proof(
+        passkey_seed_1.clone(),
+        ciphertext_1.clone(),
+        "user_1".to_string(),
+        "user".to_string(),
+    ).unwrap();
+
+    let proof_1_bytes = const_hex::decode(&proof_1_hex).unwrap();
+    let schema_c_bytes = &proof_1_bytes[173..205];
+    let schema_e_bytes = &proof_1_bytes[205..237];
+    let schema_s_bytes = &proof_1_bytes[237..269];
+
+    let sensitive_data_2 = "Different valid content".to_string();
+    let ciphertext_2 = trust.encrypt_workspace_field(passkey_seed_2.clone(), sensitive_data_2).unwrap();
+    let proof_2_hex = trust.generate_compliance_proof(
+        passkey_seed_2.clone(),
+        ciphertext_2.clone(),
+        "user_2".to_string(),
+        "user".to_string(),
+    ).unwrap();
+
+    let proof_2_bytes = const_hex::decode(&proof_2_hex).unwrap();
+    let ciphertext_2_bytes = const_hex::decode(&ciphertext_2).unwrap();
+    let data_hash_2 = blake3::hash(&ciphertext_2_bytes);
+    let data_hash_2_hex = const_hex::encode(data_hash_2.as_bytes());
+
+    // Variant 1: Hijack only schema_c
+    let mut proof_forged_c = proof_2_bytes.clone();
+    proof_forged_c[173..205].copy_from_slice(schema_c_bytes);
+    let is_valid_c = trust.verify_compliance_proof(
+        const_hex::encode(&proof_forged_c),
+        "user_2".to_string(),
+        "user".to_string(),
+        data_hash_2_hex.clone(),
+        pk_hex_2.clone(),
+    ).unwrap();
+    assert!(!is_valid_c, "ZKP Schema Proof Hijacking succeeded with transposed schema_c!");
+
+    // Variant 2: Hijack only schema_e
+    let mut proof_forged_e = proof_2_bytes.clone();
+    proof_forged_e[205..237].copy_from_slice(schema_e_bytes);
+    let is_valid_e = trust.verify_compliance_proof(
+        const_hex::encode(&proof_forged_e),
+        "user_2".to_string(),
+        "user".to_string(),
+        data_hash_2_hex.clone(),
+        pk_hex_2.clone(),
+    ).unwrap();
+    assert!(!is_valid_e, "ZKP Schema Proof Hijacking succeeded with transposed schema_e!");
+
+    // Variant 3: Hijack only schema_s
+    let mut proof_forged_s = proof_2_bytes.clone();
+    proof_forged_s[237..269].copy_from_slice(schema_s_bytes);
+    let is_valid_s = trust.verify_compliance_proof(
+        const_hex::encode(&proof_forged_s),
+        "user_2".to_string(),
+        "user".to_string(),
+        data_hash_2_hex.clone(),
+        pk_hex_2.clone(),
+    ).unwrap();
+    assert!(!is_valid_s, "ZKP Schema Proof Hijacking succeeded with transposed schema_s!");
+}
+
+#[test]
+fn test_memory_zeroization_empirical() {
+    use zeroize::Zeroize;
+
+    let mut secret = "my_super_secret_password_12345".to_string();
+    let ptr = secret.as_ptr();
+    let len = secret.len();
+
+    // Inspect initial memory to confirm secret is present
+    let initial_bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
+    assert_eq!(initial_bytes, b"my_super_secret_password_12345");
+
+    // Zeroize the secret
+    secret.zeroize();
+
+    // After zeroize(), the memory must be overwritten with zeroes
+    let zeroized_bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
+    let all_zeroes = zeroized_bytes.iter().all(|&b| b == 0);
+    assert!(all_zeroes, "Memory was not zeroized! Bytes found: {:?}", zeroized_bytes);
+}
+
+#[test]
+fn test_zeroizing_wrapper_empirical() {
+    use zeroize::Zeroizing;
+
+    let ptr;
+    let len;
+    {
+        let secret = Zeroizing::new("another_secret_password_to_check".to_string());
+        ptr = secret.as_ptr();
+        len = secret.len();
+        
+        let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
+        assert_eq!(bytes, b"another_secret_password_to_check");
+    }
+
+    // After Zeroizing wrapper goes out of scope, the memory must be cleared
+    let bytes_after = unsafe { std::slice::from_raw_parts(ptr, len) };
+    let all_zeroes = bytes_after.iter().all(|&b| b == 0);
+    assert!(all_zeroes, "Zeroizing wrapper failed to clear memory! Bytes found: {:?}", bytes_after);
+}
+
+#[test]
+fn test_security_patches_zeroization_empirical() {
+    use crate::ZkCryptoTrust;
+    use crate::infra::crypto::encrypt_workspace_key_with_password;
+    use crate::infra::crypto::decrypt_workspace_key_with_password;
+
+    let trust = ZkCryptoTrust::new();
+
+    // 1. Verify derive_public_key zeroizes passkey_seed (Success path)
+    {
+        let mut passkey_seed = "seed_for_derive_public_key_zeroization_check".to_string();
+        let ptr = passkey_seed.as_ptr();
+        let len = passkey_seed.len();
+        
+        let res = trust.derive_public_key(passkey_seed);
+        assert!(res.is_ok());
+
+        let bytes_after = unsafe { std::slice::from_raw_parts(ptr, len) };
+        let all_zeroes = bytes_after.iter().all(|&b| b == 0);
+        assert!(all_zeroes, "derive_public_key failed to zeroize passkey_seed! Bytes: {:?}", bytes_after);
+    }
+
+    // 2. Verify generate_role_proof zeroizes passkey_seed (Success path)
+    {
+        let mut passkey_seed = "seed_for_generate_role_proof_zeroization_check".to_string();
+        let ptr = passkey_seed.as_ptr();
+        let len = passkey_seed.len();
+        
+        let res = trust.generate_role_proof(passkey_seed, "user_123".to_string(), "Admin".to_string());
+        assert!(res.is_ok());
+
+        let bytes_after = unsafe { std::slice::from_raw_parts(ptr, len) };
+        let all_zeroes = bytes_after.iter().all(|&b| b == 0);
+        assert!(all_zeroes, "generate_role_proof failed to zeroize passkey_seed! Bytes: {:?}", bytes_after);
+    }
+
+    // 3. Verify encrypt_workspace_key_with_password zeroizes password and workspace_key (Success path)
+    {
+        let mut password = "password_for_encrypt_workspace_key".to_string();
+        let pwd_ptr = password.as_ptr();
+        let pwd_len = password.len();
+
+        let mut workspace_key = vec![42u8; 32];
+        let key_ptr = workspace_key.as_ptr();
+        let key_len = workspace_key.len();
+
+        let res = encrypt_workspace_key_with_password(password, workspace_key);
+        assert!(res.is_ok());
+
+        let pwd_bytes_after = unsafe { std::slice::from_raw_parts(pwd_ptr, pwd_len) };
+        assert!(pwd_bytes_after.iter().all(|&b| b == 0), "encrypt_workspace_key_with_password failed to zeroize password!");
+
+        let key_bytes_after = unsafe { std::slice::from_raw_parts(key_ptr, key_len) };
+        assert!(key_bytes_after.iter().all(|&b| b == 0), "encrypt_workspace_key_with_password failed to zeroize workspace_key!");
+    }
+
+    // 4. Verify decrypt_workspace_key_with_password zeroizes password (Early return / Error path)
+    {
+        let mut password = "password_for_decrypt_workspace_key_error".to_string();
+        let pwd_ptr = password.as_ptr();
+        let pwd_len = password.len();
+
+        // Trigger early return by passing invalid envelope format
+        let res = decrypt_workspace_key_with_password(password, "invalid_envelope");
+        assert!(res.is_err());
+
+        let pwd_bytes_after = unsafe { std::slice::from_raw_parts(pwd_ptr, pwd_len) };
+        assert!(pwd_bytes_after.iter().all(|&b| b == 0), "decrypt_workspace_key_with_password failed to zeroize password on early return!");
+    }
+}
+
+#[test]
+fn test_panic_zeroization_empirical() {
+    use zeroize::Zeroizing;
+    let mut secret = "secret_to_be_zeroized_on_panic".to_string();
+    let ptr = secret.as_ptr();
+    let len = secret.len();
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _secret_zeroed = Zeroizing::new(secret);
+        panic!("simulated panic");
+    }));
+    assert!(result.is_err());
+
+    let bytes_after = unsafe { std::slice::from_raw_parts(ptr, len) };
+    let all_zeroes = bytes_after.iter().all(|&b| b == 0);
+    assert!(all_zeroes, "Zeroizing failed to clear memory on panic/unwinding!");
+}
+
 
 
 
