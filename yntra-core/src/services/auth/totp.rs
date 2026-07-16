@@ -127,8 +127,11 @@ mod tests {
     use super::*;
     use totp_rs::{Algorithm, Secret, TOTP};
 
+    static TOTP_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn test_totp_generation_and_verification() {
+        let _lock = TOTP_TEST_LOCK.lock().unwrap();
         let secret_str = generate_totp_secret();
         assert!(!secret_str.is_empty());
 
@@ -156,6 +159,7 @@ mod tests {
 
     #[test]
     fn test_totp_sliding_window_skew_replay() {
+        let _lock = TOTP_TEST_LOCK.lock().unwrap();
         let secret_str = generate_totp_secret();
         let secret_bytes = Secret::Encoded(secret_str.clone()).to_bytes().unwrap();
         let totp = TOTP::new(Algorithm::SHA1, 6, 1, 30, secret_bytes).unwrap();
@@ -192,6 +196,7 @@ mod tests {
 
     #[test]
     fn test_totp_cache_pruning() {
+        let _lock = TOTP_TEST_LOCK.lock().unwrap();
         let secret1 = generate_totp_secret();
         let secret2 = generate_totp_secret();
         
