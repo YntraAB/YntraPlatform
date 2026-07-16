@@ -114,10 +114,15 @@ impl WorkspaceKeyPair {
     pub fn public_key(&self) -> String {
         self.public_key.clone()
     }
+}
 
+// Internal Rust-only methods (not exported to FFI)
+impl WorkspaceKeyPair {
     /// Returns the private key hex string.
-    pub fn private_key(&self) -> String {
-        self.private_key.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    pub fn private_key(&self) -> zeroize::Zeroizing<String> {
+        zeroize::Zeroizing::new(
+            self.private_key.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        )
     }
 }
 
