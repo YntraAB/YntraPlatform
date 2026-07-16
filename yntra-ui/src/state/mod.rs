@@ -282,7 +282,7 @@ pub fn use_init_app_state() -> AppState {
                                 .clone()
                                 .unwrap_or_else(|| "workspace-1".to_string());
                             if !is_session_key_set() {
-                                let _ = load_local_workspace_key(ws_id.clone()).await;
+                                let _ = load_local_workspace_key(ws_id.clone(), uid.clone()).await;
                             }
                             let _ = load_workspace_zero_copy_stores(ws_id).await;
                             active_role_sig.set(user.role.clone());

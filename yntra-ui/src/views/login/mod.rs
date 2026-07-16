@@ -312,7 +312,7 @@ pub fn LoginView(props: LoginViewProps) -> Element {
                                 });
                             }
                         } else if s.status == "error" {
-                            let err_msg = s.pin.clone();
+                            let err_msg = s.error_message.clone().unwrap_or_default();
                             let final_msg = if err_msg.is_empty() {
                                 t("login-hw-error-card-unregistered", &region)
                             } else if err_msg.starts_with("login-hw-error-") {

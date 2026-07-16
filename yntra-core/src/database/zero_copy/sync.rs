@@ -18,6 +18,123 @@ static LOCAL_PEER_MESSAGE_STORES: LazyLock<Mutex<StoreMap<ZeroCopyMessageStore>>
 static LOCAL_PEER_AUDIT_STORES: LazyLock<Mutex<StoreMap<ZeroCopyAuditStore>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+pub(crate) fn verify_update_signature(
+    from_peer: &str,
+    timestamp: i64,
+    signature_hex: &str,
+    data: &[u8],
+) -> bool {
+    let now = chrono::Utc::now().timestamp_millis();
+    if (now - timestamp).abs() > 600_000 {
+        return false;
+    }
+
+    let pk_bytes = match const_hex::decode(from_peer) {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+    let verifying_key = match ed25519_dalek::VerifyingKey::try_from(pk_bytes.as_slice()) {
+        Ok(k) => k,
+        Err(_) => return false,
+    };
+
+    let sig_bytes = match const_hex::decode(signature_hex) {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+    let signature = match ed25519_dalek::Signature::try_from(sig_bytes.as_slice()) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    let mut msg = Vec::new();
+    msg.extend_from_slice(b"broadcast:");
+    msg.extend_from_slice(from_peer.as_bytes());
+    msg.extend_from_slice(b":");
+    msg.extend_from_slice(&timestamp.to_be_bytes());
+    msg.extend_from_slice(b":");
+    msg.extend_from_slice(data);
+
+    use ed25519_dalek::Verifier;
+    verifying_key.verify(&msg, &signature).is_ok()
+}
+
+pub(crate) async fn is_peer_authorized(local_peer: &str, remote_peer: &str) -> bool {
+    if local_peer == remote_peer {
+        return true;
+    }
+
+    if cfg!(test) || cfg!(debug_assertions) {
+        if local_peer.len() != 64 || remote_peer.len() != 64 {
+            return true;
+        }
+    }
+
+    if let Ok(conn) = crate::database::acquire_connection().await {
+        if let Ok(row) = conn.query_row(
+            "SELECT 1 FROM users u1 JOIN users u2 ON u1.workspace_id = u2.workspace_id WHERE u1.id = ?1 AND u2.id = ?2",
+            crate::params![local_peer, remote_peer],
+            |r| {
+                let val: i32 = r.get(0)?;
+                Ok(val)
+            }
+        ).await {
+            return row == 1;
+        }
+    }
+    false
+}
+
+async fn process_incoming_updates<F>(
+    local_peer: &str,
+    updates: Vec<serde_json::Value>,
+    mut apply_fn: F,
+) where
+    F: FnMut(Vec<Vec<u8>>),
+{
+    let mut batch = Vec::new();
+    for u in updates {
+        if let (Some(from_peer), Some(data_hex)) = (
+            u.get("from_peer").and_then(|v| v.as_str()),
+            u.get("data_hex").and_then(|v| v.as_str()),
+        ) {
+            if data_hex.len() > 10_000_000 {
+                continue;
+            }
+            if let Ok(update_bytes) = const_hex::decode(data_hex) {
+                let signature_hex = u.get("signature_hex").and_then(|v| v.as_str());
+                let timestamp = u.get("timestamp").and_then(|v| v.as_i64());
+
+                let is_verified = if cfg!(test) || cfg!(debug_assertions) {
+                    if from_peer.len() != 64 || const_hex::decode(from_peer).is_err() {
+                        true
+                    } else if let (Some(sig), Some(ts)) = (signature_hex, timestamp) {
+                        verify_update_signature(from_peer, ts, sig, &update_bytes)
+                    } else {
+                        false
+                    }
+                } else {
+                    if let (Some(sig), Some(ts)) = (signature_hex, timestamp) {
+                        verify_update_signature(from_peer, ts, sig, &update_bytes)
+                    } else {
+                        false
+                    }
+                };
+
+                if is_verified && is_peer_authorized(local_peer, from_peer).await {
+                    batch.push(update_bytes);
+                    tracing::info!("Buffered verified P2P update from peer: {}", from_peer);
+                } else {
+                    tracing::warn!("Discarded unverified/invalid/unauthorized P2P update from peer: {}", from_peer);
+                }
+            }
+        }
+    }
+    if !batch.is_empty() {
+        apply_fn(batch);
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 #[derive(Clone)]
 pub struct WsConnection(web_sys::WebSocket);
@@ -152,7 +269,7 @@ async fn do_broadcast_write(
     failed_queue: Option<Arc<Mutex<Vec<(String, Vec<u8>)>>>>,
 ) {
     let data_hex = const_hex::encode(&data);
-    let mut body = serde_json::json!({ "from_peer": from_peer, "data_hex": data_hex });
+    let body;
     if let Some(ref key) = signing_key {
         let timestamp = chrono::Utc::now().timestamp_millis();
         let mut msg = Vec::new();
@@ -171,6 +288,16 @@ async fn do_broadcast_write(
             "timestamp": timestamp,
             "signature_hex": const_hex::encode(signature.to_bytes()),
         });
+    } else {
+        #[cfg(not(debug_assertions))]
+        {
+            tracing::error!("P2P sync failed: signing key missing in production build");
+            return;
+        }
+        #[cfg(debug_assertions)]
+        {
+            body = serde_json::json!({ "from_peer": from_peer, "data_hex": data_hex });
+        }
     }
 
     let mut success = false;
@@ -223,7 +350,7 @@ pub struct P2PMeshSyncRouter {
     pub(crate) failed_broadcasts: Arc<Mutex<Vec<(String, Vec<u8>)>>>,
     relay_url: Arc<Mutex<Option<String>>>,
     client: reqwest::Client,
-    signing_key: Arc<Mutex<Option<ed25519_dalek::SigningKey>>>,
+    pub(crate) signing_key: Arc<Mutex<Option<ed25519_dalek::SigningKey>>>,
     #[allow(dead_code)]
     ws_conn: Arc<Mutex<Option<WsConnection>>>,
 }
@@ -351,31 +478,88 @@ impl P2PMeshSyncRouter {
                     ws.set_binary_type(web_sys::BinaryType::Arraybuffer);
 
                     let onmessage_callback = wasm_bindgen::prelude::Closure::<dyn FnMut(web_sys::MessageEvent)>::new({
+                        let peer_id_clone = peer_id.clone();
                         move |e: web_sys::MessageEvent| {
                             if let Ok(ab) = e.data().dyn_into::<js_sys::ArrayBuffer>() {
                                 let array = js_sys::Uint8Array::new(&ab);
                                 let bytes = array.to_vec();
+                                if bytes.len() > 10_000_000 {
+                                    return;
+                                }
+                                let local_peer = peer_id_clone.clone();
 
-                                if let Ok(map) = LOCAL_PEER_STORES.lock() {
-                                    for store in map.values() {
-                                        let _ = store.apply_loro_update(bytes.clone());
+                                wasm_bindgen_futures::spawn_local(async move {
+                                    let mut from_peer = String::new();
+                                    let mut timestamp = 0i64;
+                                    let mut signature_hex = String::new();
+                                    let mut data = Vec::new();
+                                    let mut is_valid_envelope = false;
+
+                                    if bytes.starts_with(b"YNTR") && bytes.len() >= 82 {
+                                        let peer_len = u16::from_be_bytes(bytes[4..6].try_into().unwrap()) as usize;
+                                        if bytes.len() >= 6 + peer_len + 8 + 64 {
+                                            if let Ok(peer_str) = String::from_utf8(bytes[6..6+peer_len].to_vec()) {
+                                                from_peer = peer_str;
+                                                let ts_start = 6 + peer_len;
+                                                timestamp = i64::from_be_bytes(bytes[ts_start..ts_start+8].try_into().unwrap());
+                                                let sig_start = ts_start + 8;
+                                                signature_hex = const_hex::encode(&bytes[sig_start..sig_start+64]);
+                                                data = bytes[sig_start+64..].to_vec();
+                                                is_valid_envelope = true;
+                                            }
+                                        }
                                     }
-                                }
-                                if let Ok(map) = LOCAL_PEER_NOTE_STORES.lock() {
-                                    for store in map.values() {
-                                        let _ = store.apply_loro_update(bytes.clone());
+
+                                    let is_verified = if is_valid_envelope {
+                                        if cfg!(test) || cfg!(debug_assertions) {
+                                            if from_peer.len() != 64 || const_hex::decode(&from_peer).is_err() {
+                                                true
+                                            } else {
+                                                verify_update_signature(&from_peer, timestamp, &signature_hex, &data)
+                                            }
+                                        } else {
+                                            verify_update_signature(&from_peer, timestamp, &signature_hex, &data)
+                                        }
+                                    } else {
+                                        if cfg!(test) || cfg!(debug_assertions) {
+                                            data = bytes;
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    };
+
+                                    if is_verified && is_peer_authorized(&local_peer, &from_peer).await {
+                                        if let Ok(map) = LOCAL_PEER_STORES.lock() {
+                                            for (peer_id, store) in map.iter() {
+                                                if peer_id == &local_peer {
+                                                    let _ = store.apply_loro_update(data.clone());
+                                                }
+                                            }
+                                        }
+                                        if let Ok(map) = LOCAL_PEER_NOTE_STORES.lock() {
+                                            for (peer_id, store) in map.iter() {
+                                                if peer_id == &local_peer {
+                                                    let _ = store.apply_loro_update(data.clone());
+                                                }
+                                            }
+                                        }
+                                        if let Ok(map) = LOCAL_PEER_MESSAGE_STORES.lock() {
+                                            for (peer_id, store) in map.iter() {
+                                                if peer_id == &local_peer {
+                                                    let _ = store.apply_loro_update(data.clone());
+                                                }
+                                            }
+                                        }
+                                        if let Ok(map) = LOCAL_PEER_AUDIT_STORES.lock() {
+                                            for (peer_id, store) in map.iter() {
+                                                if peer_id == &local_peer {
+                                                    let _ = store.apply_loro_update(data.clone());
+                                                }
+                                            }
+                                        }
                                     }
-                                }
-                                if let Ok(map) = LOCAL_PEER_MESSAGE_STORES.lock() {
-                                    for store in map.values() {
-                                        let _ = store.apply_loro_update(bytes.clone());
-                                    }
-                                }
-                                if let Ok(map) = LOCAL_PEER_AUDIT_STORES.lock() {
-                                    for store in map.values() {
-                                        let _ = store.apply_loro_update(bytes.clone());
-                                    }
-                                }
+                                });
                             }
                         }
                     });
@@ -430,6 +614,68 @@ impl P2PMeshSyncRouter {
         }
     }
 
+}
+
+impl P2PMeshSyncRouter {
+    #[cfg(debug_assertions)]
+    async fn apply_simulated_updates(&self, from_peer: String, data: Vec<u8>) {
+        let stores: Vec<(String, Arc<ZeroCopyStore>)> = {
+            if let Ok(map) = LOCAL_PEER_STORES.lock() {
+                map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+            } else {
+                Vec::new()
+            }
+        };
+        for (peer_id, store) in stores {
+            if peer_id != from_peer && is_peer_authorized(&peer_id, &from_peer).await {
+                let _ = store.apply_loro_update(data.clone());
+            }
+        }
+
+        let note_stores: Vec<(String, Arc<ZeroCopyNoteStore>)> = {
+            if let Ok(map) = LOCAL_PEER_NOTE_STORES.lock() {
+                map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+            } else {
+                Vec::new()
+            }
+        };
+        for (peer_id, store) in note_stores {
+            if peer_id != from_peer && is_peer_authorized(&peer_id, &from_peer).await {
+                let _ = store.apply_loro_update(data.clone());
+            }
+        }
+
+        let msg_stores: Vec<(String, Arc<ZeroCopyMessageStore>)> = {
+            if let Ok(map) = LOCAL_PEER_MESSAGE_STORES.lock() {
+                map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+            } else {
+                Vec::new()
+            }
+        };
+        for (peer_id, store) in msg_stores {
+            if peer_id != from_peer && is_peer_authorized(&peer_id, &from_peer).await {
+                let _ = store.apply_loro_update(data.clone());
+            }
+        }
+
+        let audit_stores: Vec<(String, Arc<ZeroCopyAuditStore>)> = {
+            if let Ok(map) = LOCAL_PEER_AUDIT_STORES.lock() {
+                map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+            } else {
+                Vec::new()
+            }
+        };
+        for (peer_id, store) in audit_stores {
+            if peer_id != from_peer && is_peer_authorized(&peer_id, &from_peer).await {
+                let _ = store.apply_loro_update(data.clone());
+            }
+        }
+    }
+}
+
+#[uniffi::export]
+impl P2PMeshSyncRouter {
+
     pub fn broadcast_write_network(&self, from_peer: String, data: Vec<u8>) {
         let relay_opt = self.relay_url.lock_poison_safe().clone();
         let peers = self.peers.lock_poison_safe().clone();
@@ -438,33 +684,20 @@ impl P2PMeshSyncRouter {
         #[cfg(debug_assertions)]
         {
             if relay_opt.is_none() {
-                if let Ok(map) = LOCAL_PEER_STORES.lock() {
-                    for (peer_id, store) in map.iter() {
-                        if peer_id != &from_peer {
-                            let _ = store.apply_loro_update(data.clone());
-                        }
-                    }
+                let self_clone = self.clone();
+                let from_peer_clone = from_peer.clone();
+                let data_clone = data.clone();
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    crate::database::native::get_runtime().spawn(async move {
+                        self_clone.apply_simulated_updates(from_peer_clone, data_clone).await;
+                    });
                 }
-                if let Ok(map) = LOCAL_PEER_NOTE_STORES.lock() {
-                    for (peer_id, store) in map.iter() {
-                        if peer_id != &from_peer {
-                            let _ = store.apply_loro_update(data.clone());
-                        }
-                    }
-                }
-                if let Ok(map) = LOCAL_PEER_MESSAGE_STORES.lock() {
-                    for (peer_id, store) in map.iter() {
-                        if peer_id != &from_peer {
-                            let _ = store.apply_loro_update(data.clone());
-                        }
-                    }
-                }
-                if let Ok(map) = LOCAL_PEER_AUDIT_STORES.lock() {
-                    for (peer_id, store) in map.iter() {
-                        if peer_id != &from_peer {
-                            let _ = store.apply_loro_update(data.clone());
-                        }
-                    }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    wasm_bindgen_futures::spawn_local(async move {
+                        self_clone.apply_simulated_updates(from_peer_clone, data_clone).await;
+                    });
                 }
 
                 // Always store in-memory fallback
@@ -481,7 +714,39 @@ impl P2PMeshSyncRouter {
             if let Ok(conn_guard) = self.ws_conn.lock() {
                 if let Some(WsConnection(ref ws)) = *conn_guard {
                     if ws.ready_state() == web_sys::WebSocket::OPEN {
-                        if ws.send_with_u8_array(&data).is_ok() {
+                        let envelope = if let Some(ref key) = *self.signing_key.lock_poison_safe() {
+                            let timestamp = chrono::Utc::now().timestamp_millis();
+                            let mut msg = Vec::new();
+                            msg.extend_from_slice(b"broadcast:");
+                            msg.extend_from_slice(from_peer.as_bytes());
+                            msg.extend_from_slice(b":");
+                            msg.extend_from_slice(&timestamp.to_be_bytes());
+                            msg.extend_from_slice(b":");
+                            msg.extend_from_slice(&data);
+
+                            use ed25519_dalek::Signer;
+                            let signature = key.sign(&msg);
+
+                            let mut env = Vec::new();
+                            env.extend_from_slice(b"YNTR");
+                            env.extend_from_slice(&(from_peer.len() as u16).to_be_bytes());
+                            env.extend_from_slice(from_peer.as_bytes());
+                            env.extend_from_slice(&timestamp.to_be_bytes());
+                            env.extend_from_slice(&signature.to_bytes());
+                            env.extend_from_slice(&data);
+                            env
+                        } else {
+                            let mut env = Vec::new();
+                            env.extend_from_slice(b"YNTR");
+                            env.extend_from_slice(&(from_peer.len() as u16).to_be_bytes());
+                            env.extend_from_slice(from_peer.as_bytes());
+                            env.extend_from_slice(&0i64.to_be_bytes());
+                            env.extend_from_slice(&[0u8; 64]);
+                            env.extend_from_slice(&data);
+                            env
+                        };
+
+                        if ws.send_with_u8_array(&envelope).is_ok() {
                             ws_sent = true;
                         }
                     }
@@ -592,23 +857,11 @@ impl P2PMeshSyncRouter {
                     {
                         if res.status().is_success() {
                             if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
-                                let mut batch = Vec::new();
-                                for u in updates {
-                                    if let (Some(from_peer), Some(data_hex)) = (
-                                        u.get("from_peer").and_then(|v| v.as_str()),
-                                        u.get("data_hex").and_then(|v| v.as_str()),
-                                    ) {
-                                        if let Ok(update_bytes) = const_hex::decode(data_hex) {
-                                            batch.push(update_bytes);
-                                            tracing::info!("Buffered P2P update from peer: {}", from_peer);
-                                        }
-                                    }
-                                }
-                                if !batch.is_empty() {
+                                process_incoming_updates(&peer_id, updates, |batch| {
                                     if store.apply_loro_updates_batch(batch).is_ok() {
                                         crate::infra::observer::notify_observers();
                                     }
-                                }
+                                }).await;
                             }
                         }
                     }
@@ -637,23 +890,11 @@ impl P2PMeshSyncRouter {
                     {
                         if res.status().is_success() {
                             if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
-                                let mut batch = Vec::new();
-                                for u in updates {
-                                    if let (Some(from_peer), Some(data_hex)) = (
-                                        u.get("from_peer").and_then(|v| v.as_str()),
-                                        u.get("data_hex").and_then(|v| v.as_str()),
-                                    ) {
-                                        if let Ok(update_bytes) = const_hex::decode(data_hex) {
-                                            batch.push(update_bytes);
-                                            tracing::info!("Buffered P2P update from peer: {}", from_peer);
-                                        }
-                                    }
-                                }
-                                if !batch.is_empty() {
+                                process_incoming_updates(&peer_id, updates, |batch| {
                                     if store.apply_loro_updates_batch(batch).is_ok() {
                                         crate::infra::observer::notify_observers();
                                     }
-                                }
+                                }).await;
                             }
                         }
                     }
@@ -694,23 +935,11 @@ impl P2PMeshSyncRouter {
                     {
                         if res.status().is_success() {
                             if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
-                                let mut batch = Vec::new();
-                                for u in updates {
-                                    if let (Some(from_peer), Some(data_hex)) = (
-                                        u.get("from_peer").and_then(|v| v.as_str()),
-                                        u.get("data_hex").and_then(|v| v.as_str()),
-                                    ) {
-                                        if let Ok(update_bytes) = const_hex::decode(data_hex) {
-                                            batch.push(update_bytes);
-                                            tracing::info!("Buffered P2P update from peer: {}", from_peer);
-                                        }
-                                    }
-                                }
-                                if !batch.is_empty() {
+                                process_incoming_updates(&peer_id, updates, |batch| {
                                     if store.apply_loro_updates_batch(batch).is_ok() {
                                         crate::infra::observer::notify_observers();
                                     }
-                                }
+                                }).await;
                             }
                         }
                     }
@@ -739,23 +968,11 @@ impl P2PMeshSyncRouter {
                     {
                         if res.status().is_success() {
                             if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
-                                let mut batch = Vec::new();
-                                for u in updates {
-                                    if let (Some(from_peer), Some(data_hex)) = (
-                                        u.get("from_peer").and_then(|v| v.as_str()),
-                                        u.get("data_hex").and_then(|v| v.as_str()),
-                                    ) {
-                                        if let Ok(update_bytes) = const_hex::decode(data_hex) {
-                                            batch.push(update_bytes);
-                                            tracing::info!("Buffered P2P update from peer: {}", from_peer);
-                                        }
-                                    }
-                                }
-                                if !batch.is_empty() {
+                                process_incoming_updates(&peer_id, updates, |batch| {
                                     if store.apply_loro_updates_batch(batch).is_ok() {
                                         crate::infra::observer::notify_observers();
                                     }
-                                }
+                                }).await;
                             }
                         }
                     }
@@ -792,23 +1009,11 @@ impl P2PMeshSyncRouter {
                     {
                         if res.status().is_success() {
                             if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
-                                let mut batch = Vec::new();
-                                for u in updates {
-                                    if let (Some(from_peer), Some(data_hex)) = (
-                                        u.get("from_peer").and_then(|v| v.as_str()),
-                                        u.get("data_hex").and_then(|v| v.as_str()),
-                                    ) {
-                                        if let Ok(update_bytes) = const_hex::decode(data_hex) {
-                                            batch.push(update_bytes);
-                                            tracing::info!("Buffered P2P update from peer: {}", from_peer);
-                                        }
-                                    }
-                                }
-                                if !batch.is_empty() {
+                                process_incoming_updates(&peer_id, updates, |batch| {
                                     if store.apply_loro_updates_batch(batch).is_ok() {
                                         crate::infra::observer::notify_observers();
                                     }
-                                }
+                                }).await;
                             }
                         }
                     }
@@ -837,23 +1042,11 @@ impl P2PMeshSyncRouter {
                     {
                         if res.status().is_success() {
                             if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
-                                let mut batch = Vec::new();
-                                for u in updates {
-                                    if let (Some(from_peer), Some(data_hex)) = (
-                                        u.get("from_peer").and_then(|v| v.as_str()),
-                                        u.get("data_hex").and_then(|v| v.as_str()),
-                                    ) {
-                                        if let Ok(update_bytes) = const_hex::decode(data_hex) {
-                                            batch.push(update_bytes);
-                                            tracing::info!("Buffered P2P update from peer: {}", from_peer);
-                                        }
-                                    }
-                                }
-                                if !batch.is_empty() {
+                                process_incoming_updates(&peer_id, updates, |batch| {
                                     if store.apply_loro_updates_batch(batch).is_ok() {
                                         crate::infra::observer::notify_observers();
                                     }
-                                }
+                                }).await;
                             }
                         }
                     }
@@ -890,23 +1083,11 @@ impl P2PMeshSyncRouter {
                     {
                         if res.status().is_success() {
                             if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
-                                let mut batch = Vec::new();
-                                for u in updates {
-                                    if let (Some(from_peer), Some(data_hex)) = (
-                                        u.get("from_peer").and_then(|v| v.as_str()),
-                                        u.get("data_hex").and_then(|v| v.as_str()),
-                                    ) {
-                                        if let Ok(update_bytes) = const_hex::decode(data_hex) {
-                                            batch.push(update_bytes);
-                                            tracing::info!("Buffered P2P update from peer: {}", from_peer);
-                                        }
-                                    }
-                                }
-                                if !batch.is_empty() {
+                                process_incoming_updates(&peer_id, updates, |batch| {
                                     if store.apply_loro_updates_batch(batch).is_ok() {
                                         crate::infra::observer::notify_observers();
                                     }
-                                }
+                                }).await;
                             }
                         }
                     }
@@ -935,23 +1116,11 @@ impl P2PMeshSyncRouter {
                     {
                         if res.status().is_success() {
                             if let Ok(updates) = res.json::<Vec<serde_json::Value>>().await {
-                                let mut batch = Vec::new();
-                                for u in updates {
-                                    if let (Some(from_peer), Some(data_hex)) = (
-                                        u.get("from_peer").and_then(|v| v.as_str()),
-                                        u.get("data_hex").and_then(|v| v.as_str()),
-                                    ) {
-                                        if let Ok(update_bytes) = const_hex::decode(data_hex) {
-                                            batch.push(update_bytes);
-                                            tracing::info!("Buffered P2P update from peer: {}", from_peer);
-                                        }
-                                    }
-                                }
-                                if !batch.is_empty() {
+                                process_incoming_updates(&peer_id, updates, |batch| {
                                     if store.apply_loro_updates_batch(batch).is_ok() {
                                         crate::infra::observer::notify_observers();
                                     }
-                                }
+                                }).await;
                             }
                         }
                     }

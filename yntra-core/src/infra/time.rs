@@ -13,7 +13,10 @@ pub fn get_current_time_str_hm() -> String {
 }
 
 #[cfg(target_arch = "wasm32")]
-struct SendFuture<F>(pub F);
+struct SendFuture<F> {
+    inner: F,
+    thread_id: std::thread::ThreadId,
+}
 
 #[cfg(target_arch = "wasm32")]
 unsafe impl<F> Send for SendFuture<F> {}
@@ -27,7 +30,10 @@ impl<F: std::future::Future> std::future::Future for SendFuture<F> {
     ) -> std::task::Poll<Self::Output> {
         unsafe {
             let mut_self = self.get_unchecked_mut();
-            let inner = std::pin::Pin::new_unchecked(&mut mut_self.0);
+            if std::thread::current().id() != mut_self.thread_id {
+                panic!("Safety violation: SendFuture polled on a different thread under WASM.");
+            }
+            let inner = std::pin::Pin::new_unchecked(&mut mut_self.inner);
             inner.poll(cx)
         }
     }
@@ -50,7 +56,10 @@ pub async fn sleep_ms(ms: u64) {
         let promise = js_sys::Promise::new(&mut |resolve, _| {
             let _ = set_timeout(&resolve, ms as i32);
         });
-        let _ = SendFuture(wasm_bindgen_futures::JsFuture::from(promise)).await;
+        let _ = SendFuture {
+            inner: wasm_bindgen_futures::JsFuture::from(promise),
+            thread_id: std::thread::current().id(),
+        }.await;
     }
 }
 

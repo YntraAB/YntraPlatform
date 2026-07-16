@@ -12,11 +12,15 @@ use wasm_bindgen::prelude::*;
 // implementing Send for JS-bound futures is safe and required to satisfy generic bounds.
 pub struct SendFuture<F> {
     inner: F,
+    thread_id: std::thread::ThreadId,
 }
 
 impl<F> SendFuture<F> {
     pub fn new(inner: F) -> Self {
-        Self { inner }
+        Self {
+            inner,
+            thread_id: std::thread::current().id(),
+        }
     }
 }
 
@@ -27,6 +31,9 @@ impl<F: Future> Future for SendFuture<F> {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut_self = unsafe { self.get_unchecked_mut() };
+        if std::thread::current().id() != mut_self.thread_id {
+            panic!("Safety violation: SendFuture polled on a different thread under WASM.");
+        }
         let inner = unsafe { Pin::new_unchecked(&mut mut_self.inner) };
         inner.poll(cx)
     }

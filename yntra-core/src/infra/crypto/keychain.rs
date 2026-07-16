@@ -13,6 +13,7 @@ pub trait SecureStorageProvider: Send + Sync {
 static SECURE_STORAGE_PROVIDER: std::sync::OnceLock<Box<dyn SecureStorageProvider>> =
     std::sync::OnceLock::new();
 
+/// Registers a secure storage provider callback for handling system secrets.
 #[uniffi::export]
 pub fn register_secure_storage_provider(provider: Box<dyn SecureStorageProvider>) -> bool {
     SECURE_STORAGE_PROVIDER.set(provider).is_ok()
@@ -231,11 +232,33 @@ pub async fn set_local_epoch_if_greater(
     .map_err(|e| YntraError::CryptoError(e.to_string()))?
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", test))]
 fn compute_integrity_hmac(key: &str, value: &str) -> Result<String, YntraError> {
     let salt = get_system_salt_ref()?;
+    let client_pepper = get_local_client_pepper()?;
 
-    let mut hasher = blake3::Hasher::new_derive_key("Yntra Local Storage Integrity v1");
+    let context_str = super::CryptoDomain::LocalStorageIntegrity.get_context(2)?;
+    let mut hasher = blake3::Hasher::new_derive_key(context_str);
+    hasher.update(salt);
+    hasher.update(client_pepper.as_bytes());
+    let mut hmac_key = [0u8; 32];
+    hasher.finalize_xof().fill(&mut hmac_key);
+    hasher.zeroize();
+
+    let mut keyed_hasher = blake3::Hasher::new_keyed(&hmac_key);
+    keyed_hasher.update(key.as_bytes());
+    keyed_hasher.update(value.as_bytes());
+    let hash = keyed_hasher.finalize();
+
+    Ok(const_hex::encode(hash.as_bytes()))
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+fn compute_legacy_integrity_hmac(key: &str, value: &str) -> Result<String, YntraError> {
+    let salt = get_system_salt_ref()?;
+
+    let context_str = super::CryptoDomain::LocalStorageIntegrity.get_context(1)?;
+    let mut hasher = blake3::Hasher::new_derive_key(context_str);
     hasher.update(salt);
     let mut hmac_key = [0u8; 32];
     hasher.finalize_xof().fill(&mut hmac_key);
@@ -269,9 +292,21 @@ pub async fn get_local_secret(key: &str) -> Result<Option<String>, YntraError> {
                 if let Some(ref hmac) = stored_hmac {
                     let computed = compute_integrity_hmac(key, val)?;
                     if hmac != &computed {
-                        return Err(YntraError::AuthError(
-                            "Local storage tampering detected".to_string(),
-                        ));
+                        // Fallback to legacy v1 HMAC verification
+                        if let Ok(legacy_computed) = compute_legacy_integrity_hmac(key, val) {
+                            if hmac == &legacy_computed {
+                                // Automatically migrate to secure v2 HMAC
+                                let _ = storage.set_item(&hmac_key_name, &computed);
+                            } else {
+                                return Err(YntraError::AuthError(
+                                    "Local storage tampering detected".to_string(),
+                                ));
+                            }
+                        } else {
+                            return Err(YntraError::AuthError(
+                                "Local storage tampering detected".to_string(),
+                            ));
+                        }
                     }
                 } else {
                     return Err(YntraError::AuthError(
@@ -367,9 +402,21 @@ pub async fn set_local_epoch_if_greater(
                 if let Some(ref hmac) = stored_hmac {
                     let computed = compute_integrity_hmac(&key, &val)?;
                     if hmac != &computed {
-                        return Err(YntraError::AuthError(
-                            "Local storage tampering detected".to_string(),
-                        ));
+                        // Fallback to legacy v1 HMAC verification
+                        if let Ok(legacy_computed) = compute_legacy_integrity_hmac(&key, &val) {
+                            if hmac == &legacy_computed {
+                                // Automatically migrate to secure v2 HMAC
+                                let _ = storage.set_item(&hmac_key_name, &computed);
+                            } else {
+                                return Err(YntraError::AuthError(
+                                    "Local storage tampering detected".to_string(),
+                                ));
+                            }
+                        } else {
+                            return Err(YntraError::AuthError(
+                                "Local storage tampering detected".to_string(),
+                            ));
+                        }
                     }
                 } else {
                     return Err(YntraError::AuthError(
@@ -408,25 +455,42 @@ pub async fn set_local_epoch_if_greater(
     ))
 }
 
+/// Encrypts a raw workspace key with a password using Argon2id key stretching and XChaCha20Poly1305.
 #[uniffi::export]
 pub fn encrypt_workspace_key_with_password(
-    password: &str,
+    mut password: String,
     mut workspace_key: Vec<u8>,
 ) -> Result<String, YntraError> {
     use argon2::{Algorithm, Argon2, Params, Version};
 
     let mut salt = [0u8; 16];
-    getrandom::fill(&mut salt).map_err(|e| YntraError::CryptoError(e.to_string()))?;
+    if let Err(e) = getrandom::fill(&mut salt) {
+        password.zeroize();
+        workspace_key.zeroize();
+        return Err(YntraError::CryptoError(e.to_string()));
+    }
 
     let mut nonce_bytes = [0u8; 24];
-    getrandom::fill(&mut nonce_bytes).map_err(|e| YntraError::CryptoError(e.to_string()))?;
+    if let Err(e) = getrandom::fill(&mut nonce_bytes) {
+        password.zeroize();
+        workspace_key.zeroize();
+        return Err(YntraError::CryptoError(e.to_string()));
+    }
 
     let mut derived_key = zeroize::Zeroizing::new([0u8; 32]);
-    let params = Params::new(19456, 2, 1, Some(32))
-        .map_err(|_| YntraError::CryptoError("Argon2 params invalid".to_string()))?;
+    let params = match Params::new(19456, 3, 1, Some(32)) {
+        Ok(p) => p,
+        Err(_) => {
+            password.zeroize();
+            workspace_key.zeroize();
+            return Err(YntraError::CryptoError("Argon2 params invalid".to_string()));
+        }
+    };
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
 
     let res = argon2.hash_password_into(password.as_bytes(), &salt, &mut *derived_key);
+    password.zeroize();
+
     if res.is_err() {
         workspace_key.zeroize();
         return Err(YntraError::CryptoError(
@@ -451,14 +515,16 @@ pub fn encrypt_workspace_key_with_password(
     ))
 }
 
+/// Decrypts a workspace key envelope using a password.
 #[uniffi::export]
 pub fn decrypt_workspace_key_with_password(
-    password: &str,
+    mut password: String,
     encrypted_envelope: &str,
 ) -> Result<Vec<u8>, YntraError> {
     use argon2::{Algorithm, Argon2, Params, Version};
 
     if !encrypted_envelope.starts_with("envelope:") {
+        password.zeroize();
         return Err(YntraError::CryptoError(
             "Invalid envelope format".to_string(),
         ));
@@ -466,33 +532,86 @@ pub fn decrypt_workspace_key_with_password(
 
     let parts: Vec<&str> = encrypted_envelope[9..].split(':').collect();
     if parts.len() != 3 {
+        password.zeroize();
         return Err(YntraError::CryptoError(
             "Invalid envelope structure".to_string(),
         ));
     }
 
-    let salt = const_hex::decode(parts[0])
-        .map_err(|_| YntraError::CryptoError("Invalid envelope salt".to_string()))?;
-    let nonce_bytes = const_hex::decode(parts[1])
-        .map_err(|_| YntraError::CryptoError("Invalid envelope nonce".to_string()))?;
-    let ciphertext = const_hex::decode(parts[2])
-        .map_err(|_| YntraError::CryptoError("Invalid envelope ciphertext".to_string()))?;
+    let salt = match const_hex::decode(parts[0]) {
+        Ok(s) => s,
+        Err(_) => {
+            password.zeroize();
+            return Err(YntraError::CryptoError("Invalid envelope salt".to_string()));
+        }
+    };
+    let nonce_bytes = match const_hex::decode(parts[1]) {
+        Ok(n) => n,
+        Err(_) => {
+            password.zeroize();
+            return Err(YntraError::CryptoError("Invalid envelope nonce".to_string()));
+        }
+    };
+    let ciphertext = match const_hex::decode(parts[2]) {
+        Ok(c) => c,
+        Err(_) => {
+            password.zeroize();
+            return Err(YntraError::CryptoError("Invalid envelope ciphertext".to_string()));
+        }
+    };
 
+    // Try with OWASP 2024 recommended parameters (t=3) first
     let mut derived_key = zeroize::Zeroizing::new([0u8; 32]);
-    let params = Params::new(19456, 2, 1, Some(32))
-        .map_err(|_| YntraError::CryptoError("Argon2 params invalid".to_string()))?;
-    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
-    argon2
+    let params_v2 = match Params::new(19456, 3, 1, Some(32)) {
+        Ok(p) => p,
+        Err(_) => {
+            password.zeroize();
+            return Err(YntraError::CryptoError("Argon2 params invalid".to_string()));
+        }
+    };
+    let argon2_v2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params_v2);
+    let mut decrypted = None;
+
+    if argon2_v2
         .hash_password_into(password.as_bytes(), &salt, &mut *derived_key)
-        .map_err(|_| YntraError::CryptoError("Argon2 derivation failed".to_string()))?;
+        .is_ok()
+    {
+        let cipher = XChaCha20Poly1305::new(Key::from_slice(&*derived_key));
+        let nonce = XNonce::from_slice(&nonce_bytes);
+        if let Ok(plaintext) = cipher.decrypt(nonce, ciphertext.as_slice()) {
+            decrypted = Some(plaintext);
+        }
+    }
 
-    let cipher = XChaCha20Poly1305::new(Key::from_slice(&*derived_key));
-    let nonce = XNonce::from_slice(&nonce_bytes);
-    let plaintext = cipher
-        .decrypt(nonce, ciphertext.as_slice())
-        .map_err(|_| YntraError::CryptoError("Envelope decryption failed".to_string()))?;
+    // Legacy fallback to t=2 if t=3 decryption failed
+    if decrypted.is_none() {
+        let mut derived_key_legacy = zeroize::Zeroizing::new([0u8; 32]);
+        let params_v1 = match Params::new(19456, 2, 1, Some(32)) {
+            Ok(p) => p,
+            Err(_) => {
+                password.zeroize();
+                return Err(YntraError::CryptoError("Argon2 params invalid".to_string()));
+            }
+        };
+        let argon2_v1 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params_v1);
+        if argon2_v1
+            .hash_password_into(password.as_bytes(), &salt, &mut *derived_key_legacy)
+            .is_ok()
+        {
+            let cipher = XChaCha20Poly1305::new(Key::from_slice(&*derived_key_legacy));
+            let nonce = XNonce::from_slice(&nonce_bytes);
+            if let Ok(plaintext) = cipher.decrypt(nonce, ciphertext.as_slice()) {
+                decrypted = Some(plaintext);
+            }
+        }
+    }
 
-    Ok(plaintext)
+    password.zeroize();
+
+    match decrypted {
+        Some(pt) => Ok(pt),
+        None => Err(YntraError::CryptoError("Envelope decryption failed".to_string())),
+    }
 }
 
 #[cfg(test)]
@@ -540,5 +659,51 @@ mod keychain_tests {
         let err = set_local_epoch_if_greater("ws-1", 5).await;
         assert!(err.is_err());
         assert!(matches!(err.unwrap_err(), YntraError::AuthError(_)));
+    }
+
+    #[test]
+    fn test_hmac_v1_v2_migration() {
+        let legacy_hmac = compute_legacy_integrity_hmac("test-mig-key", "val-123").unwrap();
+        let secure_hmac = compute_integrity_hmac("test-mig-key", "val-123").unwrap();
+        assert_ne!(legacy_hmac, secure_hmac);
+
+        let computed_legacy = compute_legacy_integrity_hmac("test-mig-key", "val-123").unwrap();
+        assert_eq!(legacy_hmac, computed_legacy);
+
+        let computed_secure = compute_integrity_hmac("test-mig-key", "val-123").unwrap();
+        assert_eq!(secure_hmac, computed_secure);
+    }
+
+    #[test]
+    fn test_argon2id_legacy_fallback_decryption() {
+        use argon2::{Algorithm, Argon2, Params, Version};
+        use chacha20poly1305::{Key, KeyInit, XChaCha20Poly1305, XNonce};
+
+        let password = "my-secure-password";
+        let plaintext = b"workspace-secret-key-bytes-123456";
+
+        let salt = [1u8; 16];
+        let nonce_bytes = [2u8; 24];
+
+        let mut derived_key = zeroize::Zeroizing::new([0u8; 32]);
+        let params_v1 = Params::new(19456, 2, 1, Some(32)).unwrap();
+        let argon2_v1 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params_v1);
+        argon2_v1.hash_password_into(password.as_bytes(), &salt, &mut *derived_key).unwrap();
+
+        let cipher = XChaCha20Poly1305::new(Key::from_slice(&*derived_key));
+        let nonce = XNonce::from_slice(&nonce_bytes);
+        let ciphertext = cipher.encrypt(nonce, plaintext.as_slice()).unwrap();
+
+        let envelope = format!(
+            "envelope:{}:{}:{}",
+            const_hex::encode(&salt),
+            const_hex::encode(&nonce_bytes),
+            const_hex::encode(&ciphertext)
+        );
+
+        let decrypted = decrypt_workspace_key_with_password(password.to_string(), &envelope).unwrap();
+        assert_eq!(decrypted, plaintext);
+
+        assert!(decrypt_workspace_key_with_password("wrong-password".to_string(), &envelope).is_err());
     }
 }

@@ -891,126 +891,165 @@ macro_rules! impl_apply_loro_updates_batch {
     }};
 }
 
-// --- ZeroCopyStore (TodoItem) ---
+// --- Unified Macro to Define Zero-Copy Stores ---
 
-#[derive(Clone, uniffi::Object)]
-pub struct ZeroCopyStore {
-    inner: Arc<Mutex<ZeroCopyEngine>>,
-    cache: Arc<Mutex<Option<Vec<TodoItem>>>>,
+macro_rules! define_zero_copy_store {
+    (
+        $struct_name:ident,
+        $item_ty:ty,
+        $write_fn_name:ident,
+        $read_zc_fn_name:ident,
+        $read_all_fn_name:ident,
+        $get_count_fn_name:ident,
+        $get_at_fn_name:ident,
+        $sync_fn:path,
+        $read_fn:path,
+        $table_name:expr,
+        $comment_struct:expr,
+        $comment_write:expr,
+        $comment_read_zc:expr,
+        $comment_read_all:expr,
+        $comment_count:expr,
+        $comment_at:expr
+    ) => {
+        #[doc = $comment_struct]
+        #[derive(Clone, uniffi::Object)]
+        pub struct $struct_name {
+            inner: Arc<Mutex<ZeroCopyEngine>>,
+            cache: Arc<Mutex<Option<Vec<$item_ty>>>>,
+        }
+
+        impl $struct_name {
+            /// Creates a new instance of the zero-copy store at the given file path.
+            #[allow(unused_variables)]
+            pub fn new(file_path: String) -> Result<Self, YntraError> {
+                Ok(Self {
+                    inner: Arc::new(Mutex::new(ZeroCopyEngine::new(file_path)?)),
+                    cache: Arc::new(Mutex::new(None)),
+                })
+            }
+        }
+
+        #[uniffi::export]
+        impl $struct_name {
+            #[doc = $comment_write]
+            pub fn $write_fn_name(&self, items: Vec<$item_ty>) -> Result<(), YntraError> {
+                impl_write_items!(self, items, $sync_fn, $table_name)
+            }
+
+            #[doc = $comment_read_zc]
+            pub fn $read_zc_fn_name(&self, item_id: String) -> Result<Option<$item_ty>, YntraError> {
+                impl_read_item_zero_copy!(self, item_id, $item_ty)
+            }
+
+            #[doc = $comment_read_all]
+            pub fn $read_all_fn_name(&self) -> Result<Vec<$item_ty>, YntraError> {
+                impl_read_all_items!(self, $item_ty)
+            }
+
+            #[doc = $comment_count]
+            pub fn $get_count_fn_name(&self) -> Result<u32, YntraError> {
+                impl_get_count!(self, $item_ty)
+            }
+
+            #[doc = $comment_at]
+            pub fn $get_at_fn_name(&self, index: u32) -> Result<Option<$item_ty>, YntraError> {
+                impl_get_at!(self, index, $item_ty)
+            }
+
+            /// Returns the raw Loro change log history from the local database.
+            pub fn get_loro_changes(&self) -> Result<Vec<u8>, YntraError> {
+                impl_get_loro_changes!(self)
+            }
+
+            /// Applies a remote Loro update to the local document and persists it.
+            pub fn apply_loro_update(&self, update_bytes: Vec<u8>) -> Result<(), YntraError> {
+                impl_apply_loro_update!(self, update_bytes, $read_fn)
+            }
+
+            /// Applies a batch of remote Loro updates to the local document.
+            pub fn apply_loro_updates_batch(&self, updates: Vec<Vec<u8>>) -> Result<(), YntraError> {
+                impl_apply_loro_updates_batch!(self, updates, $read_fn)
+            }
+
+            /// Loads the database bytes from OPFS and refreshes the cache.
+            pub async fn load_from_opfs(&self) -> Result<(), YntraError> {
+                let file_path = {
+                    let inner = self.inner.lock_poison_safe();
+                    inner.file_path().to_string()
+                };
+                let bytes = load_from_opfs_by_path(&file_path).await?;
+                if let Some(bytes) = bytes {
+                    let mut inner = self.inner.lock_poison_safe();
+                    inner.load_from_bytes(&bytes)?;
+                }
+                let mut cache = self.cache.lock_poison_safe();
+                *cache = None;
+                Ok(())
+            }
+
+            /// Returns the raw rkyv serialized binary buffer from the database.
+            pub fn get_rkyv_bytes(&self) -> Result<Vec<u8>, YntraError> {
+                let inner = self.inner.lock_poison_safe();
+                Ok(inner.get_rkyv_slice().to_vec())
+            }
+        }
+    };
 }
 
-impl ZeroCopyStore {
-    #[allow(unused_variables)]
-    pub fn new(file_path: String) -> Result<Self, YntraError> {
-        Ok(Self {
-            inner: Arc::new(Mutex::new(ZeroCopyEngine::new(file_path)?)),
-            cache: Arc::new(Mutex::new(None)),
-        })
-    }
-}
+define_zero_copy_store!(
+    ZeroCopyStore,
+    TodoItem,
+    write_todos,
+    read_todo_zero_copy,
+    read_all_todos,
+    get_todos_count,
+    get_todo_at,
+    sync_todos_to_loro,
+    read_all_todos_from_loro,
+    "todos",
+    "Zero-copy store for managing TodoItem entities.",
+    "Writes a list of todo items to the database.",
+    "Reads a single todo item using binary search optimization.",
+    "Reads all todo items from the database.",
+    "Returns the total count of todo items.",
+    "Returns a todo item at the specified index."
+);
 
 #[uniffi::export]
 impl ZeroCopyStore {
-    pub fn write_todos(&self, todos: Vec<TodoItem>) -> Result<(), YntraError> {
-        impl_write_items!(self, todos, sync_todos_to_loro, "todos")
-    }
-
-    pub fn read_todo_zero_copy(&self, todo_id: String) -> Result<Option<TodoItem>, YntraError> {
-        impl_read_item_zero_copy!(self, todo_id, TodoItem)
-    }
-
-    pub fn read_all_todos(&self) -> Result<Vec<TodoItem>, YntraError> {
-        impl_read_all_items!(self, TodoItem)
-    }
-
-    pub fn get_todos_count(&self) -> Result<u32, YntraError> {
-        impl_get_count!(self, TodoItem)
-    }
-
-    pub fn get_todo_at(&self, index: u32) -> Result<Option<TodoItem>, YntraError> {
-        impl_get_at!(self, index, TodoItem)
-    }
-
-    pub fn read_todos_by_workspace(
-        &self,
-        workspace_id: String,
-    ) -> Result<Vec<TodoItem>, YntraError> {
+    /// Reads all todo items for a specific workspace ID.
+    pub fn read_todos_by_workspace(&self, workspace_id: String) -> Result<Vec<TodoItem>, YntraError> {
         let all_todos = self.read_all_todos()?;
         Ok(all_todos
             .into_iter()
             .filter(|t| t.workspace_id == workspace_id)
             .collect())
     }
-
-    pub fn get_loro_changes(&self) -> Result<Vec<u8>, YntraError> {
-        impl_get_loro_changes!(self)
-    }
-
-    pub fn apply_loro_update(&self, update_bytes: Vec<u8>) -> Result<(), YntraError> {
-        impl_apply_loro_update!(self, update_bytes, read_all_todos_from_loro)
-    }
-
-    pub fn apply_loro_updates_batch(&self, updates: Vec<Vec<u8>>) -> Result<(), YntraError> {
-        impl_apply_loro_updates_batch!(self, updates, read_all_todos_from_loro)
-    }
-
-    pub async fn load_from_opfs(&self) -> Result<(), YntraError> {
-        let file_path = {
-            let inner = self.inner.lock_poison_safe();
-            inner.file_path().to_string()
-        };
-        let bytes = load_from_opfs_by_path(&file_path).await?;
-        if let Some(bytes) = bytes {
-            let mut inner = self.inner.lock_poison_safe();
-            inner.load_from_bytes(&bytes)?;
-        }
-        let mut cache = self.cache.lock_poison_safe();
-        *cache = None;
-        Ok(())
-    }
-
-    pub fn get_rkyv_bytes(&self) -> Result<Vec<u8>, YntraError> {
-        let inner = self.inner.lock_poison_safe();
-        Ok(inner.get_rkyv_slice().to_vec())
-    }
 }
 
-// --- ZeroCopyMessageStore (MessageItem) ---
-
-#[derive(Clone, uniffi::Object)]
-pub struct ZeroCopyMessageStore {
-    inner: Arc<Mutex<ZeroCopyEngine>>,
-    cache: Arc<Mutex<Option<Vec<MessageItem>>>>,
-}
-
-impl ZeroCopyMessageStore {
-    #[allow(unused_variables)]
-    pub fn new(file_path: String) -> Result<Self, YntraError> {
-        Ok(Self {
-            inner: Arc::new(Mutex::new(ZeroCopyEngine::new(file_path)?)),
-            cache: Arc::new(Mutex::new(None)),
-        })
-    }
-}
+define_zero_copy_store!(
+    ZeroCopyMessageStore,
+    MessageItem,
+    write_messages,
+    read_message_zero_copy,
+    read_all_messages,
+    get_messages_count,
+    get_message_at,
+    sync_messages_to_loro,
+    read_all_messages_from_loro,
+    "messages",
+    "Zero-copy store for managing MessageItem entities.",
+    "Writes a list of message items to the database.",
+    "Reads a single message item using binary search optimization.",
+    "Reads all message items from the database.",
+    "Returns the total count of message items.",
+    "Returns a message item at the specified index."
+);
 
 #[uniffi::export]
 impl ZeroCopyMessageStore {
-    pub fn write_messages(&self, messages: Vec<MessageItem>) -> Result<(), YntraError> {
-        impl_write_items!(self, messages, sync_messages_to_loro, "messages")
-    }
-
-    pub fn read_all_messages(&self) -> Result<Vec<MessageItem>, YntraError> {
-        impl_read_all_items!(self, MessageItem)
-    }
-
-    pub fn get_messages_count(&self) -> Result<u32, YntraError> {
-        impl_get_count!(self, MessageItem)
-    }
-
-    pub fn get_message_at(&self, index: u32) -> Result<Option<MessageItem>, YntraError> {
-        impl_get_at!(self, index, MessageItem)
-    }
-
+    /// Reads and filters message items based on workspace, user, and team membership.
     pub fn read_messages_filtered(
         &self,
         workspace_id: String,
@@ -1040,195 +1079,49 @@ impl ZeroCopyMessageStore {
         }
         Ok(filtered)
     }
-
-    pub fn read_message_zero_copy(
-        &self,
-        message_id: String,
-    ) -> Result<Option<MessageItem>, YntraError> {
-        impl_read_item_zero_copy!(self, message_id, MessageItem)
-    }
-
-    pub fn get_loro_changes(&self) -> Result<Vec<u8>, YntraError> {
-        impl_get_loro_changes!(self)
-    }
-
-    pub fn apply_loro_update(&self, update_bytes: Vec<u8>) -> Result<(), YntraError> {
-        impl_apply_loro_update!(self, update_bytes, read_all_messages_from_loro)
-    }
-
-    pub fn apply_loro_updates_batch(&self, updates: Vec<Vec<u8>>) -> Result<(), YntraError> {
-        impl_apply_loro_updates_batch!(self, updates, read_all_messages_from_loro)
-    }
-
-    pub async fn load_from_opfs(&self) -> Result<(), YntraError> {
-        let file_path = {
-            let inner = self.inner.lock_poison_safe();
-            inner.file_path().to_string()
-        };
-        let bytes = load_from_opfs_by_path(&file_path).await?;
-        if let Some(bytes) = bytes {
-            let mut inner = self.inner.lock_poison_safe();
-            inner.load_from_bytes(&bytes)?;
-        }
-        let mut cache = self.cache.lock_poison_safe();
-        *cache = None;
-        Ok(())
-    }
-
-    pub fn get_rkyv_bytes(&self) -> Result<Vec<u8>, YntraError> {
-        let inner = self.inner.lock_poison_safe();
-        Ok(inner.get_rkyv_slice().to_vec())
-    }
 }
 
-// --- ZeroCopyAuditStore (AuditLogEntry) ---
+define_zero_copy_store!(
+    ZeroCopyAuditStore,
+    AuditLogEntry,
+    write_audit_logs,
+    read_audit_zero_copy,
+    read_all_audit_logs,
+    get_audits_count,
+    get_audit_at,
+    sync_audits_to_loro,
+    read_all_audits_from_loro,
+    "audits",
+    "Zero-copy store for managing AuditLogEntry entities.",
+    "Writes a list of audit logs to the database.",
+    "Reads a single audit log using binary search optimization.",
+    "Reads all audit logs from the database.",
+    "Returns the total count of audit logs.",
+    "Returns an audit log at the specified index."
+);
 
-#[derive(Clone, uniffi::Object)]
-pub struct ZeroCopyAuditStore {
-    inner: Arc<Mutex<ZeroCopyEngine>>,
-    cache: Arc<Mutex<Option<Vec<AuditLogEntry>>>>,
-}
-
-impl ZeroCopyAuditStore {
-    #[allow(unused_variables)]
-    pub fn new(file_path: String) -> Result<Self, YntraError> {
-        Ok(Self {
-            inner: Arc::new(Mutex::new(ZeroCopyEngine::new(file_path)?)),
-            cache: Arc::new(Mutex::new(None)),
-        })
-    }
-}
-
-#[uniffi::export]
-impl ZeroCopyAuditStore {
-    pub fn write_audit_logs(&self, entries: Vec<AuditLogEntry>) -> Result<(), YntraError> {
-        impl_write_items!(self, entries, sync_audits_to_loro, "audits")
-    }
-
-    pub fn read_all_audit_logs(&self) -> Result<Vec<AuditLogEntry>, YntraError> {
-        impl_read_all_items!(self, AuditLogEntry)
-    }
-
-    pub fn get_audits_count(&self) -> Result<u32, YntraError> {
-        impl_get_count!(self, AuditLogEntry)
-    }
-
-    pub fn get_audit_at(&self, index: u32) -> Result<Option<AuditLogEntry>, YntraError> {
-        impl_get_at!(self, index, AuditLogEntry)
-    }
-
-    pub fn read_audit_zero_copy(&self, entry_id: String) -> Result<Option<AuditLogEntry>, YntraError> {
-        impl_read_item_zero_copy!(self, entry_id, AuditLogEntry)
-    }
-
-    pub fn get_loro_changes(&self) -> Result<Vec<u8>, YntraError> {
-        impl_get_loro_changes!(self)
-    }
-
-    pub fn apply_loro_update(&self, update_bytes: Vec<u8>) -> Result<(), YntraError> {
-        impl_apply_loro_update!(self, update_bytes, read_all_audits_from_loro)
-    }
-
-    pub fn apply_loro_updates_batch(&self, updates: Vec<Vec<u8>>) -> Result<(), YntraError> {
-        impl_apply_loro_updates_batch!(self, updates, read_all_audits_from_loro)
-    }
-
-    pub async fn load_from_opfs(&self) -> Result<(), YntraError> {
-        let file_path = {
-            let inner = self.inner.lock_poison_safe();
-            inner.file_path().to_string()
-        };
-        let bytes = load_from_opfs_by_path(&file_path).await?;
-        if let Some(bytes) = bytes {
-            let mut inner = self.inner.lock_poison_safe();
-            inner.load_from_bytes(&bytes)?;
-        }
-        let mut cache = self.cache.lock_poison_safe();
-        *cache = None;
-        Ok(())
-    }
-
-    pub fn get_rkyv_bytes(&self) -> Result<Vec<u8>, YntraError> {
-        let inner = self.inner.lock_poison_safe();
-        Ok(inner.get_rkyv_slice().to_vec())
-    }
-}
-
-// --- ZeroCopyNoteStore (DailyNote) ---
-
-#[derive(Clone, uniffi::Object)]
-pub struct ZeroCopyNoteStore {
-    inner: Arc<Mutex<ZeroCopyEngine>>,
-    cache: Arc<Mutex<Option<Vec<DailyNote>>>>,
-}
-
-impl ZeroCopyNoteStore {
-    #[allow(unused_variables)]
-    pub fn new(file_path: String) -> Result<Self, YntraError> {
-        Ok(Self {
-            inner: Arc::new(Mutex::new(ZeroCopyEngine::new(file_path)?)),
-            cache: Arc::new(Mutex::new(None)),
-        })
-    }
-}
-
-#[uniffi::export]
-impl ZeroCopyNoteStore {
-    pub fn write_notes(&self, notes: Vec<DailyNote>) -> Result<(), YntraError> {
-        impl_write_items!(self, notes, sync_notes_to_loro, "notes")
-    }
-
-    pub fn read_all_notes(&self) -> Result<Vec<DailyNote>, YntraError> {
-        impl_read_all_items!(self, DailyNote)
-    }
-
-    pub fn get_notes_count(&self) -> Result<u32, YntraError> {
-        impl_get_count!(self, DailyNote)
-    }
-
-    pub fn get_note_at(&self, index: u32) -> Result<Option<DailyNote>, YntraError> {
-        impl_get_at!(self, index, DailyNote)
-    }
-
-    pub fn read_note_zero_copy(&self, note_id: String) -> Result<Option<DailyNote>, YntraError> {
-        impl_read_item_zero_copy!(self, note_id, DailyNote)
-    }
-
-    pub fn get_loro_changes(&self) -> Result<Vec<u8>, YntraError> {
-        impl_get_loro_changes!(self)
-    }
-
-    pub fn apply_loro_update(&self, update_bytes: Vec<u8>) -> Result<(), YntraError> {
-        impl_apply_loro_update!(self, update_bytes, read_all_notes_from_loro)
-    }
-
-    pub fn apply_loro_updates_batch(&self, updates: Vec<Vec<u8>>) -> Result<(), YntraError> {
-        impl_apply_loro_updates_batch!(self, updates, read_all_notes_from_loro)
-    }
-
-    pub async fn load_from_opfs(&self) -> Result<(), YntraError> {
-        let file_path = {
-            let inner = self.inner.lock_poison_safe();
-            inner.file_path().to_string()
-        };
-        let bytes = load_from_opfs_by_path(&file_path).await?;
-        if let Some(bytes) = bytes {
-            let mut inner = self.inner.lock_poison_safe();
-            inner.load_from_bytes(&bytes)?;
-        }
-        let mut cache = self.cache.lock_poison_safe();
-        *cache = None;
-        Ok(())
-    }
-
-    pub fn get_rkyv_bytes(&self) -> Result<Vec<u8>, YntraError> {
-        let inner = self.inner.lock_poison_safe();
-        Ok(inner.get_rkyv_slice().to_vec())
-    }
-}
+define_zero_copy_store!(
+    ZeroCopyNoteStore,
+    DailyNote,
+    write_notes,
+    read_note_zero_copy,
+    read_all_notes,
+    get_notes_count,
+    get_note_at,
+    sync_notes_to_loro,
+    read_all_notes_from_loro,
+    "notes",
+    "Zero-copy store for managing DailyNote entities.",
+    "Writes a list of daily notes to the database.",
+    "Reads a single daily note using binary search optimization.",
+    "Reads all daily notes from the database.",
+    "Returns the total count of daily notes.",
+    "Returns a daily note at the specified index."
+);
 
 // --- Helpers ---
 
+/// Creates a new ZeroCopyStore peer instance.
 #[uniffi::export]
 pub fn create_peer_store(name: String) -> Result<ZeroCopyStore, YntraError> {
     #[cfg(not(target_arch = "wasm32"))]
@@ -1247,6 +1140,7 @@ pub fn create_peer_store(name: String) -> Result<ZeroCopyStore, YntraError> {
     }
 }
 
+/// Creates a new ZeroCopyNoteStore peer instance.
 #[uniffi::export]
 pub fn create_peer_note_store(name: String) -> Result<ZeroCopyNoteStore, YntraError> {
     #[cfg(not(target_arch = "wasm32"))]
@@ -1272,6 +1166,7 @@ extern "C" {
     async fn js_load_store_bin_stores(file_name: &str) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue>;
 }
 
+/// Loads a store binary payload from OPFS.
 pub async fn load_from_opfs_by_path(file_path: &str) -> Result<Option<Vec<u8>>, YntraError> {
     #[cfg(target_arch = "wasm32")]
     {

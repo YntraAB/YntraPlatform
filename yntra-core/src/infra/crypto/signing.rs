@@ -21,6 +21,7 @@ fn construct_role_signature_message(
     message
 }
 
+/// Derives the verifying public key from a given hex-encoded Ed25519 private key.
 #[uniffi::export]
 pub fn derive_public_key_from_private_key(private_key_hex: &str) -> Result<String, YntraError> {
     let private_key_bytes = zeroize::Zeroizing::new(
@@ -37,6 +38,7 @@ pub fn derive_public_key_from_private_key(private_key_hex: &str) -> Result<Strin
     Ok(const_hex::encode(signing_key.verifying_key().to_bytes()))
 }
 
+/// Generates a standard role signature using the private key.
 #[uniffi::export]
 pub fn generate_role_signature(
     private_key_hex: &str,
@@ -55,6 +57,7 @@ pub fn generate_role_signature(
     )
 }
 
+/// Generates a role signature with a custom expiration timestamp.
 #[uniffi::export]
 pub fn generate_role_signature_with_expiration(
     private_key_hex: &str,
@@ -66,6 +69,7 @@ pub fn generate_role_signature_with_expiration(
     generate_role_signature_v2(private_key_hex, user_id, role, workspace_id, expires_at, 0)
 }
 
+/// Generates a version 2 role signature containing epoch and custom expiration.
 #[uniffi::export]
 pub fn generate_role_signature_v2(
     private_key_hex: &str,
@@ -94,16 +98,51 @@ pub fn generate_role_signature_v2(
     Ok(format!("{}:{}:{}", epoch, expires_at, signature_hex))
 }
 
+use std::sync::Mutex;
+use std::sync::Arc;
+use zeroize::Zeroize;
+
+#[derive(uniffi::Object)]
+pub struct WorkspaceKeyPair {
+    public_key: String,
+    private_key: Mutex<String>,
+}
+
 #[uniffi::export]
-pub fn generate_workspace_keypair() -> Result<Vec<String>, YntraError> {
+impl WorkspaceKeyPair {
+    /// Returns the public key hex string.
+    pub fn public_key(&self) -> String {
+        self.public_key.clone()
+    }
+
+    /// Returns the private key hex string.
+    pub fn private_key(&self) -> String {
+        self.private_key.lock().unwrap().clone()
+    }
+}
+
+impl Drop for WorkspaceKeyPair {
+    fn drop(&mut self) {
+        self.private_key.lock().unwrap().zeroize();
+    }
+}
+
+/// Generates a new cryptographic keypair for a workspace.
+#[uniffi::export]
+pub fn generate_workspace_keypair() -> Result<Arc<WorkspaceKeyPair>, YntraError> {
     let mut private_key_bytes = [0u8; 32];
     getrandom::fill(&mut private_key_bytes).map_err(|e| YntraError::CryptoError(e.to_string()))?;
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key_bytes);
     let public_key_hex = const_hex::encode(signing_key.verifying_key().to_bytes());
     let private_key_hex = const_hex::encode(private_key_bytes);
-    Ok(vec![public_key_hex, private_key_hex])
+    private_key_bytes.zeroize();
+    Ok(Arc::new(WorkspaceKeyPair {
+        public_key: public_key_hex,
+        private_key: Mutex::new(private_key_hex),
+    }))
 }
 
+/// Verifies a user's role signature against a given public key.
 #[uniffi::export]
 pub fn verify_role_signature(
     public_key_hex: &str,

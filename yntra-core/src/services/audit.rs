@@ -537,15 +537,15 @@ mod tests {
 
         // Generate and set up keypair for workspace-test-2 to test signing
         let keys = crate::infra::crypto::generate_workspace_keypair().unwrap();
-        let pub_hex = &keys[0];
-        let priv_hex = &keys[1];
+        let pub_hex = keys.public_key();
+        let priv_hex = keys.private_key();
         conn.execute(
             "UPDATE workspaces SET creator_public_key = ?1 WHERE id = 'workspace-test-2'",
             crate::params![pub_hex],
         )
         .await
         .unwrap();
-        crate::infra::crypto::set_local_secret("creator_private_key_workspace-test-2", priv_hex)
+        crate::infra::crypto::set_local_secret("creator_private_key_workspace-test-2", &priv_hex)
             .await
             .unwrap();
 

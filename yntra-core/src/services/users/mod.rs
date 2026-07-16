@@ -427,7 +427,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_users_self_decryption() {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
-        crate::infra::crypto::set_session_key("test-session-key".to_string().into_bytes());
+        crate::infra::crypto::set_session_key("test-session-key".to_string().into_bytes(), "workspace-1".to_string());
 
         let conn = database::acquire_connection().await.unwrap();
         let user1_id = "test-self-user-1";
@@ -530,17 +530,17 @@ mod tests {
             crate::infra::crypto::set_local_secret("workspace_public_key_ws-sig-test", "").await;
 
         let keys = crate::infra::crypto::generate_workspace_keypair().unwrap();
-        let pub_hex = &keys[0];
-        let priv_hex = &keys[1];
+        let pub_hex = keys.public_key();
+        let priv_hex = keys.private_key();
 
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, creator_public_key, modules_active, settings) VALUES ('ws-sig-test', 'Sig Test WS', ?1, '[]', '{}')", crate::params![pub_hex]).await.unwrap();
 
-        crate::infra::crypto::set_local_secret("creator_private_key_ws-sig-test", priv_hex)
+        crate::infra::crypto::set_local_secret("creator_private_key_ws-sig-test", &priv_hex)
             .await
             .unwrap();
 
         let admin_sig = crate::infra::crypto::generate_role_signature(
-            priv_hex,
+            &priv_hex,
             "admin-1",
             "platform_admin",
             "ws-sig-test",

@@ -1,6 +1,8 @@
+pub mod domain;
 pub mod keychain;
 pub mod signing;
 
+pub use domain::*;
 pub use keychain::*;
 pub use signing::*;
 
@@ -11,10 +13,16 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock, RwLock};
 use zeroize::Zeroize;
 
-#[derive(Clone, Zeroize)]
-#[zeroize(drop)]
 struct SessionKeys {
     new_key: [u8; 32],
+    workspace_id: String,
+}
+
+impl Zeroize for SessionKeys {
+    fn zeroize(&mut self) {
+        self.new_key.zeroize();
+        self.workspace_id.zeroize();
+    }
 }
 
 static SESSION_KEY: Mutex<Option<SessionKeys>> = Mutex::new(None);
@@ -69,7 +77,8 @@ pub fn stretch_key_new(key: &[u8]) -> Result<[u8; 32], YntraError> {
     let system_salt = get_system_salt_ref()?;
 
     // Secure 32-byte key derivation using BLAKE3 KDF
-    let mut hasher = blake3::Hasher::new_derive_key("Yntra key stretching v1");
+    let context_str = CryptoDomain::KeyStretching.get_context(1)?;
+    let mut hasher = blake3::Hasher::new_derive_key(context_str);
     hasher.update(&(system_salt.len() as u64).to_be_bytes());
     hasher.update(system_salt);
     hasher.update(&(key.len() as u64).to_be_bytes());
@@ -81,6 +90,7 @@ pub fn stretch_key_new(key: &[u8]) -> Result<[u8; 32], YntraError> {
     Ok(derived)
 }
 
+/// Initializes the global system salt. Returns false if already initialized.
 #[uniffi::export]
 pub fn initialize_system_salt(mut salt: String) -> bool {
     let bytes = match const_hex::decode(&salt) {
@@ -184,8 +194,9 @@ fn ensure_system_salt_initialized() -> Result<(), YntraError> {
     Ok(())
 }
 
+/// Sets the active workspace session key and workspace ID.
 #[uniffi::export]
-pub fn set_session_key(mut key_bytes: Vec<u8>) -> bool {
+pub fn set_session_key(mut key_bytes: Vec<u8>, workspace_id: String) -> bool {
     let _guard = PoisonGuard;
     let mut lock = match SESSION_KEY.lock() {
         Ok(l) => l,
@@ -208,7 +219,7 @@ pub fn set_session_key(mut key_bytes: Vec<u8>) -> bool {
     }
     key_bytes.zeroize();
 
-    *lock = Some(SessionKeys { new_key: key_arr });
+    *lock = Some(SessionKeys { new_key: key_arr, workspace_id });
 
     if let Ok(mut cache) = get_workspace_key_cache().write() {
         cache.clear();
@@ -227,6 +238,7 @@ pub fn get_session_key() -> Option<zeroize::Zeroizing<[u8; 32]>> {
     lock.as_ref().map(|sk| zeroize::Zeroizing::new(sk.new_key))
 }
 
+/// Checks if a session key is currently loaded.
 #[uniffi::export]
 pub fn is_session_key_set() -> bool {
     let _guard = PoisonGuard;
@@ -237,17 +249,32 @@ pub fn is_session_key_set() -> bool {
     lock.is_some()
 }
 
+/// Authenticates a user and loads the workspace key from secure storage if successful.
 #[uniffi::export]
-pub async fn load_local_workspace_key(workspace_id: String) -> bool {
+pub async fn load_local_workspace_key(workspace_id: String, user_id: String) -> bool {
+    if let Ok(conn) = crate::database::acquire_connection().await {
+        if let Ok(auth) = crate::infra::auth::AuthContext::authorize(&conn, &user_id).await {
+            if auth.workspace_id != workspace_id {
+                tracing::error!("AuthContext workspace mismatch for user '{}'", user_id);
+                return false;
+            }
+        } else {
+            return false;
+        }
+    } else {
+        return false;
+    }
+
     let key_name = format!("workspace_key_{}", workspace_id);
     if let Ok(Some(key_hex)) = get_local_secret(&key_name).await {
         if let Ok(key_bytes) = const_hex::decode(&key_hex) {
-            return set_session_key(key_bytes);
+            return set_session_key(key_bytes, workspace_id);
         }
     }
     false
 }
 
+/// Clears the active session key and zeroizes cached workspace keys.
 #[uniffi::export]
 pub fn clear_session_key() {
     let _guard = PoisonGuard;
@@ -278,7 +305,8 @@ fn get_encryption_keys_internal(
         }
     }
 
-    let mut hasher = blake3::Hasher::new_derive_key("Yntra whistleblower key derivation v2");
+    let context_str = CryptoDomain::WhistleblowerKeyDerivation.get_context(2)?;
+    let mut hasher = blake3::Hasher::new_derive_key(context_str);
 
     hasher.update(&(workspace_id.len() as u64).to_be_bytes());
     hasher.update(workspace_id.as_bytes());
@@ -308,6 +336,10 @@ fn get_encryption_keys_internal(
         }
 
         if let Some(ref sk) = *lock {
+            if sk.workspace_id != workspace_id {
+                hasher.zeroize();
+                return Err(YntraError::CryptoError("session_key_workspace_mismatch".to_string()));
+            }
             session_key_bytes.copy_from_slice(&sk.new_key);
         } else {
             hasher.zeroize();
@@ -337,18 +369,21 @@ pub fn hex_decode(s: &str) -> Option<Vec<u8>> {
     const_hex::decode(s).ok()
 }
 
+/// Encrypts a single string field for the given workspace.
 #[uniffi::export]
 pub fn encrypt_field(data: &str, workspace_id: &str) -> Result<String, YntraError> {
     let cipher = WorkspaceCipher::new(workspace_id)?;
     cipher.encrypt(data)
 }
 
+/// Decrypts a single string field for the given workspace.
 #[uniffi::export]
 pub fn decrypt_field(encrypted_data: &str, workspace_id: &str) -> Result<String, YntraError> {
     let cipher = WorkspaceCipher::new(workspace_id)?;
     cipher.decrypt(encrypted_data)
 }
 
+/// Encrypts a list of string fields for the given workspace.
 #[uniffi::export]
 pub fn encrypt_fields(data: Vec<String>, workspace_id: &str) -> Result<Vec<String>, YntraError> {
     let cipher = WorkspaceCipher::new(workspace_id)?;
@@ -359,6 +394,7 @@ pub fn encrypt_fields(data: Vec<String>, workspace_id: &str) -> Result<Vec<Strin
     Ok(encrypted)
 }
 
+/// Decrypts a list of string fields for the given workspace.
 #[uniffi::export]
 pub fn decrypt_fields(
     encrypted_data: Vec<String>,
@@ -402,8 +438,9 @@ pub fn hash_anonymous_reporter(user_id: &str, workspace_id: &str) -> Result<Stri
     let salt = get_system_salt_ref()?;
     let client_pepper = get_local_client_pepper()?;
 
+    let context_str = CryptoDomain::WhistleblowerAnonymityHash.get_context(2)?;
     let mut hasher =
-        blake3::Hasher::new_derive_key("Yntra whistleblower reporter anonymity hash v2");
+        blake3::Hasher::new_derive_key(context_str);
     hasher.update(&(salt.len() as u64).to_be_bytes());
     hasher.update(salt);
 
@@ -549,7 +586,7 @@ mod tests {
     #[test]
     fn test_chacha_encryption_decryption() {
         let _test_lock = crate::database::DB_TEST_LOCK.lock().unwrap();
-        set_session_key("test-session-key".to_string().into_bytes());
+        set_session_key("test-session-key".to_string().into_bytes(), "test-workspace-123".to_string());
 
         let plaintext = "Sensitive whistleblowing report text";
         let workspace_id = "test-workspace-123";
@@ -577,6 +614,7 @@ mod tests {
             "my-super-secret-user-password-or-pin"
                 .to_string()
                 .into_bytes(),
+            "test-workspace-456".to_string(),
         );
 
         let encrypted = encrypt_field(plaintext, workspace_id).unwrap();
@@ -592,6 +630,7 @@ mod tests {
             "my-super-secret-user-password-or-pin"
                 .to_string()
                 .into_bytes(),
+            "test-workspace-456".to_string(),
         );
         let decrypted_with_key_again = decrypt_field(&encrypted, workspace_id).unwrap();
         assert_eq!(plaintext, decrypted_with_key_again);
@@ -624,7 +663,8 @@ mod tests {
 
         // Recovery
         assert!(set_session_key(
-            "my-new-session-key".to_string().into_bytes()
+            "my-new-session-key".to_string().into_bytes(),
+            "some-workspace".to_string()
         ));
 
         // 2. Poison when Some
@@ -647,7 +687,8 @@ mod tests {
 
         // Recovery again
         assert!(set_session_key(
-            "my-new-session-key-2".to_string().into_bytes()
+            "my-new-session-key-2".to_string().into_bytes(),
+            "some-workspace".to_string()
         ));
 
         let lock = match SESSION_KEY.lock() {
@@ -677,16 +718,16 @@ mod tests {
         let plaintext = "Shared patient health data";
         let workspace_id = "shared-workspace-xyz";
 
-        set_session_key("shared-workspace-session-key".to_string().into_bytes());
+        set_session_key("shared-workspace-session-key".to_string().into_bytes(), "shared-workspace-xyz".to_string());
         let encrypted_by_a = encrypt_field(plaintext, workspace_id).unwrap();
         clear_session_key();
 
-        set_session_key("different-workspace-session-key".to_string().into_bytes());
+        set_session_key("different-workspace-session-key".to_string().into_bytes(), "shared-workspace-xyz".to_string());
         let decrypted_by_b_wrong = decrypt_field(&encrypted_by_a, workspace_id);
         assert!(decrypted_by_b_wrong.is_err());
         clear_session_key();
 
-        set_session_key("shared-workspace-session-key".to_string().into_bytes());
+        set_session_key("shared-workspace-session-key".to_string().into_bytes(), "shared-workspace-xyz".to_string());
         let decrypted_by_b = decrypt_field(&encrypted_by_a, workspace_id).unwrap();
         assert_eq!(plaintext, decrypted_by_b);
 
@@ -697,7 +738,7 @@ mod tests {
     fn test_bulk_encryption_decryption() {
         let _test_lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         let workspace_id = "bulk-workspace-123";
-        set_session_key("bulk-session-key".to_string().into_bytes());
+        set_session_key("bulk-session-key".to_string().into_bytes(), "bulk-workspace-123".to_string());
 
         let plaintexts = vec![
             "Plaintext message 1".to_string(),
