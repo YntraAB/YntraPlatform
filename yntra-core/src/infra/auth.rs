@@ -35,7 +35,7 @@ const CACHE_LIMIT: usize = 1000;
 
 static AUTH_CONTEXT_CACHE: OnceLock<RwLock<BoundedAuthCache>> = OnceLock::new();
 
-fn is_production() -> bool {
+pub(crate) fn is_production() -> bool {
     // Compile-time check: release profiles (without debug assertions) are production
     if !cfg!(debug_assertions) && !cfg!(test) {
         return true;

@@ -5,12 +5,14 @@ const MOVING_SV: &str = include_str!("../../assets/templates/moving_sv.json");
 const CARE_LSS_SV: &str = include_str!("../../assets/templates/care_lss_sv.json");
 const CARE_HVB_SV: &str = include_str!("../../assets/templates/care_hvb_sv.json");
 const CARE_GENERAL_SV: &str = include_str!("../../assets/templates/care_general_sv.json");
+const SCHOOL_SV: &str = include_str!("../../assets/templates/school_sv.json");
 
 // Embed English assets
 const MOVING_EN: &str = include_str!("../../assets/templates/moving_en.json");
 const CARE_LSS_EN: &str = include_str!("../../assets/templates/care_lss_en.json");
 const CARE_HVB_EN: &str = include_str!("../../assets/templates/care_hvb_en.json");
 const CARE_GENERAL_EN: &str = include_str!("../../assets/templates/care_general_en.json");
+const SCHOOL_EN: &str = include_str!("../../assets/templates/school_en.json");
 
 fn parse_template(json_str: &str) -> Value {
     serde_json::from_str(json_str).unwrap_or_else(|_| serde_json::Value::Array(Vec::new()))
@@ -40,6 +42,14 @@ pub fn get_moving_company_roles(is_scandi: bool) -> Value {
     }
 }
 
+pub fn get_school_roles(is_scandi: bool) -> Value {
+    if is_scandi {
+        parse_template(SCHOOL_SV)
+    } else {
+        parse_template(SCHOOL_EN)
+    }
+}
+
 #[uniffi::export]
 pub fn get_default_roles_json(
     workspace_type: String,
@@ -52,6 +62,7 @@ pub fn get_default_roles_json(
             let subtype = care_subtype.as_deref().unwrap_or("aldreomsorg");
             get_care_roles(subtype, is_scandi)
         }
+        "school" => get_school_roles(is_scandi),
         _ => {
             return Err(crate::YntraError::NotFoundError(format!(
                 "Unknown workspace type: {}",
@@ -78,6 +89,16 @@ mod tests {
 
         assert!(lss.to_lowercase().contains("lss"));
         assert!(hvb.to_lowercase().contains("hvb"));
+    }
+
+    #[test]
+    fn test_school_template_loading() {
+        let school = get_default_roles_json("school".to_string(), None, false).unwrap();
+        assert!(school.to_lowercase().contains("teacher"));
+        assert!(school.to_lowercase().contains("student"));
+        assert!(school.to_lowercase().contains("principal"));
+        assert!(school.to_lowercase().contains("librarian"));
+        assert!(school.to_lowercase().contains("assistant"));
     }
 
     #[test]

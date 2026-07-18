@@ -7,6 +7,158 @@ use crate::{
 };
 use uuid::Uuid;
 
+async fn verify_school_write_zkp(
+    conn: &database::DbConnection,
+    requester_user_id: &str,
+    role: &str,
+    role_proof: Option<String>,
+) -> Result<(), YntraError> {
+    let is_proof_required = if crate::infra::auth::is_production() {
+        true
+    } else {
+        role_proof.is_some()
+    };
+
+    if is_proof_required {
+        let proof = role_proof.ok_or_else(|| {
+            YntraError::AuthError("Zero-Knowledge Role Proof is required for write operations".to_string())
+        })?;
+
+        let metadata_str: Option<String> = conn
+            .query_row(
+                "SELECT metadata FROM users WHERE id = ?1",
+                crate::params![requester_user_id],
+                |r| r.get(0),
+            )
+            .await
+            .ok()
+            .flatten();
+
+        let public_key_hex = if let Some(ref meta) = metadata_str {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(meta) {
+                val.get("public_key")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .or_else(|| {
+                        val.get("siths_public_key")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                    })
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
+        if public_key_hex.is_empty() {
+            return Err(YntraError::AuthError(
+                "Cryptographic role verification failed: User public key not found".to_string(),
+            ));
+        }
+
+        let trust = crate::ZkCryptoTrust::new();
+        if !trust.verify_proof(
+            proof,
+            requester_user_id.to_string(),
+            role.to_string(),
+            public_key_hex,
+        ) {
+            return Err(YntraError::CryptoError(
+                "Zero-Knowledge Role Proof verification failed: privilege escalation or local database tampering suspected".to_string(),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn has_school_permission(auth: &crate::AuthContext, permission_name: &str) -> bool {
+    if auth.role == "platform_admin" || auth.role == "admin" || auth.role == "school-admin" || auth.role == "role-school-admin" || auth.role == "principal" || auth.role == "role-school-principal" {
+        return true;
+    }
+    if let Some(ref settings_str) = auth.workspace_settings {
+        if let Ok(settings_val) = serde_json::from_str::<serde_json::Value>(settings_str) {
+            if let Some(roles_arr) = settings_val.get("roles").and_then(|r| r.as_array()) {
+                for r in roles_arr {
+                    let r_id = r.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                    let r_name = r.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                    let is_match = r_id == auth.role
+                        || r_id.ends_with(&format!("-{}", auth.role))
+                        || r_id.strip_prefix("role-").map(|s| s == auth.role).unwrap_or(false)
+                        || r_id.strip_prefix("role-school-").map(|s| s == auth.role).unwrap_or(false)
+                        || r_name.to_lowercase() == auth.role.to_lowercase();
+                    if is_match {
+                        if let Some(permissions) = r.get("permissions") {
+                            if let Some(val) = permissions.get(permission_name).and_then(|v| v.as_bool()) {
+                                return val;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+fn verify_school_permission(auth: &crate::AuthContext, permission_name: &str) -> Result<(), YntraError> {
+    if has_school_permission(auth, permission_name) {
+        Ok(())
+    } else {
+        Err(YntraError::AuthError(format!(
+            "Access denied: role '{}' does not have permission '{}'",
+            auth.role, permission_name
+        )))
+    }
+}
+
+async fn verify_student_access(
+    conn: &database::DbConnection,
+    auth: &crate::AuthContext,
+    student_id: &str,
+) -> Result<(), YntraError> {
+    if auth.role == "platform_admin" {
+        return Ok(());
+    }
+
+    let role_lower = auth.role.to_lowercase();
+    if role_lower == "student" || role_lower == "role-school-student" {
+        let profile_user_id: Option<String> = conn
+            .query_row(
+                "SELECT user_id FROM student_profiles WHERE id = ?1 AND workspace_id = ?2",
+                crate::params![student_id, &auth.workspace_id],
+                |r| r.get(0),
+            )
+            .await
+            .map_err(|_| YntraError::NotFoundError(format!("Student profile not found: {}", student_id)))?;
+
+        if let Some(uid) = profile_user_id {
+            if uid == auth.user_id {
+                return Ok(());
+            }
+        }
+        return Err(YntraError::AuthError("Access denied: You can only view your own student records".to_string()));
+    } else if role_lower == "parent" || role_lower == "role-school-parent" {
+        let linked: Option<i64> = conn
+            .query_row(
+                "SELECT 1 FROM student_parents WHERE student_id = ?1 AND parent_user_id = ?2 AND workspace_id = ?3",
+                crate::params![student_id, &auth.user_id, &auth.workspace_id],
+                |r| r.get(0),
+            )
+            .await
+            .ok();
+
+        if linked.is_some() {
+            return Ok(());
+        }
+        return Err(YntraError::AuthError("Access denied: You are not linked to this student".to_string()));
+    }
+
+    Ok(())
+}
+
 #[uniffi::export]
 pub async fn get_student_profiles(
     requester_user_id: String,
@@ -18,12 +170,19 @@ pub async fn get_student_profiles(
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
 
-    let mut stmt = conn
-        .prepare("SELECT id, workspace_id, user_id, first_name, last_name, grade_level, parent_contact, updated_at FROM student_profiles WHERE workspace_id = ?1")
-        .await?;
+    let role_lower = auth.role.to_lowercase();
+    let query_str = if role_lower == "student" || role_lower == "role-school-student" {
+        "SELECT id, workspace_id, user_id, first_name, last_name, grade_level, parent_contact, updated_at FROM student_profiles WHERE workspace_id = ?1 AND user_id = ?2"
+    } else if role_lower == "parent" || role_lower == "role-school-parent" {
+        "SELECT s.id, s.workspace_id, s.user_id, s.first_name, s.last_name, s.grade_level, s.parent_contact, s.updated_at FROM student_profiles s JOIN student_parents sp ON s.id = sp.student_id WHERE s.workspace_id = ?1 AND sp.parent_user_id = ?2"
+    } else {
+        "SELECT id, workspace_id, user_id, first_name, last_name, grade_level, parent_contact, updated_at FROM student_profiles WHERE workspace_id = ?1"
+    };
 
-    let list = stmt
-        .query_map(crate::params![workspace_id], |row| {
+    let mut stmt = conn.prepare(query_str).await?;
+
+    let list = if role_lower == "student" || role_lower == "role-school-student" {
+        stmt.query_map(crate::params![workspace_id, &auth.user_id], |row| {
             Ok(StudentProfile {
                 id: row.get(0)?,
                 workspace_id: row.get(1)?,
@@ -34,8 +193,34 @@ pub async fn get_student_profiles(
                 parent_contact: row.get(6)?,
                 updated_at: row.get(7)?,
             })
-        })
-        .await?;
+        }).await?
+    } else if role_lower == "parent" || role_lower == "role-school-parent" {
+        stmt.query_map(crate::params![workspace_id, &auth.user_id], |row| {
+            Ok(StudentProfile {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                user_id: row.get(2)?,
+                first_name: row.get(3)?,
+                last_name: row.get(4)?,
+                grade_level: row.get(5)?,
+                parent_contact: row.get(6)?,
+                updated_at: row.get(7)?,
+            })
+        }).await?
+    } else {
+        stmt.query_map(crate::params![workspace_id], |row| {
+            Ok(StudentProfile {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                user_id: row.get(2)?,
+                first_name: row.get(3)?,
+                last_name: row.get(4)?,
+                grade_level: row.get(5)?,
+                parent_contact: row.get(6)?,
+                updated_at: row.get(7)?,
+            })
+        }).await?
+    };
 
     Ok(list)
 }
@@ -44,12 +229,16 @@ pub async fn get_student_profiles(
 pub async fn save_student_profile(
     requester_user_id: String,
     profile: StudentProfile,
+    role_proof: Option<String>,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != profile.workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
+
+    verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
+    verify_school_permission(&auth, "can_manage_students")?;
 
     let now_ms = crate::infra::time::get_current_time_ms();
     conn.execute(
@@ -98,12 +287,16 @@ pub async fn save_course(
     requester_user_id: String,
     workspace_id: String,
     course: crate::Course,
+    role_proof: Option<String>,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
+
+    verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
+    verify_school_permission(&auth, "can_manage_schedule")?;
 
     let now_ms = crate::infra::time::get_current_time_ms();
     conn.execute(
@@ -184,11 +377,17 @@ pub async fn get_assignments(
 pub async fn save_assignment(
     requester_user_id: String,
     assignment: Assignment,
+    role_proof: Option<String>,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != assignment.workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    if assignment.max_points >= 0 {
+        verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
+        verify_school_permission(&auth, "can_manage_grades")?;
     }
 
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -237,11 +436,20 @@ pub async fn delete_assignment(
 pub async fn save_submission(
     requester_user_id: String,
     submission: Submission,
+    role_proof: Option<String>,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != submission.workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
+    if auth.role != "platform_admin" && auth.role != "admin" && auth.role != "school-admin" {
+        let is_student = auth.role == "student" || auth.role == "role-school-student" || has_school_permission(&auth, "can_manage_grades");
+        if !is_student {
+            return Err(YntraError::AuthError("Access denied: insufficient permissions to manage submissions".to_string()));
+        }
     }
 
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -303,12 +511,16 @@ pub async fn get_attendance_records(
 pub async fn save_attendance_record(
     requester_user_id: String,
     record: AttendanceRecord,
+    role_proof: Option<String>,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != record.workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
+
+    verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
+    verify_school_permission(&auth, "can_manage_schedule")?;
 
     let now_ms = crate::infra::time::get_current_time_ms();
     conn.execute(
@@ -403,12 +615,16 @@ pub async fn get_course_term_grades(
 pub async fn save_term_grade(
     requester_user_id: String,
     grade: TermGrade,
+    role_proof: Option<String>,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != grade.workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
+
+    verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
+    verify_school_permission(&auth, "can_manage_grades")?;
 
     let now_ms = crate::infra::time::get_current_time_ms();
     let pts = grade.final_points.map(|p| p as i64);
@@ -435,12 +651,16 @@ pub async fn save_term_grade(
 pub async fn publish_report_card(
     requester_user_id: String,
     report: ReportCard,
+    role_proof: Option<String>,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != report.workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
+
+    verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
+    verify_school_permission(&auth, "can_publish_report_cards")?;
 
     let now_ms = crate::infra::time::get_current_time_ms();
     conn.execute(
@@ -472,6 +692,8 @@ pub async fn get_report_cards(
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
+
+    verify_student_access(&conn, &auth, &student_id).await?;
 
     let mut stmt = conn
         .prepare("SELECT id, workspace_id, student_id, term_name, gpa, principal_comments, status, updated_at FROM report_cards WHERE workspace_id = ?1 AND student_id = ?2")
@@ -532,12 +754,16 @@ pub async fn get_library_books(
 pub async fn save_library_book(
     requester_user_id: String,
     book: LibraryBook,
+    role_proof: Option<String>,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != book.workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
+
+    verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
+    verify_school_permission(&auth, "can_manage_library")?;
 
     let now_ms = crate::infra::time::get_current_time_ms();
     conn.execute(
@@ -565,12 +791,16 @@ pub async fn checkout_book(
     book_id: String,
     student_id: String,
     due_date: String,
+    role_proof: Option<String>,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
+
+    verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
+    verify_school_permission(&auth, "can_manage_library")?;
 
     conn.begin_transaction().await?;
 
@@ -622,12 +852,16 @@ pub async fn return_book(
     requester_user_id: String,
     workspace_id: String,
     lending_log_id: String,
+    role_proof: Option<String>,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
+
+    verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
+    verify_school_permission(&auth, "can_manage_library")?;
 
     conn.begin_transaction().await?;
 
@@ -672,6 +906,69 @@ pub async fn return_book(
 }
 
 #[uniffi::export]
+pub async fn reserve_book(
+    requester_user_id: String,
+    workspace_id: String,
+    book_id: String,
+    student_id: String,
+    role_proof: Option<String>,
+) -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
+    verify_student_access(&conn, &auth, &student_id).await?;
+
+    conn.begin_transaction().await?;
+
+    let book_opt: Option<(i64, i64)> = conn.query_row(
+        "SELECT copies_available, total_copies FROM library_books WHERE id = ?1 AND workspace_id = ?2",
+        crate::params![&book_id, &workspace_id],
+        |r| Ok((r.get(0)?, r.get(1)?))
+    ).await.ok();
+
+    if let Some((available, _total)) = book_opt {
+        if available <= 0 {
+            let _ = conn.rollback().await;
+            return Err(YntraError::ValidationError("No copies available for reservation".to_string()));
+        }
+
+        let now_ms = crate::infra::time::get_current_time_ms();
+        let log_id = Uuid::new_v4().to_string();
+        let now_str = crate::infra::time::get_current_datetime_str();
+        let due_date = (chrono::Local::now() + chrono::Duration::days(14)).format("%Y-%m-%d").to_string();
+
+        conn.execute(
+            "UPDATE library_books SET copies_available = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
+            crate::params![&(available - 1), &now_ms, &book_id]
+        ).await?;
+
+        conn.execute(
+            "INSERT INTO library_lending_logs (id, workspace_id, book_id, student_id, checked_out_at, due_date, returned_at, status, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, 'reserved', ?7, 'pending')",
+            crate::params![
+                &log_id,
+                &workspace_id,
+                &book_id,
+                &student_id,
+                &now_str,
+                &due_date,
+                &now_ms
+            ]
+        ).await?;
+
+        conn.commit().await?;
+        notify_observers();
+        Ok(())
+    } else {
+        let _ = conn.rollback().await;
+        Err(YntraError::NotFoundError("Book not found".to_string()))
+    }
+}
+
+#[uniffi::export]
 pub async fn get_school_invoices(
     requester_user_id: String,
     workspace_id: String,
@@ -682,12 +979,19 @@ pub async fn get_school_invoices(
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
 
-    let mut stmt = conn
-        .prepare("SELECT id, workspace_id, student_id, title, amount, due_date, status, paid_at, updated_at FROM school_invoices WHERE workspace_id = ?1")
-        .await?;
+    let role_lower = auth.role.to_lowercase();
+    let query_str = if role_lower == "student" || role_lower == "role-school-student" {
+        "SELECT s.id, s.workspace_id, s.student_id, s.title, s.amount, s.due_date, s.status, s.paid_at, s.updated_at FROM school_invoices s JOIN student_profiles p ON s.student_id = p.id WHERE s.workspace_id = ?1 AND p.user_id = ?2"
+    } else if role_lower == "parent" || role_lower == "role-school-parent" {
+        "SELECT s.id, s.workspace_id, s.student_id, s.title, s.amount, s.due_date, s.status, s.paid_at, s.updated_at FROM school_invoices s JOIN student_profiles p ON s.student_id = p.id JOIN student_parents sp ON p.id = sp.student_id WHERE s.workspace_id = ?1 AND sp.parent_user_id = ?2"
+    } else {
+        "SELECT id, workspace_id, student_id, title, amount, due_date, status, paid_at, updated_at FROM school_invoices WHERE workspace_id = ?1"
+    };
 
-    let list = stmt
-        .query_map(crate::params![workspace_id], |row| {
+    let mut stmt = conn.prepare(query_str).await?;
+
+    let list = if role_lower == "student" || role_lower == "role-school-student" || role_lower == "parent" || role_lower == "role-school-parent" {
+        stmt.query_map(crate::params![workspace_id, &auth.user_id], |row| {
             Ok(SchoolInvoice {
                 id: row.get(0)?,
                 workspace_id: row.get(1)?,
@@ -699,8 +1003,22 @@ pub async fn get_school_invoices(
                 paid_at: row.get(7)?,
                 updated_at: row.get(8)?,
             })
-        })
-        .await?;
+        }).await?
+    } else {
+        stmt.query_map(crate::params![workspace_id], |row| {
+            Ok(SchoolInvoice {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                student_id: row.get(2)?,
+                title: row.get(3)?,
+                amount: row.get(4)?,
+                due_date: row.get(5)?,
+                status: row.get(6)?,
+                paid_at: row.get(7)?,
+                updated_at: row.get(8)?,
+            })
+        }).await?
+    };
 
     Ok(list)
 }
@@ -709,12 +1027,16 @@ pub async fn get_school_invoices(
 pub async fn create_school_invoice(
     requester_user_id: String,
     invoice: SchoolInvoice,
+    role_proof: Option<String>,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != invoice.workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
+
+    verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
+    verify_school_permission(&auth, "can_manage_billing")?;
 
     let now_ms = crate::infra::time::get_current_time_ms();
     conn.execute(
@@ -742,12 +1064,16 @@ pub async fn record_school_payment(
     workspace_id: String,
     invoice_id: String,
     payment_method: String,
+    role_proof: Option<String>,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
+
+    verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
+    verify_school_permission(&auth, "can_manage_billing")?;
 
     conn.begin_transaction().await?;
 
@@ -805,18 +1131,32 @@ pub async fn get_library_lending_logs(
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
 
-    let mut stmt = conn
-        .prepare("
-            SELECT l.id, b.title, s.first_name || ' ' || s.last_name, l.checked_out_at, l.due_date, l.returned_at, l.status
-            FROM library_lending_logs l
-            JOIN library_books b ON l.book_id = b.id
-            JOIN student_profiles s ON l.student_id = s.id
-            WHERE l.workspace_id = ?1
-        ")
-        .await?;
+    let role_lower = auth.role.to_lowercase();
+    let query_str = if role_lower == "student" || role_lower == "role-school-student" {
+        "SELECT l.id, b.title, s.first_name || ' ' || s.last_name, l.checked_out_at, l.due_date, l.returned_at, l.status
+         FROM library_lending_logs l
+         JOIN library_books b ON l.book_id = b.id
+         JOIN student_profiles s ON l.student_id = s.id
+         WHERE l.workspace_id = ?1 AND s.user_id = ?2"
+    } else if role_lower == "parent" || role_lower == "role-school-parent" {
+        "SELECT l.id, b.title, s.first_name || ' ' || s.last_name, l.checked_out_at, l.due_date, l.returned_at, l.status
+         FROM library_lending_logs l
+         JOIN library_books b ON l.book_id = b.id
+         JOIN student_profiles s ON l.student_id = s.id
+         JOIN student_parents sp ON s.id = sp.student_id
+         WHERE l.workspace_id = ?1 AND sp.parent_user_id = ?2"
+    } else {
+        "SELECT l.id, b.title, s.first_name || ' ' || s.last_name, l.checked_out_at, l.due_date, l.returned_at, l.status
+         FROM library_lending_logs l
+         JOIN library_books b ON l.book_id = b.id
+         JOIN student_profiles s ON l.student_id = s.id
+         WHERE l.workspace_id = ?1"
+    };
 
-    let list = stmt
-        .query_map(crate::params![workspace_id], |row| {
+    let mut stmt = conn.prepare(query_str).await?;
+
+    let list = if role_lower == "student" || role_lower == "role-school-student" || role_lower == "parent" || role_lower == "role-school-parent" {
+        stmt.query_map(crate::params![workspace_id, &auth.user_id], |row| {
             Ok(LibraryLendingLogInfo {
                 id: row.get(0)?,
                 book_title: row.get(1)?,
@@ -826,8 +1166,20 @@ pub async fn get_library_lending_logs(
                 returned_at: row.get(5)?,
                 status: row.get(6)?,
             })
-        })
-        .await?;
+        }).await?
+    } else {
+        stmt.query_map(crate::params![workspace_id], |row| {
+            Ok(LibraryLendingLogInfo {
+                id: row.get(0)?,
+                book_title: row.get(1)?,
+                student_name: row.get(2)?,
+                checked_out_at: row.get(3)?,
+                due_date: row.get(4)?,
+                returned_at: row.get(5)?,
+                status: row.get(6)?,
+            })
+        }).await?
+    };
 
     Ok(list)
 }
@@ -838,12 +1190,16 @@ pub async fn link_parent_to_student(
     workspace_id: String,
     student_id: String,
     parent_user_id: String,
+    role_proof: Option<String>,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
+
+    verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
+    verify_school_permission(&auth, "can_manage_students")?;
 
     let now_ms = crate::infra::time::get_current_time_ms();
     conn.execute(
@@ -853,6 +1209,52 @@ pub async fn link_parent_to_student(
 
     notify_observers();
     Ok(())
+}
+
+#[uniffi::export]
+pub async fn link_student_self_service(
+    requester_user_id: String,
+    workspace_id: String,
+    student_id: String,
+) -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let parent_email: String = conn
+        .query_row(
+            "SELECT email FROM users WHERE id = ?1 AND workspace_id = ?2",
+            crate::params![&auth.user_id, &workspace_id],
+            |r| r.get(0)
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Parent user not found".to_string()))?;
+
+    let student_parent_contact: Option<String> = conn
+        .query_row(
+            "SELECT parent_contact FROM student_profiles WHERE id = ?1 AND workspace_id = ?2",
+            crate::params![&student_id, &workspace_id],
+            |r| r.get(0)
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Student profile not found".to_string()))?;
+
+    if let Some(contact) = student_parent_contact {
+        if contact.trim().to_lowercase() == parent_email.trim().to_lowercase() {
+            let now_ms = crate::infra::time::get_current_time_ms();
+            conn.execute(
+                "INSERT OR REPLACE INTO student_parents (student_id, parent_user_id, workspace_id, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, 'pending')",
+                crate::params![&student_id, &auth.user_id, &workspace_id, &now_ms]
+            ).await?;
+
+            notify_observers();
+            return Ok(());
+        }
+    }
+
+    Err(YntraError::AuthError("Verification failed: parent contact info does not match student profile".to_string()))
 }
 
 #[uniffi::export]
@@ -866,6 +1268,8 @@ pub async fn get_student_parents(
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
+
+    verify_student_access(&conn, &auth, &student_id).await?;
 
     let mut stmt = conn
         .prepare("
@@ -936,6 +1340,81 @@ pub async fn get_student_parents(
 }
 
 #[uniffi::export]
+pub async fn get_parent_students(
+    requester_user_id: String,
+    workspace_id: String,
+    parent_user_id: String,
+) -> Result<Vec<StudentProfile>, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let mut stmt = conn
+        .prepare("
+            SELECT s.id, s.workspace_id, s.user_id, s.first_name, s.last_name, s.grade_level, s.parent_contact, s.updated_at
+            FROM student_profiles s
+            JOIN student_parents sp ON s.id = sp.student_id
+            WHERE sp.parent_user_id = ?1 AND sp.workspace_id = ?2
+        ")
+        .await?;
+
+    let list = stmt
+        .query_map(crate::params![parent_user_id, workspace_id], |row| {
+            Ok(StudentProfile {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                user_id: row.get(2)?,
+                first_name: row.get(3)?,
+                last_name: row.get(4)?,
+                grade_level: row.get(5)?,
+                parent_contact: row.get(6)?,
+                updated_at: row.get(7)?,
+            })
+        })
+        .await?;
+
+    Ok(list)
+}
+
+#[uniffi::export]
+pub async fn get_student_attendance_records(
+    requester_user_id: String,
+    workspace_id: String,
+    student_id: String,
+) -> Result<Vec<AttendanceRecord>, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    verify_student_access(&conn, &auth, &student_id).await?;
+
+    let mut stmt = conn
+        .prepare("SELECT id, workspace_id, student_id, course_id, date, status, notes, updated_at FROM attendance_records WHERE workspace_id = ?1 AND student_id = ?2")
+        .await?;
+
+    let list = stmt
+        .query_map(crate::params![workspace_id, student_id], |row| {
+            Ok(AttendanceRecord {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                student_id: row.get(2)?,
+                course_id: row.get(3)?,
+                date: row.get(4)?,
+                status: row.get(5)?,
+                notes: row.get(6)?,
+                updated_at: row.get(7)?,
+            })
+        })
+        .await?;
+
+    Ok(list)
+}
+
+#[uniffi::export]
 pub async fn get_student_health_records(
     requester_user_id: String,
     workspace_id: String,
@@ -946,6 +1425,8 @@ pub async fn get_student_health_records(
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
+
+    verify_student_access(&conn, &auth, &student_id).await?;
 
     let mut stmt = conn
         .prepare("SELECT id, workspace_id, student_id, vaccine_name, status, administered_at, updated_at FROM health_records WHERE workspace_id = ?1 AND student_id = ?2")
@@ -972,11 +1453,24 @@ pub async fn get_student_health_records(
 pub async fn save_student_health_record(
     requester_user_id: String,
     record: HealthRecord,
+    role_proof: Option<String>,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != record.workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
+    
+    let is_parent_self = {
+        let role_lower = auth.role.to_lowercase();
+        (role_lower == "parent" || role_lower == "role-school-parent") 
+            && verify_student_access(&conn, &auth, &record.student_id).await.is_ok()
+    };
+    
+    if !is_parent_self {
+        verify_school_permission(&auth, "can_access_health_records")?;
     }
 
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -1035,12 +1529,16 @@ pub async fn get_health_incidents(
 pub async fn save_health_incident(
     requester_user_id: String,
     incident: HealthIncident,
+    role_proof: Option<String>,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != incident.workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
+
+    verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
+    verify_school_permission(&auth, "can_access_health_records")?;
 
     let now_ms = crate::infra::time::get_current_time_ms();
     conn.execute(
@@ -1073,6 +1571,8 @@ pub async fn get_student_submissions(
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
+
+    verify_student_access(&conn, &auth, &student_id).await?;
 
     let mut stmt = conn
         .prepare("SELECT id, workspace_id, assignment_id, student_id, content, grade, feedback, submitted_at, updated_at FROM submissions WHERE workspace_id = ?1 AND student_id = ?2")
@@ -1134,12 +1634,16 @@ pub async fn get_timetable_slots(
 pub async fn save_timetable_slot(
     requester_user_id: String,
     slot: crate::TimetableSlot,
+    role_proof: Option<String>,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != slot.workspace_id {
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
+
+    verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
+    verify_school_permission(&auth, "can_manage_schedule")?;
 
     let now_ms = crate::infra::time::get_current_time_ms();
     conn.execute(
@@ -1186,7 +1690,7 @@ mod tests {
             parent_contact: Some("parent@smith.com".to_string()),
             updated_at: 0,
         };
-        save_student_profile("u-school-admin".to_string(), profile.clone()).await.unwrap();
+        save_student_profile("u-school-admin".to_string(), profile.clone(), None).await.unwrap();
 
         let list = get_student_profiles("u-school-admin".to_string(), "ws-school-test".to_string()).await.unwrap();
         assert_eq!(list.len(), 1);
@@ -1203,9 +1707,9 @@ mod tests {
             total_copies: 2,
             updated_at: 0,
         };
-        save_library_book("u-school-admin".to_string(), book.clone()).await.unwrap();
+        save_library_book("u-school-admin".to_string(), book.clone(), None).await.unwrap();
 
-        checkout_book("u-school-admin".to_string(), "ws-school-test".to_string(), "bk-1".to_string(), "stud-1".to_string(), "2026-08-01".to_string()).await.unwrap();
+        checkout_book("u-school-admin".to_string(), "ws-school-test".to_string(), "bk-1".to_string(), "stud-1".to_string(), "2026-08-01".to_string(), None).await.unwrap();
         let bk_list = get_library_books("u-school-admin".to_string(), "ws-school-test".to_string()).await.unwrap();
         assert_eq!(bk_list[0].copies_available, 1);
 
@@ -1221,8 +1725,8 @@ mod tests {
             paid_at: None,
             updated_at: 0,
         };
-        create_school_invoice("u-school-admin".to_string(), invoice).await.unwrap();
-        record_school_payment("u-school-admin".to_string(), "ws-school-test".to_string(), "inv-s1".to_string(), "Card".to_string()).await.unwrap();
+        create_school_invoice("u-school-admin".to_string(), invoice, None).await.unwrap();
+        record_school_payment("u-school-admin".to_string(), "ws-school-test".to_string(), "inv-s1".to_string(), "Card".to_string(), None).await.unwrap();
 
         let invoices = get_school_invoices("u-school-admin".to_string(), "ws-school-test".to_string()).await.unwrap();
         assert_eq!(invoices[0].status, "paid");
@@ -1230,7 +1734,7 @@ mod tests {
 
         // 4. Parent Linking
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-parent-1', 'ws-school-test', 'parent@smith.com', 'parent')", ()).await.unwrap();
-        link_parent_to_student("u-school-admin".to_string(), "ws-school-test".to_string(), "stud-1".to_string(), "u-parent-1".to_string()).await.unwrap();
+        link_parent_to_student("u-school-admin".to_string(), "ws-school-test".to_string(), "stud-1".to_string(), "u-parent-1".to_string(), None).await.unwrap();
         let parents = get_student_parents("u-school-admin".to_string(), "ws-school-test".to_string(), "stud-1".to_string()).await.unwrap();
         assert_eq!(parents.len(), 1);
         assert_eq!(parents[0].id, "u-parent-1");
@@ -1245,7 +1749,7 @@ mod tests {
             administered_at: Some("2026-05-01".to_string()),
             updated_at: 0,
         };
-        save_student_health_record("u-school-admin".to_string(), hr).await.unwrap();
+        save_student_health_record("u-school-admin".to_string(), hr, None).await.unwrap();
         let hr_list = get_student_health_records("u-school-admin".to_string(), "ws-school-test".to_string(), "stud-1".to_string()).await.unwrap();
         assert_eq!(hr_list.len(), 1);
         assert_eq!(hr_list[0].vaccine_name, "MMR");
@@ -1261,7 +1765,7 @@ mod tests {
             notes: Some("Slight headache".to_string()),
             updated_at: 0,
         };
-        save_health_incident("u-school-admin".to_string(), incident).await.unwrap();
+        save_health_incident("u-school-admin".to_string(), incident, None).await.unwrap();
         let inc_list = get_health_incidents("u-school-admin".to_string(), "ws-school-test".to_string()).await.unwrap();
         assert_eq!(inc_list.len(), 1);
         assert_eq!(inc_list[0].visit_reason, "Fever");
@@ -1274,7 +1778,7 @@ mod tests {
             teacher_id: Some("u-school-admin".to_string()),
             classroom: Some("Room 101".to_string()),
         };
-        save_course("u-school-admin".to_string(), "ws-school-test".to_string(), test_course).await.unwrap();
+        save_course("u-school-admin".to_string(), "ws-school-test".to_string(), test_course, None).await.unwrap();
 
         let tg = TermGrade {
             id: "tg-1".to_string(),
@@ -1287,7 +1791,7 @@ mod tests {
             teacher_comments: Some("Excellent work".to_string()),
             updated_at: 0,
         };
-        save_term_grade("u-school-admin".to_string(), tg).await.unwrap();
+        save_term_grade("u-school-admin".to_string(), tg, None).await.unwrap();
         let tg_list = get_term_grades("u-school-admin".to_string(), "ws-school-test".to_string(), "stud-1".to_string()).await.unwrap();
         assert_eq!(tg_list.len(), 1);
         assert_eq!(tg_list[0].final_grade, Some("A".to_string()));
@@ -1306,7 +1810,7 @@ mod tests {
             status: "published".to_string(),
             updated_at: 0,
         };
-        publish_report_card("u-school-admin".to_string(), rc).await.unwrap();
+        publish_report_card("u-school-admin".to_string(), rc, None).await.unwrap();
         let rc_list = get_report_cards("u-school-admin".to_string(), "ws-school-test".to_string(), "stud-1".to_string()).await.unwrap();
         assert_eq!(rc_list.len(), 1);
         assert_eq!(rc_list[0].gpa, 4.0);
@@ -1322,7 +1826,7 @@ mod tests {
             max_points: 100,
             updated_at: 0,
         };
-        save_assignment("u-school-admin".to_string(), test_assignment).await.unwrap();
+        save_assignment("u-school-admin".to_string(), test_assignment, None).await.unwrap();
 
         let sub = crate::Submission {
             id: "sub-1".to_string(),
@@ -1335,7 +1839,7 @@ mod tests {
             submitted_at: "2026-07-16T12:00:00Z".to_string(),
             updated_at: 0,
         };
-        save_submission("u-school-admin".to_string(), sub.clone()).await.unwrap();
+        save_submission("u-school-admin".to_string(), sub.clone(), None).await.unwrap();
         let sub_list = get_student_submissions("u-school-admin".to_string(), "ws-school-test".to_string(), "stud-1".to_string()).await.unwrap();
         assert_eq!(sub_list.len(), 1);
         assert_eq!(sub_list[0].content, "My homework answer");
@@ -1351,7 +1855,7 @@ mod tests {
             classroom: Some("Room 101".to_string()),
             updated_at: 0,
         };
-        save_timetable_slot("u-school-admin".to_string(), slot.clone()).await.unwrap();
+        save_timetable_slot("u-school-admin".to_string(), slot.clone(), None).await.unwrap();
         let slots = get_timetable_slots("u-school-admin".to_string(), "ws-school-test".to_string()).await.unwrap();
         assert_eq!(slots.len(), 1);
         assert_eq!(slots[0].start_time, "08:30");
@@ -1373,5 +1877,66 @@ mod tests {
         conn.execute("DELETE FROM student_profiles WHERE workspace_id = 'ws-school-test'", ()).await.unwrap();
         conn.execute("DELETE FROM users WHERE workspace_id = 'ws-school-test'", ()).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id = 'ws-school-test'", ()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_school_permission_validation() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        // Setup test workspace with role templates in settings
+        let settings_json = r#"{
+            "roles": [
+                {
+                    "id": "role-school-teacher",
+                    "name": "Teacher",
+                    "permissions": {
+                        "can_manage_schedule": true,
+                        "can_manage_grades": true
+                    }
+                },
+                {
+                    "id": "role-school-student",
+                    "name": "Student",
+                    "permissions": {
+                        "can_manage_schedule": false,
+                        "can_manage_grades": false
+                    }
+                }
+            ]
+        }"#;
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-perm-test', 'Perm WS', '[]', ?1)", crate::params![settings_json]).await.unwrap();
+        
+        // Insert users
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-teacher', 'ws-perm-test', 'teacher@school.com', 'teacher')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-student', 'ws-perm-test', 'student@school.com', 'student')", ()).await.unwrap();
+
+        // Setup course to test
+        let course = Course {
+            id: "crs-p1".to_string(),
+            name: "History".to_string(),
+            subject: "History".to_string(),
+            teacher_id: Some("u-teacher".to_string()),
+            classroom: Some("Room 202".to_string()),
+        };
+
+        // 1. Teacher has can_manage_schedule, so save_course should succeed
+        let save_res = save_course("u-teacher".to_string(), "ws-perm-test".to_string(), course.clone(), None).await;
+        assert!(save_res.is_ok(), "Teacher should be authorized: {:?}", save_res.err());
+
+        // 2. Student does NOT have can_manage_schedule, so save_course should fail
+        let save_student_res = save_course("u-student".to_string(), "ws-perm-test".to_string(), course.clone(), None).await;
+        assert!(save_student_res.is_err(), "Student should be denied");
+        if let Err(YntraError::AuthError(msg)) = save_student_res {
+            assert!(msg.contains("does not have permission 'can_manage_schedule'"));
+        } else {
+            panic!("Expected AuthError for student course save");
+        }
+
+        // Cleanup
+        conn.execute("DELETE FROM courses WHERE workspace_id = 'ws-perm-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-perm-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-perm-test'", ()).await.unwrap();
     }
 }

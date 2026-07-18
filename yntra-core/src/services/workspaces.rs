@@ -212,6 +212,30 @@ fn get_default_settings_for_modules(modules_json: &str) -> String {
         .get("moving_company")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    let is_school = modules_val
+        .get("school")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+        || modules_val
+            .get("academics")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        || modules_val
+            .get("attendance")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        || modules_val
+            .get("finance")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        || modules_val
+            .get("library")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        || modules_val
+            .get("timetable")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
     let care_subtype = modules_val
         .get("care_subtype")
         .and_then(|v| v.as_str())
@@ -231,6 +255,9 @@ fn get_default_settings_for_modules(modules_json: &str) -> String {
     } else if is_assistance {
         let care_roles = super::role_templates::get_care_roles(care_subtype, is_scandi);
         settings_map.insert("roles".to_string(), care_roles);
+    } else if is_school {
+        let school_roles = super::role_templates::get_school_roles(is_scandi);
+        settings_map.insert("roles".to_string(), school_roles);
     }
 
     serde_json::to_string(&serde_json::Value::Object(settings_map))
