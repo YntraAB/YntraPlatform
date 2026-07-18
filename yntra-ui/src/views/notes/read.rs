@@ -36,7 +36,8 @@ pub fn NoteRead(props: NoteReadProps) -> Element {
     let locale = props.locale;
 
     let mut decrypted_content = use_signal(|| Option::<String>::None);
-    let mut passkey_seed_input = use_signal(|| "my_passkey_seed".to_string());
+    let state = use_context::<crate::state::AppState>();
+    let mut passkey_seed_input = use_signal(move || state.get_passkey_seed());
     let mut decryption_error = use_signal(|| Option::<String>::None);
 
     let content_str = note.content.clone();

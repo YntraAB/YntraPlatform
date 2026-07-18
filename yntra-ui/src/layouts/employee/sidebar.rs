@@ -218,7 +218,15 @@ pub fn LayoutSidebar(props: LayoutSidebarProps) -> Element {
                         let static_block_ids: std::collections::HashSet<&str> = blocks::BLOCK_REGISTRY.iter().map(|b| b.id).collect();
 
                         rsx! {
-                            for block in blocks::BLOCK_REGISTRY.iter() {
+                            for block in blocks::BLOCK_REGISTRY.iter().filter(|b| {
+                                if current_role == "student" || current_role == "role-school-student" {
+                                    b.id == "academics" || b.id == "report_cards" || b.id == "library"
+                                } else if current_role == "parent" || current_role == "role-school-parent" {
+                                    b.id == "academics" || b.id == "finance" || b.id == "health_clinic" || b.id == "report_cards" || b.id == "library" || b.id == "messaging" || b.id == "directory"
+                                } else {
+                                    true
+                                }
+                            }) {
                                 if block.id == "dashboard" || is_module_enabled(block.id) {
                                     for item in block.navigation.iter() {
                                         if is_role_allowed(item.allowed_roles) {
@@ -240,6 +248,23 @@ pub fn LayoutSidebar(props: LayoutSidebarProps) -> Element {
                                                         name
                                                     } else if item.id == "messaging" && is_client {
                                                         "Care Chat".to_string()
+                                                    } else if item.id == "directory" {
+                                                        let is_sch = modules_active_val.get("school").and_then(|v| v.as_bool()).unwrap_or(false)
+                                                            || modules_active_val.get("academics").and_then(|v| v.as_bool()).unwrap_or(false);
+                                                        let is_ast = modules_active_val.get("assistance").and_then(|v| v.as_bool()).unwrap_or(false)
+                                                            || modules_active_val.get("journals").and_then(|v| v.as_bool()).unwrap_or(false)
+                                                            || modules_active_val.get("medications").and_then(|v| v.as_bool()).unwrap_or(false);
+                                                        let is_mov = modules_active_val.get("moving_company").and_then(|v| v.as_bool()).unwrap_or(false);
+
+                                                        if is_sch {
+                                                            t("school-directory-nav", &auth_region.read())
+                                                        } else if is_ast {
+                                                            t("care-directory-nav", &auth_region.read())
+                                                        } else if is_mov {
+                                                            t("moving-directory-nav", &auth_region.read())
+                                                        } else {
+                                                            t("general-directory-nav", &auth_region.read())
+                                                        }
                                                     } else {
                                                         t(item.label_key, &auth_region.read())
                                                     }
@@ -314,7 +339,7 @@ pub fn LayoutSidebar(props: LayoutSidebarProps) -> Element {
 
                             // Custom Dynamic Sidebar Items
                             for b in db_blocks.iter() {
-                                if b.id != "time" && b.id != "notes" && b.id != "reporting" && b.id != "assistance" && !static_block_ids.contains(b.id.as_str()) && modules_active_val.get(&b.id).and_then(|v| v.as_bool()).unwrap_or(false) {
+                                if current_role != "student" && current_role != "parent" && b.id != "time" && b.id != "notes" && b.id != "reporting" && b.id != "assistance" && !static_block_ids.contains(b.id.as_str()) && modules_active_val.get(&b.id).and_then(|v| v.as_bool()).unwrap_or(false) {
                                     {
                                         let b_id = b.id.clone();
                                         let b_name = b.name.clone();

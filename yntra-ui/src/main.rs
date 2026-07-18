@@ -59,7 +59,10 @@ fn App() -> Element {
     let account_preferences = state.account_preferences;
 
     // Handle section changes with guards
-    let is_client = *state.active_user_role.read() == "client";
+    let active_role = state.active_user_role.read();
+    let is_client = *active_role == "client";
+    let is_student = *active_role == "student" || *active_role == "role-school-student";
+    let is_parent = *active_role == "parent" || *active_role == "role-school-parent";
 
     if is_client
         && *active_section.read() != "messaging"
@@ -67,6 +70,26 @@ fn App() -> Element {
         && *active_section.read() != "directory"
     {
         active_section.set("client_portal".to_string());
+    }
+
+    if is_student
+        && *active_section.read() != "academics"
+        && *active_section.read() != "report_cards"
+        && *active_section.read() != "library"
+    {
+        active_section.set("academics".to_string());
+    }
+
+    if is_parent
+        && *active_section.read() != "academics"
+        && *active_section.read() != "attendance"
+        && *active_section.read() != "finance"
+        && *active_section.read() != "health_clinic"
+        && *active_section.read() != "report_cards"
+        && *active_section.read() != "library"
+        && *active_section.read() != "messaging"
+    {
+        active_section.set("academics".to_string());
     }
 
     let workspace_val = state.workspace.read().clone().unwrap_or_else(|| yntra_core::Workspace {

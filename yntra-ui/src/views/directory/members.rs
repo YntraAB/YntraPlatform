@@ -67,7 +67,13 @@ pub fn MembersList(props: MembersListProps) -> Element {
     let mut selected_member = use_signal(|| Option::<components::DirectoryMember>::None);
     let mut selected_member_to_edit = use_signal(|| Option::<components::DirectoryMember>::None);
 
-    let _is_admin = active_user.role == "platform_admin" || active_user.role == "admin";
+    let is_admin = active_user.role == "platform_admin" || active_user.role == "admin";
+    let modules_active_val: serde_json::Value =
+        serde_json::from_str(&workspace.modules_active).unwrap_or_default();
+    let is_assistance = modules_active_val
+        .get("assistance")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     // Filtering lists
     let team_users: Vec<WorkspaceUser> = users;
@@ -119,29 +125,47 @@ pub fn MembersList(props: MembersListProps) -> Element {
                     }
                 }
 
-                if team_id_unwrap != "all_members" {
-                    div { class: "flex gap-2",
-                        button {
-                            class: format!("px-4 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer border flex items-center gap-1.5 {}",
-                                if *active_tab.read() == "members" { "bg-primary text-primary-foreground border-primary" } else { "text-muted-foreground hover:bg-muted border-transparent" }
-                            ),
-                            onclick: move |_| active_tab.set("members".to_string()),
-                            components::LucideIcon { name: "users", size: "14" }
-                            "Members"
+                div { class: "flex items-center gap-2",
+                    if team_id_unwrap != "all_members" {
+                        div { class: "flex gap-2 mr-2",
+                            button {
+                                class: format!("px-4 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer border flex items-center gap-1.5 {}",
+                                    if *active_tab.read() == "members" { "bg-primary text-primary-foreground border-primary" } else { "text-muted-foreground hover:bg-muted border-transparent" }
+                                ),
+                                onclick: move |_| active_tab.set("members".to_string()),
+                                components::LucideIcon { name: "users", size: "14" }
+                                "Members"
+                            }
+                            button {
+                                class: format!("px-4 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer border flex items-center gap-1.5 {}",
+                                    if *active_tab.read() == "notes" { "bg-primary text-primary-foreground border-primary" } else { "text-muted-foreground hover:bg-muted border-transparent" }
+                                ),
+                                onclick: {
+                                    let team_id = team_id_unwrap.clone();
+                                    move |_| {
+                                        state.selected_note_team_id.set(team_id.clone());
+                                        active_tab.set("notes".to_string());
+                                    }
+                                },
+                                components::LucideIcon { name: "file-text", size: "14" }
+                                "Team Notes"
+                            }
                         }
+                    }
+                    if is_admin {
                         button {
-                            class: format!("px-4 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer border flex items-center gap-1.5 {}",
-                                if *active_tab.read() == "notes" { "bg-primary text-primary-foreground border-primary" } else { "text-muted-foreground hover:bg-muted border-transparent" }
-                            ),
-                            onclick: {
-                                let team_id = team_id_unwrap.clone();
-                                move |_| {
-                                    state.selected_note_team_id.set(team_id.clone());
-                                    active_tab.set("notes".to_string());
-                                }
-                            },
-                            components::LucideIcon { name: "file-text", size: "14" }
-                            "Team Notes"
+                            class: "yntra-btn secondary h-8 border border-border bg-transparent text-xs text-foreground hover:bg-white/[0.04] px-3 py-1.5 rounded-lg font-semibold cursor-pointer flex items-center gap-1.5",
+                            onclick: move |_| show_invite_member_modal.set(true),
+                            components::LucideIcon { name: "user-plus", size: "14" }
+                            "Invite Employee"
+                        }
+                    }
+                    if is_admin && is_assistance && team_id_unwrap != "all_members" {
+                        button {
+                            class: "yntra-btn h-8 text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg",
+                            onclick: move |_| show_client_manager_modal.set(true),
+                            components::LucideIcon { name: "plus", size: "14" }
+                            "Add Patient"
                         }
                     }
                 }
@@ -579,14 +603,16 @@ pub fn MembersList(props: MembersListProps) -> Element {
                             components::LucideIcon { name: "user", size: "14" }
                             "View Details"
                         }
-                        button {
-                            class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
-                            onclick: move |_| {
-                                selected_member_to_edit.set(Some(m_edit.clone()));
-                                context_menu_open.set(false);
-                            },
-                            components::LucideIcon { name: "edit", size: "14" }
-                            "Edit Profile"
+                        if is_admin {
+                            button {
+                                class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                                onclick: move |_| {
+                                    selected_member_to_edit.set(Some(m_edit.clone()));
+                                    context_menu_open.set(false);
+                                },
+                                components::LucideIcon { name: "edit", size: "14" }
+                                "Edit Profile"
+                            }
                         }
                         button {
                             class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",

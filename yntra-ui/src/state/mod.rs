@@ -154,6 +154,13 @@ pub struct AppState {
     pub db_initialized: Signal<bool>,
 }
 
+impl AppState {
+    pub fn get_passkey_seed(&self) -> String {
+        let uid = self.active_user_id.read();
+        format!("passkey_seed_{}", uid)
+    }
+}
+
 pub fn use_init_app_state() -> AppState {
     // Core state signals
     let mut db_trigger = use_signal(|| 0);

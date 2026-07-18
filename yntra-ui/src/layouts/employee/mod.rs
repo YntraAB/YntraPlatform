@@ -227,183 +227,376 @@ pub fn EmployeeLayout() -> Element {
                 main { class: "min-h-0 flex-1 overflow-y-auto",
                     components::ErrorBoundary {
                         {
-                            match active_section.read().as_str() {
-                                "dashboard" => {
-                                    rsx! {
-                                        views::DashboardView {
-                                            active_user: active_user.clone(),
-                                            unread_messages_count,
-                                            db_trigger: db_trigger,
-                                            active_section: active_section,
-                                            auth_region: auth_region,
-                                            workspace: workspace.clone(),
-                                        }
-                                    }
+                            let sec = active_section.read().clone();
+                            let is_route_allowed = |sec_name: &str, role_str: &str| -> bool {
+                                let r = role_str.to_lowercase();
+                                if r == "student" || r == "role-school-student" {
+                                    sec_name == "academics" || sec_name == "report_cards" || sec_name == "library" || sec_name == "dashboard" || sec_name == "settings"
+                                } else if r == "parent" || r == "role-school-parent" {
+                                    sec_name == "academics" || sec_name == "finance" || sec_name == "health_clinic" || sec_name == "report_cards" || sec_name == "library" || sec_name == "messaging" || sec_name == "directory" || sec_name == "dashboard" || sec_name == "settings"
+                                } else {
+                                    true
                                 }
-                                "messaging" => {
-                                    rsx! {
-                                        views::MessagingView {
-                                            active_user: active_user.clone(),
-                                            unread_messages_count,
-                                            messaging_view_tab: messaging_view_tab,
-                                            active_message_id: active_message_id,
-                                            compose_recipient_id: compose_recipient_id,
-                                            compose_subject: compose_subject,
-                                            compose_body: compose_body,
-                                            compose_status: compose_status,
-                                            db_trigger: db_trigger,
-                                            is_client,
-                                        }
-                                    }
-                                }
-                                "scheduling" => {
-                                    rsx! {
-                                        views::SchedulingView {
-                                            active_user: active_user.clone(),
-                                            calendar_year: calendar_year,
-                                            calendar_month: calendar_month,
-                                            selected_calendar_date: selected_calendar_date,
-                                            scheduling_sidebar_tab: scheduling_sidebar_tab,
-                                            event_title: event_title,
-                                            event_team: event_team,
-                                            event_assignee: event_assignee,
-                                            event_recipient: event_recipient,
-                                            event_start: event_start,
-                                            event_end: event_end,
-                                            leave_type: leave_type,
-                                            leave_start: leave_start,
-                                            leave_end: leave_end,
-                                            leave_reason: leave_reason,
-                                            leave_save_status: leave_save_status,
-                                            db_trigger: db_trigger,
-                                            filter_categories: filter_categories,
-                                            locale: auth_region.read().clone(),
-                                        }
-                                    }
-                                }
+                            };
 
-                                "time" => {
-                                    rsx! {
-                                        views::TimeView {
-                                            active_user: active_user.clone(),
-                                            time_view_tab: time_view_tab,
-                                            time_filter_status: time_filter_status,
-                                            time_search_query: time_search_query,
-                                            selected_time_reports: selected_time_reports,
-                                            time_date: time_date,
-                                            time_start: time_start,
-                                            time_end: time_end,
-                                            time_hours: time_hours,
-                                            time_note: time_note,
-                                            db_trigger: db_trigger,
-                                        }
+                            if !is_route_allowed(sec.as_str(), &current_role) {
+                                rsx! {
+                                    div { class: "p-8 text-center space-y-4 max-w-md mx-auto mt-20 border border-dashed border-red-500/20 rounded-2xl bg-red-500/5 animate-in fade-in duration-200",
+                                        components::LucideIcon { name: "shield-alert", class: "h-12 w-12 text-red-500 mx-auto" }
+                                        h3 { class: "text-lg font-bold text-foreground m-0", "Access Denied" }
+                                        p { class: "text-xs text-muted-foreground m-0 leading-relaxed", "Your user role does not have permission to access this section." }
                                     }
                                 }
-
-                                "jobs" => {
-                                    rsx! {
-                                        views::JobsView {
-                                            active_user_id: active_user_id,
-                                            auth_region: auth_region,
-                                            db_trigger: trigger_jobs,
-                                        }
-                                    }
-                                }
-
-
-                                "settings" => {
-                                    rsx! {
-                                        views::SettingsView {
-                                            active_user: active_user.clone(),
-                                            settings_save_status: settings_save_status,
-                                            account_save_status: account_save_status,
-                                            settings_tab: settings_tab,
-                                            settings_name: settings_name,
-                                            settings_brand_color: settings_brand_color,
-                                            settings_logo_url: settings_logo_url,
-                                            db_trigger: db_trigger,
-                                            messaging_enabled,
-                                            scheduling_enabled,
-                                            notes_enabled,
-                                            time_enabled,
-                                            directory_enabled,
-                                            reporting_enabled,
-                                            account_name: account_name,
-                                            account_phone: account_phone,
-                                            account_preferences: account_preferences,
-                                            workspace: workspace.clone(),
-                                            locale: auth_region.read().clone(),
-                                        }
-                                    }
-                                }
-                                "todos" => {
-                                    let use_custom = get_block_use_custom_ui(&workspace, "todos");
-                                    if use_custom {
+                            } else {
+                                match sec.as_str() {
+                                    "dashboard" => {
                                         rsx! {
-                                            views::TodosView {
-                                                active_user_id: active_user_id.clone(),
+                                            views::DashboardView {
+                                                active_user: active_user.clone(),
+                                                unread_messages_count,
+                                                db_trigger: db_trigger,
+                                                active_section: active_section,
                                                 auth_region: auth_region,
-                                                db_trigger: db_trigger,
-                                            }
-                                        }
-                                    } else {
-                                        rsx! {
-                                            views::DynamicBlockView {
-                                                active_user_id: active_user_id.read().clone(),
-                                                workspace_id: workspace.id.clone(),
-                                                block_id: active_section.read().clone(),
-                                                db_trigger: db_trigger,
-                                                locale: auth_region.read().clone(),
+                                                workspace: workspace.clone(),
                                             }
                                         }
                                     }
-                                }
-                                "notes" => {
-                                    let use_custom = get_block_use_custom_ui(&workspace, "notes");
-                                    if use_custom {
+                                    "messaging" => {
                                         rsx! {
-                                            views::NotesView {
+                                            views::MessagingView {
                                                 active_user: active_user.clone(),
-                                                selected_note_team_id: selected_note_team_id,
-                                                note_subject: state.note_subject,
-                                                note_content: state.note_content,
-                                                active_note_id: selected_note_id,
-                                                is_composing: is_note_composing,
-                                                locale: auth_region.read().clone(),
-                                            }
-                                        }
-                                    } else {
-                                        rsx! {
-                                            views::DynamicBlockView {
-                                                active_user_id: active_user_id.read().clone(),
-                                                workspace_id: workspace.id.clone(),
-                                                block_id: active_section.read().clone(),
+                                                unread_messages_count,
+                                                messaging_view_tab: messaging_view_tab,
+                                                active_message_id: active_message_id,
+                                                compose_recipient_id: compose_recipient_id,
+                                                compose_subject: compose_subject,
+                                                compose_body: compose_body,
+                                                compose_status: compose_status,
                                                 db_trigger: db_trigger,
-                                                locale: auth_region.read().clone(),
+                                                is_client,
                                             }
                                         }
                                     }
-                                }
-
-                                "reporting" => {
-                                    let use_custom = get_block_use_custom_ui(&workspace, "reporting");
-                                    if use_custom {
+                                    "scheduling" => {
                                         rsx! {
-                                            views::ReportingView {
+                                            views::SchedulingView {
                                                 active_user: active_user.clone(),
-                                                report_tab: state.report_tab,
-                                                report_status_filter: state.report_status_filter,
-                                                report_type_filter: state.report_type_filter,
-                                                report_type: state.report_type,
-                                                report_date: state.report_date,
-                                                report_subject: state.report_subject,
-                                                report_description: state.report_description,
-                                                report_is_anonymous: state.report_is_anonymous,
-                                                selected_report_id: state.selected_report_id,
-                                                show_report_details_modal: state.show_report_details_modal,
+                                                calendar_year: calendar_year,
+                                                calendar_month: calendar_month,
+                                                selected_calendar_date: selected_calendar_date,
+                                                scheduling_sidebar_tab: scheduling_sidebar_tab,
+                                                event_title: event_title,
+                                                event_team: event_team,
+                                                event_assignee: event_assignee,
+                                                event_recipient: event_recipient,
+                                                event_start: event_start,
+                                                event_end: event_end,
+                                                leave_type: leave_type,
+                                                leave_start: leave_start,
+                                                leave_end: leave_end,
+                                                leave_reason: leave_reason,
+                                                leave_save_status: leave_save_status,
+                                                db_trigger: db_trigger,
+                                                filter_categories: filter_categories,
+                                                locale: auth_region.read().clone(),
                                             }
                                         }
-                                    } else {
+                                    }
+
+                                    "time" => {
+                                        rsx! {
+                                            views::TimeView {
+                                                active_user: active_user.clone(),
+                                                time_view_tab: time_view_tab,
+                                                time_filter_status: time_filter_status,
+                                                time_search_query: time_search_query,
+                                                selected_time_reports: selected_time_reports,
+                                                time_date: time_date,
+                                                time_start: time_start,
+                                                time_end: time_end,
+                                                time_hours: time_hours,
+                                                time_note: time_note,
+                                                db_trigger: db_trigger,
+                                            }
+                                        }
+                                    }
+
+                                    "jobs" => {
+                                        rsx! {
+                                            views::JobsView {
+                                                active_user_id: active_user_id,
+                                                auth_region: auth_region,
+                                                db_trigger: trigger_jobs,
+                                            }
+                                        }
+                                    }
+
+
+                                    "settings" => {
+                                        rsx! {
+                                            views::SettingsView {
+                                                active_user: active_user.clone(),
+                                                settings_save_status: settings_save_status,
+                                                account_save_status: account_save_status,
+                                                settings_tab: settings_tab,
+                                                settings_name: settings_name,
+                                                settings_brand_color: settings_brand_color,
+                                                settings_logo_url: settings_logo_url,
+                                                db_trigger: db_trigger,
+                                                messaging_enabled,
+                                                scheduling_enabled,
+                                                notes_enabled,
+                                                time_enabled,
+                                                directory_enabled,
+                                                reporting_enabled,
+                                                account_name: account_name,
+                                                account_phone: account_phone,
+                                                account_preferences: account_preferences,
+                                                workspace: workspace.clone(),
+                                                locale: auth_region.read().clone(),
+                                            }
+                                        }
+                                    }
+                                    "todos" => {
+                                        let use_custom = get_block_use_custom_ui(&workspace, "todos");
+                                        if use_custom {
+                                            rsx! {
+                                                views::TodosView {
+                                                    active_user_id: active_user_id.clone(),
+                                                    auth_region: auth_region,
+                                                    db_trigger: db_trigger,
+                                                }
+                                            }
+                                        } else {
+                                            rsx! {
+                                                views::DynamicBlockView {
+                                                    active_user_id: active_user_id.read().clone(),
+                                                    workspace_id: workspace.id.clone(),
+                                                    block_id: active_section.read().clone(),
+                                                    db_trigger: db_trigger,
+                                                    locale: auth_region.read().clone(),
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    "notes" => {
+                                        let use_custom = get_block_use_custom_ui(&workspace, "notes");
+                                        if use_custom {
+                                            rsx! {
+                                                views::NotesView {
+                                                    active_user: active_user.clone(),
+                                                    selected_note_team_id: selected_note_team_id,
+                                                    note_subject: state.note_subject,
+                                                    note_content: state.note_content,
+                                                    active_note_id: selected_note_id,
+                                                    is_composing: is_note_composing,
+                                                    locale: auth_region.read().clone(),
+                                                }
+                                            }
+                                        } else {
+                                            rsx! {
+                                                views::DynamicBlockView {
+                                                    active_user_id: active_user_id.read().clone(),
+                                                    workspace_id: workspace.id.clone(),
+                                                    block_id: active_section.read().clone(),
+                                                    db_trigger: db_trigger,
+                                                    locale: auth_region.read().clone(),
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    "reporting" => {
+                                        let use_custom = get_block_use_custom_ui(&workspace, "reporting");
+                                        if use_custom {
+                                            rsx! {
+                                                views::ReportingView {
+                                                    active_user: active_user.clone(),
+                                                    report_tab: state.report_tab,
+                                                    report_status_filter: state.report_status_filter,
+                                                    report_type_filter: state.report_type_filter,
+                                                    report_type: state.report_type,
+                                                    report_date: state.report_date,
+                                                    report_subject: state.report_subject,
+                                                    report_description: state.report_description,
+                                                    report_is_anonymous: state.report_is_anonymous,
+                                                    selected_report_id: state.selected_report_id,
+                                                    show_report_details_modal: state.show_report_details_modal,
+                                                }
+                                            }
+                                        } else {
+                                            rsx! {
+                                                views::DynamicBlockView {
+                                                    active_user_id: active_user_id.read().clone(),
+                                                    workspace_id: workspace.id.clone(),
+                                                    block_id: active_section.read().clone(),
+                                                    db_trigger: db_trigger,
+                                                    locale: auth_region.read().clone(),
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    "client_portal" => {
+                                        rsx! {
+                                            views::ClientPortalView {
+                                                active_user: active_user.clone(),
+                                                db_trigger: db_trigger,
+                                                trigger_jobs: trigger_jobs,
+                                                workspace: workspace.clone(),
+                                            }
+                                        }
+                                    }
+                                    "directory" => {
+                                        rsx! {
+                                            views::DirectoryView {
+                                                active_user: active_user.clone(),
+                                                workspace: workspace.clone(),
+                                                directory_level: directory_level,
+                                                selected_directory_workspace: selected_directory_workspace,
+                                                selected_directory_team: selected_directory_team,
+                                                show_add_team_modal: show_add_team_modal,
+                                                show_invite_member_modal: show_invite_member_modal,
+                                                show_client_manager_modal: show_client_manager_modal,
+                                                new_team_name: new_team_name,
+                                                new_member_name: new_member_name,
+                                                new_member_email: new_member_email,
+                                                new_member_role: new_member_role,
+                                                new_client_first_name: new_client_first_name,
+                                                new_client_last_name: new_client_last_name,
+                                                new_client_personal_number: new_client_personal_number,
+                                                new_client_care_level: new_client_care_level,
+                                                db_trigger: db_trigger,
+                                            }
+                                        }
+                                    }
+
+                                    "academics" => {
+                                        let use_custom = get_block_use_custom_ui(&workspace, "academics");
+                                        if use_custom {
+                                            rsx! {
+                                                views::AcademicsView {
+                                                    active_user_id: active_user_id.read().clone(),
+                                                    workspace_id: workspace.id.clone(),
+                                                    block_id: active_section.read().clone(),
+                                                    db_trigger: db_trigger,
+                                                    locale: auth_region.read().clone(),
+                                                }
+                                            }
+                                        } else {
+                                            rsx! {
+                                                views::DynamicBlockView {
+                                                    active_user_id: active_user_id.read().clone(),
+                                                    workspace_id: workspace.id.clone(),
+                                                    block_id: active_section.read().clone(),
+                                                    db_trigger: db_trigger,
+                                                    locale: auth_region.read().clone(),
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    "attendance" => {
+                                        let use_custom = get_block_use_custom_ui(&workspace, "attendance");
+                                        if use_custom {
+                                            rsx! {
+                                                views::AttendanceView {
+                                                    active_user_id: active_user_id.read().clone(),
+                                                    workspace_id: workspace.id.clone(),
+                                                    block_id: active_section.read().clone(),
+                                                    db_trigger: db_trigger,
+                                                    locale: auth_region.read().clone(),
+                                                }
+                                            }
+                                        } else {
+                                            rsx! {
+                                                views::DynamicBlockView {
+                                                    active_user_id: active_user_id.read().clone(),
+                                                    workspace_id: workspace.id.clone(),
+                                                    block_id: active_section.read().clone(),
+                                                    db_trigger: db_trigger,
+                                                    locale: auth_region.read().clone(),
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    "finance" => {
+                                        let use_custom = get_block_use_custom_ui(&workspace, "finance");
+                                        if use_custom {
+                                            rsx! {
+                                                views::FinanceView {
+                                                    active_user_id: active_user_id.read().clone(),
+                                                    workspace_id: workspace.id.clone(),
+                                                    block_id: active_section.read().clone(),
+                                                    db_trigger: db_trigger,
+                                                    locale: auth_region.read().clone(),
+                                                }
+                                            }
+                                        } else {
+                                            rsx! {
+                                                views::DynamicBlockView {
+                                                    active_user_id: active_user_id.read().clone(),
+                                                    workspace_id: workspace.id.clone(),
+                                                    block_id: active_section.read().clone(),
+                                                    db_trigger: db_trigger,
+                                                    locale: auth_region.read().clone(),
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    "library" => {
+                                        let use_custom = get_block_use_custom_ui(&workspace, "library");
+                                        if use_custom {
+                                            rsx! {
+                                                views::LibraryView {
+                                                    active_user_id: active_user_id.read().clone(),
+                                                    workspace_id: workspace.id.clone(),
+                                                    block_id: active_section.read().clone(),
+                                                    db_trigger: db_trigger,
+                                                    locale: auth_region.read().clone(),
+                                                }
+                                            }
+                                        } else {
+                                            rsx! {
+                                                views::DynamicBlockView {
+                                                    active_user_id: active_user_id.read().clone(),
+                                                    workspace_id: workspace.id.clone(),
+                                                    block_id: active_section.read().clone(),
+                                                    db_trigger: db_trigger,
+                                                    locale: auth_region.read().clone(),
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    "health_clinic" => {
+                                        rsx! {
+                                            views::HealthClinicView {
+                                                active_user_id: active_user_id.read().clone(),
+                                                workspace_id: workspace.id.clone(),
+                                                block_id: active_section.read().clone(),
+                                                db_trigger: db_trigger,
+                                                locale: auth_region.read().clone(),
+                                            }
+                                        }
+                                    }
+
+                                    "report_cards" => {
+                                        rsx! {
+                                            views::ReportCardsView {
+                                                active_user_id: active_user_id.read().clone(),
+                                                workspace_id: workspace.id.clone(),
+                                                block_id: active_section.read().clone(),
+                                                db_trigger: db_trigger,
+                                                locale: auth_region.read().clone(),
+                                            }
+                                        }
+                                    }
+
+                                    _ => {
                                         rsx! {
                                             views::DynamicBlockView {
                                                 active_user_id: active_user_id.read().clone(),
@@ -412,176 +605,6 @@ pub fn EmployeeLayout() -> Element {
                                                 db_trigger: db_trigger,
                                                 locale: auth_region.read().clone(),
                                             }
-                                        }
-                                    }
-                                }
-
-                                "client_portal" => {
-                                    rsx! {
-                                        views::ClientPortalView {
-                                            active_user: active_user.clone(),
-                                            db_trigger: db_trigger,
-                                            trigger_jobs: trigger_jobs,
-                                            workspace: workspace.clone(),
-                                        }
-                                    }
-                                }
-                                "directory" => {
-                                    rsx! {
-                                        views::DirectoryView {
-                                            active_user: active_user.clone(),
-                                            workspace: workspace.clone(),
-                                            directory_level: directory_level,
-                                            selected_directory_workspace: selected_directory_workspace,
-                                            selected_directory_team: selected_directory_team,
-                                            show_add_team_modal: show_add_team_modal,
-                                            show_invite_member_modal: show_invite_member_modal,
-                                            show_client_manager_modal: show_client_manager_modal,
-                                            new_team_name: new_team_name,
-                                            new_member_name: new_member_name,
-                                            new_member_email: new_member_email,
-                                            new_member_role: new_member_role,
-                                            new_client_first_name: new_client_first_name,
-                                            new_client_last_name: new_client_last_name,
-                                            new_client_personal_number: new_client_personal_number,
-                                            new_client_care_level: new_client_care_level,
-                                            db_trigger: db_trigger,
-                                        }
-                                    }
-                                }
-
-                                "academics" => {
-                                    let use_custom = get_block_use_custom_ui(&workspace, "academics");
-                                    if use_custom {
-                                        rsx! {
-                                            views::AcademicsView {
-                                                active_user_id: active_user_id.read().clone(),
-                                                workspace_id: workspace.id.clone(),
-                                                block_id: active_section.read().clone(),
-                                                db_trigger: db_trigger,
-                                                locale: auth_region.read().clone(),
-                                            }
-                                        }
-                                    } else {
-                                        rsx! {
-                                            views::DynamicBlockView {
-                                                active_user_id: active_user_id.read().clone(),
-                                                workspace_id: workspace.id.clone(),
-                                                block_id: active_section.read().clone(),
-                                                db_trigger: db_trigger,
-                                                locale: auth_region.read().clone(),
-                                            }
-                                        }
-                                    }
-                                }
-
-                                "attendance" => {
-                                    let use_custom = get_block_use_custom_ui(&workspace, "attendance");
-                                    if use_custom {
-                                        rsx! {
-                                            views::AttendanceView {
-                                                active_user_id: active_user_id.read().clone(),
-                                                workspace_id: workspace.id.clone(),
-                                                block_id: active_section.read().clone(),
-                                                db_trigger: db_trigger,
-                                                locale: auth_region.read().clone(),
-                                            }
-                                        }
-                                    } else {
-                                        rsx! {
-                                            views::DynamicBlockView {
-                                                active_user_id: active_user_id.read().clone(),
-                                                workspace_id: workspace.id.clone(),
-                                                block_id: active_section.read().clone(),
-                                                db_trigger: db_trigger,
-                                                locale: auth_region.read().clone(),
-                                            }
-                                        }
-                                    }
-                                }
-
-                                "finance" => {
-                                    let use_custom = get_block_use_custom_ui(&workspace, "finance");
-                                    if use_custom {
-                                        rsx! {
-                                            views::FinanceView {
-                                                active_user_id: active_user_id.read().clone(),
-                                                workspace_id: workspace.id.clone(),
-                                                block_id: active_section.read().clone(),
-                                                db_trigger: db_trigger,
-                                                locale: auth_region.read().clone(),
-                                            }
-                                        }
-                                    } else {
-                                        rsx! {
-                                            views::DynamicBlockView {
-                                                active_user_id: active_user_id.read().clone(),
-                                                workspace_id: workspace.id.clone(),
-                                                block_id: active_section.read().clone(),
-                                                db_trigger: db_trigger,
-                                                locale: auth_region.read().clone(),
-                                            }
-                                        }
-                                    }
-                                }
-
-                                "library" => {
-                                    let use_custom = get_block_use_custom_ui(&workspace, "library");
-                                    if use_custom {
-                                        rsx! {
-                                            views::LibraryView {
-                                                active_user_id: active_user_id.read().clone(),
-                                                workspace_id: workspace.id.clone(),
-                                                block_id: active_section.read().clone(),
-                                                db_trigger: db_trigger,
-                                                locale: auth_region.read().clone(),
-                                            }
-                                        }
-                                    } else {
-                                        rsx! {
-                                            views::DynamicBlockView {
-                                                active_user_id: active_user_id.read().clone(),
-                                                workspace_id: workspace.id.clone(),
-                                                block_id: active_section.read().clone(),
-                                                db_trigger: db_trigger,
-                                                locale: auth_region.read().clone(),
-                                            }
-                                        }
-                                    }
-                                }
-
-                                "health_clinic" => {
-                                    rsx! {
-                                        views::HealthClinicView {
-                                            active_user_id: active_user_id.read().clone(),
-                                            workspace_id: workspace.id.clone(),
-                                            block_id: active_section.read().clone(),
-                                            db_trigger: db_trigger,
-                                            locale: auth_region.read().clone(),
-                                        }
-                                    }
-                                }
-
-                                "report_cards" => {
-                                    rsx! {
-                                        views::ReportCardsView {
-                                            active_user_id: active_user_id.read().clone(),
-                                            workspace_id: workspace.id.clone(),
-                                            block_id: active_section.read().clone(),
-                                            db_trigger: db_trigger,
-                                            locale: auth_region.read().clone(),
-                                        }
-                                    }
-                                }
-
-                                _ => {
-                                    rsx! {
-                                        views::DynamicBlockView {
-                                            active_user_id: active_user_id.read().clone(),
-                                            workspace_id: workspace.id.clone(),
-                                            block_id: active_section.read().clone(),
-                                            db_trigger: db_trigger,
-                                            locale: auth_region.read().clone(),
                                         }
                                     }
                                 }

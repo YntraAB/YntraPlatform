@@ -9,6 +9,7 @@ use yntra_core::{
     get_health_incidents, save_health_incident, save_student_profile,
     get_course_term_grades, save_term_grade, publish_report_card, get_report_cards,
     get_student_submissions, save_submission, get_timetable_slots, save_timetable_slot,
+    get_parent_students,
     Assignment, Course, SchoolInvoice, HealthRecord, HealthIncident, StudentProfile, TermGrade, ReportCard,
     Submission, TimetableSlot,
 };
@@ -20,6 +21,7 @@ pub fn ReportCardsView(props: SchoolViewProps) -> Element {
     let mut db_trigger = props.db_trigger;
     let user_id = props.active_user_id.clone();
     let ws_id = props.workspace_id.clone();
+    let state = use_context::<crate::state::AppState>();
 
     // Local states
     let mut selected_student_id = use_signal(|| "".to_string());
@@ -38,12 +40,11 @@ pub fn ReportCardsView(props: SchoolViewProps) -> Element {
         async move { get_student_profiles(uid, ws).await.unwrap_or_default() }
     });
 
-    let active_student = selected_student_id.read().clone();
     let user_id_clone2 = user_id.clone();
     let ws_id_clone2 = ws_id.clone();
     let reports_res = use_resource(move || {
         let _ = db_trig_val;
-        let s_id = active_student.clone();
+        let s_id = selected_student_id.read().clone();
         let uid = user_id_clone2.clone();
         let ws = ws_id_clone2.clone();
         async move {
@@ -55,8 +56,40 @@ pub fn ReportCardsView(props: SchoolViewProps) -> Element {
         }
     });
 
-    let students = students_res.read().clone().unwrap_or_default();
+    let user_id_clone_p = user_id.clone();
+    let ws_id_clone_p = ws_id.clone();
+    let parent_students_res = use_resource(move || {
+        let _ = db_trig_val;
+        let uid = user_id_clone_p.clone();
+        let ws = ws_id_clone_p.clone();
+        async move { get_parent_students(uid.clone(), ws, uid).await.unwrap_or_default() }
+    });
+
+    let current_role = state.active_user_role.read().clone();
+    let students = if current_role == "parent" || current_role == "role-school-parent" {
+        parent_students_res.read().clone().unwrap_or_default()
+    } else {
+        students_res.read().clone().unwrap_or_default()
+    };
     let report_cards = reports_res.read().clone().unwrap_or_default();
+
+    use_effect(move || {
+        let role = state.active_user_role.read().clone();
+        if role == "student" || role == "role-school-student" {
+            let uid = state.active_user_id.read().clone();
+            let student_list = students_res.read().clone().unwrap_or_default();
+            if let Some(profile) = student_list.iter().find(|s| s.user_id.as_ref() == Some(&uid)) {
+                if selected_student_id.read().as_str() != profile.id.as_str() {
+                    selected_student_id.set(profile.id.clone());
+                }
+            }
+        } else if role == "parent" || role == "role-school-parent" {
+            let student_list = parent_students_res.read().clone().unwrap_or_default();
+            if !student_list.is_empty() && selected_student_id.read().is_empty() {
+                selected_student_id.set(student_list[0].id.clone());
+            }
+        }
+    });
 
     rsx! {
         div { class: "p-6 space-y-6 max-w-6xl mx-auto animate-in fade-in slide-in-from-top-4 duration-300",
@@ -72,25 +105,27 @@ pub fn ReportCardsView(props: SchoolViewProps) -> Element {
 
             div { class: "grid grid-cols-1 md:grid-cols-3 gap-6",
                 // Left student roster
-                div { class: "md:col-span-1 space-y-4",
-                    h4 { class: "text-sm font-bold text-foreground uppercase tracking-wider mb-2", "Students List" }
-                    if students.is_empty() {
-                        div { class: "p-8 text-center text-xs text-muted-foreground border border-dashed border-border rounded-xl", "No students registered." }
-                    } else {
-                        for s in students.iter() {
-                            {
-                                let is_selected = *selected_student_id.read() == s.id;
-                                let s_id = s.id.clone();
-                                rsx! {
-                                    Card {
-                                        class: format!(
-                                            "cursor-pointer border transition-all hover:bg-muted/30 {}",
-                                            if is_selected { "border-primary bg-primary/5" } else { "border-border" }
-                                        ),
-                                        onclick: move |_| selected_student_id.set(s_id.clone()),
-                                        CardContent { class: "p-4",
-                                            div { class: "font-bold text-foreground text-sm", "{s.first_name} {s.last_name}" }
-                                            div { class: "text-xs text-muted-foreground mt-1", "Grade: {s.grade_level}" }
+                if current_role != "parent" && current_role != "role-school-parent" && current_role != "student" && current_role != "role-school-student" {
+                    div { class: "md:col-span-1 space-y-4",
+                        h4 { class: "text-sm font-bold text-foreground uppercase tracking-wider mb-2", "Students List" }
+                        if students.is_empty() {
+                            div { class: "p-8 text-center text-xs text-muted-foreground border border-dashed border-border rounded-xl", "No students registered." }
+                        } else {
+                            for s in students.iter() {
+                                {
+                                    let is_selected = *selected_student_id.read() == s.id;
+                                    let s_id = s.id.clone();
+                                    rsx! {
+                                        Card {
+                                            class: format!(
+                                                "cursor-pointer border transition-all hover:bg-muted/30 {}",
+                                                if is_selected { "border-primary bg-primary/5" } else { "border-border" }
+                                            ),
+                                            onclick: move |_| selected_student_id.set(s_id.clone()),
+                                            CardContent { class: "p-4",
+                                                div { class: "font-bold text-foreground text-sm", "{s.first_name} {s.last_name}" }
+                                                div { class: "text-xs text-muted-foreground mt-1", "Grade: {s.grade_level}" }
+                                            }
                                         }
                                     }
                                 }
@@ -100,7 +135,11 @@ pub fn ReportCardsView(props: SchoolViewProps) -> Element {
                 }
 
                 // Right column: Report Cards list
-                div { class: "md:col-span-2 space-y-6",
+                div {
+                    class: format!(
+                        "space-y-6 {}",
+                        if current_role == "parent" || current_role == "role-school-parent" || current_role == "student" || current_role == "role-school-student" { "md:col-span-3" } else { "md:col-span-2" }
+                    ),
                     if selected_student_id.read().is_empty() {
                         div { class: "flex flex-col items-center justify-center py-20 text-center border border-dashed border-border rounded-2xl bg-muted/10",
                             LucideIcon { name: "award", class: "h-12 w-12 text-muted-foreground/30 mb-3" }
@@ -128,11 +167,13 @@ pub fn ReportCardsView(props: SchoolViewProps) -> Element {
                                             CardTitle { class: "text-lg font-extrabold", "{student.first_name} {student.last_name}" }
                                             CardDescription { "GPA & Official Evaluations History" }
                                         }
-                                        Button {
-                                            class: "flex items-center gap-1.5 text-xs h-8 px-3 rounded-lg",
-                                            onclick: move |_| show_publish_modal.set(true),
-                                            LucideIcon { name: "plus", class: "h-3.5 w-3.5" }
-                                            "Publish Report Card"
+                                        if current_role != "parent" && current_role != "role-school-parent" && current_role != "student" && current_role != "role-school-student" {
+                                            Button {
+                                                class: "flex items-center gap-1.5 text-xs h-8 px-3 rounded-lg",
+                                                onclick: move |_| show_publish_modal.set(true),
+                                                LucideIcon { name: "plus", class: "h-3.5 w-3.5" }
+                                                "Publish Report Card"
+                                            }
                                         }
                                     }
                                     CardContent { class: "space-y-4",
@@ -211,8 +252,14 @@ pub fn ReportCardsView(props: SchoolViewProps) -> Element {
                                     let active_s = selected_student_id.read().clone();
                                     let uid = user_id.clone();
                                     let ws = ws_id.clone();
+                                    let state = state;
                                     move |_| {
-                                        let rc = ReportCard {
+                                         let role = state.active_user_role.read().clone();
+                                         let u_id = state.active_user_id.read().clone();
+                                         let proof = yntra_core::ZkCryptoTrust::new()
+                                             .generate_role_proof(state.get_passkey_seed(), u_id, role)
+                                             .ok();
+                                         let rc = ReportCard {
                                             id: uuid::Uuid::new_v4().to_string(),
                                             workspace_id: ws.clone(),
                                             student_id: active_s.clone(),
@@ -224,7 +271,7 @@ pub fn ReportCardsView(props: SchoolViewProps) -> Element {
                                         };
                                         let uid_c = uid.clone();
                                         spawn(async move {
-                                            let _ = publish_report_card(uid_c, rc).await;
+                                            let _ = publish_report_card(uid_c, rc, proof).await;
                                         });
                                         report_comments.set(String::new());
                                         show_publish_modal.set(false);

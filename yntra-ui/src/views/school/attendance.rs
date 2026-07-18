@@ -20,6 +20,7 @@ pub fn AttendanceView(props: SchoolViewProps) -> Element {
     let mut db_trigger = props.db_trigger;
     let user_id = props.active_user_id.clone();
     let ws_id = props.workspace_id.clone();
+    let state = use_context::<crate::state::AppState>();
 
     let mut selected_course_id = use_signal(|| "".to_string());
     let mut selected_date = use_signal(|| "2026-07-16".to_string());
@@ -189,23 +190,37 @@ pub fn AttendanceView(props: SchoolViewProps) -> Element {
                                                                             "bg-muted/30 text-muted-foreground border-border hover:bg-muted/60"
                                                                         }
                                                                     ),
-                                                                    onclick: move |_| {
-                                                                        let r = yntra_core::AttendanceRecord {
-                                                                            id: uuid::Uuid::new_v4().to_string(),
-                                                                            workspace_id: ws.clone(),
-                                                                            student_id: s_id.clone(),
-                                                                            course_id: c_id.clone(),
-                                                                            date: dt.clone(),
-                                                                            status: st_val.clone(),
-                                                                            notes: None,
-                                                                            updated_at: 0,
-                                                                        };
-                                                                        let uid_c = uid.clone();
-                                                                        spawn(async move {
-                                                                            let _ = save_attendance_record(uid_c, r).await;
-                                                                        });
-                                                                        let current = *db_trigger.read();
-                                                                        db_trigger.set(current + 1);
+                                                                    onclick: {
+                                                                        let ws = ws.clone();
+                                                                        let s_id = s_id.clone();
+                                                                        let c_id = c_id.clone();
+                                                                        let dt = dt.clone();
+                                                                        let st_val = st_val.clone();
+                                                                        let uid = uid.clone();
+                                                                        let state = state;
+                                                                        move |_| {
+                                                                            let role = state.active_user_role.read().clone();
+                                                                            let u_id = state.active_user_id.read().clone();
+                                                                            let proof = yntra_core::ZkCryptoTrust::new()
+                                                                                .generate_role_proof(state.get_passkey_seed(), u_id, role)
+                                                                                .ok();
+                                                                            let r = yntra_core::AttendanceRecord {
+                                                                                id: uuid::Uuid::new_v4().to_string(),
+                                                                                workspace_id: ws.clone(),
+                                                                                student_id: s_id.clone(),
+                                                                                course_id: c_id.clone(),
+                                                                                date: dt.clone(),
+                                                                                status: st_val.clone(),
+                                                                                notes: None,
+                                                                                updated_at: 0,
+                                                                            };
+                                                                            let uid_c = uid.clone();
+                                                                            spawn(async move {
+                                                                                let _ = save_attendance_record(uid_c, r, proof).await;
+                                                                            });
+                                                                            let current = *db_trigger.read();
+                                                                            db_trigger.set(current + 1);
+                                                                        }
                                                                     },
                                                                     "{st}"
                                                                 }
@@ -296,27 +311,43 @@ pub fn AttendanceView(props: SchoolViewProps) -> Element {
                                 }
                                 Button {
                                     class: "px-4 py-2 text-xs rounded-xl bg-primary text-primary-foreground",
-                                    onclick: move |_| {
-                                        let note_val = note_text.read().trim().to_string();
-                                        let note_opt = if note_val.is_empty() { None } else { Some(note_val) };
+                                    onclick: {
+                                        let record_id = record_id.clone();
+                                        let ws = ws.clone();
+                                        let s_id = s_id.clone();
+                                        let c_id = c_id.clone();
+                                        let dt = dt.clone();
+                                        let current_status = current_status.clone();
+                                        let uid = uid.clone();
+                                        let mut db_trig = db_trig.clone();
+                                        let state = state;
+                                        move |_| {
+                                            let role = state.active_user_role.read().clone();
+                                            let u_id = state.active_user_id.read().clone();
+                                            let proof = yntra_core::ZkCryptoTrust::new()
+                                                .generate_role_proof(state.get_passkey_seed(), u_id, role)
+                                                .ok();
+                                            let note_val = note_text.read().trim().to_string();
+                                            let note_opt = if note_val.is_empty() { None } else { Some(note_val) };
 
-                                        let r = yntra_core::AttendanceRecord {
-                                            id: record_id.clone(),
-                                            workspace_id: ws.clone(),
-                                            student_id: s_id.clone(),
-                                            course_id: c_id.clone(),
-                                            date: dt.clone(),
-                                            status: current_status.clone(),
-                                            notes: note_opt,
-                                            updated_at: 0,
-                                        };
-                                        let uid_c = uid.clone();
-                                        spawn(async move {
-                                            let _ = save_attendance_record(uid_c, r).await;
-                                        });
-                                        show_note_modal.set(false);
-                                        let current = *db_trig.read();
-                                        db_trig.set(current + 1);
+                                            let r = yntra_core::AttendanceRecord {
+                                                id: record_id.clone(),
+                                                workspace_id: ws.clone(),
+                                                student_id: s_id.clone(),
+                                                course_id: c_id.clone(),
+                                                date: dt.clone(),
+                                                status: current_status.clone(),
+                                                notes: note_opt,
+                                                updated_at: 0,
+                                            };
+                                            let uid_c = uid.clone();
+                                            spawn(async move {
+                                                let _ = save_attendance_record(uid_c, r, proof).await;
+                                            });
+                                            show_note_modal.set(false);
+                                            let current = *db_trig.read();
+                                            db_trig.set(current + 1);
+                                        }
                                     },
                                     "Save Note"
                                 }

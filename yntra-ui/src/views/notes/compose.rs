@@ -33,7 +33,8 @@ pub fn NoteCompose(props: NoteComposeProps) -> Element {
     let locale = props.locale;
 
     let mut encrypt_zero_copy = use_signal(|| false);
-    let mut passkey_seed = use_signal(|| "my_passkey_seed".to_string());
+    let state = use_context::<crate::state::AppState>();
+    let mut passkey_seed = use_signal(move || state.get_passkey_seed());
 
     rsx! {
         div {

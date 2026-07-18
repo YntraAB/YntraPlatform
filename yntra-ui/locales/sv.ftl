@@ -964,6 +964,10 @@ settings-blocks-library-name = Bibliotekskatalog
 settings-blocks-library-desc = Hantera biblioteksböcker, utlåningar och returer.
 settings-blocks-timetable-name = Schema & Planering
 settings-blocks-timetable-desc = Hantera kursscheman, lärartilldelningar och klassrum.
+settings-blocks-health-clinic-name = Elevhälsa
+settings-blocks-health-clinic-desc = Hantera sjukvårdsbesök, journaler och vaccinationer.
+settings-blocks-report-cards-name = Betygsrapporter
+settings-blocks-report-cards-desc = Publicera betygskort, sammanfattningar och rektorskommentarer.
 
 scheduler-course = Kurs
 scheduler-classroom = Klassrum
@@ -979,3 +983,84 @@ sidebar-p2p-playground = P2P Synkroniseringslekplats
 
 
 
+
+
+# --- AUTO-ADDED MISSING TRANSLATIONS ---
+school-directory-nav = Skolregister
+
+# --- AUTO-ADDED MISSING TRANSLATIONS ---
+moving-directory-nav = Personal & Fordon
+general-directory-nav = Register
+care-directory-nav = Personal & Patienter
+
+school-calendar-sync-btn = Synka till kalender (Exportera .ics)
+school-health-vaccine-consent-title = Vaccin & medicinskt samtycke
+school-health-vaccine-consent-desc = Ge föräldrasamtycke för kommande vaccinationer
+school-health-consent-signed = Samtycke registrerat
+school-health-administered = Genomförd
+school-health-awaiting-consent = Väntar på samtycke
+school-health-sign-consent-btn = Signera samtycke
+school-parent-link-student-title = Koppla elevkonto
+school-parent-link-student-desc = Ange barnets elev-ID för att koppla deras akademiska översikt till ditt konto.
+school-parent-link-student-id = Elev-ID / Referensnummer
+school-parent-link-student-btn = Koppla elev
+school-parent-link-student-error = Ogiltigt elev-ID eller e-postmatchning misslyckades.
+school-finance-pay-online = Betala online
+school-finance-payment-simulated = Betalning genomförd
+school-library-reserve-btn = Reservera
+school-library-reserved-status = Reserverad
+school-library-search-placeholder = Sök efter titel, författare eller ISBN...
+school-library-catalog = Bokkatalog
+school-library-catalog-desc = Tillgängliga bokexemplar
+school-library-no-books = Inga böcker hittades i katalogen.
+school-library-author = Författare
+school-library-copies = Exemplar
+school-library-available-of = tillgängliga av
+school-library-checkout-btn = Låna ut
+school-library-unavailable = Ej tillgänglig
+
+school-parent-link-student-instruction = För att visa akademiska resultat, sjukvårdsbesök och avgifter måste du koppla ditt barns elevprofil till detta konto.
+school-parent-select-child = Välj elevprofil
+school-parent-select-child-desc = Byt profil för att följa studieresultat och hälsoärenden för ett annat barn.
+school-parent-attendance-tracking = Närvarorapportering
+school-parent-attendance-desc = Närvarostatistik och registrering i realtid
+school-parent-recent-history = Närvarohistorik
+school-parent-no-attendance = Ingen närvarodata registrerad.
+school-parent-excellent-standing = Utmärkt närvaro! Fortsätt så.
+school-parent-low-attendance = Obs: Närvaron är under 90%.
+school-health-nurse-incidents = Sjukvårdsbesök & Incidenter
+school-health-no-incidents = Inga hälsoärenden registrerade.
+school-parent-gpa-progress = Studieresultat
+school-parent-gpa-desc = Elevens kurser, betyg och terminsstatus
+school-parent-no-grades = Inga betyg registrerade.
+school-parent-grade-label = Betyg: { $grade } ({ $points }%)
+school-parent-no-timetable = Inget schema tilldelat.
+school-student-no-students = Inga elever registrerade
+school-student-preview-desc = Förhandsgranska elevportalen med olika elevprofiler.
+school-student-stars-desc = Tjäna stjärnor för inlämnade läxor med betyg A eller B!
+school-student-earned-stars = Du har tjänat { $count } stjärnor!
+school-student-milestones = Uppnådda milstolpar
+school-student-homework-desc = Läxor och uppgifter att lämna in
+school-student-strict-closed = Deadline: { $date } (Stängd)
+school-student-strict-due = Deadline: { $date }
+school-student-flexible-late = Deadline: { $date } (Sen inlämning)
+school-student-flexible-due = Deadline: { $date }
+school-student-closed-message = Inlämningen är stängd för denna uppgift (passerad deadline).
+school-student-write-answer = Skriv ditt svar:
+school-student-type-placeholder = Skriv dina svar här...
+school-student-drag-drop = Dra och släpp dokument eller klicka för att ladda upp
+school-student-upload-formats = PDF, DOCX, ZIP eller bilder upp till 50MB
+school-student-timetable-desc = Veckovis återkommande lektionsschema
+school-student-classroom-label = Klassrum: { $room }
+school-parent-export-txt = Exportera betygskort (TXT)
+school-parent-term = Termin
+school-health-treatment = Behandling
+school-health-notes = Anteckningar
+school-health-immunization = Vaccinationskort
+school-health-no-vaccine = Inga vaccinationer registrerade.
+school-parent-report-cards = Betygsrapporter
+school-parent-report-cards-desc = Slutgiltiga betygskortssammanfattningar
+school-parent-no-reports = Inga betygskort publicerade.
+school-parent-cumulative-gpa = Kumulativt GPA
+school-parent-timetable = Schema & Lektionstider
+school-parent-timetable-desc = Barnets veckovisa lektionsschema

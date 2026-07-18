@@ -870,6 +870,10 @@ todos-add-button = Add Task
 todos-empty-state = No tasks found. All done!
 
 # Education Preset / Student Portal
+school-directory-nav = School Directory
+care-directory-nav = Care Directory
+moving-directory-nav = Crew Directory
+general-directory-nav = Workspace Directory
 school-view-title = School & Education Admin
 school-view-desc = Active learning portal and classroom scheduling manager.
 school-student-portal-title = Superstar Student Portal
@@ -963,6 +967,10 @@ settings-blocks-library-name = Library Catalog
 settings-blocks-library-desc = Track library books, lending logs, and return dates.
 settings-blocks-timetable-name = Timetable Schedules
 settings-blocks-timetable-desc = Manage course schedules, teacher assignments, and classroom timetables.
+settings-blocks-health-clinic-name = School Health Clinic
+settings-blocks-health-clinic-desc = Manage student health records, nurse visits, and immunizations.
+settings-blocks-report-cards-name = Student Report Cards
+settings-blocks-report-cards-desc = Publish end-of-term student report cards and principal feedback.
 
 scheduler-course = Course
 scheduler-classroom = Classroom
@@ -972,9 +980,75 @@ scheduler-destination = Destination
 scheduler-select-course = Select Course...
 sidebar-p2p-playground = P2P Sync Playground
 
+school-calendar-sync-btn = Sync to Calendar (Export .ics)
+school-health-vaccine-consent-title = Vaccines & Medical Consent
+school-health-vaccine-consent-desc = Provide parental authorization for upcoming immunizations
+school-health-consent-signed = Consent Signed
+school-health-administered = Administered
+school-health-awaiting-consent = Awaiting Consent
+school-health-sign-consent-btn = Sign Consent
+school-parent-link-student-title = Link Student Account
+school-parent-link-student-desc = Enter child's Student Reference ID to link their academic dashboard to your account.
+school-parent-link-student-id = Student Reference ID
+school-parent-link-student-btn = Link Student
+school-parent-link-student-error = Invalid student reference ID or email mismatch.
+school-finance-pay-online = Pay Online
+school-finance-payment-simulated = Payment Completed
+school-library-reserve-btn = Reserve
+school-library-reserved-status = Reserved
+school-library-search-placeholder = Search titles, authors, or ISBN...
+school-library-catalog = Book Catalog
+school-library-catalog-desc = Available inventory copies
+school-library-no-books = No books found matching search catalog.
+school-library-author = Author
+school-library-copies = Copies
+school-library-available-of = available of
+school-library-checkout-btn = Checkout
+school-library-unavailable = Unavailable
 
-
-
-
-
+school-parent-link-student-instruction = To view academic progress, health clinic visits, and tuition fees, you must link your student child's roster profile to this account.
+school-parent-select-child = Select Child Profile
+school-parent-select-child-desc = Switch view to monitor academic and medical updates for another child.
+school-parent-attendance-tracking = Attendance Tracking
+school-parent-attendance-desc = Real-time attendance logs and overall registration rate
+school-parent-recent-history = Recent Attendance History
+school-parent-no-attendance = No attendance data registered.
+school-parent-excellent-standing = Excellent standing! Keep it up.
+school-parent-low-attendance = Notice: Attendance is below 90%.
+school-health-nurse-incidents = Nurse Clinic Incidents
+school-health-no-incidents = No recent health incidents logged.
+school-parent-gpa-progress = Academic Progress
+school-parent-gpa-desc = Child course grading ledger and term status
+school-parent-no-grades = No course grades registered.
+school-parent-grade-label = Grade: { $grade } ({ $points }%)
+school-parent-no-timetable = No timetable schedule assigned.
+school-student-no-students = No Students Registered
+school-student-preview-desc = Preview learning portal progress as different roster profiles.
+school-student-stars-desc = Earn study stars for graded A/B homework submissions!
+school-student-earned-stars = You have earned { $count } Study Stars!
+school-student-milestones = Achieved milestones checklist
+school-student-homework-desc = Assignments and learning tasks due
+school-student-strict-closed = Due: { $date } (Closed)
+school-student-strict-due = Due: { $date }
+school-student-flexible-late = Due: { $date } (Late submission)
+school-student-flexible-due = Due: { $date }
+school-student-closed-message = Submissions are closed for this assignment (Strict deadline passed).
+school-student-write-answer = Write Your Answer:
+school-student-type-placeholder = Type your answers here...
+school-student-drag-drop = Drag & Drop document or click to upload
+school-student-upload-formats = PDF, DOCX, ZIP, or images up to 50MB
+school-student-timetable-desc = Weekly recurring school timetable classes schedule
+school-student-classroom-label = Classroom: { $room }
+school-parent-export-txt = Export Official Report Card (TXT)
+school-parent-term = Term
+school-health-treatment = Treatment
+school-health-notes = Notes
+school-health-immunization = Immunization Records
+school-health-no-vaccine = No vaccine records registered.
+school-parent-report-cards = Report Cards
+school-parent-report-cards-desc = Official published term report summaries
+school-parent-no-reports = No report cards published.
+school-parent-cumulative-gpa = Cumulative GPA
+school-parent-timetable = Schema & Timetable
+school-parent-timetable-desc = Child's weekly recurring class timetable
 

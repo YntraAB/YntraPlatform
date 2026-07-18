@@ -5,6 +5,7 @@ use dioxus::prelude::*;
 #[component]
 pub fn TeamsList(
     is_admin: bool,
+    is_platform_admin: bool,
     mut show_role_manager_modal: Signal<bool>,
     mut show_template_manager_modal: Signal<bool>,
 ) -> Element {
@@ -34,7 +35,7 @@ pub fn TeamsList(
                     "Teams"
                 }
                 div { class: "flex items-center gap-2",
-                    if is_admin {
+                    if is_platform_admin {
                         button {
                             class: "yntra-btn secondary flex items-center gap-1.5 text-xs h-8 px-3 rounded-lg border border-border bg-transparent text-foreground hover:bg-white/[0.04] cursor-pointer font-semibold transition-all",
                             onclick: move |_| show_template_manager_modal.set(true),

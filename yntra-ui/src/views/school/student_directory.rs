@@ -21,6 +21,36 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
     let _locale = props.locale.clone();
     let user_id = props.active_user_id.clone();
     let ws_id = props.workspace_id.clone();
+    let state = use_context::<crate::state::AppState>();
+
+    let current_role = state.active_user_role.read().clone();
+    let can_edit = current_role != "parent" && current_role != "role-school-parent" && current_role != "student" && current_role != "role-school-student";
+
+    let locale_lower = props.locale.to_lowercase();
+    let grade_suggestions = if locale_lower.starts_with("sv") || locale_lower.starts_with("se") {
+        vec![
+            "Klass 1A".to_string(), "Klass 1B".to_string(),
+            "Klass 2A".to_string(), "Klass 2B".to_string(),
+            "Klass 3A".to_string(), "Klass 3B".to_string(),
+            "Klass 4A".to_string(), "Klass 4B".to_string(),
+            "Klass 5A".to_string(), "Klass 5B".to_string(),
+            "Klass 6A".to_string(), "Klass 6B".to_string(),
+            "Klass 7A".to_string(), "Klass 7B".to_string(),
+            "Klass 8A".to_string(), "Klass 8B".to_string(),
+            "Klass 9A".to_string(), "Klass 9B".to_string(),
+        ]
+    } else {
+        vec![
+            "1st Grade".to_string(), "2nd Grade".to_string(),
+            "3rd Grade".to_string(), "4th Grade".to_string(),
+            "5th Grade".to_string(), "6th Grade".to_string(),
+            "7th Grade".to_string(), "8th Grade".to_string(),
+            "9th Grade".to_string(), "10th Grade".to_string(),
+            "11th Grade".to_string(), "12th Grade".to_string(),
+            "10A".to_string(), "10B".to_string(),
+            "9A".to_string(), "9B".to_string(),
+        ]
+    };
 
     // Local states
     let mut selected_student_id = use_signal(|| "".to_string());
@@ -29,6 +59,7 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
     let mut enroll_last_name = use_signal(String::new);
     let mut enroll_grade = use_signal(|| "10A".to_string());
     let mut enroll_contact = use_signal(String::new);
+    let mut enroll_student_user_id = use_signal(String::new);
     let mut editing_student_id = use_signal(|| Option::<String>::None);
 
     let mut context_menu_open = use_signal(|| false);
@@ -41,7 +72,7 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
     let mut show_vaccine_modal = use_signal(|| false);
     let mut vaccine_name = use_signal(String::new);
     let vaccine_status = use_signal(|| "administered".to_string());
-    let mut vaccine_date = use_signal(|| "2026-07-16".to_string());
+    let mut vaccine_date = use_signal(|| chrono::Local::now().format("%Y-%m-%d").to_string());
 
     let db_trig_val = *db_trigger.read();
     let user_id_clone = user_id.clone();
@@ -109,18 +140,21 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
                     }
                     p { class: "text-xs text-muted-foreground m-0 mt-1", "Enroll students, maintain family parent links, and track academic directory profiles." }
                 }
-                Button {
-                    class: "flex items-center gap-1.5 text-xs h-9 px-4 rounded-xl",
-                    onclick: move |_| {
-                        enroll_first_name.set(String::new());
-                        enroll_last_name.set(String::new());
-                        enroll_grade.set("10A".to_string());
-                        enroll_contact.set(String::new());
-                        editing_student_id.set(None);
-                        show_student_modal.set(true);
-                    },
-                    LucideIcon { name: "plus", class: "h-4 w-4" }
-                    "Enroll Student"
+                if can_edit {
+                    Button {
+                        class: "flex items-center gap-1.5 text-xs h-9 px-4 rounded-xl",
+                        onclick: move |_| {
+                            enroll_first_name.set(String::new());
+                            enroll_last_name.set(String::new());
+                            enroll_grade.set("10A".to_string());
+                            enroll_contact.set(String::new());
+                            enroll_student_user_id.set(String::new());
+                            editing_student_id.set(None);
+                            show_student_modal.set(true);
+                        },
+                        LucideIcon { name: "plus", class: "h-4 w-4" }
+                        "Enroll Student"
+                    }
                 }
             }
 
@@ -140,11 +174,13 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
                                 rsx! {
                                     div {
                                         oncontextmenu: move |evt| {
-                                            evt.prevent_default();
-                                            let coords = evt.client_coordinates();
-                                            context_menu_pos.set((coords.x as i32, coords.y as i32));
-                                            context_menu_student.set(Some(oncontext_s.clone()));
-                                            context_menu_open.set(true);
+                                            if can_edit {
+                                                evt.prevent_default();
+                                                let coords = evt.client_coordinates();
+                                                context_menu_pos.set((coords.x as i32, coords.y as i32));
+                                                context_menu_student.set(Some(oncontext_s.clone()));
+                                                context_menu_open.set(true);
+                                            }
                                         },
                                         Card {
                                             class: format!(
@@ -195,11 +231,13 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
                                                 CardTitle { class: "text-lg font-extrabold", "{student.first_name} {student.last_name}" }
                                                 CardDescription { "Family & Contact Information" }
                                             }
-                                            Button {
-                                                class: "flex items-center gap-1.5 text-xs h-8 px-3 rounded-lg",
-                                                onclick: move |_| show_link_modal.set(true),
-                                                LucideIcon { name: "link", class: "h-3.5 w-3.5" }
-                                                "Link Parent"
+                                            if can_edit {
+                                                Button {
+                                                    class: "flex items-center gap-1.5 text-xs h-8 px-3 rounded-lg",
+                                                    onclick: move |_| show_link_modal.set(true),
+                                                    LucideIcon { name: "link", class: "h-3.5 w-3.5" }
+                                                    "Link Parent"
+                                                }
                                             }
                                         }
                                         CardContent { class: "space-y-3",
@@ -234,11 +272,13 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
                                                 CardTitle { class: "text-base font-bold", "Immunization Records" }
                                                 CardDescription { "Student health registry check list" }
                                             }
-                                            Button {
-                                                class: "flex items-center gap-1.5 text-xs h-8 px-3 rounded-lg border border-primary text-primary hover:bg-primary/5",
-                                                onclick: move |_| show_vaccine_modal.set(true),
-                                                LucideIcon { name: "plus", class: "h-3.5 w-3.5" }
-                                                "Record Vaccine"
+                                            if can_edit {
+                                                Button {
+                                                    class: "flex items-center gap-1.5 text-xs h-8 px-3 rounded-lg border border-primary text-primary hover:bg-primary/5",
+                                                    onclick: move |_| show_vaccine_modal.set(true),
+                                                    LucideIcon { name: "plus", class: "h-3.5 w-3.5" }
+                                                    "Record Vaccine"
+                                                }
                                             }
                                         }
                                         CardContent {
@@ -291,10 +331,11 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
                         }
                         div { class: "grid gap-1.5",
                             span { class: "font-bold text-foreground text-xs", "Grade level" }
-                            Input {
-                                placeholder: "10A",
+                            SuggestionInput {
+                                placeholder: "e.g., 10A",
                                 value: enroll_grade.read().clone(),
-                                oninput: move |evt: FormEvent| enroll_grade.set(evt.value()),
+                                suggestions: grade_suggestions.clone(),
+                                onchange: move |val| enroll_grade.set(val),
                             }
                         }
                         div { class: "grid gap-1.5",
@@ -303,6 +344,18 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
                                 placeholder: "parent@smith.com",
                                 value: enroll_contact.read().clone(),
                                 oninput: move |evt: FormEvent| enroll_contact.set(evt.value()),
+                            }
+                        }
+                        div { class: "grid gap-1.5",
+                            span { class: "font-bold text-foreground text-xs", "Link Student User Account" }
+                            select {
+                                class: "w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary",
+                                value: enroll_student_user_id.read().clone(),
+                                onchange: move |evt: FormEvent| enroll_student_user_id.set(evt.value()),
+                                option { value: "", "Select user account (optional)..." }
+                                for u in all_users.iter().filter(|u| u.role == "student" || u.role == "role-school-student") {
+                                    option { value: "{u.id}", "{u.full_name.clone().unwrap_or_else(|| u.email.clone())} ({u.email})" }
+                                }
                             }
                         }
                         div { class: "flex justify-end gap-3 border-t border-border pt-4 mt-2",
@@ -314,29 +367,38 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
                             Button {
                                 class: "px-4 py-2 text-xs rounded-xl bg-primary text-primary-foreground",
                                 onclick: {
-                                    let uid = user_id.clone();
-                                    let ws = ws_id.clone();
-                                    move |_| {
-                                        let sp = StudentProfile {
-                                            id: editing_student_id.read().clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
-                                            workspace_id: ws.clone(),
-                                            user_id: None,
-                                            first_name: enroll_first_name.read().clone(),
-                                            last_name: enroll_last_name.read().clone(),
-                                            grade_level: enroll_grade.read().clone(),
-                                            parent_contact: Some(enroll_contact.read().clone()),
-                                            updated_at: 0,
-                                        };
-                                        let uid_c = uid.clone();
-                                        spawn(async move {
-                                            let _ = save_student_profile(uid_c, sp).await;
-                                        });
+                                     let uid = user_id.clone();
+                                     let ws = ws_id.clone();
+                                     let state = state;
+                                     move |_| {
+                                          let role = state.active_user_role.read().clone();
+                                          let u_id = state.active_user_id.read().clone();
+                                          let proof = yntra_core::ZkCryptoTrust::new()
+                                              .generate_role_proof(state.get_passkey_seed(), u_id, role)
+                                              .ok();
+                                          let student_user_id = enroll_student_user_id.read().clone();
+                                          let user_id_val = if student_user_id.is_empty() { None } else { Some(student_user_id) };
+                                          let sp = StudentProfile {
+                                             id: editing_student_id.read().clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+                                             workspace_id: ws.clone(),
+                                             user_id: user_id_val,
+                                             first_name: enroll_first_name.read().clone(),
+                                             last_name: enroll_last_name.read().clone(),
+                                             grade_level: enroll_grade.read().clone(),
+                                             parent_contact: Some(enroll_contact.read().clone()),
+                                             updated_at: 0,
+                                         };
+                                         let uid_c = uid.clone();
+                                         spawn(async move {
+                                             let _ = save_student_profile(uid_c, sp, proof).await;
+                                         });
                                         enroll_first_name.set(String::new());
                                         enroll_last_name.set(String::new());
+                                        enroll_student_user_id.set(String::new());
                                         show_student_modal.set(false);
                                         let current = *db_trigger.read();
                                         db_trigger.set(current + 1);
-                                    }
+                                     }
                                 },
                                 if editing_student_id.read().is_some() { "Save Details" } else { "Enroll Student" }
                             }
@@ -359,7 +421,7 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
                                 value: select_parent_user_id.read().clone(),
                                 onchange: move |evt: FormEvent| select_parent_user_id.set(evt.value()),
                                 option { value: "", "Select parent..." }
-                                for u in all_users.iter().filter(|u| u.role == "parent" || u.role == "user") {
+                                for u in all_users.iter().filter(|u| u.role == "parent" || u.role == "role-school-parent" || u.role == "user") {
                                     option { value: "{u.id}", "{u.full_name.clone().unwrap_or_default()} ({u.email})" }
                                 }
                             }
@@ -373,18 +435,24 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
                             Button {
                                 class: "px-4 py-2 text-xs rounded-xl bg-primary text-primary-foreground",
                                 onclick: {
-                                    let active_s = selected_student_id.read().clone();
-                                    let uid = user_id.clone();
-                                    let ws = ws_id.clone();
-                                    move |_| {
-                                        let parent_id = select_parent_user_id.read().clone();
-                                        if !parent_id.is_empty() {
-                                            let uid_c = uid.clone();
-                                            let ws_c = ws.clone();
-                                            let s_id = active_s.clone();
-                                            spawn(async move {
-                                                let _ = link_parent_to_student(uid_c, ws_c, s_id, parent_id).await;
-                                            });
+                                     let active_s = selected_student_id.read().clone();
+                                     let uid = user_id.clone();
+                                     let ws = ws_id.clone();
+                                     let state = state;
+                                     move |_| {
+                                          let role = state.active_user_role.read().clone();
+                                          let u_id = state.active_user_id.read().clone();
+                                          let proof = yntra_core::ZkCryptoTrust::new()
+                                              .generate_role_proof(state.get_passkey_seed(), u_id, role)
+                                              .ok();
+                                          let parent_id = select_parent_user_id.read().clone();
+                                         if !parent_id.is_empty() {
+                                             let uid_c = uid.clone();
+                                             let ws_c = ws.clone();
+                                             let s_id = active_s.clone();
+                                             spawn(async move {
+                                                 let _ = link_parent_to_student(uid_c, ws_c, s_id, parent_id, proof).await;
+                                             });
                                             show_link_modal.set(false);
                                             let current = *db_trigger.read();
                                             db_trigger.set(current + 1);
@@ -429,23 +497,29 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
                             Button {
                                 class: "px-4 py-2 text-xs rounded-xl bg-primary text-primary-foreground",
                                 onclick: {
-                                    let active_s = selected_student_id.read().clone();
-                                    let uid = user_id.clone();
-                                    let ws = ws_id.clone();
-                                    move |_| {
-                                        let hr = HealthRecord {
-                                            id: uuid::Uuid::new_v4().to_string(),
-                                            workspace_id: ws.clone(),
-                                            student_id: active_s.clone(),
-                                            vaccine_name: vaccine_name.read().clone(),
-                                            status: vaccine_status.read().clone(),
-                                            administered_at: Some(vaccine_date.read().clone()),
-                                            updated_at: 0,
-                                        };
-                                        let uid_c = uid.clone();
-                                        spawn(async move {
-                                            let _ = save_student_health_record(uid_c, hr).await;
-                                        });
+                                     let active_s = selected_student_id.read().clone();
+                                     let uid = user_id.clone();
+                                     let ws = ws_id.clone();
+                                     let state = state;
+                                     move |_| {
+                                         let role = state.active_user_role.read().clone();
+                                         let u_id = state.active_user_id.read().clone();
+                                         let proof = yntra_core::ZkCryptoTrust::new()
+                                             .generate_role_proof(state.get_passkey_seed(), u_id, role)
+                                             .ok();
+                                         let hr = HealthRecord {
+                                             id: uuid::Uuid::new_v4().to_string(),
+                                             workspace_id: ws.clone(),
+                                             student_id: active_s.clone(),
+                                             vaccine_name: vaccine_name.read().clone(),
+                                             status: vaccine_status.read().clone(),
+                                             administered_at: Some(vaccine_date.read().clone()),
+                                             updated_at: 0,
+                                         };
+                                         let uid_c = uid.clone();
+                                         spawn(async move {
+                                             let _ = save_student_health_record(uid_c, hr, proof).await;
+                                         });
                                         vaccine_name.set(String::new());
                                         show_vaccine_modal.set(false);
                                         let current = *db_trigger.read();
@@ -469,7 +543,7 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
 
                     rsx! {
                         crate::components::ContextMenu {
-                            open: *context_menu_open.read(),
+                            open: *context_menu_open.read() && can_edit,
                             x: context_menu_pos.read().0,
                             y: context_menu_pos.read().1,
                             onclose: move |_| context_menu_open.set(false),
@@ -481,6 +555,7 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
                                     enroll_last_name.set(std_edit.last_name.clone());
                                     enroll_grade.set(std_edit.grade_level.clone());
                                     enroll_contact.set(std_edit.parent_contact.clone().unwrap_or_default());
+                                    enroll_student_user_id.set(std_edit.user_id.clone().unwrap_or_default());
                                     editing_student_id.set(Some(std_edit.id.clone()));
                                     show_student_modal.set(true);
                                     context_menu_open.set(false);

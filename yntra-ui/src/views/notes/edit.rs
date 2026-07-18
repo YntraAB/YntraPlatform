@@ -40,7 +40,8 @@ pub fn NoteEdit(props: NoteEditProps) -> Element {
     };
 
     let mut is_decrypted = use_signal(|| !was_encrypted);
-    let mut passkey_seed_input = use_signal(|| "my_passkey_seed".to_string());
+    let state = use_context::<crate::state::AppState>();
+    let mut passkey_seed_input = use_signal(move || state.get_passkey_seed());
     let mut used_seed = use_signal(|| String::new());
     let mut decryption_error = use_signal(|| Option::<String>::None);
 

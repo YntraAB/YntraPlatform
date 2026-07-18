@@ -100,7 +100,7 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
             .and_then(|v| v.as_i64())
             .unwrap_or(1) as i32
     });
-    let mut template = use_signal(|| {
+    let template = use_signal(|| {
         settings_val
             .get("template")
             .and_then(|v| v.as_str())
@@ -478,30 +478,6 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
                                 options: vec![
                                     ("1".to_string(), t("settings-monday", &props.locale)),
                                     ("0".to_string(), t("settings-sunday", &props.locale)),
-                                ],
-                            }
-                        }
-
-                        // Workspace Template Dropdown
-                        div { class: "space-y-2",
-                            label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
-                                "Workspace Template"
-                            }
-                            crate::components::Select {
-                                trigger_class: "h-11 rounded-xl border-border/40 bg-background/40",
-                                value: "{template}",
-                                onchange: {
-                                    let save_settings = save_settings.clone();
-                                    move |val: String| {
-                                        let mut save_settings = save_settings.clone();
-                                        template.set(val.clone());
-                                        save_settings();
-                                    }
-                                },
-                                options: vec![
-                                    ("care".to_string(), "Care & Assistance".to_string()),
-                                    ("moving".to_string(), "Moving Company".to_string()),
-                                    ("general".to_string(), "General Operations".to_string()),
                                 ],
                             }
                         }

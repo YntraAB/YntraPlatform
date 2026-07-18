@@ -195,6 +195,7 @@ pub fn DirectoryView(props: DirectoryViewProps) -> Element {
             } else if current_dir_level == "teams" {
                 TeamsList {
                     is_admin,
+                    is_platform_admin,
                     show_role_manager_modal,
                     show_template_manager_modal,
                 }

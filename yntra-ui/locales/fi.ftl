@@ -963,6 +963,10 @@ settings-blocks-library-name = Kirjastoluettelo
 settings-blocks-library-desc = Seuraa kirjaston kirjoja, lainauslokeja ja palautuspäiviä.
 settings-blocks-timetable-name = Lukujärjestyksen aikataulut
 settings-blocks-timetable-desc = Hallitse kurssiaikatauluja, opettajien osoituksia ja luokkahuoneiden lukujärjestyksiä.
+settings-blocks-health-clinic-name = Kouluterveydenhuolto
+settings-blocks-health-clinic-desc = Hallitse terveystietoja, käyntejä ja rokotuksia.
+settings-blocks-report-cards-name = Raporttikortit
+settings-blocks-report-cards-desc = Julkaise raporttikortteja ja rehtorin palautetta.
 
 scheduler-course = Kurssi
 scheduler-classroom = Luokkahuone
@@ -978,3 +982,85 @@ sidebar-p2p-playground = P2P Synkronointileikkikenttä
 
 
 
+
+
+# --- AUTO-ADDED MISSING TRANSLATIONS ---
+school-directory-nav = Koulurekisteri
+
+# --- AUTO-ADDED MISSING TRANSLATIONS ---
+moving-directory-nav = Henkilöstö & Ajoneuvot
+general-directory-nav = Rekisteri
+care-directory-nav = Henkilöstö & Asiakkaat
+
+school-calendar-sync-btn = Synkronoi kalenteriin (Vie .ics)
+school-health-vaccine-consent-title = Rokotukset ja lääkinnällinen suostumus
+school-health-vaccine-consent-desc = Anna vanhemman suostumus tuleville rokotuksille
+school-health-consent-signed = Suostumus annettu
+school-health-administered = Suoritettu
+school-health-awaiting-consent = Odottaa suostumusta
+school-health-sign-consent-btn = Allekirjoita suostumus
+school-parent-link-student-title = Linkitä oppilastili
+school-parent-link-student-desc = Syötä lapsen oppilas-ID linkittääksesi oppilaan dashboardin tiliisi.
+school-parent-link-student-id = Oppilas-ID / Viitenumero
+school-parent-link-student-btn = Linkitä oppilas
+school-parent-link-student-error = Virheellinen oppilas-ID tai sähköpostiosoite ei täsmää.
+school-finance-pay-online = Maksa verkossa
+school-finance-payment-simulated = Maksu suoritettu
+school-library-reserve-btn = Varaa
+school-library-reserved-status = Varattu
+school-library-search-placeholder = Etsi teoksia, kirjailijoita tai ISBN-numeroa...
+school-library-catalog = Kirjaluettelo
+school-library-catalog-desc = Saatavilla olevat kappaleet
+school-library-no-books = Kirjoja ei löytynyt luettelosta.
+school-library-author = Kirjailija
+school-library-copies = Kappaletta
+school-library-available-of = saatavilla
+school-library-checkout-btn = Lainaa
+school-library-unavailable = Ei saatavilla
+
+# Auto-synced missing keys from en.ftl
+school-parent-link-student-instruction = To view academic progress, health clinic visits, and tuition fees, you must link your student child's roster profile to this account.
+school-parent-select-child = Select Child Profile
+school-parent-select-child-desc = Switch view to monitor academic and medical updates for another child.
+school-parent-attendance-tracking = Attendance Tracking
+school-parent-attendance-desc = Real-time attendance logs and overall registration rate
+school-parent-recent-history = Recent Attendance History
+school-parent-no-attendance = No attendance data registered.
+school-parent-excellent-standing = Excellent standing! Keep it up.
+school-parent-low-attendance = Notice: Attendance is below 90%.
+school-health-nurse-incidents = Nurse Clinic Incidents
+school-health-no-incidents = No recent health incidents logged.
+school-parent-gpa-progress = Academic Progress
+school-parent-gpa-desc = Child course grading ledger and term status
+school-parent-no-grades = No course grades registered.
+school-parent-grade-label = Grade: { $grade } ({ $points }%)
+school-parent-no-timetable = No timetable schedule assigned.
+school-student-no-students = No Students Registered
+school-student-preview-desc = Preview learning portal progress as different roster profiles.
+school-student-stars-desc = Earn study stars for graded A/B homework submissions!
+school-student-earned-stars = You have earned { $count } Study Stars!
+school-student-milestones = Achieved milestones checklist
+school-student-homework-desc = Assignments and learning tasks due
+school-student-strict-closed = Due: { $date } (Closed)
+school-student-strict-due = Due: { $date }
+school-student-flexible-late = Due: { $date } (Late submission)
+school-student-flexible-due = Due: { $date }
+school-student-closed-message = Submissions are closed for this assignment (Strict deadline passed).
+school-student-write-answer = Write Your Answer:
+school-student-type-placeholder = Type your answers here...
+school-student-drag-drop = Drag & Drop document or click to upload
+school-student-upload-formats = PDF, DOCX, ZIP, or images up to 50MB
+school-student-timetable-desc = Weekly recurring school timetable classes schedule
+school-student-classroom-label = Classroom: { $room }
+school-parent-export-txt = Export Official Report Card (TXT)
+school-parent-term = Term
+school-health-treatment = Treatment
+school-health-notes = Notes
+school-health-immunization = Immunization Records
+school-health-no-vaccine = No vaccine records registered.
+school-parent-report-cards = Report Cards
+school-parent-report-cards-desc = Official published term report summaries
+school-parent-no-reports = No report cards published.
+school-parent-cumulative-gpa = Cumulative GPA
+school-parent-timetable = Schema & Timetable
+school-parent-timetable-desc = Child's weekly recurring class timetable

@@ -25,6 +25,8 @@ pub fn TemplateManagerDialog(
     let mut temp_attendance = use_signal(|| false);
     let mut temp_finance = use_signal(|| false);
     let mut temp_library = use_signal(|| false);
+    let mut temp_health_clinic = use_signal(|| false);
+    let mut temp_report_cards = use_signal(|| false);
     let mut temp_moving_company = use_signal(|| false);
 
     // Care Subtype and Reset Roles
@@ -130,6 +132,18 @@ pub fn TemplateManagerDialog(
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false),
             );
+            temp_health_clinic.set(
+                modules_val
+                    .get("health_clinic")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
+            );
+            temp_report_cards.set(
+                modules_val
+                    .get("report_cards")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
+            );
             temp_moving_company.set(
                 modules_val
                     .get("moving_company")
@@ -183,6 +197,8 @@ pub fn TemplateManagerDialog(
                                     temp_attendance.set(false);
                                     temp_finance.set(false);
                                     temp_library.set(false);
+                                    temp_health_clinic.set(false);
+                                    temp_report_cards.set(false);
                                     temp_moving_company.set(false);
                                 },
                                 div { class: "font-bold text-primary", "{t(\"templates-preset-care\", &region)}" }
@@ -206,6 +222,8 @@ pub fn TemplateManagerDialog(
                                     temp_attendance.set(false);
                                     temp_finance.set(false);
                                     temp_library.set(false);
+                                    temp_health_clinic.set(false);
+                                    temp_report_cards.set(false);
                                     temp_moving_company.set(false);
                                 },
                                 div { class: "font-bold text-primary", "{t(\"templates-preset-jobs\", &region)}" }
@@ -229,6 +247,8 @@ pub fn TemplateManagerDialog(
                                     temp_attendance.set(false);
                                     temp_finance.set(false);
                                     temp_library.set(false);
+                                    temp_health_clinic.set(false);
+                                    temp_report_cards.set(false);
                                     temp_moving_company.set(true);
                                 },
                                  div { class: "font-bold text-primary", "{t(\"templates-preset-moving\", &region)}" }
@@ -252,6 +272,8 @@ pub fn TemplateManagerDialog(
                                     temp_attendance.set(true);
                                     temp_finance.set(true);
                                     temp_library.set(true);
+                                    temp_health_clinic.set(true);
+                                    temp_report_cards.set(true);
                                     temp_moving_company.set(false);
                                 },
                                 div { class: "font-bold text-primary", "{t(\"templates-preset-school\", &region)}" }
@@ -275,6 +297,8 @@ pub fn TemplateManagerDialog(
                                     temp_attendance.set(true);
                                     temp_finance.set(true);
                                     temp_library.set(true);
+                                    temp_health_clinic.set(true);
+                                    temp_report_cards.set(true);
                                     temp_moving_company.set(false);
                                 },
                                 div { class: "font-bold text-primary", "{t(\"templates-preset-full\", &region)}" }
@@ -420,6 +444,30 @@ pub fn TemplateManagerDialog(
                                 },
                                 label: t("settings-blocks-library-name", &region)
                             }
+                            components::Checkbox {
+                                checked: *temp_health_clinic.read(),
+                                onchange: move |val| {
+                                    temp_health_clinic.set(val);
+                                    if val {
+                                        temp_journals.set(false);
+                                        temp_medications.set(false);
+                                        temp_moving_company.set(false);
+                                    }
+                                },
+                                label: t("settings-blocks-health-clinic-name", &region)
+                            }
+                            components::Checkbox {
+                                checked: *temp_report_cards.read(),
+                                onchange: move |val| {
+                                    temp_report_cards.set(val);
+                                    if val {
+                                        temp_journals.set(false);
+                                        temp_medications.set(false);
+                                        temp_moving_company.set(false);
+                                    }
+                                },
+                                label: t("settings-blocks-report-cards-name", &region)
+                            }
                         }
                     }
 
@@ -470,6 +518,8 @@ pub fn TemplateManagerDialog(
                                 modules_map.insert("attendance".to_string(), serde_json::Value::Bool(*temp_attendance.read()));
                                 modules_map.insert("finance".to_string(), serde_json::Value::Bool(*temp_finance.read()));
                                 modules_map.insert("library".to_string(), serde_json::Value::Bool(*temp_library.read()));
+                                modules_map.insert("health_clinic".to_string(), serde_json::Value::Bool(*temp_health_clinic.read()));
+                                modules_map.insert("report_cards".to_string(), serde_json::Value::Bool(*temp_report_cards.read()));
 
 
                                 modules_map.insert("moving_company".to_string(), serde_json::Value::Bool(*temp_moving_company.read()));
