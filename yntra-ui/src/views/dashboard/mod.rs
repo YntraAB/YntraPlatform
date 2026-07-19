@@ -1142,7 +1142,7 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                 }
                                 button {
                                     class: "mt-4 w-full flex justify-center items-center gap-2 bg-secondary hover:bg-secondary/80 text-secondary-foreground border-0 font-semibold py-2.5 px-4 rounded-lg cursor-pointer transition-colors text-sm shadow-sm",
-                                    onclick: move |_| active_section.set("school".to_string()),
+                                    onclick: move |_| active_section.set("academics".to_string()),
                                     span {
                                         match locale.as_str() {
                                             "sv" => "Öppna skolportal",
@@ -1246,7 +1246,7 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                 button {
                                     class: "mt-4 w-full flex justify-center items-center gap-2 bg-secondary hover:bg-secondary/80 text-secondary-foreground border-0 font-semibold py-2.5 px-4 rounded-lg cursor-pointer transition-colors text-sm shadow-sm",
                                     onclick: move |_| {
-                                        active_section.set("school".to_string());
+                                        active_section.set("library".to_string());
                                     },
                                     span {
                                         match locale.as_str() {
@@ -1357,7 +1357,7 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
                                 button {
                                     class: "mt-4 w-full flex justify-center items-center gap-2 bg-secondary hover:bg-secondary/80 text-secondary-foreground border-0 font-semibold py-2.5 px-4 rounded-lg cursor-pointer transition-colors text-sm shadow-sm",
                                     onclick: move |_| {
-                                        active_section.set("school".to_string());
+                                        active_section.set("finance".to_string());
                                     },
                                     span {
                                         match locale.as_str() {

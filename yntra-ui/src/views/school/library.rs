@@ -10,7 +10,7 @@ use yntra_core::{
     get_course_term_grades, save_term_grade, publish_report_card, get_report_cards,
     get_student_submissions, save_submission, get_timetable_slots, save_timetable_slot, save_library_book, LibraryBook,
     get_parent_students, SchoolInvoice, HealthRecord, HealthIncident, StudentProfile, TermGrade, ReportCard,
-    Submission, TimetableSlot, reserve_book,
+    Submission, TimetableSlot, reserve_book, renew_book,
 };
 
 use super::SchoolViewProps;
@@ -84,6 +84,18 @@ pub fn LibraryView(props: SchoolViewProps) -> Element {
         async move { get_parent_students(uid.clone(), ws, uid).await.unwrap_or_default() }
     });
 
+    let mut selected_student_id = use_signal(|| "".to_string());
+
+    use_effect(move || {
+        let role = state.active_user_role.read().clone();
+        if role == "parent" || role == "role-school-parent" {
+            let student_list = parent_students_res.read().clone().unwrap_or_default();
+            if !student_list.is_empty() && selected_student_id.read().is_empty() {
+                selected_student_id.set(student_list[0].id.clone());
+            }
+        }
+    });
+
     let current_role = state.active_user_role.read().clone();
     let books_raw = books_res.read().clone().unwrap_or_default();
     let books: Vec<yntra_core::LibraryBook> = {
@@ -105,10 +117,8 @@ pub fn LibraryView(props: SchoolViewProps) -> Element {
     };
 
     let logs = if current_role == "parent" || current_role == "role-school-parent" {
-        let child_names: std::collections::HashSet<String> = students.iter()
-            .map(|s| format!("{} {}", s.first_name, s.last_name))
-            .collect();
-        logs_raw.into_iter().filter(|lg| child_names.contains(&lg.student_name)).collect::<Vec<_>>()
+        let s_id = selected_student_id.read().clone();
+        logs_raw.into_iter().filter(|lg| lg.student_id == s_id).collect::<Vec<_>>()
     } else if current_role == "student" || current_role == "role-school-student" {
         let student_names: std::collections::HashSet<String> = students.iter()
             .filter(|s| s.user_id.as_ref() == Some(&user_id))
@@ -127,6 +137,26 @@ pub fn LibraryView(props: SchoolViewProps) -> Element {
                     "Library Lending Catalog"
                 }
                 p { class: "text-xs text-muted-foreground m-0 mt-1", "Manage catalog records, checkout books to students, and track return lending logs." }
+            }
+
+            if current_role == "parent" || current_role == "role-school-parent" {
+                Card { class: "p-4 border border-border bg-sidebar rounded-2xl flex flex-col sm:flex-row gap-4 items-center justify-between shadow-sm",
+                    div { class: "flex items-center gap-3 w-full sm:w-auto",
+                        LucideIcon { name: "user", class: "h-5 w-5 text-primary" }
+                        div {
+                            h4 { class: "text-sm font-bold text-foreground m-0", {t("school-parent-select-child", &locale)} }
+                            p { class: "text-[10px] text-muted-foreground m-0 mt-0.5", {t("school-parent-select-child-desc", &locale)} }
+                        }
+                    }
+                    select {
+                        class: "rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 w-full sm:w-60",
+                        value: selected_student_id.read().clone(),
+                        onchange: move |evt: FormEvent| selected_student_id.set(evt.value()),
+                        for s in students.iter() {
+                            option { value: "{s.id}", "{s.first_name} {s.last_name} ({s.grade_level})" }
+                        }
+                    }
+                }
             }
 
             // Grid for book catalog vs checkout logs
@@ -300,7 +330,31 @@ pub fn LibraryView(props: SchoolViewProps) -> Element {
                                                             "Return Book"
                                                         }
                                                     } else {
-                                                        span { class: "text-xs text-amber-500 font-medium", "Borrowed" }
+                                                        Button {
+                                                            class: "text-xs h-8 px-3 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 font-semibold border-0 cursor-pointer",
+                                                            onclick: {
+                                                                let uid_c = uid.clone();
+                                                                let ws_c = ws.clone();
+                                                                let log_id_c = log_id.clone();
+                                                                let state = state;
+                                                                move |_| {
+                                                                    let role = state.active_user_role.read().clone();
+                                                                    let u_id = state.active_user_id.read().clone();
+                                                                    let proof = yntra_core::ZkCryptoTrust::new()
+                                                                        .generate_role_proof(state.get_passkey_seed(), u_id, role)
+                                                                        .ok();
+                                                                    let u = uid_c.clone();
+                                                                    let w = ws_c.clone();
+                                                                    let l = log_id_c.clone();
+                                                                    spawn(async move {
+                                                                        let _ = renew_book(u, w, l, proof).await;
+                                                                    });
+                                                                    let current = *db_trigger.read();
+                                                                    db_trigger.set(current + 1);
+                                                                }
+                                                            },
+                                                            "{t(\"school-library-renew-btn\", &locale)}"
+                                                        }
                                                     }
                                                 }
                                             }

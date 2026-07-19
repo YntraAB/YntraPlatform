@@ -120,6 +120,7 @@ pub fn DirectoryView(props: DirectoryViewProps) -> Element {
 
     let is_platform_admin = active_user.role == "platform_admin";
     let is_admin = active_user.role == "platform_admin" || active_user.role == "admin";
+    let is_parent = active_user.role == "parent" || active_user.role == "role-school-parent";
 
     let directory_level = props.directory_level;
     let _selected_directory_workspace = props.selected_directory_workspace;
@@ -168,13 +169,15 @@ pub fn DirectoryView(props: DirectoryViewProps) -> Element {
                         onclick: move |_| active_tab.set("staff".to_string()),
                         "Staff & Teams"
                     }
-                    button {
-                        class: format!(
-                            "text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors {}",
-                            if *active_tab.read() == "students" { "bg-primary text-primary-foreground" } else { "text-muted-foreground hover:bg-muted" }
-                        ),
-                        onclick: move |_| active_tab.set("students".to_string()),
-                        "Students & Parents"
+                    if !is_parent {
+                        button {
+                            class: format!(
+                                "text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors {}",
+                                if *active_tab.read() == "students" { "bg-primary text-primary-foreground" } else { "text-muted-foreground hover:bg-muted" }
+                            ),
+                            onclick: move |_| active_tab.set("students".to_string()),
+                            "Students & Parents"
+                        }
                     }
                 }
             }

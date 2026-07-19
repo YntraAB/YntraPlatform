@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use dioxus::html::HasFileData;
 use crate::components::{Button, Card, CardContent, CardDescription, CardHeader, CardTitle, LucideIcon};
 use crate::locales::t;
 use super::SchoolViewProps;
@@ -8,7 +9,8 @@ use super::utils::{
 };
 use yntra_core::{
     get_assignments, get_student_submissions, get_timetable_slots, save_submission,
-    get_student_attendance_records, get_library_lending_logs, Submission, StudentProfile
+    get_student_attendance_records, get_library_lending_logs, Submission, StudentProfile,
+    delete_assignment
 };
 
 #[component]
@@ -31,6 +33,10 @@ pub fn StudentPortal(
     let mut active_tab = use_signal(|| "stream".to_string());
     let mut new_announcement_text = use_signal(String::new);
     let mut comment_inputs = use_signal(std::collections::HashMap::<String, String>::new);
+    let mut editing_item_id = use_signal(|| Option::<String>::None);
+    let mut edit_text = use_signal(String::new);
+    let mut submitting_map = use_signal(std::collections::HashSet::<String>::new);
+    let toast = dioxus_primitives::toast::use_toast();
 
     let user_id_clone_att = user_id.clone();
     let ws_id_clone_att = ws_id.clone();
@@ -144,6 +150,25 @@ pub fn StudentPortal(
     let timetable = timetable_res.read().clone().unwrap_or_default();
     let attendance = student_attendance_res.read().clone().unwrap_or_default();
     let library_logs = library_logs_res.read().clone().unwrap_or_default();
+
+    let enrolled_course_ids: std::collections::HashSet<String> = {
+        let mut ids = std::collections::HashSet::new();
+        for att in attendance.iter() {
+            ids.insert(att.course_id.clone());
+        }
+        for sub in student_submissions.iter() {
+            if let Some(assign) = all_assignments.iter().find(|a| a.id == sub.assignment_id) {
+                ids.insert(assign.course_id.clone());
+            }
+        }
+        ids
+    };
+
+    let filtered_timetable: Vec<_> = timetable.iter()
+        .filter(|s| enrolled_course_ids.contains(&s.course_id))
+        .cloned()
+        .collect();
+
 
     // Stats calculations
     let total_days = attendance.len();
@@ -327,22 +352,24 @@ pub fn StudentPortal(
                             div { class: "py-12 text-center text-xs text-muted-foreground border border-dashed border-border rounded-xl italic", "No announcements yet." }
                         } else {
                             div { class: "space-y-4",
-                                for ann in announcements.iter().rev() {
+                                for ann in announcements.clone().into_iter().rev() {
                                     {
                                         let ann_id = ann.id.clone();
-                                        let ann_comments = comments.iter().filter(|comm| comm.course_id == ann_id).collect::<Vec<_>>();
+                                        let ann_comments = comments.iter().filter(|comm| comm.course_id == ann_id).cloned().collect::<Vec<_>>();
                                         let comment_text = comment_inputs.read().get(&ann_id).cloned().unwrap_or_default();
                                         let is_author = ann.due_date == "student";
+                                        let ann_title = ann.title.clone();
+                                        let ann_desc = ann.description.clone();
                                         rsx! {
-                                            div { key: "{ann.id}", class: "p-5 border border-border rounded-xl bg-background space-y-4 shadow-sm",
+                                            div { key: "{ann_id}", class: "p-5 border border-border rounded-xl bg-background space-y-4 shadow-sm",
                                                 div { class: "flex items-start justify-between gap-3",
                                                     div { class: "flex items-center gap-2.5",
                                                         div { class: "h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs",
-                                                            "{ann.title.chars().next().unwrap_or('?')}"
+                                                            "{ann_title.chars().next().unwrap_or('?')}"
                                                         }
                                                         div {
                                                             div { class: "text-xs font-bold text-foreground flex items-center gap-1.5", 
-                                                                "{ann.title}"
+                                                                "{ann_title}"
                                                                 span { 
                                                                     class: format!(
                                                                         "text-[9px] px-1.5 py-0.5 rounded font-extrabold uppercase tracking-wide {}",
@@ -360,8 +387,88 @@ pub fn StudentPortal(
                                                             }
                                                         }
                                                     }
+                                                    if is_author && ann_title == student_name {
+                                                        div { class: "flex items-center gap-1.5",
+                                                            button {
+                                                                class: "p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground border-none bg-transparent cursor-pointer transition-colors",
+                                                                r#type: "button",
+                                                                onclick: {
+                                                                    let ann_desc_c = ann_desc.clone();
+                                                                    let ann_id_c = ann_id.clone();
+                                                                    move |_| {
+                                                                        editing_item_id.set(Some(ann_id_c.clone()));
+                                                                        edit_text.set(ann_desc_c.clone());
+                                                                    }
+                                                                },
+                                                                LucideIcon { name: "pencil", class: "h-3.5 w-3.5" }
+                                                            }
+                                                            button {
+                                                                class: "p-1 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 border-none bg-transparent cursor-pointer transition-colors",
+                                                                r#type: "button",
+                                                                onclick: {
+                                                                    let ann_id_c = ann_id.clone();
+                                                                    let uid_c = user_id.clone();
+                                                                    let mut trig_c = db_trigger;
+                                                                    move |_| {
+                                                                        let uid_del = uid_c.clone();
+                                                                        let id_del = ann_id_c.clone();
+                                                                        let mut trig_del = trig_c;
+                                                                        spawn(async move {
+                                                                            if delete_assignment(uid_del, id_del).await.is_ok() {
+                                                                                let val = *trig_del.read();
+                                                                                trig_del.set(val + 1);
+                                                                            }
+                                                                        });
+                                                                    }
+                                                                },
+                                                                LucideIcon { name: "trash", class: "h-3.5 w-3.5" }
+                                                            }
+                                                        }
+                                                    }
                                                 }
-                                                div { class: "text-xs text-foreground font-medium whitespace-pre-line leading-relaxed", "{ann.description}" }
+                                                if *editing_item_id.read() == Some(ann_id.clone()) {
+                                                    div { class: "flex flex-col gap-2 p-2 bg-muted/10 border border-border rounded-lg",
+                                                        textarea {
+                                                            class: "w-full min-h-[75px] p-2.5 text-xs bg-background border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary text-foreground resize-none",
+                                                            value: "{edit_text}",
+                                                            oninput: move |evt| edit_text.set(evt.value().clone()),
+                                                        }
+                                                        div { class: "flex justify-end gap-2",
+                                                            Button {
+                                                                class: "px-3 h-7 text-[10px] font-bold rounded-lg border border-border bg-background hover:bg-muted text-foreground",
+                                                                onclick: move |_| editing_item_id.set(None),
+                                                                "Cancel"
+                                                            }
+                                                            Button {
+                                                                class: "px-3 h-7 text-[10px] font-bold rounded-lg bg-primary text-primary-foreground",
+                                                                disabled: edit_text.read().trim().is_empty(),
+                                                                onclick: {
+                                                                    let mut updated_ann = ann.clone();
+                                                                    let uid_c = user_id.clone();
+                                                                    let mut trig_c = db_trigger;
+                                                                    move |_| {
+                                                                        let text_val = edit_text.read().clone();
+                                                                        let mut item_val = updated_ann.clone();
+                                                                        item_val.description = text_val;
+                                                                        item_val.updated_at = yntra_core::infra::time::get_current_time_ms();
+                                                                        let uid_save = uid_c.clone();
+                                                                        let mut trig_save = trig_c;
+                                                                        spawn(async move {
+                                                                            if yntra_core::save_assignment(uid_save, item_val, None).await.is_ok() {
+                                                                                editing_item_id.set(None);
+                                                                                let val = *trig_save.read();
+                                                                                trig_save.set(val + 1);
+                                                                            }
+                                                                        });
+                                                                    }
+                                                                },
+                                                                "Save"
+                                                            }
+                                                        }
+                                                    }
+                                                } else {
+                                                    div { class: "text-xs text-foreground font-medium whitespace-pre-line leading-relaxed", "{ann_desc}" }
+                                                }
                                                 
                                                 div { class: "border-t border-border/40 pt-3 space-y-3",
                                                     div { class: "text-[10px] font-bold text-muted-foreground flex items-center gap-1",
@@ -371,20 +478,111 @@ pub fn StudentPortal(
                                                     
                                                     if !ann_comments.is_empty() {
                                                         div { class: "space-y-3 pl-3 border-l-2 border-muted",
-                                                            for comm in ann_comments.iter() {
-                                                                div { key: "{comm.id}", class: "text-xs space-y-0.5",
-                                                                    div { class: "flex items-center gap-1.5",
-                                                                        span { class: "font-bold text-foreground", "{comm.title}" }
-                                                                        span { class: "text-[8px] font-bold px-1 rounded bg-muted text-muted-foreground uppercase", "{comm.due_date}" }
-                                                                        span { class: "text-[9px] text-muted-foreground/60",
-                                                                            {
-                                                                                let ms = comm.updated_at;
-                                                                                let formatted = format_timestamp(ms);
-                                                                                formatted
+                                                            for comm in ann_comments.into_iter() {
+                                                                {
+                                                                    let comm_id = comm.id.clone();
+                                                                    let comm_title = comm.title.clone();
+                                                                    let comm_due_date = comm.due_date.clone();
+                                                                    let comm_desc = comm.description.clone();
+                                                                    let comm_updated_at = comm.updated_at;
+                                                                    rsx! {
+                                                                        div { key: "{comm_id}", class: "text-xs space-y-0.5",
+                                                                            div { class: "flex items-center justify-between gap-1.5 w-full",
+                                                                                div { class: "flex items-center gap-1.5",
+                                                                                    span { class: "font-bold text-foreground", "{comm_title}" }
+                                                                                    span { class: "text-[8px] font-bold px-1 rounded bg-muted text-muted-foreground uppercase", "{comm_due_date}" }
+                                                                                    span { class: "text-[9px] text-muted-foreground/60",
+                                                                                        {
+                                                                                            let ms = comm_updated_at;
+                                                                                            let formatted = format_timestamp(ms);
+                                                                                            formatted
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                                if comm_due_date == "student" && comm_title == student_name {
+                                                                                    div { class: "flex items-center gap-1",
+                                                                                        button {
+                                                                                            class: "p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground border-none bg-transparent cursor-pointer transition-colors",
+                                                                                            r#type: "button",
+                                                                                            onclick: {
+                                                                                                let comm_desc_c = comm_desc.clone();
+                                                                                                let comm_id_c = comm_id.clone();
+                                                                                                move |_| {
+                                                                                                    editing_item_id.set(Some(comm_id_c.clone()));
+                                                                                                    edit_text.set(comm_desc_c.clone());
+                                                                                                }
+                                                                                            },
+                                                                                            LucideIcon { name: "pencil", class: "h-3 w-3" }
+                                                                                        }
+                                                                                        button {
+                                                                                            class: "p-0.5 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 border-none bg-transparent cursor-pointer transition-colors",
+                                                                                            r#type: "button",
+                                                                                            onclick: {
+                                                                                                let comm_id_c = comm_id.clone();
+                                                                                                let uid_c = user_id.clone();
+                                                                                                let mut trig_c = db_trigger;
+                                                                                                move |_| {
+                                                                                                    let uid_del = uid_c.clone();
+                                                                                                    let id_del = comm_id_c.clone();
+                                                                                                    let mut trig_del = trig_c;
+                                                                                                    spawn(async move {
+                                                                                                        if delete_assignment(uid_del, id_del).await.is_ok() {
+                                                                                                            let val = *trig_del.read();
+                                                                                                            trig_del.set(val + 1);
+                                                                                                        }
+                                                                                                    });
+                                                                                                }
+                                                                                            },
+                                                                                            LucideIcon { name: "trash", class: "h-3 w-3" }
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                            if *editing_item_id.read() == Some(comm_id.clone()) {
+                                                                                div { class: "flex flex-col gap-2 p-1.5 bg-muted/10 border border-border rounded-lg mt-1",
+                                                                                    input {
+                                                                                        class: "w-full h-8 px-2 text-xs bg-background border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary text-foreground font-medium",
+                                                                                        value: "{edit_text}",
+                                                                                        oninput: move |evt| edit_text.set(evt.value().clone()),
+                                                                                    }
+                                                                                    div { class: "flex justify-end gap-1.5",
+                                                                                        Button {
+                                                                                            class: "px-2 h-6 text-[9px] font-bold rounded-lg border border-border bg-background hover:bg-muted text-foreground",
+                                                                                            onclick: move |_| editing_item_id.set(None),
+                                                                                            "Cancel"
+                                                                                        }
+                                                                                        Button {
+                                                                                            class: "px-2 h-6 text-[9px] font-bold rounded-lg bg-primary text-primary-foreground",
+                                                                                            disabled: edit_text.read().trim().is_empty(),
+                                                                                            onclick: {
+                                                                                                let mut updated_comm = comm.clone();
+                                                                                                let uid_c = user_id.clone();
+                                                                                                let mut trig_c = db_trigger;
+                                                                                                move |_| {
+                                                                                                    let text_val = edit_text.read().clone();
+                                                                                                    let mut item_val = updated_comm.clone();
+                                                                                                    item_val.description = text_val;
+                                                                                                    item_val.updated_at = yntra_core::infra::time::get_current_time_ms();
+                                                                                                    let uid_save = uid_c.clone();
+                                                                                                    let mut trig_save = trig_c;
+                                                                                                    spawn(async move {
+                                                                                                        if yntra_core::save_assignment(uid_save, item_val, None).await.is_ok() {
+                                                                                                            editing_item_id.set(None);
+                                                                                                            let val = *trig_save.read();
+                                                                                                            trig_save.set(val + 1);
+                                                                                                        }
+                                                                                                    });
+                                                                                                }
+                                                                                            },
+                                                                                            "Save"
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                            } else {
+                                                                                div { class: "text-muted-foreground font-medium pl-1", "{comm_desc}" }
                                                                             }
                                                                         }
                                                                     }
-                                                                    div { class: "text-muted-foreground font-medium", "{comm.description}" }
                                                                 }
                                                             }
                                                         }
@@ -793,9 +991,30 @@ pub fn StudentPortal(
                                                             },
                                                             ondrop: {
                                                                 let a_id_c = a_id.clone();
+                                                                let a_id_f = a_id.clone();
                                                                 move |evt: DragEvent| {
                                                                     evt.prevent_default();
                                                                     drag_active.write().insert(a_id_c.clone(), false);
+                                                                    let files = evt.files();
+                                                                    let a_id_val = a_id_f.clone();
+                                                                    spawn(async move {
+                                                                        if !files.is_empty() {
+                                                                            let file_name = files[0].name();
+                                                                            if let Ok(bytes) = files[0].read_bytes().await {
+                                                                                let size_str = format_file_size(bytes.len());
+                                                                                let sha256 = compute_mock_hash(&bytes);
+                                                                                let base64_str = base64_encode(bytes.as_ref());
+                                                                                let data_url = format!("data:application/octet-stream;base64,{}", base64_str);
+                                                                                submission_files.write().insert(a_id_val, AdvancedAttachment {
+                                                                                    filename: file_name,
+                                                                                    size_str,
+                                                                                    sha256,
+                                                                                    e2ee: true,
+                                                                                    dataurl: data_url,
+                                                                                });
+                                                                            }
+                                                                        }
+                                                                    });
                                                                 }
                                                             },
                                                             span { class: "text-[11px] font-bold text-muted-foreground", {t("school-student-write-answer", &locale)} }
@@ -878,6 +1097,7 @@ pub fn StudentPortal(
 
                                                             Button {
                                                                 class: "text-xs px-3 h-8 self-end font-semibold flex items-center gap-1.5 mt-2",
+                                                                disabled: submitting_map.read().contains(&a_id),
                                                                 onclick: {
                                                                     let a_id = a_id.clone();
                                                                     let s_id = s_id.clone();
@@ -885,6 +1105,8 @@ pub fn StudentPortal(
                                                                     let ws_c = ws.clone();
                                                                     let state = state;
                                                                     let mut db_trigger = db_trigger.clone();
+                                                                    let toast = toast.clone();
+                                                                    let locale_c = locale.clone();
                                                                     move |_| {
                                                                         let ans = assignment_inputs.read().get(&a_id).cloned().unwrap_or_default();
                                                                         let staged = submission_files.read().get(&a_id).cloned();
@@ -914,18 +1136,43 @@ pub fn StudentPortal(
                                                                             };
                                                                             let uid_sub = uid_c.clone();
                                                                             let a_id_clear = a_id.clone();
+                                                                            let mut db_trigger_c = db_trigger.clone();
+                                                                            let toast_c = toast.clone();
+                                                                            let locale_sub = locale_c.clone();
+                                                                            submitting_map.write().insert(a_id.clone());
                                                                             spawn(async move {
-                                                                                let _ = save_submission(uid_sub, sub_rec, proof).await;
+                                                                                match save_submission(uid_sub, sub_rec, proof).await {
+                                                                                    Ok(_) => {
+                                                                                        toast_c.success(
+                                                                                            t("school-submission-success-title", &locale_sub),
+                                                                                            dioxus_primitives::toast::ToastOptions::new().description(t("school-submission-success-desc", &locale_sub))
+                                                                                        );
+                                                                                        assignment_inputs.write().insert(a_id_clear.clone(), String::new());
+                                                                                        submission_files.write().remove(&a_id_clear);
+                                                                                        let current = *db_trigger_c.read();
+                                                                                        db_trigger_c.set(current + 1);
+                                                                                    }
+                                                                                    Err(e) => {
+                                                                                        let user_err = crate::utils::map_error(&e);
+                                                                                        toast_c.error(
+                                                                                            user_err.title,
+                                                                                            dioxus_primitives::toast::ToastOptions::new().description(user_err.description)
+                                                                                        );
+                                                                                    }
+                                                                                }
+                                                                                submitting_map.write().remove(&a_id_clear);
                                                                             });
-                                                                            assignment_inputs.write().insert(a_id.clone(), String::new());
-                                                                            submission_files.write().remove(&a_id_clear);
-                                                                            let current = *db_trigger.read();
-                                                                            db_trigger.set(current + 1);
                                                                         }
                                                                     }
                                                                 },
                                                                 LucideIcon { name: "send", class: "h-3.5 w-3.5" }
-                                                                {t("school-submit-answer", &locale)}
+                                                                {
+                                                                    if submitting_map.read().contains(&a_id) {
+                                                                        "Submitting...".to_string()
+                                                                    } else {
+                                                                        t("school-submit-answer", &locale)
+                                                                    }
+                                                                }
                                                             }
                                                         }
                                                     }
@@ -948,12 +1195,12 @@ pub fn StudentPortal(
                     CardDescription { {t("school-student-timetable-desc", &locale)} }
                 }
                 CardContent {
-                    if timetable.is_empty() {
+                    if filtered_timetable.is_empty() {
                         div { class: "py-8 text-center text-xs text-muted-foreground", {t("school-timetable-no-slots", &locale)} }
                     } else {
                         div { class: "space-y-4",
                             div { class: "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4",
-                                for s in timetable.iter() {
+                                for s in filtered_timetable.iter() {
                                     {
                                         let course_name = courses.iter().find(|c| c.id == s.course_id).map(|c| c.name.clone()).unwrap_or_else(|| "Unknown Course".to_string());
                                         let classroom_name = s.classroom.clone().unwrap_or_else(|| "Room Unassigned".to_string());
@@ -984,7 +1231,7 @@ pub fn StudentPortal(
                             Button {
                                 class: "mt-2 bg-primary hover:bg-primary/90 text-primary-foreground font-bold uppercase tracking-wider text-[9px] py-2 px-4 rounded-lg flex items-center justify-center gap-1.5 transition-all shadow-sm border-0 cursor-pointer w-full sm:w-auto",
                                 onclick: {
-                                    let timetable_c = timetable.clone();
+                                    let timetable_c = filtered_timetable.clone();
                                     let courses_c = courses.clone();
                                     let students_c = students.clone();
                                     let selected_id = selected_student_profile_id.read().clone();

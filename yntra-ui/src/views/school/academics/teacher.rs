@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use dioxus::html::HasFileData;
 use crate::components::{Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, Input, LucideIcon, SuggestionInput};
 use crate::locales::t;
 use super::SchoolViewProps;
@@ -1131,6 +1132,26 @@ pub fn TeacherPortal(
                                         ondrop: move |evt: DragEvent| {
                                             evt.prevent_default();
                                             new_assign_drag_active.set(false);
+                                            let files = evt.files();
+                                            let mut file_sig = new_assign_file;
+                                            spawn(async move {
+                                                if !files.is_empty() {
+                                                    let file_name = files[0].name();
+                                                    if let Ok(bytes) = files[0].read_bytes().await {
+                                                        let size_str = format_file_size(bytes.len());
+                                                        let sha256 = compute_mock_hash(&bytes);
+                                                        let base64_str = base64_encode(bytes.as_ref());
+                                                        let data_url = format!("data:application/octet-stream;base64,{}", base64_str);
+                                                        file_sig.set(Some(AdvancedAttachment {
+                                                            filename: file_name,
+                                                            size_str,
+                                                            sha256,
+                                                            e2ee: true,
+                                                            dataurl: data_url,
+                                                        }));
+                                                    }
+                                                }
+                                            });
                                         },
 
                                         // Drag and drop / file selector connector

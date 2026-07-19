@@ -231,9 +231,9 @@ pub fn EmployeeLayout() -> Element {
                             let is_route_allowed = |sec_name: &str, role_str: &str| -> bool {
                                 let r = role_str.to_lowercase();
                                 if r == "student" || r == "role-school-student" {
-                                    sec_name == "academics" || sec_name == "report_cards" || sec_name == "library" || sec_name == "dashboard" || sec_name == "settings"
+                                    sec_name == "academics" || sec_name == "report_cards" || sec_name == "library" || sec_name == "finance" || sec_name == "health_clinic" || sec_name == "dashboard" || sec_name == "settings"
                                 } else if r == "parent" || r == "role-school-parent" {
-                                    sec_name == "academics" || sec_name == "finance" || sec_name == "health_clinic" || sec_name == "report_cards" || sec_name == "library" || sec_name == "messaging" || sec_name == "directory" || sec_name == "dashboard" || sec_name == "settings"
+                                    sec_name == "academics" || sec_name == "finance" || sec_name == "library" || sec_name == "messaging" || sec_name == "directory" || sec_name == "dashboard" || sec_name == "settings"
                                 } else {
                                     true
                                 }

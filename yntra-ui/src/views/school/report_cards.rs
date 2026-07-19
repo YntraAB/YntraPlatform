@@ -21,6 +21,7 @@ pub fn ReportCardsView(props: SchoolViewProps) -> Element {
     let mut db_trigger = props.db_trigger;
     let user_id = props.active_user_id.clone();
     let ws_id = props.workspace_id.clone();
+    let locale = props.locale.clone();
     let state = use_context::<crate::state::AppState>();
 
     // Local states
@@ -100,6 +101,26 @@ pub fn ReportCardsView(props: SchoolViewProps) -> Element {
                         "Student Report Cards"
                     }
                     p { class: "text-xs text-muted-foreground m-0 mt-1", "Review and publish final GPA evaluations and official school report cards." }
+                }
+            }
+
+            if current_role == "parent" || current_role == "role-school-parent" {
+                Card { class: "p-4 border border-border bg-sidebar rounded-2xl flex flex-col sm:flex-row gap-4 items-center justify-between shadow-sm",
+                    div { class: "flex items-center gap-3 w-full sm:w-auto",
+                        LucideIcon { name: "user", class: "h-5 w-5 text-primary" }
+                        div {
+                            h4 { class: "text-sm font-bold text-foreground m-0", {t("school-parent-select-child", &locale)} }
+                            p { class: "text-[10px] text-muted-foreground m-0 mt-0.5", {t("school-parent-select-child-desc", &locale)} }
+                        }
+                    }
+                    select {
+                        class: "rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 w-full sm:w-60",
+                        value: selected_student_id.read().clone(),
+                        onchange: move |evt: FormEvent| selected_student_id.set(evt.value()),
+                        for s in students.iter() {
+                            option { value: "{s.id}", "{s.first_name} {s.last_name} ({s.grade_level})" }
+                        }
+                    }
                 }
             }
 

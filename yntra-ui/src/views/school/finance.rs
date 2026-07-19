@@ -93,6 +93,18 @@ pub fn FinanceView(props: SchoolViewProps) -> Element {
         async move { get_parent_students(uid.clone(), ws, uid).await.unwrap_or_default() }
     });
 
+    let mut selected_student_id = use_signal(|| "".to_string());
+
+    use_effect(move || {
+        let role = state.active_user_role.read().clone();
+        if role == "parent" || role == "role-school-parent" {
+            let student_list = parent_students_res.read().clone().unwrap_or_default();
+            if !student_list.is_empty() && selected_student_id.read().is_empty() {
+                selected_student_id.set(student_list[0].id.clone());
+            }
+        }
+    });
+
     let invoices_raw = invoices_res.read().clone().unwrap_or_default();
     let current_role = state.active_user_role.read().clone();
     let students = if current_role == "parent" || current_role == "role-school-parent" {
@@ -102,8 +114,8 @@ pub fn FinanceView(props: SchoolViewProps) -> Element {
     };
 
     let invoices = if current_role == "parent" || current_role == "role-school-parent" {
-        let child_ids: std::collections::HashSet<String> = students.iter().map(|s| s.id.clone()).collect();
-        invoices_raw.into_iter().filter(|inv| child_ids.contains(&inv.student_id)).collect::<Vec<_>>()
+        let s_id = selected_student_id.read().clone();
+        invoices_raw.into_iter().filter(|inv| inv.student_id == s_id).collect::<Vec<_>>()
     } else if current_role == "student" || current_role == "role-school-student" {
         let student_ids: std::collections::HashSet<String> = students.iter()
             .filter(|s| s.user_id.as_ref() == Some(&user_id))
@@ -120,9 +132,9 @@ pub fn FinanceView(props: SchoolViewProps) -> Element {
                 div {
                     h2 { class: "text-2xl font-bold tracking-tight text-foreground m-0 flex items-center gap-2",
                         LucideIcon { name: "credit-card", class: "h-6 w-6 text-primary" }
-                        "Tuition & Billing"
+                        {t("school-parent-billing-title", &locale)}
                     }
-                    p { class: "text-xs text-muted-foreground m-0 mt-1", "Track outstanding student tuition fees, create custom bills, and record payments." }
+                    p { class: "text-xs text-muted-foreground m-0 mt-1", {t("school-parent-billing-desc", &locale)} }
                 }
                 if current_role != "parent" && current_role != "role-school-parent" && current_role != "student" && current_role != "role-school-student" {
                     Button {
@@ -134,28 +146,52 @@ pub fn FinanceView(props: SchoolViewProps) -> Element {
                 }
             }
 
+            if current_role == "parent" || current_role == "role-school-parent" {
+                Card { class: "p-4 border border-border bg-sidebar rounded-2xl flex flex-col sm:flex-row gap-4 items-center justify-between shadow-sm",
+                    div { class: "flex items-center gap-3 w-full sm:w-auto",
+                        LucideIcon { name: "user", class: "h-5 w-5 text-primary" }
+                        div {
+                            h4 { class: "text-sm font-bold text-foreground m-0", {t("school-parent-select-child", &locale)} }
+                            p { class: "text-[10px] text-muted-foreground m-0 mt-0.5", {t("school-parent-select-child-desc", &locale)} }
+                        }
+                    }
+                    select {
+                        class: "rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 w-full sm:w-60",
+                        value: selected_student_id.read().clone(),
+                        onchange: move |evt: FormEvent| selected_student_id.set(evt.value()),
+                        for s in students.iter() {
+                            option { value: "{s.id}", "{s.first_name} {s.last_name} ({s.grade_level})" }
+                        }
+                    }
+                }
+            }
+
             // Invoices table
             Card { class: "border-border shadow-sm",
                 CardHeader {
-                    CardTitle { "Billing Ledger" }
-                    CardDescription { "Student tuition statements and payment statuses" }
+                    CardTitle { {t("school-parent-billing-ledger", &locale)} }
+                    CardDescription { {t("school-parent-billing-ledger-desc", &locale)} }
                 }
                 CardContent {
                     if invoices.is_empty() {
                         div { class: "py-12 text-center text-xs text-muted-foreground border border-dashed border-border rounded-xl",
-                            "No active invoices recorded. Issue a new invoice to get started."
+                            if current_role == "parent" || current_role == "role-school-parent" || current_role == "student" || current_role == "role-school-student" {
+                                {t("school-parent-billing-no-invoices-parent", &locale)}
+                            } else {
+                                {t("school-parent-billing-no-invoices-staff", &locale)}
+                            }
                         }
                     } else {
                         div { class: "overflow-x-auto",
                             table { class: "w-full border-collapse text-sm text-left",
                                 thead { class: "bg-muted/40 text-muted-foreground text-xs uppercase font-semibold border-b border-border",
                                     tr {
-                                        th { class: "p-3.5", "Student" }
-                                        th { class: "p-3.5", "Description" }
-                                        th { class: "p-3.5", "Amount" }
-                                        th { class: "p-3.5", "Due Date" }
-                                        th { class: "p-3.5", "Status" }
-                                        th { class: "p-3.5 text-right", "Actions" }
+                                        th { class: "p-3.5", {t("school-parent-billing-header-student", &locale)} }
+                                        th { class: "p-3.5", {t("school-parent-billing-header-desc", &locale)} }
+                                        th { class: "p-3.5", {t("school-parent-billing-header-amount", &locale)} }
+                                        th { class: "p-3.5", {t("school-parent-billing-header-due", &locale)} }
+                                        th { class: "p-3.5", {t("school-parent-billing-header-status", &locale)} }
+                                        th { class: "p-3.5 text-right", {t("school-parent-billing-header-actions", &locale)} }
                                     }
                                 }
                                 tbody { class: "divide-y divide-border",
@@ -423,14 +459,14 @@ pub fn FinanceView(props: SchoolViewProps) -> Element {
             if *show_payment_modal.read() {
                 Dialog {
                     open: *show_payment_modal.read(),
-                    title: "Secure Online Payment",
+                    title: t("school-parent-billing-secure-payment", &locale),
                     onclose: move |_| show_payment_modal.set(false),
                     div { class: "flex flex-col gap-4 text-sm w-full py-2",
                         if *payment_success.read() {
                             div { class: "text-center py-6 space-y-3",
                                 LucideIcon { name: "check-circle", class: "h-12 w-12 text-green-500 mx-auto" }
-                                h4 { class: "text-sm font-bold text-foreground", "Payment Successful" }
-                                p { class: "text-xs text-muted-foreground", "Your tuition payment of {format_amount(*selected_pay_invoice_amount.read(), &locale)} has been processed securely." }
+                                h4 { class: "text-sm font-bold text-foreground", {t("school-parent-billing-payment-success", &locale)} }
+                                p { class: "text-xs text-muted-foreground", {crate::locales::t_with_args("school-parent-billing-payment-success-desc", &locale, &[("amount", &format_amount(*selected_pay_invoice_amount.read(), &locale))])} }
                                 Button {
                                     class: "mt-4 px-4 py-2 text-xs rounded-xl bg-primary text-primary-foreground border-0 cursor-pointer",
                                     onclick: move |_| show_payment_modal.set(false),
@@ -451,14 +487,14 @@ pub fn FinanceView(props: SchoolViewProps) -> Element {
                                     div { class: "text-base font-black text-primary mt-0.5", "{format_amount(*selected_pay_invoice_amount.read(), &locale)}" }
                                 }
                                 div { class: "grid gap-1.5",
-                                    span { class: "font-bold text-foreground text-xs", "Cardholder Name" }
+                                    span { class: "font-bold text-foreground text-xs", {t("school-parent-billing-cardholder", &locale)} }
                                     Input {
                                         placeholder: "Jane Doe",
                                         value: "Jane Doe",
                                     }
                                 }
                                 div { class: "grid gap-1.5",
-                                    span { class: "font-bold text-foreground text-xs", "Card Number" }
+                                    span { class: "font-bold text-foreground text-xs", {t("school-parent-billing-card-number", &locale)} }
                                     Input {
                                         placeholder: "4242 •••• •••• 4242",
                                         value: "{card_number}",
@@ -467,7 +503,7 @@ pub fn FinanceView(props: SchoolViewProps) -> Element {
                                 }
                                 div { class: "grid grid-cols-2 gap-4",
                                     div { class: "grid gap-1.5",
-                                        span { class: "font-bold text-foreground text-xs", "Expiry Date" }
+                                        span { class: "font-bold text-foreground text-xs", {t("school-parent-billing-expiry", &locale)} }
                                         Input {
                                             placeholder: "MM/YY",
                                             value: "{card_expiry}",
@@ -475,7 +511,7 @@ pub fn FinanceView(props: SchoolViewProps) -> Element {
                                         }
                                     }
                                     div { class: "grid gap-1.5",
-                                        span { class: "font-bold text-foreground text-xs", "CVC" }
+                                        span { class: "font-bold text-foreground text-xs", {t("school-parent-billing-cvc", &locale)} }
                                         Input {
                                             placeholder: "123",
                                             value: "{card_cvc}",
@@ -520,7 +556,7 @@ pub fn FinanceView(props: SchoolViewProps) -> Element {
                                                 }
                                             }
                                         },
-                                        "Confirm & Pay"
+                                        {t("school-parent-billing-confirm-pay", &locale)}
                                     }
                                 }
                             }

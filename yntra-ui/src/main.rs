@@ -76,18 +76,22 @@ fn App() -> Element {
         && *active_section.read() != "academics"
         && *active_section.read() != "report_cards"
         && *active_section.read() != "library"
+        && *active_section.read() != "finance"
+        && *active_section.read() != "health_clinic"
+        && *active_section.read() != "dashboard"
+        && *active_section.read() != "settings"
     {
         active_section.set("academics".to_string());
     }
 
     if is_parent
         && *active_section.read() != "academics"
-        && *active_section.read() != "attendance"
         && *active_section.read() != "finance"
-        && *active_section.read() != "health_clinic"
-        && *active_section.read() != "report_cards"
         && *active_section.read() != "library"
         && *active_section.read() != "messaging"
+        && *active_section.read() != "directory"
+        && *active_section.read() != "dashboard"
+        && *active_section.read() != "settings"
     {
         active_section.set("academics".to_string());
     }

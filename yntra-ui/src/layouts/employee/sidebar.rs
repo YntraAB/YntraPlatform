@@ -220,9 +220,9 @@ pub fn LayoutSidebar(props: LayoutSidebarProps) -> Element {
                         rsx! {
                             for block in blocks::BLOCK_REGISTRY.iter().filter(|b| {
                                 if current_role == "student" || current_role == "role-school-student" {
-                                    b.id == "academics" || b.id == "report_cards" || b.id == "library"
+                                    b.id == "academics" || b.id == "report_cards" || b.id == "library" || b.id == "finance" || b.id == "health_clinic"
                                 } else if current_role == "parent" || current_role == "role-school-parent" {
-                                    b.id == "academics" || b.id == "finance" || b.id == "health_clinic" || b.id == "report_cards" || b.id == "library" || b.id == "messaging" || b.id == "directory"
+                                    b.id == "academics" || b.id == "finance" || b.id == "library" || b.id == "messaging" || b.id == "directory"
                                 } else {
                                     true
                                 }

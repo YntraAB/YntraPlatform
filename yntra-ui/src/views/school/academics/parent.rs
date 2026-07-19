@@ -1,12 +1,13 @@
 use dioxus::prelude::*;
-use crate::components::{Button, Card, CardContent, CardDescription, CardHeader, CardTitle, LucideIcon};
+use crate::components::{Button, Card, CardContent, CardDescription, CardHeader, CardTitle, LucideIcon, Dialog, Input};
 use crate::locales::t;
 use super::SchoolViewProps;
 use yntra_core::{
     get_student_attendance_records, get_student_health_records, get_health_incidents,
     get_report_cards, get_course_term_grades, get_timetable_slots, StudentProfile,
-    link_student_self_service, get_assignments, get_student_submissions
+    link_student_self_service, get_assignments, get_student_submissions, report_student_absence
 };
+use dioxus_primitives::toast::{ToastOptions, use_toast};
 
 #[component]
 pub fn ParentPortal(
@@ -19,8 +20,12 @@ pub fn ParentPortal(
     let user_id = school_props.active_user_id.clone();
     let ws_id = school_props.workspace_id.clone();
     let mut state = use_context::<crate::state::AppState>();
+    let toast = use_toast();
 
     let mut link_input_id = use_signal(String::new);
+    let mut show_absence_modal = use_signal(|| false);
+    let mut absence_date = use_signal(String::new);
+    let mut absence_reason = use_signal(|| "Sick Leave".to_string());
     let mut link_error = use_signal(|| Option::<String>::None);
 
     // Resources specific to parent child tracking
@@ -251,9 +256,73 @@ pub fn ParentPortal(
     let health_records = student_health_records_res.read().clone().unwrap_or_default();
     let health_incidents = student_health_incidents_res.read().clone().unwrap_or_default();
     let report_cards = student_report_cards_res.read().clone().unwrap_or_default();
+    let (chart_points, chart_line_d, chart_area_d) = {
+        let mut sorted_reports = report_cards.clone();
+        sorted_reports.sort_by_key(|r| r.updated_at);
+        
+        let width = 500.0;
+        let height = 120.0;
+        let padding_x = 45.0;
+        let padding_y = 15.0;
+        
+        let points: Vec<(f32, f32, f64, String)> = sorted_reports.iter().enumerate().map(|(i, rc)| {
+            let x = if sorted_reports.len() > 1 {
+                padding_x + (i as f32) * (width - 2.0 * padding_x) / ((sorted_reports.len() - 1) as f32)
+            } else {
+                width / 2.0
+            };
+            let gpa_ratio = (rc.gpa as f32) / 4.0;
+            let y = height - padding_y - gpa_ratio * (height - 2.0 * padding_y);
+            (x, y, rc.gpa, rc.term_name.clone())
+        }).collect();
+        
+        let line_d = if points.len() > 1 {
+            let mut d = format!("M {:.1} {:.1}", points[0].0, points[0].1);
+            for pt in points.iter().skip(1) {
+                d.push_str(&format!(" L {:.1} {:.1}", pt.0, pt.1));
+            }
+            d
+        } else {
+            String::new()
+        };
+        
+        let area_d = if points.len() > 1 {
+            let mut d = format!("M {:.1} {:.1}", points[0].0, height - padding_y);
+            for pt in points.iter() {
+                d.push_str(&format!(" L {:.1} {:.1}", pt.0, pt.1));
+            }
+            d.push_str(&format!(" L {:.1} {:.1} Z", points[points.len() - 1].0, height - padding_y));
+            d
+        } else {
+            String::new()
+        };
+        
+        (points, line_d, area_d)
+    };
     let course_grades = course_grades_res.read().clone().unwrap_or_default();
     let student_submissions = student_submissions_res.read().clone().unwrap_or_default();
     let all_assignments = all_assignments_res.read().clone().unwrap_or_default();
+
+    let enrolled_course_ids: std::collections::HashSet<String> = {
+        let mut ids = std::collections::HashSet::new();
+        for cg in course_grades.iter() {
+            ids.insert(cg.course_id.clone());
+        }
+        for att in attendance.iter() {
+            ids.insert(att.course_id.clone());
+        }
+        for sub in student_submissions.iter() {
+            if let Some(assign) = all_assignments.iter().find(|a| a.id == sub.assignment_id) {
+                ids.insert(assign.course_id.clone());
+            }
+        }
+        ids
+    };
+
+    let filtered_timetable: Vec<_> = timetable.iter()
+        .filter(|s| enrolled_course_ids.contains(&s.course_id))
+        .cloned()
+        .collect();
 
     // Stats calculations
     let total_days = attendance.len();
@@ -320,9 +389,20 @@ pub fn ParentPortal(
                     
                     // Attendance SOTA Widget
                     Card { class: "border-border shadow-sm overflow-hidden",
-                        CardHeader { class: "pb-2",
-                            CardTitle { {t("school-parent-attendance-tracking", &locale)} }
-                            CardDescription { {t("school-parent-attendance-desc", &locale)} }
+                        CardHeader { class: "pb-2 flex flex-row items-center justify-between",
+                            div {
+                                CardTitle { {t("school-parent-attendance-tracking", &locale)} }
+                                CardDescription { {t("school-parent-attendance-desc", &locale)} }
+                            }
+                            Button {
+                                class: "text-xs px-3 py-1.5 bg-primary text-primary-foreground hover:bg-primary/90 font-bold rounded-lg border-0 cursor-pointer flex items-center gap-1.5",
+                                onclick: move |_| {
+                                    absence_date.set(chrono::Local::now().format("%Y-%m-%d").to_string());
+                                    show_absence_modal.set(true);
+                                },
+                                LucideIcon { name: "calendar", size: "12" }
+                                "Report Absence"
+                            }
                         }
                         CardContent { class: "space-y-6",
                             div { class: "flex flex-col sm:flex-row items-center gap-6 justify-between p-4 bg-muted/20 border border-border/40 rounded-2xl",
@@ -403,6 +483,91 @@ pub fn ParentPortal(
                                                 }
                                             }
                                         }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Absence Modal
+                    if *show_absence_modal.read() {
+                        Dialog {
+                            open: *show_absence_modal.read(),
+                            title: "Report Planned Absence".to_string(),
+                            onclose: move |_| show_absence_modal.set(false),
+                            div { class: "flex flex-col gap-4 text-sm w-full py-2",
+                                div { class: "grid gap-1.5",
+                                    span { class: "font-bold text-foreground text-xs", "Absence Date" }
+                                    Input {
+                                        r#type: "date",
+                                        value: "{absence_date}",
+                                        oninput: move |evt: FormEvent| absence_date.set(evt.value()),
+                                    }
+                                }
+                                div { class: "grid gap-1.5",
+                                    span { class: "font-bold text-foreground text-xs", "Reason / Notes" }
+                                    select {
+                                        class: "w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50",
+                                        value: absence_reason.read().clone(),
+                                        onchange: move |evt: FormEvent| absence_reason.set(evt.value()),
+                                        option { value: "Sick Leave", "Sick Leave" }
+                                        option { value: "Medical Appointment", "Medical Appointment" }
+                                        option { value: "Family Event", "Family Event" }
+                                        option { value: "Personal Reason", "Personal Reason" }
+                                    }
+                                }
+                                div { class: "flex justify-end gap-3 border-t border-border pt-4 mt-2",
+                                    Button {
+                                        class: "px-4 py-2 text-xs rounded-xl bg-muted text-foreground border border-border/40 cursor-pointer",
+                                        onclick: move |_| show_absence_modal.set(false),
+                                        "Cancel"
+                                    }
+                                    Button {
+                                        class: "px-4 py-2 text-xs rounded-xl bg-primary text-primary-foreground font-bold border-0 cursor-pointer",
+                                        onclick: {
+                                            let uid = user_id.clone();
+                                            let ws = ws_id.clone();
+                                            let child_id_val = selected_student_profile_id.read().clone();
+                                            let state = state.clone();
+                                            let date = absence_date.clone();
+                                            let reason = absence_reason.clone();
+                                            let mut db_trigger = db_trigger.clone();
+                                            let toast = toast.clone();
+                                            let locale_c = locale.clone();
+                                            move |_| {
+                                                let proof = yntra_core::ZkCryptoTrust::new()
+                                                    .generate_role_proof(state.get_passkey_seed(), uid.clone(), "parent".to_string())
+                                                    .ok();
+                                                let u = uid.clone();
+                                                let w = ws.clone();
+                                                let c = child_id_val.clone();
+                                                let d = date.read().clone();
+                                                let r = reason.read().clone();
+                                                let mut db_t = db_trigger.clone();
+                                                let toast_c = toast.clone();
+                                                let loc = locale_c.clone();
+                                                spawn(async move {
+                                                    match report_student_absence(u, w, c, d, r, proof).await {
+                                                        Ok(_) => {
+                                                            toast_c.success(
+                                                                t("school-toast-export-success", &loc),
+                                                                ToastOptions::new().description("Absence reported successfully".to_string())
+                                                            );
+                                                        }
+                                                        Err(e) => {
+                                                            toast_c.error(
+                                                                t("school-toast-export-failed", &loc),
+                                                                ToastOptions::new().description(format!("Failed: {}", e))
+                                                            );
+                                                        }
+                                                    }
+                                                    let current = *db_t.read();
+                                                    db_t.set(current + 1);
+                                                });
+                                                show_absence_modal.set(false);
+                                            }
+                                        },
+                                        "Submit"
                                     }
                                 }
                             }
@@ -624,6 +789,102 @@ pub fn ParentPortal(
                             if report_cards.is_empty() {
                                 div { class: "py-6 text-center text-xs text-muted-foreground border border-dashed border-border rounded-xl", {t("school-parent-no-reports", &locale)} }
                             } else {
+                                div { class: "p-4 bg-muted/10 border border-border/40 rounded-2xl mb-4 space-y-2.5",
+                                    h5 { class: "text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground m-0", "GPA Trend Visualization" }
+                                    div { class: "w-full overflow-x-auto",
+                                        svg {
+                                            view_box: "0 0 500 120",
+                                            class: "w-full min-w-[400px] h-[120px] overflow-visible",
+                                            
+                                            defs {
+                                                linearGradient {
+                                                    id: "gpa-grad",
+                                                    x1: "0%",
+                                                    y1: "0%",
+                                                    x2: "0%",
+                                                    y2: "100%",
+                                                    stop { offset: "0%", stop_color: "var(--primary)" }
+                                                    stop { offset: "100%", stop_color: "var(--primary)", stop_opacity: "0" }
+                                                }
+                                            }
+                                            
+                                            for gpa_val in [1.0, 2.0, 3.0, 4.0] {
+                                                {
+                                                    let ratio = gpa_val / 4.0;
+                                                    let y = 120.0 - 15.0 - ratio * (120.0 - 30.0);
+                                                    rsx! {
+                                                        line {
+                                                            x1: "45",
+                                                            y1: format!("{}", y),
+                                                            x2: "455",
+                                                            y2: format!("{}", y),
+                                                            class: "stroke-muted/20",
+                                                            stroke_width: "1",
+                                                            stroke_dasharray: "3 3",
+                                                        }
+                                                        text {
+                                                            x: "37",
+                                                            y: format!("{}", y + 3.0),
+                                                            class: "fill-muted-foreground text-[8px] font-black",
+                                                            text_anchor: "end",
+                                                            "{gpa_val:.1}"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            
+                                            if !chart_area_d.is_empty() {
+                                                path {
+                                                    d: "{chart_area_d}",
+                                                    fill: "url(#gpa-grad)",
+                                                    opacity: "0.15",
+                                                }
+                                            }
+                                            
+                                            if !chart_line_d.is_empty() {
+                                                path {
+                                                    d: "{chart_line_d}",
+                                                    class: "stroke-primary",
+                                                    stroke_width: "2.5",
+                                                    stroke_linecap: "round",
+                                                    stroke_linejoin: "round",
+                                                    fill: "none",
+                                                }
+                                            }
+                                            
+                                            for pt in chart_points.iter() {
+                                                {
+                                                    let (x, y, val, term) = pt;
+                                                    rsx! {
+                                                        g { class: "group/pt cursor-pointer",
+                                                            circle {
+                                                                cx: format!("{}", x),
+                                                                cy: format!("{}", y),
+                                                                r: "4",
+                                                                class: "fill-background stroke-primary transition-all duration-150 group-hover/pt:r-6",
+                                                                stroke_width: "2",
+                                                            }
+                                                            text {
+                                                                x: format!("{}", x),
+                                                                y: format!("{}", y - 8.0),
+                                                                class: "fill-foreground text-[9px] font-bold opacity-0 group-hover/pt:opacity-100 transition-opacity duration-150",
+                                                                text_anchor: "middle",
+                                                                "{val:.2}"
+                                                            }
+                                                            text {
+                                                                x: format!("{}", x),
+                                                                y: "118",
+                                                                class: "fill-muted-foreground text-[7px] font-bold",
+                                                                text_anchor: "middle",
+                                                                "{term}"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                                 div { class: "space-y-3",
                                     for rc in report_cards.iter() {
                                         div { key: "{rc.id}", class: "p-4 border border-border/60 rounded-xl bg-background hover:border-primary/30 transition-all flex flex-col gap-2 shadow-sm",
@@ -643,85 +904,317 @@ pub fn ParentPortal(
                                                     let comments = rc.principal_comments.clone().unwrap_or_default();
                                                     let child_id_val = selected_student_profile_id.read().clone();
                                                     let students_c = students.clone();
+                                                    let toast = toast.clone();
+                                                    let locale_c = locale.clone();
                                                     move |_| {
                                                         let child_name_val = students_c.iter()
                                                             .find(|s| s.id == child_id_val)
                                                             .map(|s| format!("{} {}", s.first_name, s.last_name))
                                                             .unwrap_or_else(|| "Student".to_string());
                                                         let file_content = format!(
-                                                            "====================================================\n\
-                                                             OFFICIAL YNTRA PLATFORM REPORT CARD\n\
-                                                             ====================================================\n\
-                                                             Student Name  : {}\n\
-                                                             Term          : {}\n\
-                                                             Cumulative GPA: {:.2}\n\
-                                                             Status        : Published\n\
-                                                             ----------------------------------------------------\n\
-                                                             Principal Comments:\n\
-                                                             \"{}\"\n\
-                                                             ----------------------------------------------------\n\
-                                                             This document has been digitally signed and validated\n\
-                                                             using zero-knowledge cryptographic proof credentials.\n\
-                                                             \n\
-                                                             Generated on  : {}\n\
-                                                             Verification Code: {}\n\
-                                                             ====================================================\n",
-                                                             child_name_val,
-                                                             term,
-                                                             gpa,
-                                                             comments,
-                                                             chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
-                                                             uuid::Uuid::new_v4()
-                                                         );
-                                                          #[cfg(target_arch = "wasm32")]
-                                                          {
-                                                              let base64_str = super::utils::base64_encode(file_content.as_bytes());
-                                                              let file_name = format!("ReportCard_{}_{}.txt", child_name_val.replace(" ", "_"), term.replace(" ", "_"));
-                                                              let js_code = format!(
-                                                                  r#"
-                                                                  (function() {{
-                                                                      const base64 = "{}";
-                                                                      const filename = "{}";
-                                                                      const binString = atob(base64);
-                                                                      const bytes = Uint8Array.from(binString, (m) => m.codePointAt(0));
-                                                                      const blob = new Blob([bytes], {{ type: "text/plain;charset=utf-8;" }});
-                                                                      const url = URL.createObjectURL(blob);
-                                                                      const a = document.createElement("a");
-                                                                      a.href = url;
-                                                                      a.download = filename;
-                                                                      document.body.appendChild(a);
-                                                                      a.click();
-                                                                      document.body.removeChild(a);
-                                                                      URL.revokeObjectURL(url);
-                                                                  }})();
-                                                                  "#,
-                                                                  base64_str, file_name
-                                                              );
-                                                              let _ = js_sys::eval(&js_code);
-                                                          }
+                                                            r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Official Report Card - {child_name}</title>
+    <style>
+        body {{
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #f8fafc;
+            color: #1e293b;
+            margin: 0;
+            padding: 40px 20px;
+            display: flex;
+            justify-content: center;
+        }}
+        .container {{
+            max-width: 800px;
+            width: 100%;
+            background: #ffffff;
+            border-radius: 16px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+            border: 1px solid #e2e8f0;
+            padding: 48px;
+            box-sizing: border-box;
+            position: relative;
+        }}
+        .header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 24px;
+            margin-bottom: 32px;
+        }}
+        .school-info h1 {{
+            font-size: 24px;
+            font-weight: 800;
+            margin: 0;
+            color: #0f172a;
+            letter-spacing: -0.025em;
+        }}
+        .school-info p {{
+            font-size: 13px;
+            color: #64748b;
+            margin: 4px 0 0 0;
+        }}
+        .badge {{
+            background: rgba(16, 185, 129, 0.1);
+            color: #10b981;
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            padding: 6px 14px;
+            border-radius: 9999px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }}
+        .meta-grid {{
+            display: grid;
+            grid-template-cols: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 32px;
+        }}
+        .meta-item {{
+            background: #f8fafc;
+            border: 1px solid #f1f5f9;
+            padding: 16px;
+            border-radius: 12px;
+        }}
+        .meta-label {{
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: #64748b;
+            letter-spacing: 0.05em;
+            margin-bottom: 4px;
+        }}
+        .meta-value {{
+            font-size: 15px;
+            font-weight: 700;
+            color: #0f172a;
+        }}
+        .gpa-box {{
+            background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+            color: #ffffff;
+            padding: 24px;
+            border-radius: 14px;
+            text-align: center;
+            margin-bottom: 32px;
+        }}
+        .gpa-title {{
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            opacity: 0.9;
+        }}
+        .gpa-value {{
+            font-size: 48px;
+            font-weight: 900;
+            margin: 8px 0;
+        }}
+        .comments-section {{
+            margin-bottom: 32px;
+        }}
+        .comments-section h3 {{
+            font-size: 14px;
+            font-weight: 800;
+            color: #0f172a;
+            margin-top: 0;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }}
+        .comments-box {{
+            font-size: 14px;
+            line-height: 1.6;
+            color: #334155;
+            background: #fffbeb;
+            border-left: 4px solid #f59e0b;
+            padding: 16px 20px;
+            border-radius: 0 12px 12px 0;
+            margin: 0;
+            font-style: italic;
+        }}
+        .verification {{
+            border-top: 1px solid #e2e8f0;
+            padding-top: 24px;
+            font-size: 11px;
+            color: #64748b;
+            line-height: 1.5;
+        }}
+        .verification strong {{
+            color: #0f172a;
+        }}
+        .actions {{
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 24px;
+        }}
+        .btn {{
+            background-color: #0f172a;
+            color: #ffffff;
+            border: none;
+            padding: 10px 20px;
+            font-size: 13px;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: background-color 0.2s;
+        }}
+        .btn:hover {{
+            background-color: #1e293b;
+        }}
+        @media print {{
+            body {{
+                background-color: #ffffff;
+                padding: 0;
+            }}
+            .container {{
+                box-shadow: none;
+                border: none;
+                padding: 0;
+            }}
+            .no-print {{
+                display: none !important;
+            }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="actions no-print">
+            <button class="btn" onclick="window.print()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                Print Report Card
+            </button>
+        </div>
+        <div class="header">
+            <div class="school-info">
+                <h1>Yntra Academy</h1>
+                <p>Official Academic Evaluation Record</p>
+            </div>
+            <div class="badge">Official Record</div>
+        </div>
+        
+        <div class="meta-grid">
+            <div class="meta-item">
+                <div class="meta-label">Student Name</div>
+                <div class="meta-value">{child_name}</div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Academic Term</div>
+                <div class="meta-value">{term}</div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Date Generated</div>
+                <div class="meta-value">{generated_date}</div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Verification ID</div>
+                <div class="meta-value" style="font-family: monospace; font-size: 12px;">{verification_id}</div>
+            </div>
+        </div>
 
-                                                          #[cfg(not(target_arch = "wasm32"))]
-                                                          {
-                                                              let home_dir = std::env::var("USERPROFILE")
-                                                                  .or_else(|_| std::env::var("HOME"))
-                                                                  .unwrap_or_else(|_| ".".to_string());
-                                                              let filename = format!("ReportCard_{}_{}.txt", child_name_val.replace(" ", "_"), term.replace(" ", "_"));
-                                                              let paths = vec![
-                                                                  format!("{}/Desktop", home_dir),
-                                                                  format!("{}/Downloads", home_dir),
-                                                                  home_dir.clone(),
-                                                              ];
-                                                              for path in paths {
-                                                                  let file_path = std::path::PathBuf::from(&path).join(&filename);
-                                                                  if std::fs::write(&file_path, &file_content).is_ok() {
-                                                                      break;
-                                                                  }
-                                                              }
-                                                          }
-                                                      }
+        <div class="gpa-box">
+            <div class="gpa-title">Cumulative Grade Point Average</div>
+            <div class="gpa-value">{gpa:.2}</div>
+        </div>
+
+        <div class="comments-section">
+            <h3>Principal & Teacher Comments</h3>
+            <blockquote class="comments-box">
+                "{comments}"
+            </blockquote>
+        </div>
+
+        <div class="verification">
+            <p>This report has been digitally generated and signed. Verification code: <strong>{verification_id}</strong>.</p>
+            <p>Verification is backed by zero-knowledge cryptographic credential proofs stored in the school's local-first ledger.</p>
+        </div>
+    </div>
+</body>
+</html>"#,
+                                                            child_name = child_name_val,
+                                                            term = term,
+                                                            generated_date = chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                                                            verification_id = uuid::Uuid::new_v4(),
+                                                            gpa = gpa,
+                                                            comments = comments
+                                                        );
+                                                        #[cfg(target_arch = "wasm32")]
+                                                        {
+                                                            let base64_str = super::utils::base64_encode(file_content.as_bytes());
+                                                            let file_name = format!("ReportCard_{}_{}.html", child_name_val.replace(" ", "_"), term.replace(" ", "_"));
+                                                            let js_code = format!(
+                                                                r#"
+                                                                (function() {{
+                                                                    const base64 = "{}";
+                                                                    const filename = "{}";
+                                                                    const binString = atob(base64);
+                                                                    const bytes = Uint8Array.from(binString, (m) => m.codePointAt(0));
+                                                                    const blob = new Blob([bytes], {{ type: "text/html;charset=utf-8;" }});
+                                                                    const url = URL.createObjectURL(blob);
+                                                                    const a = document.createElement("a");
+                                                                    a.href = url;
+                                                                    a.download = filename;
+                                                                    document.body.appendChild(a);
+                                                                    a.click();
+                                                                    document.body.removeChild(a);
+                                                                    URL.revokeObjectURL(url);
+                                                                }})();
+                                                                "#,
+                                                                base64_str, file_name
+                                                            );
+                                                            let _ = js_sys::eval(&js_code);
+                                                            toast.success(
+                                                                t("school-toast-download-started", &locale_c),
+                                                                ToastOptions::new().description(t("school-toast-browser-download-desc", &locale_c))
+                                                            );
+                                                        }
+
+                                                        #[cfg(not(target_arch = "wasm32"))]
+                                                        {
+                                                            let home_dir = std::env::var("USERPROFILE")
+                                                                .or_else(|_| std::env::var("HOME"))
+                                                                .unwrap_or_else(|_| ".".to_string());
+                                                            let filename = format!("ReportCard_{}_{}.html", child_name_val.replace(" ", "_"), term.replace(" ", "_"));
+                                                            let paths = vec![
+                                                                format!("{}/Desktop", home_dir),
+                                                                format!("{}/Downloads", home_dir),
+                                                                home_dir.clone(),
+                                                            ];
+                                                            let mut success = false;
+                                                            let mut saved_path = String::new();
+                                                            for path in paths {
+                                                                let file_path = std::path::PathBuf::from(&path).join(&filename);
+                                                                if std::fs::write(&file_path, &file_content).is_ok() {
+                                                                    success = true;
+                                                                    saved_path = file_path.to_string_lossy().to_string();
+                                                                    break;
+                                                                }
+                                                            }
+                                                            if success {
+                                                                toast.success(
+                                                                    t("school-toast-export-success", &locale_c),
+                                                                    ToastOptions::new().description(format!("{}: {}", t("school-toast-saved-to", &locale_c), saved_path))
+                                                                );
+                                                            } else {
+                                                                toast.error(
+                                                                    t("school-toast-export-failed", &locale_c),
+                                                                    ToastOptions::new().description(t("school-toast-export-failed-desc", &locale_c))
+                                                                );
+                                                            }
+                                                        }
+                                                    }
                                                  },
                                                  LucideIcon { name: "download", size: "12" }
-                                                 {t("school-parent-export-txt", &locale)}
+                                                 {t("school-parent-export-html", &locale)}
                                              }
                                         }
                                     }
@@ -737,17 +1230,17 @@ pub fn ParentPortal(
                             CardDescription { {t("school-parent-timetable-desc", &locale)} }
                         }
                         CardContent { class: "space-y-3.5",
-                            if timetable.is_empty() {
+                            if filtered_timetable.is_empty() {
                                 div { class: "py-6 text-center text-xs text-muted-foreground italic", {t("school-parent-no-timetable", &locale)} }
                             } else {
                                 div { class: "space-y-3",
                                     div { class: "space-y-3",
-                                        for s in timetable.iter().take(5) {
+                                        for s in filtered_timetable.iter().take(5) {
                                             {
                                                 let course_opt = courses.iter().find(|c| c.id == s.course_id);
-                                                let course_name = course_opt.map(|c| c.name.clone()).unwrap_or_else(|| "Unknown Course".to_string());
+                                                let course_name = course_opt.map(|c| c.name.clone()).unwrap_or_else(|| t("school-parent-unknown-course", &locale));
                                                 let teacher_id_opt = course_opt.and_then(|c| c.teacher_id.clone());
-                                                let classroom_name = s.classroom.clone().unwrap_or_else(|| "Room Unassigned".to_string());
+                                                let classroom_name = s.classroom.clone().unwrap_or_else(|| t("school-parent-room-unassigned", &locale));
                                                 let day_name = match s.day_of_week {
                                                     1 => t("common-monday", &locale),
                                                     2 => t("common-tuesday", &locale),
@@ -793,11 +1286,18 @@ pub fn ParentPortal(
                                     Button {
                                         class: "w-full bg-primary hover:bg-primary/90 text-primary-foreground font-bold uppercase tracking-wider text-[9px] py-2 rounded-lg flex items-center justify-center gap-1.5 transition-all shadow-sm border-0 cursor-pointer",
                                         onclick: {
-                                            let timetable_c = timetable.clone();
+                                            let timetable_c = filtered_timetable.clone();
                                             let courses_c = courses.clone();
                                             let child_id_val = selected_student_profile_id.read().clone();
                                             let students_c = students.clone();
+                                            let locale_c = locale.clone();
+                                            let toast = toast.clone();
                                             move |_| {
+                                                use chrono::Datelike;
+                                                let today = chrono::Local::now().date_naive();
+                                                let num_from_monday = today.weekday().number_from_monday() as i64;
+                                                let monday = today - chrono::Duration::days(num_from_monday - 1);
+
                                                 let child_name_val = students_c.iter()
                                                     .find(|s| s.id == child_id_val)
                                                     .map(|s| format!("{} {}", s.first_name, s.last_name))
@@ -812,8 +1312,8 @@ pub fn ParentPortal(
                                                 );
 
                                                 for s in timetable_c.iter() {
-                                                    let course_name = courses_c.iter().find(|c| c.id == s.course_id).map(|c| c.name.clone()).unwrap_or_else(|| "Unknown Course".to_string());
-                                                    let classroom_name = s.classroom.clone().unwrap_or_else(|| "Room Unassigned".to_string());
+                                                    let course_name = courses_c.iter().find(|c| c.id == s.course_id).map(|c| c.name.clone()).unwrap_or_else(|| t("school-parent-unknown-course", &locale_c));
+                                                    let classroom_name = s.classroom.clone().unwrap_or_else(|| t("school-parent-room-unassigned", &locale_c));
                                                     let day_code = match s.day_of_week {
                                                         1 => "MO",
                                                         2 => "TU",
@@ -822,17 +1322,12 @@ pub fn ParentPortal(
                                                         5 => "FR",
                                                         _ => "MO",
                                                     };
-                                                    let start_date = match s.day_of_week {
-                                                        1 => "20260720",
-                                                        2 => "20260721",
-                                                        3 => "20260722",
-                                                        4 => "20260723",
-                                                        5 => "20260724",
-                                                        _ => "20260720",
-                                                    };
+                                                    let target_day = monday + chrono::Duration::days(s.day_of_week as i64 - 1);
+                                                    let start_date = target_day.format("%Y%m%d").to_string();
                                                     
                                                     let clean_start = s.start_time.replace(":", "");
                                                     let clean_end = s.end_time.replace(":", "");
+                                                    let event_desc = crate::locales::t_with_args("school-parent-ics-desc", &locale_c, &[("name", &child_name_val)]);
 
                                                     ics_content.push_str(&format!(
                                                         "BEGIN:VEVENT\n\
@@ -840,7 +1335,7 @@ pub fn ParentPortal(
                                                          DTSTAMP:20260718T000000Z\n\
                                                          SUMMARY:{}\n\
                                                          LOCATION:{}\n\
-                                                         DESCRIPTION:Weekly recurring school class for {}\n\
+                                                         DESCRIPTION:{}\n\
                                                          DTSTART;TZID=Europe/Stockholm:{}T{}00\n\
                                                          DTEND;TZID=Europe/Stockholm:{}T{}00\n\
                                                          RRULE:FREQ=WEEKLY;BYDAY={}\n\
@@ -848,7 +1343,7 @@ pub fn ParentPortal(
                                                          uuid::Uuid::new_v4(),
                                                          course_name,
                                                          classroom_name,
-                                                         child_name_val,
+                                                         event_desc,
                                                          start_date,
                                                          clean_start,
                                                          start_date,
@@ -883,6 +1378,10 @@ pub fn ParentPortal(
                                                          base64_str, file_name
                                                      );
                                                      let _ = js_sys::eval(&js_code);
+                                                     toast.success(
+                                                         t("school-toast-download-started", &locale_c),
+                                                         ToastOptions::new().description(t("school-toast-browser-download-desc", &locale_c))
+                                                     );
                                                  }
 
                                                  #[cfg(not(target_arch = "wasm32"))]
@@ -896,11 +1395,26 @@ pub fn ParentPortal(
                                                          format!("{}/Downloads", home_dir),
                                                          home_dir.clone(),
                                                      ];
+                                                     let mut success = false;
+                                                     let mut saved_path = String::new();
                                                      for path in paths {
                                                          let file_path = std::path::PathBuf::from(&path).join(&filename);
                                                          if std::fs::write(&file_path, &ics_content).is_ok() {
+                                                             success = true;
+                                                             saved_path = file_path.to_string_lossy().to_string();
                                                              break;
                                                          }
+                                                     }
+                                                     if success {
+                                                         toast.success(
+                                                             t("school-toast-export-success", &locale_c),
+                                                             ToastOptions::new().description(format!("{}: {}", t("school-toast-saved-to", &locale_c), saved_path))
+                                                         );
+                                                     } else {
+                                                         toast.error(
+                                                             t("school-toast-export-failed", &locale_c),
+                                                             ToastOptions::new().description(t("school-toast-export-failed-desc", &locale_c))
+                                                         );
                                                      }
                                                  }
                                              }

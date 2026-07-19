@@ -9,6 +9,7 @@ use yntra_core::{
     get_health_incidents, save_health_incident, save_student_profile,
     get_course_term_grades, save_term_grade, publish_report_card, get_report_cards,
     get_student_submissions, save_submission, get_timetable_slots, save_timetable_slot,
+    get_parent_students,
     Assignment, Course, SchoolInvoice, HealthRecord, HealthIncident, StudentProfile, TermGrade, ReportCard,
     Submission, TimetableSlot,
 };
@@ -77,11 +78,28 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
     let db_trig_val = *db_trigger.read();
     let user_id_clone = user_id.clone();
     let ws_id_clone = ws_id.clone();
+    let is_parent = current_role == "parent" || current_role == "role-school-parent";
     let students_res = use_resource(move || {
         let _ = db_trig_val;
         let uid = user_id_clone.clone();
         let ws = ws_id_clone.clone();
-        async move { get_student_profiles(uid, ws).await.unwrap_or_default() }
+        async move {
+            if is_parent {
+                get_parent_students(uid.clone(), ws, uid).await.unwrap_or_default()
+            } else {
+                get_student_profiles(uid, ws).await.unwrap_or_default()
+            }
+        }
+    });
+
+    use_effect(move || {
+        let role = state.active_user_role.read().clone();
+        if role == "parent" || role == "role-school-parent" {
+            let student_list = students_res.read().clone().unwrap_or_default();
+            if !student_list.is_empty() && selected_student_id.read().is_empty() {
+                selected_student_id.set(student_list[0].id.clone());
+            }
+        }
     });
 
     let active_student = selected_student_id.read().clone();

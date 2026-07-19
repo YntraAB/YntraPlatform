@@ -94,6 +94,18 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
         }
     });
 
+    let mut selected_student_id = use_signal(|| "".to_string());
+
+    use_effect(move || {
+        let role = state.active_user_role.read().clone();
+        if role == "parent" || role == "role-school-parent" {
+            let student_list = parent_students_res.read().clone().unwrap_or_default();
+            if !student_list.is_empty() && selected_student_id.read().is_empty() {
+                selected_student_id.set(student_list[0].id.clone());
+            }
+        }
+    });
+
     let incidents_raw = incidents_res.read().clone().unwrap_or_default();
     let current_role = state.active_user_role.read().clone();
     let students = if current_role == "parent" || current_role == "role-school-parent" {
@@ -103,8 +115,8 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
     };
 
     let incidents = if current_role == "parent" || current_role == "role-school-parent" {
-        let child_ids: std::collections::HashSet<String> = students.iter().map(|s| s.id.clone()).collect();
-        incidents_raw.into_iter().filter(|inc| child_ids.contains(&inc.student_id)).collect::<Vec<_>>()
+        let s_id = selected_student_id.read().clone();
+        incidents_raw.into_iter().filter(|inc| inc.student_id == s_id).collect::<Vec<_>>()
     } else if current_role == "student" || current_role == "role-school-student" {
         let student_ids: std::collections::HashSet<String> = students.iter()
             .filter(|s| s.user_id.as_ref() == Some(&user_id))
@@ -115,7 +127,13 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
         incidents_raw
     };
 
-    let health_records = health_records_res.read().clone().unwrap_or_default();
+    let health_records_all = health_records_res.read().clone().unwrap_or_default();
+    let health_records = if current_role == "parent" || current_role == "role-school-parent" {
+        let s_id = selected_student_id.read().clone();
+        health_records_all.into_iter().filter(|hr| hr.student_id == s_id).collect::<Vec<_>>()
+    } else {
+        health_records_all
+    };
 
     rsx! {
         div { class: "p-6 space-y-6 max-w-6xl mx-auto animate-in fade-in slide-in-from-top-4 duration-300",
@@ -123,9 +141,9 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
                 div {
                     h2 { class: "text-2xl font-bold tracking-tight text-foreground m-0 flex items-center gap-2",
                         LucideIcon { name: "activity", class: "h-6 w-6 text-primary" }
-                        "Nurse Clinic Logs"
+                        {t("school-parent-health-title", &locale)}
                     }
-                    p { class: "text-xs text-muted-foreground m-0 mt-1", "Log school wellness nurse visits, clinic incidents, treatments, and student checks." }
+                    p { class: "text-xs text-muted-foreground m-0 mt-1", {t("school-parent-health-desc", &locale)} }
                 }
                 if current_role != "parent" && current_role != "role-school-parent" && current_role != "student" && current_role != "role-school-student" {
                     Button {
@@ -137,18 +155,38 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
                 }
             }
 
+            if current_role == "parent" || current_role == "role-school-parent" {
+                Card { class: "p-4 border border-border bg-sidebar rounded-2xl flex flex-col sm:flex-row gap-4 items-center justify-between shadow-sm",
+                    div { class: "flex items-center gap-3 w-full sm:w-auto",
+                        LucideIcon { name: "user", class: "h-5 w-5 text-primary" }
+                        div {
+                            h4 { class: "text-sm font-bold text-foreground m-0", {t("school-parent-select-child", &locale)} }
+                            p { class: "text-[10px] text-muted-foreground m-0 mt-0.5", {t("school-parent-select-child-desc", &locale)} }
+                        }
+                    }
+                    select {
+                        class: "rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 w-full sm:w-60",
+                        value: selected_student_id.read().clone(),
+                        onchange: move |evt: FormEvent| selected_student_id.set(evt.value()),
+                        for s in students.iter() {
+                            option { value: "{s.id}", "{s.first_name} {s.last_name} ({s.grade_level})" }
+                        }
+                    }
+                }
+            }
+
             // Split layout grid
             div { class: "grid grid-cols-1 lg:grid-cols-2 gap-6",
                 // Left Side: Visit Logs
                 Card { class: "border-border shadow-sm",
                     CardHeader {
-                        CardTitle { "Visit logs" }
-                        CardDescription { "Clinic check-in incidents records ledger" }
+                        CardTitle { {t("school-parent-health-visit-logs", &locale)} }
+                        CardDescription { {t("school-parent-health-visit-desc", &locale)} }
                     }
                     CardContent {
                         if incidents.is_empty() {
                             div { class: "py-12 text-center text-xs text-muted-foreground border border-dashed border-border rounded-xl",
-                                "No clinic incidents logged today."
+                                {t("school-parent-health-no-incidents-today", &locale)}
                             }
                         } else {
                             div { class: "divide-y divide-border border rounded-xl overflow-hidden bg-background",
@@ -205,7 +243,7 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
                     CardContent {
                         if health_records.is_empty() {
                             div { class: "py-12 text-center text-xs text-muted-foreground border border-dashed border-border rounded-xl",
-                                "No upcoming immunization schedules."
+                                {t("school-parent-health-no-vaccine-sched", &locale)}
                             }
                         } else {
                             div { class: "divide-y divide-border border rounded-xl overflow-hidden bg-background",
@@ -230,23 +268,25 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
                                                 } else {
                                                     div { class: "flex flex-col gap-1.5 items-end",
                                                         span { class: "text-[9px] font-black uppercase bg-amber-500/10 text-amber-600 border border-amber-500/20 px-2 py-0.5 rounded", {t("school-health-awaiting-consent", &locale)} }
-                                                        if current_role == "parent" {
+                                                        if current_role == "parent" || current_role == "role-school-parent" {
                                                             Button {
                                                                 class: "text-[9px] h-6 px-2.5 rounded bg-primary text-primary-foreground hover:bg-primary/90 font-bold uppercase tracking-wider border-0 cursor-pointer",
                                                                 onclick: {
                                                                     let mut hr_update = hr_c.clone();
                                                                     let uid_c = user_id.clone();
                                                                     let mut db_trigger = db_trigger.clone();
+                                                                    let role_c = current_role.clone();
                                                                     let state = state;
                                                                     move |_| {
                                                                         hr_update.status = "consented".to_string();
                                                                         let proof = state.get_passkey_seed();
                                                                         let hr_save = hr_update.clone();
                                                                         let u = uid_c.clone();
+                                                                        let r = role_c.clone();
                                                                         let mut db_t = db_trigger.clone();
                                                                         spawn(async move {
                                                                             let proof_val = yntra_core::ZkCryptoTrust::new()
-                                                                                .generate_role_proof(proof, u.clone(), "parent".to_string())
+                                                                                .generate_role_proof(proof, u.clone(), r)
                                                                                 .ok();
                                                                             let _ = yntra_core::save_student_health_record(u, hr_save, proof_val).await;
                                                                             let cur = *db_t.read();
