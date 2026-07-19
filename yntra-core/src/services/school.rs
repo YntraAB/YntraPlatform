@@ -251,16 +251,79 @@ pub async fn save_student_profile(
     verify_school_permission(&auth, "can_manage_students")?;
 
     let now_ms = crate::infra::time::get_current_time_ms();
+
+    // Query existing record to check for offline concurrent modifications
+    let existing: Option<(String, String, String, Option<String>, i64)> = {
+        let mut stmt = conn
+            .prepare("SELECT first_name, last_name, grade_level, parent_contact, updated_at FROM student_profiles WHERE id = ?1")
+            .await?;
+        let mut rows = stmt.query(crate::params![&profile.id]).await?;
+        if let Some(row) = rows.next().await? {
+            Some((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+        } else {
+            None
+        }
+    };
+
+    let mut first_name = profile.first_name.clone();
+    let mut last_name = profile.last_name.clone();
+    let mut grade_level = profile.grade_level.clone();
+    let mut parent_contact = profile.parent_contact.clone();
+
+    if let Some((old_first_name, old_last_name, old_grade, old_parent_contact, old_updated_at)) = existing {
+        if old_updated_at > profile.updated_at {
+            let first_diff = old_first_name != profile.first_name;
+            let last_diff = old_last_name != profile.last_name;
+            let grade_diff = old_grade != profile.grade_level;
+            let parent_diff = old_parent_contact != profile.parent_contact;
+
+            if first_diff || last_diff || grade_diff || parent_diff {
+                let mvr = serde_json::json!({
+                    "conflict": true,
+                    "versions": [
+                        {
+                            "first_name": old_first_name,
+                            "last_name": old_last_name,
+                            "grade_level": old_grade,
+                            "by": "Concurrent Editor",
+                            "updated_at": old_updated_at
+                        },
+                        {
+                            "first_name": profile.first_name.clone(),
+                            "last_name": profile.last_name.clone(),
+                            "grade_level": profile.grade_level.clone(),
+                            "by": requester_user_id.clone(),
+                            "updated_at": now_ms
+                        }
+                    ]
+                });
+                first_name = mvr.to_string();
+                last_name = "CONFLICT".to_string();
+                grade_level = "CONFLICT".to_string();
+
+                let merged = format!(
+                    "--- CONFLICT RESOLUTION REQUIRED ---\n\n\
+                     [Version A (Concurrent Editor)]:\n{}\n\n\
+                     [Version B (User: {})]:\n{}",
+                    old_parent_contact.unwrap_or_default(),
+                    requester_user_id,
+                    profile.parent_contact.clone().unwrap_or_default()
+                );
+                parent_contact = Some(merged);
+            }
+        }
+    }
+
     conn.execute(
         "INSERT OR REPLACE INTO student_profiles (id, workspace_id, user_id, first_name, last_name, grade_level, parent_contact, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending')",
         crate::params![
             &profile.id,
             &profile.workspace_id,
             &profile.user_id,
-            &profile.first_name,
-            &profile.last_name,
-            &profile.grade_level,
-            &profile.parent_contact,
+            &first_name,
+            &last_name,
+            &grade_level,
+            &parent_contact,
             &now_ms,
         ]
     ).await?;
@@ -589,6 +652,59 @@ pub async fn save_attendance_record(
     verify_school_permission(&auth, "can_manage_schedule")?;
 
     let now_ms = crate::infra::time::get_current_time_ms();
+
+    // Query existing record to check for offline concurrent modifications
+    let existing: Option<(String, Option<String>, i64)> = {
+        let mut stmt = conn
+            .prepare("SELECT status, notes, updated_at FROM attendance_records WHERE id = ?1")
+            .await?;
+        let mut rows = stmt.query(crate::params![&record.id]).await?;
+        if let Some(row) = rows.next().await? {
+            Some((row.get(0)?, row.get(1)?, row.get(2)?))
+        } else {
+            None
+        }
+    };
+
+    let mut status = record.status.clone();
+    let mut notes = record.notes.clone();
+
+    if let Some((old_status, old_notes, old_updated_at)) = existing {
+        if old_updated_at > record.updated_at {
+            let status_diff = old_status != record.status;
+            let notes_diff = old_notes != record.notes;
+
+            if status_diff || notes_diff {
+                let mvr = serde_json::json!({
+                    "conflict": true,
+                    "versions": [
+                        {
+                            "status": old_status,
+                            "by": "Concurrent Editor",
+                            "updated_at": old_updated_at
+                        },
+                        {
+                            "status": record.status.clone(),
+                            "by": requester_user_id.clone(),
+                            "updated_at": now_ms
+                        }
+                    ]
+                });
+                status = mvr.to_string();
+
+                let merged = format!(
+                    "--- CONFLICT RESOLUTION REQUIRED ---\n\n\
+                     [Version A (Concurrent Editor)]:\n{}\n\n\
+                     [Version B (User: {})]:\n{}",
+                    old_notes.unwrap_or_default(),
+                    requester_user_id,
+                    record.notes.clone().unwrap_or_default()
+                );
+                notes = Some(merged);
+            }
+        }
+    }
+
     conn.execute(
         "INSERT OR REPLACE INTO attendance_records (id, workspace_id, student_id, course_id, date, status, notes, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending')",
         crate::params![
@@ -597,8 +713,8 @@ pub async fn save_attendance_record(
             &record.student_id,
             &record.course_id,
             &record.date,
-            &record.status,
-            &record.notes,
+            &status,
+            &notes,
             &now_ms,
         ]
     ).await?;
@@ -1751,17 +1867,92 @@ pub async fn save_health_incident(
     verify_school_permission(&auth, "can_access_health_records")?;
 
     let now_ms = crate::infra::time::get_current_time_ms();
+
+    // Query existing record to check for offline concurrent modifications
+    let existing: Option<(String, String, String, Option<String>, Option<String>, i64)> = {
+        let mut stmt = conn
+            .prepare("SELECT visit_reason, treatment, checked_in_at, checked_out_at, notes, updated_at FROM health_incidents WHERE id = ?1")
+            .await?;
+        let mut rows = stmt.query(crate::params![&incident.id]).await?;
+        if let Some(row) = rows.next().await? {
+            Some((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
+        } else {
+            None
+        }
+    };
+
+    let mut visit_reason = incident.visit_reason.clone();
+    let mut treatment = incident.treatment.clone();
+    let mut checked_in_at = incident.checked_in_at.clone();
+    let mut checked_out_at = incident.checked_out_at.clone();
+    let mut notes = incident.notes.clone();
+
+    if let Some((old_reason, old_treatment, old_in_at, old_out_at, old_notes, old_updated_at)) = existing {
+        if old_updated_at > incident.updated_at {
+            let reason_diff = old_reason != incident.visit_reason;
+            let treatment_diff = old_treatment != incident.treatment;
+            let in_diff = old_in_at != incident.checked_in_at;
+            let out_diff = old_out_at != incident.checked_out_at;
+            let notes_diff = old_notes != incident.notes;
+
+            if reason_diff || treatment_diff || in_diff || out_diff || notes_diff {
+                let mvr = serde_json::json!({
+                    "conflict": true,
+                    "versions": [
+                        {
+                            "visit_reason": old_reason,
+                            "checked_in_at": old_in_at,
+                            "checked_out_at": old_out_at,
+                            "by": "Concurrent Editor",
+                            "updated_at": old_updated_at
+                        },
+                        {
+                            "visit_reason": incident.visit_reason.clone(),
+                            "checked_in_at": incident.checked_in_at.clone(),
+                            "checked_out_at": incident.checked_out_at.clone(),
+                            "by": requester_user_id.clone(),
+                            "updated_at": now_ms
+                        }
+                    ]
+                });
+                visit_reason = mvr.to_string();
+                checked_in_at = "CONFLICT".to_string();
+                checked_out_at = None;
+
+                let merged_treatment = format!(
+                    "--- CONFLICT RESOLUTION REQUIRED ---\n\n\
+                     [Version A (Concurrent Editor)]:\n{}\n\n\
+                     [Version B (User: {})]:\n{}",
+                    old_treatment,
+                    requester_user_id,
+                    incident.treatment.clone()
+                );
+                treatment = merged_treatment;
+
+                let merged_notes = format!(
+                    "--- CONFLICT RESOLUTION REQUIRED ---\n\n\
+                     [Version A (Concurrent Editor)]:\n{}\n\n\
+                     [Version B (User: {})]:\n{}",
+                    old_notes.unwrap_or_default(),
+                    requester_user_id,
+                    incident.notes.clone().unwrap_or_default()
+                );
+                notes = Some(merged_notes);
+            }
+        }
+    }
+
     conn.execute(
         "INSERT OR REPLACE INTO health_incidents (id, workspace_id, student_id, visit_reason, treatment, checked_in_at, checked_out_at, notes, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending')",
         crate::params![
             &incident.id,
             &incident.workspace_id,
             &incident.student_id,
-            &incident.visit_reason,
-            &incident.treatment,
-            &incident.checked_in_at,
-            &incident.checked_out_at,
-            &incident.notes,
+            &visit_reason,
+            &treatment,
+            &checked_in_at,
+            &checked_out_at,
+            &notes,
             &now_ms
         ]
     ).await?;
@@ -1856,16 +2047,73 @@ pub async fn save_timetable_slot(
     verify_school_permission(&auth, "can_manage_schedule")?;
 
     let now_ms = crate::infra::time::get_current_time_ms();
+
+    // Query existing record to check for offline concurrent modifications
+    let existing: Option<(String, i64, String, String, Option<String>, i64)> = {
+        let mut stmt = conn
+            .prepare("SELECT course_id, day_of_week, start_time, end_time, classroom, updated_at FROM timetable_slots WHERE id = ?1")
+            .await?;
+        let mut rows = stmt.query(crate::params![&slot.id]).await?;
+        if let Some(row) = rows.next().await? {
+            Some((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
+        } else {
+            None
+        }
+    };
+
+    let course_id = slot.course_id.clone();
+    let day_of_week = slot.day_of_week as i64;
+    let start_time = slot.start_time.clone();
+    let end_time = slot.end_time.clone();
+    let mut classroom = slot.classroom.clone();
+
+    if let Some((old_course_id, old_day_of_week, old_start_time, old_end_time, old_classroom, old_updated_at)) = existing {
+        if old_updated_at > slot.updated_at {
+            let course_diff = old_course_id != slot.course_id;
+            let day_diff = old_day_of_week != slot.day_of_week as i64;
+            let start_diff = old_start_time != slot.start_time;
+            let end_diff = old_end_time != slot.end_time;
+            let class_diff = old_classroom != slot.classroom;
+
+            if course_diff || day_diff || start_diff || end_diff || class_diff {
+                let mvr = serde_json::json!({
+                    "conflict": true,
+                    "versions": [
+                        {
+                            "course_id": old_course_id,
+                            "day_of_week": old_day_of_week,
+                            "start_time": old_start_time,
+                            "end_time": old_end_time,
+                            "classroom": old_classroom,
+                            "by": "Concurrent Editor",
+                            "updated_at": old_updated_at
+                        },
+                        {
+                            "course_id": slot.course_id.clone(),
+                            "day_of_week": slot.day_of_week as i64,
+                            "start_time": slot.start_time.clone(),
+                            "end_time": slot.end_time.clone(),
+                            "classroom": slot.classroom.clone(),
+                            "by": requester_user_id.clone(),
+                            "updated_at": now_ms
+                        }
+                    ]
+                });
+                classroom = Some(mvr.to_string());
+            }
+        }
+    }
+
     conn.execute(
         "INSERT OR REPLACE INTO timetable_slots (id, workspace_id, course_id, day_of_week, start_time, end_time, classroom, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending')",
         crate::params![
             &slot.id,
             &slot.workspace_id,
-            &slot.course_id,
-            &(slot.day_of_week as i64),
-            &slot.start_time,
-            &slot.end_time,
-            &slot.classroom,
+            &course_id,
+            &day_of_week,
+            &start_time,
+            &end_time,
+            &classroom,
             &now_ms,
         ]
     ).await?;
@@ -1878,7 +2126,7 @@ pub async fn save_timetable_slot(
 mod tests {
     use super::*;
     use crate::database;
-    use crate::Course;
+    use crate::{Course, TimetableSlot};
 
     #[tokio::test]
     async fn test_school_service_crud() {
@@ -2187,6 +2435,7 @@ mod tests {
         };
 
         save_term_grade("u-admin-g".to_string(), grade_v1, None).await.unwrap();
+        crate::infra::time::sleep_ms(10).await;
 
         // Fetch to find the actual updated_at saved in the DB
         let saved_time_a: i64 = conn.query_row(
@@ -2208,6 +2457,7 @@ mod tests {
             updated_at: saved_time_a, // read version matches
         };
         save_term_grade("u-admin-g".to_string(), grade_v2_a, None).await.unwrap();
+        crate::infra::time::sleep_ms(10).await;
 
         // Fetch updated_at after A's write
         let saved_time_b: i64 = conn.query_row(
@@ -2253,6 +2503,322 @@ mod tests {
         // Cleanup
         conn.execute("DELETE FROM term_grades WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
         conn.execute("DELETE FROM courses WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM student_profiles WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_student_profile_conflict_resolution() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let ws_id = "ws-profile-test";
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Profile WS', '[]', '{}')", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-admin-p', ?1, 'admin@p.com', 'admin')", crate::params![ws_id]).await.unwrap();
+
+        // 1. Initial version
+        let profile_v1 = StudentProfile {
+            id: "stud-p".to_string(),
+            workspace_id: ws_id.to_string(),
+            user_id: None,
+            first_name: "John".to_string(),
+            last_name: "Doe".to_string(),
+            grade_level: "10A".to_string(),
+            parent_contact: Some("parent@doe.com".to_string()),
+            updated_at: 1000,
+        };
+        save_student_profile("u-admin-p".to_string(), profile_v1, None).await.unwrap();
+        crate::infra::time::sleep_ms(10).await;
+
+        let saved_time_a: i64 = conn.query_row(
+            "SELECT updated_at FROM student_profiles WHERE id = 'stud-p'",
+            (),
+            |r| r.get(0),
+        ).await.unwrap();
+
+        // 2. Editor A updates
+        let profile_v2_a = StudentProfile {
+            id: "stud-p".to_string(),
+            workspace_id: ws_id.to_string(),
+            user_id: None,
+            first_name: "Johnny".to_string(),
+            last_name: "Doe".to_string(),
+            grade_level: "10A".to_string(),
+            parent_contact: Some("parent-new@doe.com".to_string()),
+            updated_at: saved_time_a,
+        };
+        save_student_profile("u-admin-p".to_string(), profile_v2_a, None).await.unwrap();
+        crate::infra::time::sleep_ms(10).await;
+
+        // 3. Editor B updates concurrently (using stale v1 time)
+        let profile_v2_b = StudentProfile {
+            id: "stud-p".to_string(),
+            workspace_id: ws_id.to_string(),
+            user_id: None,
+            first_name: "John-Boy".to_string(),
+            last_name: "Doe".to_string(),
+            grade_level: "10B".to_string(),
+            parent_contact: Some("parent-stale@doe.com".to_string()),
+            updated_at: saved_time_a, // stale!
+        };
+        save_student_profile("u-admin-p".to_string(), profile_v2_b, None).await.unwrap();
+
+        // 4. Assert conflict
+        let (first_name, last_name, grade_level, parent_contact): (String, String, String, String) = conn.query_row(
+            "SELECT first_name, last_name, grade_level, parent_contact FROM student_profiles WHERE id = 'stud-p'",
+            (),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        ).await.unwrap();
+
+        assert!(first_name.contains("\"conflict\":true"));
+        assert!(first_name.contains("Johnny"));
+        assert!(first_name.contains("John-Boy"));
+        assert_eq!(last_name, "CONFLICT");
+        assert_eq!(grade_level, "CONFLICT");
+        assert!(parent_contact.contains("--- CONFLICT RESOLUTION REQUIRED ---"));
+
+        conn.execute("DELETE FROM student_profiles WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_attendance_record_conflict_resolution() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let ws_id = "ws-att-test";
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Attendance WS', '[]', '{}')", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-admin-a', ?1, 'admin@a.com', 'admin')", crate::params![ws_id]).await.unwrap();
+
+        // Insert required relations to satisfy FOREIGN KEY checks
+        conn.execute("INSERT OR REPLACE INTO student_profiles (id, workspace_id, first_name, last_name, grade_level, updated_at) VALUES ('stud-a', ?1, 'John', 'Doe', 'Grade 10', 0)", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO courses (id, name, subject, classroom, workspace_id, updated_at) VALUES ('crs-a', 'Math', 'Math', 'Room A', ?1, 0)", crate::params![ws_id]).await.unwrap();
+
+        // 1. Initial version
+        let rec_v1 = AttendanceRecord {
+            id: "att-1".to_string(),
+            workspace_id: ws_id.to_string(),
+            student_id: "stud-a".to_string(),
+            course_id: "crs-a".to_string(),
+            date: "2026-07-19".to_string(),
+            status: "present".to_string(),
+            notes: Some("On time".to_string()),
+            updated_at: 1000,
+        };
+        save_attendance_record("u-admin-a".to_string(), rec_v1, None).await.unwrap();
+        crate::infra::time::sleep_ms(10).await;
+
+        let saved_time_a: i64 = conn.query_row(
+            "SELECT updated_at FROM attendance_records WHERE id = 'att-1'",
+            (),
+            |r| r.get(0),
+        ).await.unwrap();
+
+        // 2. Editor A updates
+        let rec_v2_a = AttendanceRecord {
+            id: "att-1".to_string(),
+            workspace_id: ws_id.to_string(),
+            student_id: "stud-a".to_string(),
+            course_id: "crs-a".to_string(),
+            date: "2026-07-19".to_string(),
+            status: "late".to_string(),
+            notes: Some("Late 5 minutes".to_string()),
+            updated_at: saved_time_a,
+        };
+        save_attendance_record("u-admin-a".to_string(), rec_v2_a, None).await.unwrap();
+        crate::infra::time::sleep_ms(10).await;
+
+        // 3. Editor B updates concurrently
+        let rec_v2_b = AttendanceRecord {
+            id: "att-1".to_string(),
+            workspace_id: ws_id.to_string(),
+            student_id: "stud-a".to_string(),
+            course_id: "crs-a".to_string(),
+            date: "2026-07-19".to_string(),
+            status: "excused".to_string(),
+            notes: Some("Parent called".to_string()),
+            updated_at: saved_time_a, // stale!
+        };
+        save_attendance_record("u-admin-a".to_string(), rec_v2_b, None).await.unwrap();
+
+        // 4. Assert conflict
+        let (status, notes): (String, String) = conn.query_row(
+            "SELECT status, notes FROM attendance_records WHERE id = 'att-1'",
+            (),
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        ).await.unwrap();
+
+        assert!(status.contains("\"conflict\":true"));
+        assert!(status.contains("late"));
+        assert!(status.contains("excused"));
+        assert!(notes.contains("--- CONFLICT RESOLUTION REQUIRED ---"));
+
+        conn.execute("DELETE FROM attendance_records WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM student_profiles WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM courses WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_timetable_slot_conflict_resolution() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let ws_id = "ws-slot-test";
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Slot WS', '[]', '{}')", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-admin-s', ?1, 'admin@s.com', 'admin')", crate::params![ws_id]).await.unwrap();
+
+        // Insert required relations to satisfy FOREIGN KEY checks
+        conn.execute("INSERT OR REPLACE INTO courses (id, name, subject, classroom, workspace_id, updated_at) VALUES ('crs-slot-t', 'Math', 'Math', 'Room A', ?1, 0)", crate::params![ws_id]).await.unwrap();
+
+        // 1. Initial version
+        let slot_v1 = TimetableSlot {
+            id: "slot-t".to_string(),
+            workspace_id: ws_id.to_string(),
+            course_id: "crs-slot-t".to_string(),
+            day_of_week: 1,
+            start_time: "09:00".to_string(),
+            end_time: "10:00".to_string(),
+            classroom: Some("Room A".to_string()),
+            updated_at: 1000,
+        };
+        save_timetable_slot("u-admin-s".to_string(), slot_v1, None).await.unwrap();
+        crate::infra::time::sleep_ms(10).await;
+
+        let saved_time_a: i64 = conn.query_row(
+            "SELECT updated_at FROM timetable_slots WHERE id = 'slot-t'",
+            (),
+            |r| r.get(0),
+        ).await.unwrap();
+
+        // 2. Editor A updates
+        let slot_v2_a = TimetableSlot {
+            id: "slot-t".to_string(),
+            workspace_id: ws_id.to_string(),
+            course_id: "crs-slot-t".to_string(),
+            day_of_week: 1,
+            start_time: "09:00".to_string(),
+            end_time: "10:00".to_string(),
+            classroom: Some("Room B".to_string()),
+            updated_at: saved_time_a,
+        };
+        save_timetable_slot("u-admin-s".to_string(), slot_v2_a, None).await.unwrap();
+        crate::infra::time::sleep_ms(10).await;
+
+        // 3. Editor B updates concurrently
+        let slot_v2_b = TimetableSlot {
+            id: "slot-t".to_string(),
+            workspace_id: ws_id.to_string(),
+            course_id: "crs-slot-t".to_string(),
+            day_of_week: 1,
+            start_time: "09:00".to_string(),
+            end_time: "10:00".to_string(),
+            classroom: Some("Room C".to_string()),
+            updated_at: saved_time_a, // stale!
+        };
+        save_timetable_slot("u-admin-s".to_string(), slot_v2_b, None).await.unwrap();
+
+        // 4. Assert conflict
+        let (course_id, day_of_week, start_time, end_time, classroom): (String, i64, String, String, String) = conn.query_row(
+            "SELECT course_id, day_of_week, start_time, end_time, classroom FROM timetable_slots WHERE id = 'slot-t'",
+            (),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        ).await.unwrap();
+
+        assert_eq!(course_id, "crs-slot-t");
+        assert_eq!(day_of_week, 1);
+        assert_eq!(start_time, "09:00");
+        assert_eq!(end_time, "10:00");
+        assert!(classroom.contains("\"conflict\":true"));
+        assert!(classroom.contains("Room B"));
+        assert!(classroom.contains("Room C"));
+
+        conn.execute("DELETE FROM timetable_slots WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM courses WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_health_incident_conflict_resolution() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let ws_id = "ws-health-test";
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Health WS', '[]', '{}')", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-admin-h', ?1, 'admin@h.com', 'admin')", crate::params![ws_id]).await.unwrap();
+
+        // Insert required relations to satisfy FOREIGN KEY checks
+        conn.execute("INSERT OR REPLACE INTO student_profiles (id, workspace_id, first_name, last_name, grade_level, updated_at) VALUES ('stud-h', ?1, 'John', 'Doe', 'Grade 10', 0)", crate::params![ws_id]).await.unwrap();
+
+        // 1. Initial version
+        let inc_v1 = HealthIncident {
+            id: "inc-t".to_string(),
+            workspace_id: ws_id.to_string(),
+            student_id: "stud-h".to_string(),
+            visit_reason: "Cough".to_string(),
+            treatment: "Cough Syrup".to_string(),
+            checked_in_at: "09:00".to_string(),
+            checked_out_at: Some("09:15".to_string()),
+            notes: Some("Slight cold".to_string()),
+            updated_at: 1000,
+        };
+        save_health_incident("u-admin-h".to_string(), inc_v1, None).await.unwrap();
+        crate::infra::time::sleep_ms(10).await;
+
+        let saved_time_a: i64 = conn.query_row(
+            "SELECT updated_at FROM health_incidents WHERE id = 'inc-t'",
+            (),
+            |r| r.get(0),
+        ).await.unwrap();
+
+        // 2. Editor A updates
+        let inc_v2_a = HealthIncident {
+            id: "inc-t".to_string(),
+            workspace_id: ws_id.to_string(),
+            student_id: "stud-h".to_string(),
+            visit_reason: "Cough".to_string(),
+            treatment: "Cough Syrup + Tea".to_string(),
+            checked_in_at: "09:00".to_string(),
+            checked_out_at: Some("09:15".to_string()),
+            notes: Some("Rest advised".to_string()),
+            updated_at: saved_time_a,
+        };
+        save_health_incident("u-admin-h".to_string(), inc_v2_a, None).await.unwrap();
+        crate::infra::time::sleep_ms(10).await;
+
+        // 3. Editor B updates concurrently
+        let inc_v2_b = HealthIncident {
+            id: "inc-t".to_string(),
+            workspace_id: ws_id.to_string(),
+            student_id: "stud-h".to_string(),
+            visit_reason: "Fever".to_string(),
+            treatment: "Paracetamol".to_string(),
+            checked_in_at: "09:10".to_string(),
+            checked_out_at: Some("09:30".to_string()),
+            notes: Some("Temp 38.5C".to_string()),
+            updated_at: saved_time_a, // stale!
+        };
+        save_health_incident("u-admin-h".to_string(), inc_v2_b, None).await.unwrap();
+
+        // 4. Assert conflict
+        let (reason, treatment, checked_in_at, notes): (String, String, String, String) = conn.query_row(
+            "SELECT visit_reason, treatment, checked_in_at, notes FROM health_incidents WHERE id = 'inc-t'",
+            (),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        ).await.unwrap();
+
+        assert!(reason.contains("\"conflict\":true"));
+        assert!(reason.contains("Cough"));
+        assert!(reason.contains("Fever"));
+        assert_eq!(checked_in_at, "CONFLICT");
+        assert!(treatment.contains("--- CONFLICT RESOLUTION REQUIRED ---"));
+        assert!(notes.contains("--- CONFLICT RESOLUTION REQUIRED ---"));
+
+        conn.execute("DELETE FROM health_incidents WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
         conn.execute("DELETE FROM student_profiles WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
         conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
