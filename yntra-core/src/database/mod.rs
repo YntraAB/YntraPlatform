@@ -19,6 +19,9 @@ pub use zero_copy::{
     ZeroCopyStore, ZkCryptoTrust,
 };
 
+pub mod proxy;
+pub use proxy::RemoteSyncCoordinator;
+
 #[cfg(not(target_arch = "wasm32"))]
 pub static DB_TEST_LOCK: DbTestLock = DbTestLock {
     inner: std::sync::OnceLock::new(),

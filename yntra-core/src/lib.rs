@@ -9,6 +9,7 @@ pub use database::zero_copy::{
     EdgeSyncLoop, P2PMeshSyncRouter, ZeroCopyAuditStore, ZeroCopyMessageStore, ZeroCopyNoteStore,
     ZeroCopyStore, ZkCryptoTrust, create_peer_note_store, create_peer_store,
 };
+pub use database::proxy::RemoteSyncCoordinator;
 pub use infra::auth::AuthContext;
 pub use infra::errors::*;
 pub use infra::observer::*;
