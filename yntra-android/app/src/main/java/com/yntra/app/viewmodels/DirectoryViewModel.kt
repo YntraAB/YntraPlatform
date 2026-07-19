@@ -30,8 +30,8 @@ class DirectoryViewModel : ViewModel() {
     fun refreshDirectory() {
         viewModelScope.launch {
             try {
-                _users.value = getUsers("user-1")
-                _teams.value = getTeams("user-1")
+                _users.value = getUsers(com.yntra.app.SessionManager.activeUserId)
+                _teams.value = getTeams(com.yntra.app.SessionManager.activeUserId)
             } catch (e: Exception) {
                 _errorMessage.value = e.message
             }
@@ -42,8 +42,8 @@ class DirectoryViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 inviteUserViaDirectory(
-                    requesterUserId = "user-1",
-                    workspaceId = "workspace-1",
+                    requesterUserId = com.yntra.app.SessionManager.activeUserId,
+                    workspaceId = com.yntra.app.SessionManager.activeWorkspaceId,
                     email = email,
                     name = name,
                     role = role
@@ -58,8 +58,8 @@ class DirectoryViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 addTeamViaDirectory(
-                    requesterUserId = "user-1",
-                    workspaceId = "workspace-1",
+                    requesterUserId = com.yntra.app.SessionManager.activeUserId,
+                    workspaceId = com.yntra.app.SessionManager.activeWorkspaceId,
                     name = name
                 )
             } catch (e: Exception) {
@@ -71,7 +71,7 @@ class DirectoryViewModel : ViewModel() {
     fun deleteWorkspaceUser(userId: String) {
         viewModelScope.launch {
             try {
-                deleteUser("user-1", userId)
+                deleteUser(com.yntra.app.SessionManager.activeUserId, userId)
             } catch (e: Exception) {
                 _errorMessage.value = e.message
             }

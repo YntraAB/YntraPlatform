@@ -40,10 +40,10 @@ class DashboardViewModel : ViewModel() {
                 _workspace.value = getWorkspace()
 
                 // Fetch events
-                _events.value = getEvents("user-1", null)
+                _events.value = getEvents(com.yntra.app.SessionManager.activeUserId, null)
                 
                 // Fetch todos
-                val todos = getTodos("user-1", "workspace-1")
+                val todos = getTodos(com.yntra.app.SessionManager.activeUserId, com.yntra.app.SessionManager.activeWorkspaceId)
                 _todosCount.value = todos.size
                 _completedTodosCount.value = todos.count { it.completed }
             } catch (e: Exception) {

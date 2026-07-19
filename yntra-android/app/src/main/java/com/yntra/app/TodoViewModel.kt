@@ -27,8 +27,8 @@ class TodoViewModel : ViewModel() {
     private fun loadTodos() {
         viewModelScope.launch {
             try {
-                // Pass user-1 and workspace-1 to FFI function
-                _todos.value = getTodos("user-1", "workspace-1")
+                // Pass dynamic user and workspace IDs to FFI function
+                _todos.value = getTodos(SessionManager.activeUserId, SessionManager.activeWorkspaceId)
             } catch (e: Exception) {
                 _errorMessage.value = e.message
             }
@@ -38,7 +38,7 @@ class TodoViewModel : ViewModel() {
     fun addNewTodo(text: String) {
         viewModelScope.launch {
             try {
-                addTodo("user-1", "workspace-1", text)
+                addTodo(SessionManager.activeUserId, SessionManager.activeWorkspaceId, text)
             } catch (e: Exception) {
                 _errorMessage.value = e.message
             }
@@ -48,7 +48,7 @@ class TodoViewModel : ViewModel() {
     fun toggle(todo: TodoItem) {
         viewModelScope.launch {
             try {
-                toggleTodo("user-1", todo.id)
+                toggleTodo(SessionManager.activeUserId, todo.id)
             } catch (e: Exception) {
                 _errorMessage.value = e.message
             }

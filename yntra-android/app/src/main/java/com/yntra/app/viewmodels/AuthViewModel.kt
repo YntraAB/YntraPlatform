@@ -60,7 +60,10 @@ class AuthViewModel : ViewModel() {
                     if (sessionOpt != null) {
                         _bankIdFlowState.value = sessionOpt.status
                         _qrData.value = sessionOpt.qrData
-                        if (sessionOpt.status == "success" || sessionOpt.status == "authenticated") {
+                         if (sessionOpt.status == "success" || sessionOpt.status == "authenticated") {
+                            sessionOpt.authenticatedUserId?.let { uid ->
+                                com.yntra.app.SessionManager.activeUserId = uid
+                            }
                             _isLoggedIn.value = true
                             isPolling = false
                         } else if (sessionOpt.status == "failed" || sessionOpt.status == "error") {
@@ -89,6 +92,10 @@ class AuthViewModel : ViewModel() {
             try {
                 val user = verifyEmailPassword(email, pin)
                 if (user != null) {
+                    com.yntra.app.SessionManager.activeUserId = user.id
+                    user.workspaceId?.let { ws ->
+                        com.yntra.app.SessionManager.activeWorkspaceId = ws
+                    }
                     _isLoggedIn.value = true
                 } else {
                     _errorMessage.value = "Invalid email or credentials"

@@ -33,7 +33,7 @@ class CareViewModel : ViewModel() {
     fun loadClients() {
         viewModelScope.launch {
             try {
-                _clients.value = getClients(requesterUserId = "user-1")
+                _clients.value = getClients(requesterUserId = com.yntra.app.SessionManager.activeUserId)
             } catch (e: Exception) {
                 _errorMessage.value = e.message
             }
@@ -43,8 +43,8 @@ class CareViewModel : ViewModel() {
     fun loadHealthRecords(clientId: String) {
         viewModelScope.launch {
             try {
-                _journals.value = getJournals(clientId = clientId, actorId = "user-1")
-                _medications.value = getMedications(clientId = clientId, actorId = "user-1")
+                _journals.value = getJournals(clientId = clientId, actorId = com.yntra.app.SessionManager.activeUserId)
+                _medications.value = getMedications(clientId = clientId, actorId = com.yntra.app.SessionManager.activeUserId)
             } catch (e: Exception) {
                 _errorMessage.value = e.message
             }
@@ -54,7 +54,7 @@ class CareViewModel : ViewModel() {
     fun addJournal(clientId: String, content: String) {
         viewModelScope.launch {
             try {
-                addJournalEntry(actorId = "user-1", clientId = clientId, content = content)
+                addJournalEntry(actorId = com.yntra.app.SessionManager.activeUserId, clientId = clientId, content = content)
                 loadHealthRecords(clientId)
             } catch (e: Exception) {
                 _errorMessage.value = e.message
@@ -65,7 +65,7 @@ class CareViewModel : ViewModel() {
     fun addMed(clientId: String, name: String, dosage: String, frequency: String, instructions: String) {
         viewModelScope.launch {
             try {
-                addMedication(actorId = "user-1", clientId = clientId, name = name, dosage = dosage, frequency = frequency, instructions = instructions)
+                addMedication(actorId = com.yntra.app.SessionManager.activeUserId, clientId = clientId, name = name, dosage = dosage, frequency = frequency, instructions = instructions)
                 loadHealthRecords(clientId)
             } catch (e: Exception) {
                 _errorMessage.value = e.message

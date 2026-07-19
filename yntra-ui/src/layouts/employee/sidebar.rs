@@ -195,7 +195,10 @@ pub fn LayoutSidebar(props: LayoutSidebarProps) -> Element {
                                 "reporting" => props.reporting_enabled,
                                 "jobs" => props.jobs_enabled,
                                 "todos" => props.todos_enabled,
-                                _ => false,
+                                id => modules_active_val
+                                    .get(id)
+                                    .and_then(|v| v.as_bool())
+                                    .unwrap_or(false),
                             }
                         };
 

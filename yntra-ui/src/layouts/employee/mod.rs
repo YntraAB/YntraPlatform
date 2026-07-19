@@ -584,6 +584,56 @@ pub fn EmployeeLayout() -> Element {
                                         }
                                     }
 
+                                     "journals" => {
+                                         let use_custom = get_block_use_custom_ui(&workspace, "journals");
+                                         if use_custom {
+                                             rsx! {
+                                                 views::JournalsView {
+                                                     active_user_id: active_user_id.read().clone(),
+                                                     workspace_id: workspace.id.clone(),
+                                                     block_id: active_section.read().clone(),
+                                                     db_trigger: db_trigger,
+                                                     locale: auth_region.read().clone(),
+                                                 }
+                                             }
+                                         } else {
+                                             rsx! {
+                                                 views::DynamicBlockView {
+                                                     active_user_id: active_user_id.read().clone(),
+                                                     workspace_id: workspace.id.clone(),
+                                                     block_id: active_section.read().clone(),
+                                                     db_trigger: db_trigger,
+                                                     locale: auth_region.read().clone(),
+                                                 }
+                                             }
+                                         }
+                                     }
+
+                                     "medications" => {
+                                         let use_custom = get_block_use_custom_ui(&workspace, "medications");
+                                         if use_custom {
+                                             rsx! {
+                                                 views::MedicationsView {
+                                                     active_user_id: active_user_id.read().clone(),
+                                                     workspace_id: workspace.id.clone(),
+                                                     block_id: active_section.read().clone(),
+                                                     db_trigger: db_trigger,
+                                                     locale: auth_region.read().clone(),
+                                                 }
+                                             }
+                                         } else {
+                                             rsx! {
+                                                 views::DynamicBlockView {
+                                                     active_user_id: active_user_id.read().clone(),
+                                                     workspace_id: workspace.id.clone(),
+                                                     block_id: active_section.read().clone(),
+                                                     db_trigger: db_trigger,
+                                                     locale: auth_region.read().clone(),
+                                                 }
+                                             }
+                                         }
+                                     }
+
                                     "report_cards" => {
                                         rsx! {
                                             views::ReportCardsView {

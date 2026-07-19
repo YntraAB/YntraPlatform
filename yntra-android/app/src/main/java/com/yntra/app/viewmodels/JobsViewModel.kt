@@ -27,7 +27,7 @@ class JobsViewModel : ViewModel() {
     fun loadJobs() {
         viewModelScope.launch {
             try {
-                _jobs.value = getJobTickets(requesterUserId = "user-1")
+                _jobs.value = getJobTickets(requesterUserId = com.yntra.app.SessionManager.activeUserId)
             } catch (e: Exception) {
                 _errorMessage.value = e.message
             }
@@ -37,7 +37,7 @@ class JobsViewModel : ViewModel() {
     fun updateStatus(jobId: String, status: String) {
         viewModelScope.launch {
             try {
-                updateJobTicketStatus(requesterUserId = "user-1", ticketId = jobId, status = status)
+                updateJobTicketStatus(requesterUserId = com.yntra.app.SessionManager.activeUserId, ticketId = jobId, status = status)
             } catch (e: Exception) {
                 _errorMessage.value = e.message
             }
@@ -48,7 +48,7 @@ class JobsViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 submitCompletionReport(
-                    requesterUserId = "user-1",
+                    requesterUserId = com.yntra.app.SessionManager.activeUserId,
                     jobId = jobId,
                     checklistJson = checklistJson,
                     completionReport = completionReport

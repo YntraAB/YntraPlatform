@@ -180,7 +180,7 @@ pub fn TemplateManagerDialog(
                         style: "margin:0 0 0.75rem 0;", "{t(\"templates-select-preset\", &region)}" }
 
                         div { class: "flex flex-col gap-3",
-                            // Preset 1: Care
+                            // Preset 1a: Eldercare
                             div {
                                 class: "border border-border p-3 rounded-lg cursor-pointer bg-white/[0.02]",
                                 style: "transition:all 0.2s;",
@@ -200,10 +200,89 @@ pub fn TemplateManagerDialog(
                                     temp_health_clinic.set(false);
                                     temp_report_cards.set(false);
                                     temp_moving_company.set(false);
+                                    care_subtype.set("aldreomsorg".to_string());
                                 },
                                 div { class: "font-bold text-primary", "{t(\"templates-preset-care\", &region)}" }
                                 div { class: "text-xs text-muted-foreground mt-1",
                                 style: "line-height: 1.3;", "{t(\"templates-preset-care-desc\", &region)}" }
+                            }
+                            // Preset 1b: LSS
+                            div {
+                                class: "border border-border p-3 rounded-lg cursor-pointer bg-white/[0.02]",
+                                style: "transition:all 0.2s;",
+                                onclick: move |_| {
+                                    temp_messaging.set(true);
+                                    temp_scheduling.set(true);
+                                    temp_notes.set(true);
+                                    temp_journals.set(true);
+                                    temp_medications.set(false);
+                                    temp_jobs.set(false);
+                                    temp_reporting.set(false);
+                                    temp_todos.set(true);
+                                    temp_academics.set(false);
+                                    temp_attendance.set(false);
+                                    temp_finance.set(false);
+                                    temp_library.set(false);
+                                    temp_health_clinic.set(false);
+                                    temp_report_cards.set(false);
+                                    temp_moving_company.set(false);
+                                    care_subtype.set("lss".to_string());
+                                },
+                                div { class: "font-bold text-primary", "{t(\"templates-preset-lss\", &region)}" }
+                                div { class: "text-xs text-muted-foreground mt-1",
+                                style: "line-height: 1.3;", "{t(\"templates-preset-lss-desc\", &region)}" }
+                            }
+                            // Preset 1c: Personal Assistance
+                            div {
+                                class: "border border-border p-3 rounded-lg cursor-pointer bg-white/[0.02]",
+                                style: "transition:all 0.2s;",
+                                onclick: move |_| {
+                                    temp_messaging.set(true);
+                                    temp_scheduling.set(true);
+                                    temp_notes.set(true);
+                                    temp_journals.set(true);
+                                    temp_medications.set(false);
+                                    temp_jobs.set(false);
+                                    temp_reporting.set(false);
+                                    temp_todos.set(true);
+                                    temp_academics.set(false);
+                                    temp_attendance.set(false);
+                                    temp_finance.set(false);
+                                    temp_library.set(false);
+                                    temp_health_clinic.set(false);
+                                    temp_report_cards.set(false);
+                                    temp_moving_company.set(false);
+                                    care_subtype.set("lss".to_string());
+                                },
+                                div { class: "font-bold text-primary", "{t(\"templates-preset-assistance\", &region)}" }
+                                div { class: "text-xs text-muted-foreground mt-1",
+                                style: "line-height: 1.3;", "{t(\"templates-preset-assistance-desc\", &region)}" }
+                            }
+                            // Preset 1d: HVB
+                            div {
+                                class: "border border-border p-3 rounded-lg cursor-pointer bg-white/[0.02]",
+                                style: "transition:all 0.2s;",
+                                onclick: move |_| {
+                                    temp_messaging.set(true);
+                                    temp_scheduling.set(true);
+                                    temp_notes.set(true);
+                                    temp_journals.set(true);
+                                    temp_medications.set(true);
+                                    temp_jobs.set(false);
+                                    temp_reporting.set(false);
+                                    temp_todos.set(true);
+                                    temp_academics.set(false);
+                                    temp_attendance.set(false);
+                                    temp_finance.set(false);
+                                    temp_library.set(false);
+                                    temp_health_clinic.set(false);
+                                    temp_report_cards.set(false);
+                                    temp_moving_company.set(false);
+                                    care_subtype.set("hvb".to_string());
+                                },
+                                div { class: "font-bold text-primary", "{t(\"templates-preset-hvb\", &region)}" }
+                                div { class: "text-xs text-muted-foreground mt-1",
+                                style: "line-height: 1.3;", "{t(\"templates-preset-hvb-desc\", &region)}" }
                             }
                             // Preset 2: Jobs
                             div {

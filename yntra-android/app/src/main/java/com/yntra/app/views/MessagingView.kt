@@ -39,8 +39,8 @@ fun MessagingView(viewModel: MessagingViewModel) {
 
     // Filter messages depending on tab
     val filteredMessages = when (activeTab) {
-        "inbox" -> messages.filter { it.receiverId == "user-1" || it.targetTeamId != null }
-        "sent" -> messages.filter { it.senderId == "user-1" }
+        "inbox" -> messages.filter { it.receiverId == com.yntra.app.SessionManager.activeUserId || it.targetTeamId != null }
+        "sent" -> messages.filter { it.senderId == com.yntra.app.SessionManager.activeUserId }
         else -> emptyList() // Trash or fallback
     }
 

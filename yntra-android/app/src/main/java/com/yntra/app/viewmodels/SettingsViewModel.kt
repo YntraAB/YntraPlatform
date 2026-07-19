@@ -38,8 +38,8 @@ class SettingsViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 updateUserProfile(
-                    requesterUserId = "user-1",
-                    userId = "user-1",
+                    requesterUserId = com.yntra.app.SessionManager.activeUserId,
+                    userId = com.yntra.app.SessionManager.activeUserId,
                     fullName = fullName,
                     phone = phone,
                     preferences = "{\"language\":\"$languagePreference\"}"

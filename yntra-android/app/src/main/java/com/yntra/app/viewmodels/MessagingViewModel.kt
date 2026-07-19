@@ -27,7 +27,7 @@ class MessagingViewModel : ViewModel() {
     fun loadMessages() {
         viewModelScope.launch {
             try {
-                _messages.value = getMessages("user-1", "user-1")
+                _messages.value = getMessages(com.yntra.app.SessionManager.activeUserId, com.yntra.app.SessionManager.activeUserId)
             } catch (e: Exception) {
                 _errorMessage.value = e.message
             }
@@ -37,7 +37,7 @@ class MessagingViewModel : ViewModel() {
     fun markAsRead(messageId: String) {
         viewModelScope.launch {
             try {
-                markMessageRead("user-1", messageId)
+                markMessageRead(com.yntra.app.SessionManager.activeUserId, messageId)
             } catch (e: Exception) {
                 _errorMessage.value = e.message
             }
@@ -48,9 +48,9 @@ class MessagingViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 sendMessage(
-                    requesterUserId = "user-1",
-                    workspaceId = "workspace-1",
-                    senderId = "user-1",
+                    requesterUserId = com.yntra.app.SessionManager.activeUserId,
+                    workspaceId = com.yntra.app.SessionManager.activeWorkspaceId,
+                    senderId = com.yntra.app.SessionManager.activeUserId,
                     receiverId = receiverId,
                     teamId = null,
                     subject = subject,
@@ -66,9 +66,9 @@ class MessagingViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 sendMessage(
-                    requesterUserId = "user-1",
-                    workspaceId = "workspace-1",
-                    senderId = "user-1",
+                    requesterUserId = com.yntra.app.SessionManager.activeUserId,
+                    workspaceId = com.yntra.app.SessionManager.activeWorkspaceId,
+                    senderId = com.yntra.app.SessionManager.activeUserId,
                     receiverId = null,
                     teamId = teamId,
                     subject = subject,

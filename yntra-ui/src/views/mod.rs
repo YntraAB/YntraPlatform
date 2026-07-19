@@ -30,3 +30,6 @@ pub use dynamic_block::DynamicBlockView;
 
 pub mod school;
 pub use school::{AcademicsView, AttendanceView, FinanceView, LibraryView, StudentDirectoryView, HealthClinicView, ReportCardsView};
+
+pub mod care;
+pub use care::{JournalsView, MedicationsView};

@@ -210,4 +210,32 @@ pub static BLOCK_REGISTRY: &[BlockDefinition] = &[
             badge_key: None,
         }],
     },
+    BlockDefinition {
+        id: "journals",
+        name: "Care Journals",
+        navigation: &[BlockNavItem {
+            id: "journals",
+            label_key: "assistance-daily-notes",
+            path: "journals",
+            icon: "book-open",
+            allowed_roles: None,
+            section: "main",
+            children: None,
+            badge_key: None,
+        }],
+    },
+    BlockDefinition {
+        id: "medications",
+        name: "Medications",
+        navigation: &[BlockNavItem {
+            id: "medications",
+            label_key: "assistance-active-medication-list",
+            path: "medications",
+            icon: "activity",
+            allowed_roles: None,
+            section: "main",
+            children: None,
+            badge_key: None,
+        }],
+    },
 ];
