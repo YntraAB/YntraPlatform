@@ -17,4 +17,4 @@ pub mod workspaces;
 pub mod dashboard;
 pub mod vehicles;
 pub mod school;
-
+pub mod recovery;

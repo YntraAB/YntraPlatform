@@ -1,10 +1,12 @@
 pub mod domain;
 pub mod keychain;
 pub mod signing;
+pub mod ssss;
 
 pub use domain::*;
 pub use keychain::*;
 pub use signing::*;
+pub use ssss::*;
 
 use crate::infra::errors::YntraError;
 use chacha20poly1305::aead::{Aead, KeyInit};
