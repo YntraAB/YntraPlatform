@@ -1,6 +1,12 @@
 // db-bridge.js
 // Interface between Rust WASM core and the SQLite Web Worker
 
+if (navigator.storage && navigator.storage.persist) {
+  navigator.storage.persist().then((persistent) => {
+    console.log(`[Yntra Storage] Persistent storage granted: ${persistent}`);
+  });
+}
+
 const worker = new Worker('/db-worker.js');
 const pendingRequests = new Map();
 let messageId = 0;
