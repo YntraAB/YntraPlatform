@@ -59,6 +59,16 @@ pub fn AcademicsView(props: SchoolViewProps) -> Element {
         async move { yntra_core::get_student_profiles(uid, ws).await.unwrap_or_default() }
     });
 
+    let user_id_clone_s = user_id.clone();
+    let can_manage_schedule_res = use_resource(move || {
+        let uid = user_id_clone_s.clone();
+        async move {
+            yntra_core::check_school_permission(uid, "can_manage_schedule".to_string())
+                .await
+                .unwrap_or(false)
+        }
+    });
+
     let user_id_clone_p = user_id.clone();
     let ws_id_clone_p = ws_id.clone();
     let parent_students_res = use_resource(move || {
@@ -93,6 +103,7 @@ pub fn AcademicsView(props: SchoolViewProps) -> Element {
     });
 
     let courses = courses_res.read().clone().unwrap_or_default();
+    let can_manage_schedule = can_manage_schedule_res.read().cloned().unwrap_or(false);
     let active_role = state.active_user_role.read().clone();
     let students = if active_role == "parent" || active_role == "role-school-parent" {
         parent_students_res.read().clone().unwrap_or_default()
@@ -172,7 +183,7 @@ pub fn AcademicsView(props: SchoolViewProps) -> Element {
                         }
                     }
 
-                    if *view_mode.read() == "teacher" {
+                    if *view_mode.read() == "teacher" && can_manage_schedule {
                         div { class: "relative",
                             button {
                                 class: "flex items-center justify-center h-9 w-9 p-0 rounded-xl bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground border border-border/40 transition-all duration-150 cursor-pointer",
@@ -228,6 +239,7 @@ pub fn AcademicsView(props: SchoolViewProps) -> Element {
                             students: students.clone(),
                             selected_course_id: selected_course_id,
                             show_course_modal: show_course_modal,
+                            can_manage_schedule: can_manage_schedule,
                         }
                     }
                 }

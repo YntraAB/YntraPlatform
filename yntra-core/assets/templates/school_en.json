@@ -59,7 +59,7 @@
     "id": "role-school-teacher",
     "name": "Teacher / Instructor",
     "permissions": {
-      "can_manage_schedule": true,
+      "can_manage_schedule": false,
       "can_manage_notes": true,
       "can_approve_time_reports": false,
       "can_manage_students": true,

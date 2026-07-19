@@ -135,12 +135,21 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
+        let care_subtype_str = modules_val
+            .get("care_subtype")
+            .and_then(|v| v.as_str())
+            .unwrap_or("aldreomsorg");
+
         if is_school {
             "School Template".to_string()
         } else if is_moving_company {
             "Moving Company Template".to_string()
         } else if is_assistance {
-            "Care Template".to_string()
+            match care_subtype_str {
+                "lss" => "LSS & Assistance Template".to_string(),
+                "hvb" => "HVB Template".to_string(),
+                _ => "Elderly Care Template".to_string(),
+            }
         } else {
             "General Template".to_string()
         }
@@ -356,7 +365,7 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                             }
                         }
                         components::DropdownItem {
-                            label: "Care & HVB/LSS".to_string(),
+                            label: "Elderly Care Template".to_string(),
                             onclick: {
                                 let user_id = active_user_id.read().clone();
                                 let ws_id = active_user.workspace_id.clone().unwrap_or_else(|| "workspace-1".to_string());
@@ -371,7 +380,7 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                                             "medications": true,
                                             "journals": true,
                                             "time": true,
-                                            "jobs": true,
+                                            "jobs": false,
                                             "todos": true,
                                             "messaging": true,
                                             "notes": true,
@@ -382,6 +391,121 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                                             "library": false,
                                             "timetable": false,
                                             "moving_company": false,
+                                            "care_subtype": "aldreomsorg"
+                                        });
+                                        yntra_core::update_workspace_modules(user_id, ws_id, care_modules.to_string()).await?;
+                                        let current = *db_trigger.read();
+                                        db_trigger.set(current + 1);
+                                        Ok(())
+                                    });
+                                    header_template_open.set(false);
+                                }
+                            }
+                        }
+                        components::DropdownItem {
+                            label: "LSS & Disability Template".to_string(),
+                            onclick: {
+                                let user_id = active_user_id.read().clone();
+                                let ws_id = active_user.workspace_id.clone().unwrap_or_else(|| "workspace-1".to_string());
+                                let runner = runner.clone();
+                                move |_| {
+                                    let user_id = user_id.clone();
+                                    let ws_id = ws_id.clone();
+                                    let runner = runner.clone();
+                                    runner.run(async move {
+                                        let care_modules = serde_json::json!({
+                                            "assistance": true,
+                                            "medications": false,
+                                            "journals": true,
+                                            "time": true,
+                                            "jobs": false,
+                                            "todos": true,
+                                            "messaging": true,
+                                            "notes": true,
+                                            "reporting": true,
+                                            "academics": false,
+                                            "attendance": false,
+                                            "finance": false,
+                                            "library": false,
+                                            "timetable": false,
+                                            "moving_company": false,
+                                            "care_subtype": "lss"
+                                        });
+                                        yntra_core::update_workspace_modules(user_id, ws_id, care_modules.to_string()).await?;
+                                        let current = *db_trigger.read();
+                                        db_trigger.set(current + 1);
+                                        Ok(())
+                                    });
+                                    header_template_open.set(false);
+                                }
+                            }
+                        }
+                        components::DropdownItem {
+                            label: "Personal Assistance Template".to_string(),
+                            onclick: {
+                                let user_id = active_user_id.read().clone();
+                                let ws_id = active_user.workspace_id.clone().unwrap_or_else(|| "workspace-1".to_string());
+                                let runner = runner.clone();
+                                move |_| {
+                                    let user_id = user_id.clone();
+                                    let ws_id = ws_id.clone();
+                                    let runner = runner.clone();
+                                    runner.run(async move {
+                                        let care_modules = serde_json::json!({
+                                            "assistance": true,
+                                            "medications": false,
+                                            "journals": true,
+                                            "time": true,
+                                            "jobs": false,
+                                            "todos": true,
+                                            "messaging": true,
+                                            "notes": true,
+                                            "reporting": true,
+                                            "academics": false,
+                                            "attendance": false,
+                                            "finance": false,
+                                            "library": false,
+                                            "timetable": false,
+                                            "moving_company": false,
+                                            "care_subtype": "lss"
+                                        });
+                                        yntra_core::update_workspace_modules(user_id, ws_id, care_modules.to_string()).await?;
+                                        let current = *db_trigger.read();
+                                        db_trigger.set(current + 1);
+                                        Ok(())
+                                    });
+                                    header_template_open.set(false);
+                                }
+                            }
+                        }
+                        components::DropdownItem {
+                            label: "HVB & Youth Care Template".to_string(),
+                            onclick: {
+                                let user_id = active_user_id.read().clone();
+                                let ws_id = active_user.workspace_id.clone().unwrap_or_else(|| "workspace-1".to_string());
+                                let runner = runner.clone();
+                                move |_| {
+                                    let user_id = user_id.clone();
+                                    let ws_id = ws_id.clone();
+                                    let runner = runner.clone();
+                                    runner.run(async move {
+                                        let care_modules = serde_json::json!({
+                                            "assistance": true,
+                                            "medications": true,
+                                            "journals": true,
+                                            "time": true,
+                                            "jobs": false,
+                                            "todos": true,
+                                            "messaging": true,
+                                            "notes": true,
+                                            "reporting": true,
+                                            "academics": false,
+                                            "attendance": false,
+                                            "finance": false,
+                                            "library": false,
+                                            "timetable": false,
+                                            "moving_company": false,
+                                            "care_subtype": "hvb"
                                         });
                                         yntra_core::update_workspace_modules(user_id, ws_id, care_modules.to_string()).await?;
                                         let current = *db_trigger.read();

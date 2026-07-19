@@ -21,6 +21,7 @@ pub fn TeacherPortal(
     students: Vec<StudentProfile>,
     mut selected_course_id: Signal<String>,
     mut show_course_modal: Signal<bool>,
+    can_manage_schedule: bool,
 ) -> Element {
     let db_trigger = school_props.db_trigger;
     let locale = school_props.locale.clone();
@@ -296,32 +297,33 @@ pub fn TeacherPortal(
                                                         h3 { class: "font-extrabold text-sm tracking-tight m-0 text-white truncate", "{c.name}" }
                                                         span { class: "text-[9px] font-bold text-white/90 uppercase tracking-wider", "{c.subject}" }
                                                     }
-                                                    
-                                                    // Safe settings button (tucked away)
-                                                    button {
-                                                        class: "p-1.5 rounded-full hover:bg-white/20 text-white/80 hover:text-white border-0 bg-transparent cursor-pointer transition-colors z-20",
-                                                        r#type: "button",
-                                                        onclick: {
-                                                            let c_id_d = c_id_dropdown.clone();
-                                                            move |e| {
-                                                                e.stop_propagation();
-                                                                if *active_menu_id.read() == c_id_d {
-                                                                    active_menu_id.set("".to_string());
-                                                                } else {
-                                                                    active_menu_id.set(c_id_d.clone());
+                                                                             // Safe settings button (tucked away)
+                                                    if can_manage_schedule {
+                                                        button {
+                                                            class: "p-1.5 rounded-full hover:bg-white/20 text-white/80 hover:text-white border-0 bg-transparent cursor-pointer transition-colors z-20",
+                                                            r#type: "button",
+                                                            onclick: {
+                                                                let c_id_d = c_id_dropdown.clone();
+                                                                move |e| {
+                                                                    e.stop_propagation();
+                                                                    if *active_menu_id.read() == c_id_d {
+                                                                        active_menu_id.set("".to_string());
+                                                                    } else {
+                                                                        active_menu_id.set(c_id_d.clone());
+                                                                    }
                                                                 }
-                                                            }
-                                                        },
-                                                        LucideIcon { name: "settings", class: "h-4 w-4" }
+                                                            },
+                                                            LucideIcon { name: "settings", class: "h-4 w-4" }
+                                                        }
                                                     }
                                                 }
                                                 
                                                 if let Some(ref room) = c.classroom {
                                                     span { class: "text-[10px] text-white/80 font-semibold", "Room: {room}" }
-                                                }
+                                                 }
 
                                                 // destruct settings menu dropdown
-                                                if *active_menu_id.read() == c_id_dropdown {
+                                                 if can_manage_schedule && *active_menu_id.read() == c_id_dropdown {
                                                     div { class: "absolute top-11 right-3 z-30 bg-popover border border-border rounded-xl shadow-2xl p-1 min-w-[130px] animate-in fade-in slide-in-from-top-2 duration-150",
                                                         button {
                                                             class: "flex w-full items-center gap-1.5 text-left px-2.5 py-1.5 text-xs font-semibold text-red-500 hover:bg-red-500/10 border-0 bg-transparent rounded-lg cursor-pointer transition-colors",
