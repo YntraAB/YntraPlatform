@@ -192,17 +192,26 @@ pub async fn init_database_async() -> Result<(), YntraError> {
         return Ok(());
     }
 
-    let _guard = INIT_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+    static ASYNC_INIT_MUTEX: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    let async_mutex = ASYNC_INIT_MUTEX.get_or_init(|| tokio::sync::Mutex::new(()));
+    let _guard = async_mutex.lock().await;
 
     if DATABASE.get().is_some() {
         return Ok(());
     }
 
-    let db = block_on(async {
-        build_and_setup_database().await
-    })?;
+    let db = build_and_setup_database().await?;
     let _ = DATABASE.set(db);
     Ok(())
+}
+
+pub async fn get_database_async() -> Result<&'static libsql::Database, YntraError> {
+    if let Some(db) = DATABASE.get() {
+        return Ok(db);
+    }
+
+    init_database_async().await?;
+    Ok(DATABASE.get().unwrap())
 }
 
 pub fn get_database() -> &'static libsql::Database {
@@ -264,7 +273,7 @@ pub async fn acquire_connection() -> Result<DbConnection, YntraError> {
         });
     }
 
-    let db = get_database();
+    let db = get_database_async().await?;
     let conn = db
         .connect()
         .map_err(|e| YntraError::DbError(e.to_string()))?;
