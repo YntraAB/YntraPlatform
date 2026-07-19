@@ -74,6 +74,16 @@ async fn verify_school_write_zkp(
     Ok(())
 }
 
+#[uniffi::export]
+pub async fn check_school_permission(
+    requester_user_id: String,
+    permission_name: String,
+) -> Result<bool, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    Ok(has_school_permission(&auth, &permission_name))
+}
+
 fn has_school_permission(auth: &crate::AuthContext, permission_name: &str) -> bool {
     if auth.role == "platform_admin" || auth.role == "admin" || auth.role == "school-admin" || auth.role == "role-school-admin" || auth.role == "principal" || auth.role == "role-school-principal" {
         return true;
@@ -453,6 +463,62 @@ pub async fn save_submission(
     }
 
     let now_ms = crate::infra::time::get_current_time_ms();
+
+    // Query existing record to check for offline concurrent modifications
+    let existing: Option<(Option<String>, Option<String>, i64)> = {
+        let mut stmt = conn
+            .prepare("SELECT grade, feedback, updated_at FROM submissions WHERE id = ?1")
+            .await?;
+        let mut rows = stmt.query(crate::params![&submission.id]).await?;
+        if let Some(row) = rows.next().await? {
+            Some((row.get(0)?, row.get(1)?, row.get(2)?))
+        } else {
+            None
+        }
+    };
+
+    let mut grade = submission.grade.clone();
+    let mut feedback = submission.feedback.clone();
+
+    if let Some((old_grade, old_feedback, old_updated_at)) = existing {
+        // If the DB version is newer than the incoming base version timestamp
+        if old_updated_at > submission.updated_at {
+            let grade_diff = old_grade != submission.grade;
+            let feedback_diff = old_feedback != submission.feedback;
+
+            if grade_diff || feedback_diff {
+                // Conflict! Store concurrent values inside a Multi-Value Register JSON structure
+                let mvr = serde_json::json!({
+                    "conflict": true,
+                    "versions": [
+                        {
+                            "grade": old_grade,
+                            "by": "Concurrent Editor",
+                            "updated_at": old_updated_at
+                        },
+                        {
+                            "grade": submission.grade.clone(),
+                            "by": requester_user_id.clone(),
+                            "updated_at": now_ms
+                        }
+                    ]
+                });
+                grade = Some(mvr.to_string());
+
+                // Merge feedback comments
+                let merged = format!(
+                    "--- CONFLICT RESOLUTION REQUIRED ---\n\n\
+                     [Version A (Concurrent Editor)]:\n{}\n\n\
+                     [Version B (User: {})]:\n{}",
+                    old_feedback.unwrap_or_default(),
+                    requester_user_id,
+                    submission.feedback.clone().unwrap_or_default()
+                );
+                feedback = Some(merged);
+            }
+        }
+    }
+
     conn.execute(
         "INSERT OR REPLACE INTO submissions (id, workspace_id, assignment_id, student_id, content, grade, feedback, submitted_at, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending')",
         crate::params![
@@ -461,8 +527,8 @@ pub async fn save_submission(
             &submission.assignment_id,
             &submission.student_id,
             &submission.content,
-            &submission.grade,
-            &submission.feedback,
+            &grade,
+            &feedback,
             &submission.submitted_at,
             &now_ms,
         ]
@@ -666,7 +732,67 @@ pub async fn save_term_grade(
     verify_school_permission(&auth, "can_manage_grades")?;
 
     let now_ms = crate::infra::time::get_current_time_ms();
-    let pts = grade.final_points.map(|p| p as i64);
+
+    // Query existing record to check for offline concurrent modifications
+    let existing: Option<(Option<String>, Option<i64>, Option<String>, i64)> = {
+        let mut stmt = conn
+            .prepare("SELECT final_grade, final_points, teacher_comments, updated_at FROM term_grades WHERE id = ?1")
+            .await?;
+        let mut rows = stmt.query(crate::params![&grade.id]).await?;
+        if let Some(row) = rows.next().await? {
+            Some((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        } else {
+            None
+        }
+    };
+
+    let mut final_grade = grade.final_grade.clone();
+    let mut final_points = grade.final_points.map(|p| p as i64);
+    let mut teacher_comments = grade.teacher_comments.clone();
+
+    if let Some((old_grade, old_points, old_comments, old_updated_at)) = existing {
+        // If the DB version is newer than the incoming base version timestamp
+        if old_updated_at > grade.updated_at {
+            let grade_diff = old_grade != grade.final_grade;
+            let points_diff = old_points != grade.final_points.map(|p| p as i64);
+            let comments_diff = old_comments != grade.teacher_comments;
+
+            if grade_diff || points_diff || comments_diff {
+                // Conflict! Store concurrent values inside a Multi-Value Register JSON structure
+                let mvr = serde_json::json!({
+                    "conflict": true,
+                    "versions": [
+                        {
+                            "grade": old_grade,
+                            "points": old_points,
+                            "by": "Concurrent Editor",
+                            "updated_at": old_updated_at
+                        },
+                        {
+                            "grade": grade.final_grade.clone(),
+                            "points": grade.final_points,
+                            "by": requester_user_id.clone(),
+                            "updated_at": now_ms
+                        }
+                    ]
+                });
+                final_grade = Some(mvr.to_string());
+                final_points = None;
+
+                // Merge comments text
+                let merged = format!(
+                    "--- CONFLICT RESOLUTION REQUIRED ---\n\n\
+                     [Version A (Concurrent Editor)]:\n{}\n\n\
+                     [Version B (User: {})]:\n{}",
+                    old_comments.unwrap_or_default(),
+                    requester_user_id,
+                    grade.teacher_comments.clone().unwrap_or_default()
+                );
+                teacher_comments = Some(merged);
+            }
+        }
+    }
+
     conn.execute(
         "INSERT OR REPLACE INTO term_grades (id, workspace_id, student_id, course_id, term_name, final_grade, final_points, teacher_comments, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending')",
         crate::params![
@@ -675,9 +801,9 @@ pub async fn save_term_grade(
             &grade.student_id,
             &grade.course_id,
             &grade.term_name,
-            &grade.final_grade,
-            &pts,
-            &grade.teacher_comments,
+            &final_grade,
+            &final_points,
+            &teacher_comments,
             &now_ms,
         ]
     ).await?;
@@ -2022,5 +2148,113 @@ mod tests {
         conn.execute("DELETE FROM courses WHERE workspace_id = 'ws-perm-test'", ()).await.unwrap();
         conn.execute("DELETE FROM users WHERE workspace_id = 'ws-perm-test'", ()).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id = 'ws-perm-test'", ()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_grading_conflict_resolution() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let ws_id = "ws-grade-test";
+        let settings_json = r#"{
+            "roles": [
+                {
+                    "id": "role-school-admin",
+                    "name": "Admin",
+                    "permissions": {
+                        "can_manage_grades": true
+                    }
+                }
+            ]
+        }"#;
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Grade WS', '[]', ?2)", crate::params![ws_id, settings_json]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-admin-g', ?1, 'admin@g.com', 'admin')", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO student_profiles (id, workspace_id, first_name, last_name, grade_level, updated_at) VALUES ('stud-g', ?1, 'John', 'Doe', 'Grade 10', 0)", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO courses (id, name, subject, classroom, workspace_id, updated_at) VALUES ('crs-g', 'Math', 'Math', 'Room 1', ?1, 0)", crate::params![ws_id]).await.unwrap();
+
+        // 1. Initial grade (v1)
+        let grade_v1 = TermGrade {
+            id: "tg-g".to_string(),
+            workspace_id: ws_id.to_string(),
+            student_id: "stud-g".to_string(),
+            course_id: "crs-g".to_string(),
+            term_name: "Fall 2026".to_string(),
+            final_grade: Some("B".to_string()),
+            final_points: Some(80),
+            teacher_comments: Some("Good progress".to_string()),
+            updated_at: 1000,
+        };
+
+        save_term_grade("u-admin-g".to_string(), grade_v1, None).await.unwrap();
+
+        // Fetch to find the actual updated_at saved in the DB
+        let saved_time_a: i64 = conn.query_row(
+            "SELECT updated_at FROM term_grades WHERE id = 'tg-g'",
+            (),
+            |r| r.get(0),
+        ).await.unwrap();
+
+        // 2. Editor A updates the grade (having read the initial grade version)
+        let grade_v2_a = TermGrade {
+            id: "tg-g".to_string(),
+            workspace_id: ws_id.to_string(),
+            student_id: "stud-g".to_string(),
+            course_id: "crs-g".to_string(),
+            term_name: "Fall 2026".to_string(),
+            final_grade: Some("A-".to_string()),
+            final_points: Some(90),
+            teacher_comments: Some("Excellent progress".to_string()),
+            updated_at: saved_time_a, // read version matches
+        };
+        save_term_grade("u-admin-g".to_string(), grade_v2_a, None).await.unwrap();
+
+        // Fetch updated_at after A's write
+        let saved_time_b: i64 = conn.query_row(
+            "SELECT updated_at FROM term_grades WHERE id = 'tg-g'",
+            (),
+            |r| r.get(0),
+        ).await.unwrap();
+
+        // 3. Editor B concurrent offline update (holds stale parent updated_at)
+        let grade_v2_b = TermGrade {
+            id: "tg-g".to_string(),
+            workspace_id: ws_id.to_string(),
+            student_id: "stud-g".to_string(),
+            course_id: "crs-g".to_string(),
+            term_name: "Fall 2026".to_string(),
+            final_grade: Some("B+".to_string()),
+            final_points: Some(85),
+            teacher_comments: Some("Steady progress".to_string()),
+            updated_at: saved_time_a, // stale! (points to v1, but database is now at v2a)
+        };
+
+        // This save should trigger conflict detection!
+        save_term_grade("u-admin-g".to_string(), grade_v2_b, None).await.unwrap();
+
+        // 4. Assert conflict encoding
+        let (final_grade, final_points, teacher_comments): (String, Option<i64>, String) = conn.query_row(
+            "SELECT final_grade, final_points, teacher_comments FROM term_grades WHERE id = 'tg-g'",
+            (),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).await.unwrap();
+
+        // final_grade should store MVR JSON containing both versions
+        assert!(final_grade.contains("\"conflict\":true"));
+        assert!(final_grade.contains("A-"));
+        assert!(final_grade.contains("B+"));
+        assert_eq!(final_points, None); // Points should be flagged as conflict-null
+
+        // comments should hold merged marker
+        assert!(teacher_comments.contains("--- CONFLICT RESOLUTION REQUIRED ---"));
+        assert!(teacher_comments.contains("Excellent progress"));
+        assert!(teacher_comments.contains("Steady progress"));
+
+        // Cleanup
+        conn.execute("DELETE FROM term_grades WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM courses WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM student_profiles WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
     }
 }
