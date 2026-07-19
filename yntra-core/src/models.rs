@@ -984,6 +984,7 @@ pub struct LibraryLendingLogInfo {
     pub due_date: String,
     pub returned_at: Option<String>,
     pub status: String,
+    pub student_id: String,
 }
 
 

@@ -542,6 +542,45 @@ pub async fn save_attendance_record(
 }
 
 #[uniffi::export]
+pub async fn report_student_absence(
+    requester_user_id: String,
+    workspace_id: String,
+    student_id: String,
+    date: String,
+    reason: String,
+    role_proof: Option<String>,
+) -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
+    verify_student_access(&conn, &auth, &student_id).await?;
+
+    let now_ms = crate::infra::time::get_current_time_ms();
+    let record_id = uuid::Uuid::new_v4().to_string();
+
+    conn.execute(
+        "INSERT OR REPLACE INTO attendance_records (id, workspace_id, student_id, course_id, date, status, notes, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending')",
+        crate::params![
+            &record_id,
+            &workspace_id,
+            &student_id,
+            "",
+            &date,
+            "absent",
+            &format!("Parent Reported: {}", reason),
+            &now_ms
+        ]
+    ).await?;
+
+    notify_observers();
+    Ok(())
+}
+
+#[uniffi::export]
 pub async fn get_term_grades(
     requester_user_id: String,
     workspace_id: String,
@@ -906,6 +945,49 @@ pub async fn return_book(
 }
 
 #[uniffi::export]
+pub async fn renew_book(
+    requester_user_id: String,
+    workspace_id: String,
+    log_id: String,
+    role_proof: Option<String>,
+) -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
+
+    let log_opt: Option<(String, String)> = conn.query_row(
+        "SELECT student_id, status FROM library_lending_logs WHERE id = ?1 AND workspace_id = ?2",
+        crate::params![&log_id, &workspace_id],
+        |r| Ok((r.get(0)?, r.get(1)?))
+    ).await.ok();
+
+    if let Some((student_id, status)) = log_opt {
+        if status != "borrowed" {
+            return Err(YntraError::ValidationError("Book is not currently borrowed".to_string()));
+        }
+
+        verify_student_access(&conn, &auth, &student_id).await?;
+
+        let now_ms = crate::infra::time::get_current_time_ms();
+        let new_due_date = (chrono::Local::now() + chrono::Duration::days(14)).format("%Y-%m-%d").to_string();
+
+        conn.execute(
+            "UPDATE library_lending_logs SET due_date = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
+            crate::params![&new_due_date, &now_ms, &log_id]
+        ).await?;
+
+        notify_observers();
+        Ok(())
+    } else {
+        Err(YntraError::NotFoundError("Lending log not found".to_string()))
+    }
+}
+
+#[uniffi::export]
 pub async fn reserve_book(
     requester_user_id: String,
     workspace_id: String,
@@ -1133,20 +1215,20 @@ pub async fn get_library_lending_logs(
 
     let role_lower = auth.role.to_lowercase();
     let query_str = if role_lower == "student" || role_lower == "role-school-student" {
-        "SELECT l.id, b.title, s.first_name || ' ' || s.last_name, l.checked_out_at, l.due_date, l.returned_at, l.status
+        "SELECT l.id, b.title, s.first_name || ' ' || s.last_name, l.checked_out_at, l.due_date, l.returned_at, l.status, l.student_id
          FROM library_lending_logs l
          JOIN library_books b ON l.book_id = b.id
          JOIN student_profiles s ON l.student_id = s.id
          WHERE l.workspace_id = ?1 AND s.user_id = ?2"
     } else if role_lower == "parent" || role_lower == "role-school-parent" {
-        "SELECT l.id, b.title, s.first_name || ' ' || s.last_name, l.checked_out_at, l.due_date, l.returned_at, l.status
+        "SELECT l.id, b.title, s.first_name || ' ' || s.last_name, l.checked_out_at, l.due_date, l.returned_at, l.status, l.student_id
          FROM library_lending_logs l
          JOIN library_books b ON l.book_id = b.id
          JOIN student_profiles s ON l.student_id = s.id
          JOIN student_parents sp ON s.id = sp.student_id
          WHERE l.workspace_id = ?1 AND sp.parent_user_id = ?2"
     } else {
-        "SELECT l.id, b.title, s.first_name || ' ' || s.last_name, l.checked_out_at, l.due_date, l.returned_at, l.status
+        "SELECT l.id, b.title, s.first_name || ' ' || s.last_name, l.checked_out_at, l.due_date, l.returned_at, l.status, l.student_id
          FROM library_lending_logs l
          JOIN library_books b ON l.book_id = b.id
          JOIN student_profiles s ON l.student_id = s.id
@@ -1165,6 +1247,7 @@ pub async fn get_library_lending_logs(
                 due_date: row.get(4)?,
                 returned_at: row.get(5)?,
                 status: row.get(6)?,
+                student_id: row.get(7)?,
             })
         }).await?
     } else {
@@ -1177,6 +1260,7 @@ pub async fn get_library_lending_logs(
                 due_date: row.get(4)?,
                 returned_at: row.get(5)?,
                 status: row.get(6)?,
+                student_id: row.get(7)?,
             })
         }).await?
     };
