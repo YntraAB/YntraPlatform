@@ -93,18 +93,26 @@ pub fn NotesView(props: NotesViewProps) -> Element {
                 .cloned()
                 .collect();
 
+            let user_id_s = active_user.id.clone();
+            let team_id_s = active_team_id.clone();
+            let note_search_res = use_resource(move || {
+                let _trig = note_search_query.read();
+                let uid = user_id_s.clone();
+                let tid = team_id_s.clone();
+                let q = note_search_query.read().clone();
+                async move {
+                    if q.is_empty() {
+                        None
+                    } else {
+                        Some(yntra_core::search_notes(uid, tid, q).await.unwrap_or_default())
+                    }
+                }
+            });
+
             let filtered_notes: Vec<DailyNote> = if note_search_query.read().is_empty() {
                 team_notes.clone()
             } else {
-                let q = note_search_query.read().to_lowercase();
-                team_notes
-                    .iter()
-                    .filter(|n| {
-                        n.subject.to_lowercase().contains(&q)
-                            || n.content.to_lowercase().contains(&q)
-                    })
-                    .cloned()
-                    .collect()
+                note_search_res.read().clone().flatten().unwrap_or_default()
             };
 
             if let Some(target_id) = active_note_id.read().clone() {

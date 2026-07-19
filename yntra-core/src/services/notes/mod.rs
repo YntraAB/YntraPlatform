@@ -486,6 +486,11 @@ pub async fn add_note(
              ],
         ).await?;
 
+        conn.execute(
+            "INSERT INTO notes_fts (id, subject, content_plain) VALUES (?1, ?2, ?3)",
+            crate::params![&item.id, &item.subject, &content],
+        ).await?;
+
         // Seed the event-sourced log with the initial snapshot update
         let update_id = uuid::Uuid::new_v4().to_string();
         let author_id_str = item.author_id.clone().unwrap_or_default();
@@ -639,6 +644,16 @@ pub async fn update_note(
             crate::params![&subject, &loro_content, &content, &edit_history_str, &now_ms, &note_id],
         ).await?;
 
+        conn.execute(
+            "DELETE FROM notes_fts WHERE id = ?1",
+            crate::params![&note_id],
+        ).await?;
+
+        conn.execute(
+            "INSERT INTO notes_fts (id, subject, content_plain) VALUES (?1, ?2, ?3)",
+            crate::params![&note_id, &subject, &content],
+        ).await?;
+
         let updated_note = DailyNote {
             id: old_note.id,
             workspace_id: old_note.workspace_id,
@@ -733,6 +748,8 @@ pub async fn delete_note(requester_user_id: String, note_id: String) -> Result<(
         )
         .await?;
         conn.execute("DELETE FROM notes WHERE id = ?1", crate::params![&note_id])
+            .await?;
+        conn.execute("DELETE FROM notes_fts WHERE id = ?1", crate::params![&note_id])
             .await?;
         Ok(())
     }
@@ -1232,6 +1249,83 @@ pub async fn get_notes_rkyv(
     Ok(bytes.into_vec())
 }
 
+fn sanitize_fts_query(query: &str) -> String {
+    let cleaned: String = query
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c.is_whitespace() { c } else { ' ' })
+        .collect();
+
+    let words: Vec<String> = cleaned
+        .split_whitespace()
+        .filter(|w| !w.is_empty())
+        .map(|w| w.to_lowercase())
+        .filter(|w| w != "and" && w != "or" && w != "not")
+        .map(|w| format!("\"{}\"*", w))
+        .collect();
+
+    if words.is_empty() {
+        "".to_string()
+    } else {
+        words.join(" ")
+    }
+}
+
+#[uniffi::export]
+pub async fn search_notes(
+    requester_user_id: String,
+    team_id: String,
+    query: String,
+) -> Result<Vec<DailyNote>, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    let ws_id = auth.workspace_id.clone();
+
+    if auth.role != "platform_admin" && auth.role != "admin" {
+        let is_member: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM team_members WHERE team_id = ?1 AND user_id = ?2",
+            crate::params![&team_id, &requester_user_id],
+            |r| r.get(0)
+        ).await.unwrap_or(0);
+        if is_member == 0 {
+            return Err(YntraError::AuthError("Access denied: you are not a member of this team".to_string()));
+        }
+    }
+
+    let clean_query = sanitize_fts_query(&query);
+    if clean_query.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT n.id, n.workspace_id, n.team_id, n.author_id, n.subject, 
+                snippet(notes_fts, 2, '***', '***', '...', 32), 
+                n.edit_history, n.created_at, n.updated_at, n.sync_status
+         FROM notes n
+         JOIN notes_fts f ON n.id = f.id
+         WHERE n.workspace_id = ?1 AND n.team_id = ?2 AND notes_fts MATCH ?3
+         ORDER BY rank"
+    ).await?;
+
+    let mut rows = stmt.query(crate::params![ws_id, team_id, clean_query]).await?;
+    let mut results = Vec::new();
+    while let Some(row) = rows.next().await? {
+        results.push(DailyNote {
+            id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            team_id: row.get(2)?,
+            author_id: row.get(3)?,
+            subject: row.get(4)?,
+            content: row.get(5).unwrap_or_default(),
+            edit_history: row.get(6)?,
+            created_at: row.get(7)?,
+            updated_at: row.get(8)?,
+            sync_status: row.get(9)?,
+        });
+    }
+
+    Ok(results)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1520,6 +1614,87 @@ mod tests {
         let _ = conn.execute("DELETE FROM note_updates WHERE note_id = ?1", crate::params![&note.id]).await;
         let _ = conn.execute("DELETE FROM notes WHERE workspace_id = ?1", crate::params![ws_id]).await;
         conn.execute("DELETE FROM team_members WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM teams WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_notes_fts_search() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let ws_id = "ws-fts-test";
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'FTS WS', '[]', '{}')", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-fts-user', ?1, 'fts@user.com', 'admin')", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO teams (id, workspace_id, name) VALUES ('team-fts', ?1, 'FTS Team')", crate::params![ws_id]).await.unwrap();
+
+        // Clear notes tables
+        let _ = conn.execute("DELETE FROM notes WHERE workspace_id = ?1", crate::params![ws_id]).await;
+        let _ = conn.execute("DELETE FROM notes_fts WHERE id IN (SELECT id FROM notes WHERE workspace_id = ?1)", crate::params![ws_id]).await;
+
+        // 1. Create notes
+        let note1 = add_note(
+            "u-fts-user".to_string(),
+            ws_id.to_string(),
+            "team-fts".to_string(),
+            "u-fts-user".to_string(),
+            "Math homework assignment".to_string(),
+            "Remember to complete exercises 1 to 5".to_string(),
+        ).await.unwrap();
+
+        let note2 = add_note(
+            "u-fts-user".to_string(),
+            ws_id.to_string(),
+            "team-fts".to_string(),
+            "u-fts-user".to_string(),
+            "Biology exam study".to_string(),
+            "Study mitochondria and cellular respiration mechanisms".to_string(),
+        ).await.unwrap();
+
+        // 2. Perform search matches
+        let res1 = search_notes("u-fts-user".to_string(), "team-fts".to_string(), "homework".to_string()).await.unwrap();
+        assert_eq!(res1.len(), 1);
+        assert_eq!(res1[0].id, note1.id);
+
+        let res2 = search_notes("u-fts-user".to_string(), "team-fts".to_string(), "mitochondria".to_string()).await.unwrap();
+        assert_eq!(res2.len(), 1);
+        assert_eq!(res2[0].id, note2.id);
+        // Verify snippet highlighting contains markdown bold '***'
+        assert!(res2[0].content.contains("***mitochondria***"));
+
+        // Verify query sanitization against special characters
+        let res_sanitized = search_notes("u-fts-user".to_string(), "team-fts".to_string(), "mitochondria : & OR *".to_string()).await.unwrap();
+        assert_eq!(res_sanitized.len(), 1);
+        assert_eq!(res_sanitized[0].id, note2.id);
+
+        // 3. Update note and verify index changes
+        let _updated = update_note(
+            "u-fts-user".to_string(),
+            note1.id.clone(),
+            "FTS User".to_string(),
+            "Math homework assignment".to_string(),
+            "Remember to complete exercise 9 instead".to_string(),
+        ).await.unwrap();
+
+        // Search old content (should be gone/not match)
+        let res3 = search_notes("u-fts-user".to_string(), "team-fts".to_string(), "exercises".to_string()).await.unwrap();
+        assert_eq!(res3.len(), 0);
+
+        // Search new content
+        let res4 = search_notes("u-fts-user".to_string(), "team-fts".to_string(), "exercise 9".to_string()).await.unwrap();
+        assert_eq!(res4.len(), 1);
+        assert_eq!(res4[0].id, note1.id);
+
+        // 4. Delete note and verify removal
+        delete_note("u-fts-user".to_string(), note1.id.clone()).await.unwrap();
+        let res5 = search_notes("u-fts-user".to_string(), "team-fts".to_string(), "exercise 9".to_string()).await.unwrap();
+        assert_eq!(res5.len(), 0);
+
+        // Cleanup
+        let _ = conn.execute("DELETE FROM note_updates WHERE note_id = ?1", crate::params![&note2.id]).await;
+        let _ = conn.execute("DELETE FROM notes WHERE workspace_id = ?1", crate::params![ws_id]).await;
+        let _ = conn.execute("DELETE FROM notes_fts WHERE id = ?1", crate::params![&note2.id]).await;
         conn.execute("DELETE FROM teams WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
         conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();

@@ -121,6 +121,13 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             FOREIGN KEY(author_id) REFERENCES users(id)
         );
 
+        CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
+            id UNINDEXED,
+            subject,
+            content_plain,
+            tokenize='unicode61'
+        );
+
         CREATE TABLE IF NOT EXISTS note_updates (
             id TEXT PRIMARY KEY,
             note_id TEXT NOT NULL,
@@ -184,6 +191,8 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             client_id TEXT NOT NULL,
             workspace_id TEXT NOT NULL DEFAULT 'workspace-1',
             content TEXT NOT NULL,
+            author_id TEXT,
+            created_at TEXT NOT NULL DEFAULT '',
             updated_at INTEGER NOT NULL DEFAULT 0,
             sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
             FOREIGN KEY(client_id) REFERENCES clients(id)
