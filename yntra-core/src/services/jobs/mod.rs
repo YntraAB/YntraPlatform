@@ -36,6 +36,8 @@ pub use billing::generate_move_invoice;
 pub use billing::get_move_invoice;
 pub use billing::pay_move_invoice;
 pub use billing::initiate_swish_payment;
+pub use billing::initiate_stripe_payment;
+pub use billing::initiate_adyen_payment;
 pub use billing::get_rut_invoices;
 pub use billing::export_skatteverket_claims;
 

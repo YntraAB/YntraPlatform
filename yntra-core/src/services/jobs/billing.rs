@@ -36,14 +36,55 @@ pub async fn generate_move_invoice(
 
     let customer_id = "client-1".to_string();
 
-    let subtotal = total_price;
-    let rut_deduction = if use_rut {
-        0.5 * (base_price + stairs_surcharge)
-    } else {
-        0.0
+    let settings_str: String = conn
+        .query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![&ws_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or_else(|_| "{}".to_string());
+    let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
+    
+    let target_region = settings_json
+        .get("target_region")
+        .and_then(|v| v.as_str())
+        .unwrap_or("SE")
+        .to_uppercase();
+
+    let currency = match target_region.as_str() {
+        "US" => "USD".to_string(),
+        "DE" => "EUR".to_string(),
+        _ => "SEK".to_string(),
     };
-    let customer_amount = subtotal - rut_deduction;
-    let tax_authority_amount = rut_deduction;
+
+    let subtotal = total_price;
+    let (rut_deduction, tax_authority_amount, customer_amount) = match target_region.as_str() {
+        "US" => {
+            let tax_rate = settings_json
+                .get("sales_tax_rate")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.08); // 8% sales tax
+            let tax = subtotal * tax_rate;
+            (0.0, tax, subtotal + tax)
+        }
+        "DE" => {
+            let vat_rate = settings_json
+                .get("vat_rate")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.19); // 19% VAT
+            let vat = subtotal * vat_rate;
+            (0.0, vat, subtotal + vat)
+        }
+        _ => {
+            let rut = if use_rut {
+                0.5 * (base_price + stairs_surcharge)
+            } else {
+                0.0
+            };
+            (rut, rut, subtotal - rut)
+        }
+    };
 
     let now = chrono::Utc::now();
     let invoice_date = now.format("%Y-%m-%d").to_string();
@@ -70,6 +111,7 @@ pub async fn generate_move_invoice(
         customer_amount,
         tax_authority_amount,
         status: "unpaid".to_string(),
+        currency,
     };
 
     conn.execute(
@@ -111,6 +153,28 @@ pub async fn get_move_invoice(
         if auth.workspace_id != ws_id {
             return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
         }
+        
+        let settings_str: String = conn
+            .query_row(
+                "SELECT settings FROM workspaces WHERE id = ?1",
+                crate::params![&ws_id],
+                |r| r.get(0),
+            )
+            .await
+            .unwrap_or_else(|_| "{}".to_string());
+        let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
+        let target_region = settings_json
+            .get("target_region")
+            .and_then(|v| v.as_str())
+            .unwrap_or("SE")
+            .to_uppercase();
+
+        let currency = match target_region.as_str() {
+            "US" => "USD".to_string(),
+            "DE" => "EUR".to_string(),
+            _ => "SEK".to_string(),
+        };
+
         Ok(Some(crate::models::MoveInvoice {
             id: row.get::<String>(0)?,
             workspace_id: ws_id,
@@ -123,6 +187,7 @@ pub async fn get_move_invoice(
             customer_amount: row.get::<f64>(7)?,
             tax_authority_amount: row.get::<f64>(8)?,
             status: row.get::<String>(9)?,
+            currency,
         }))
     } else {
         Ok(None)
@@ -443,5 +508,120 @@ pub async fn export_skatteverket_claims(
         xml.push_str("</BegaranFil>\n");
         Ok(xml)
     }
+}
+
+#[uniffi::export]
+pub async fn initiate_stripe_payment(
+    requester_user_id: String,
+    invoice_id: String,
+) -> Result<crate::models::StripePaymentSession, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    // 1. Fetch Invoice
+    let mut stmt = conn.prepare("SELECT workspace_id, customer_amount FROM move_invoices WHERE id = ?1").await?;
+    let mut rows = stmt.query(crate::params![&invoice_id]).await?;
+    let (ws_id, amount) = if let Some(row) = rows.next().await? {
+        let ws: String = row.get(0)?;
+        let amt: f64 = row.get(1)?;
+        if auth.workspace_id != ws {
+            return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        }
+        (ws, amt)
+    } else {
+        return Err(YntraError::NotFoundError("Invoice not found".to_string()));
+    };
+
+    // 2. Fetch Workspace settings
+    let settings_str: String = conn
+        .query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![&ws_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or_else(|_| "{}".to_string());
+    let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
+    
+    let target_region = settings_json
+        .get("target_region")
+        .and_then(|v| v.as_str())
+        .unwrap_or("SE")
+        .to_uppercase();
+
+    let currency = match target_region.as_str() {
+        "US" => "USD".to_string(),
+        "DE" => "EUR".to_string(),
+        _ => "SEK".to_string(),
+    };
+
+    let session_id = format!("cs_test_{}", uuid::Uuid::new_v4().simple());
+    let checkout_url = format!("https://checkout.stripe.com/pay/{}#client_secret=mock_secret", session_id);
+
+    Ok(crate::models::StripePaymentSession {
+        session_id,
+        checkout_url,
+        client_secret: Some(format!("mock_secret_{}", uuid::Uuid::new_v4().simple())),
+        amount,
+        currency,
+        status: "open".to_string(),
+    })
+}
+
+#[uniffi::export]
+pub async fn initiate_adyen_payment(
+    requester_user_id: String,
+    invoice_id: String,
+) -> Result<crate::models::AdyenPaymentSession, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    // 1. Fetch Invoice
+    let mut stmt = conn.prepare("SELECT workspace_id, customer_amount FROM move_invoices WHERE id = ?1").await?;
+    let mut rows = stmt.query(crate::params![&invoice_id]).await?;
+    let (ws_id, amount) = if let Some(row) = rows.next().await? {
+        let ws: String = row.get(0)?;
+        let amt: f64 = row.get(1)?;
+        if auth.workspace_id != ws {
+            return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        }
+        (ws, amt)
+    } else {
+        return Err(YntraError::NotFoundError("Invoice not found".to_string()));
+    };
+
+    // 2. Fetch Workspace settings
+    let settings_str: String = conn
+        .query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![&ws_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or_else(|_| "{}".to_string());
+    let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
+    
+    let target_region = settings_json
+        .get("target_region")
+        .and_then(|v| v.as_str())
+        .unwrap_or("SE")
+        .to_uppercase();
+
+    let currency = match target_region.as_str() {
+        "US" => "USD".to_string(),
+        "DE" => "EUR".to_string(),
+        _ => "SEK".to_string(),
+    };
+
+    let session_id = format!("adyen_session_{}", uuid::Uuid::new_v4().simple());
+    let session_data = base64_encode(format!("{{\"session_id\":\"{}\",\"amount\":{}}}", session_id, amount).as_bytes());
+
+    Ok(crate::models::AdyenPaymentSession {
+        session_id,
+        session_data,
+        amount,
+        currency,
+        status: "pending".to_string(),
+    })
 }
 
