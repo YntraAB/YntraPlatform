@@ -183,7 +183,7 @@ pub async fn create_move_inventory_item(
         ));
     }
 
-    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" || auth.role == "client" {
+    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" {
         return Err(YntraError::AuthError(
             "Access denied: insufficient permissions".to_string(),
         ));
@@ -231,7 +231,7 @@ pub async fn delete_move_inventory_item(
         ));
     }
 
-    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" || auth.role == "client" {
+    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" {
         return Err(YntraError::AuthError(
             "Access denied: insufficient permissions".to_string(),
         ));
@@ -277,7 +277,7 @@ pub async fn calculate_and_save_move_quote(
         ));
     }
 
-    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" || auth.role == "client" {
+    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" {
         return Err(YntraError::AuthError(
             "Access denied: insufficient permissions".to_string(),
         ));
@@ -323,8 +323,31 @@ pub async fn calculate_and_save_move_quote(
         .and_then(|v| v.as_f64())
         .unwrap_or(100.0);
 
-    // Base hourly/labor rate = total volume * base_rate_per_m3
-    let base_price = (total_volume * base_rate_per_m3) as i64;
+    // Base hourly/labor rate depending on configured pricing model
+    let pricing_model = settings_json
+        .get("moving_pricing_model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("volume");
+
+    let base_price = if pricing_model == "hourly" {
+        let hourly_rate = settings_json
+            .get("moving_hourly_rate")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(1200.0);
+        let hours_per_m3 = settings_json
+            .get("moving_hours_per_m3")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.15);
+        let minimum_hours = settings_json
+            .get("moving_minimum_hours")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(2.0);
+        let estimated_hours = (total_volume * hours_per_m3).max(minimum_hours);
+        (estimated_hours * hourly_rate) as i64
+    } else {
+        (total_volume * base_rate_per_m3) as i64
+    };
+
     // Flat distance rate
     let distance_fee = distance_fee_flat as i64;
     // Stairs surcharge (stairs_surcharge_per_floor per floor if no elevator)
