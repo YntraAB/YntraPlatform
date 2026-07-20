@@ -1,5 +1,6 @@
 use crate::database;
 use crate::infra::observer::notify_observers;
+use crate::services::notes::verify_zkp_if_encrypted;
 use crate::{
     StudentProfile, Assignment, Submission, AttendanceRecord, TermGrade, ReportCard,
     LibraryBook, SchoolInvoice, LibraryLendingLogInfo, HealthRecord, HealthIncident,
@@ -367,6 +368,14 @@ pub async fn save_student_profile(
     verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
     verify_school_permission(&auth, "can_manage_students")?;
 
+    let team_id = "";
+    verify_zkp_if_encrypted(&conn, &profile.first_name, &auth.user_id, &auth.role, &profile.workspace_id, team_id).await?;
+    verify_zkp_if_encrypted(&conn, &profile.last_name, &auth.user_id, &auth.role, &profile.workspace_id, team_id).await?;
+    verify_zkp_if_encrypted(&conn, &profile.grade_level, &auth.user_id, &auth.role, &profile.workspace_id, team_id).await?;
+    if let Some(ref contact) = profile.parent_contact {
+        verify_zkp_if_encrypted(&conn, contact, &auth.user_id, &auth.role, &profile.workspace_id, team_id).await?;
+    }
+
     let now_ms = crate::infra::time::get_current_time_ms();
 
     // Query existing record to check for offline concurrent modifications
@@ -387,8 +396,9 @@ pub async fn save_student_profile(
     let mut grade_level = profile.grade_level.clone();
     let mut parent_contact = profile.parent_contact.clone();
 
+    let incoming_updated_at = if profile.updated_at > now_ms + 5000 { now_ms } else { profile.updated_at };
     if let Some((old_first_name, old_last_name, old_grade, old_parent_contact, old_updated_at)) = existing {
-        if old_updated_at > profile.updated_at {
+        if old_updated_at > incoming_updated_at {
             let first_diff = old_first_name != profile.first_name;
             let last_diff = old_last_name != profile.last_name;
             let grade_diff = old_grade != profile.grade_level;
@@ -639,27 +649,42 @@ pub async fn save_submission(
         }
     }
 
+    let team_id = "";
+    verify_zkp_if_encrypted(&conn, &submission.content, &auth.user_id, &auth.role, &submission.workspace_id, team_id).await?;
+    if let Some(ref grade) = submission.grade {
+        verify_zkp_if_encrypted(&conn, grade, &auth.user_id, &auth.role, &submission.workspace_id, team_id).await?;
+    }
+    if let Some(ref feedback) = submission.feedback {
+        verify_zkp_if_encrypted(&conn, feedback, &auth.user_id, &auth.role, &submission.workspace_id, team_id).await?;
+    }
+
     let now_ms = crate::infra::time::get_current_time_ms();
 
-    // Query existing record to check for offline concurrent modifications
-    let existing: Option<(Option<String>, Option<String>, i64)> = {
+    // Query existing record to check for offline concurrent modifications and preserve encrypted content if modified by a grader
+    let existing: Option<(String, Option<String>, Option<String>, i64)> = {
         let mut stmt = conn
-            .prepare("SELECT grade, feedback, updated_at FROM submissions WHERE id = ?1")
+            .prepare("SELECT content, grade, feedback, updated_at FROM submissions WHERE id = ?1")
             .await?;
         let mut rows = stmt.query(crate::params![&submission.id]).await?;
         if let Some(row) = rows.next().await? {
-            Some((row.get(0)?, row.get(1)?, row.get(2)?))
+            Some((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
         } else {
             None
         }
     };
 
+    let mut content = submission.content.clone();
     let mut grade = submission.grade.clone();
     let mut feedback = submission.feedback.clone();
 
-    if let Some((old_grade, old_feedback, old_updated_at)) = existing {
+    let incoming_updated_at = if submission.updated_at > now_ms + 5000 { now_ms } else { submission.updated_at };
+    if let Some((old_content, old_grade, old_feedback, old_updated_at)) = existing {
+        if !content.starts_with("zero_copy_enc:") && old_content.starts_with("zero_copy_enc:") {
+            content = old_content;
+        }
+
         // If the DB version is newer than the incoming base version timestamp
-        if old_updated_at > submission.updated_at {
+        if old_updated_at > incoming_updated_at {
             let grade_diff = old_grade != submission.grade;
             let feedback_diff = old_feedback != submission.feedback;
 
@@ -699,7 +724,7 @@ pub async fn save_submission(
             &submission.workspace_id,
             &submission.assignment_id,
             &submission.student_id,
-            &submission.content,
+            &content,
             &grade,
             &feedback,
             &submission.submitted_at,
@@ -761,6 +786,11 @@ pub async fn save_attendance_record(
     verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
     verify_school_permission(&auth, "can_manage_schedule")?;
 
+    let team_id = "";
+    if let Some(ref notes) = record.notes {
+        verify_zkp_if_encrypted(&conn, notes, &auth.user_id, &auth.role, &record.workspace_id, team_id).await?;
+    }
+
     let now_ms = crate::infra::time::get_current_time_ms();
 
     // Query existing record to check for offline concurrent modifications
@@ -779,8 +809,9 @@ pub async fn save_attendance_record(
     let mut status = record.status.clone();
     let mut notes = record.notes.clone();
 
+    let incoming_updated_at = if record.updated_at > now_ms + 5000 { now_ms } else { record.updated_at };
     if let Some((old_status, old_notes, old_updated_at)) = existing {
-        if old_updated_at > record.updated_at {
+        if old_updated_at > incoming_updated_at {
             let status_diff = old_status != record.status;
             let notes_diff = old_notes != record.notes;
 
@@ -954,6 +985,14 @@ pub async fn save_term_grade(
     verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
     verify_school_permission(&auth, "can_manage_grades")?;
 
+    let team_id = "";
+    if let Some(ref final_g) = grade.final_grade {
+        verify_zkp_if_encrypted(&conn, final_g, &auth.user_id, &auth.role, &grade.workspace_id, team_id).await?;
+    }
+    if let Some(ref comments) = grade.teacher_comments {
+        verify_zkp_if_encrypted(&conn, comments, &auth.user_id, &auth.role, &grade.workspace_id, team_id).await?;
+    }
+
     let now_ms = crate::infra::time::get_current_time_ms();
 
     // Query existing record to check for offline concurrent modifications
@@ -973,9 +1012,10 @@ pub async fn save_term_grade(
     let mut final_points = grade.final_points.map(|p| p as i64);
     let mut teacher_comments = grade.teacher_comments.clone();
 
+    let incoming_updated_at = if grade.updated_at > now_ms + 5000 { now_ms } else { grade.updated_at };
     if let Some((old_grade, old_points, old_comments, old_updated_at)) = existing {
         // If the DB version is newer than the incoming base version timestamp
-        if old_updated_at > grade.updated_at {
+        if old_updated_at > incoming_updated_at {
             let grade_diff = old_grade != grade.final_grade;
             let points_diff = old_points != grade.final_points.map(|p| p as i64);
             let comments_diff = old_comments != grade.teacher_comments;
@@ -1045,6 +1085,11 @@ pub async fn publish_report_card(
 
     verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
     verify_school_permission(&auth, "can_publish_report_cards")?;
+
+    let team_id = "";
+    if let Some(ref comments) = report.principal_comments {
+        verify_zkp_if_encrypted(&conn, comments, &auth.user_id, &auth.role, &report.workspace_id, team_id).await?;
+    }
 
     let now_ms = crate::infra::time::get_current_time_ms();
     conn.execute(
@@ -1902,6 +1947,13 @@ pub async fn save_student_health_record(
         verify_school_permission(&auth, "can_access_health_records")?;
     }
 
+    let team_id = "";
+    verify_zkp_if_encrypted(&conn, &record.vaccine_name, &auth.user_id, &auth.role, &record.workspace_id, team_id).await?;
+    verify_zkp_if_encrypted(&conn, &record.status, &auth.user_id, &auth.role, &record.workspace_id, team_id).await?;
+    if let Some(ref admin_at) = record.administered_at {
+        verify_zkp_if_encrypted(&conn, admin_at, &auth.user_id, &auth.role, &record.workspace_id, team_id).await?;
+    }
+
     let now_ms = crate::infra::time::get_current_time_ms();
     conn.execute(
         "INSERT OR REPLACE INTO health_records (id, workspace_id, student_id, vaccine_name, status, administered_at, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending')",
@@ -1969,6 +2021,17 @@ pub async fn save_health_incident(
     verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
     verify_school_permission(&auth, "can_access_health_records")?;
 
+    let team_id = "";
+    verify_zkp_if_encrypted(&conn, &incident.visit_reason, &auth.user_id, &auth.role, &incident.workspace_id, team_id).await?;
+    verify_zkp_if_encrypted(&conn, &incident.treatment, &auth.user_id, &auth.role, &incident.workspace_id, team_id).await?;
+    verify_zkp_if_encrypted(&conn, &incident.checked_in_at, &auth.user_id, &auth.role, &incident.workspace_id, team_id).await?;
+    if let Some(ref out_at) = incident.checked_out_at {
+        verify_zkp_if_encrypted(&conn, out_at, &auth.user_id, &auth.role, &incident.workspace_id, team_id).await?;
+    }
+    if let Some(ref notes) = incident.notes {
+        verify_zkp_if_encrypted(&conn, notes, &auth.user_id, &auth.role, &incident.workspace_id, team_id).await?;
+    }
+
     let now_ms = crate::infra::time::get_current_time_ms();
 
     // Query existing record to check for offline concurrent modifications
@@ -1990,8 +2053,9 @@ pub async fn save_health_incident(
     let mut checked_out_at = incident.checked_out_at.clone();
     let mut notes = incident.notes.clone();
 
+    let incoming_updated_at = if incident.updated_at > now_ms + 5000 { now_ms } else { incident.updated_at };
     if let Some((old_reason, old_treatment, old_in_at, old_out_at, old_notes, old_updated_at)) = existing {
-        if old_updated_at > incident.updated_at {
+        if old_updated_at > incoming_updated_at {
             let reason_diff = old_reason != incident.visit_reason;
             let treatment_diff = old_treatment != incident.treatment;
             let in_diff = old_in_at != incident.checked_in_at;
@@ -2160,8 +2224,9 @@ pub async fn save_timetable_slot(
     let mut end_time = slot.end_time.clone();
     let mut classroom = slot.classroom.clone();
 
+    let incoming_updated_at = if slot.updated_at > now_ms + 5000 { now_ms } else { slot.updated_at };
     if let Some((old_course_id, old_day_of_week, old_start_time, old_end_time, old_classroom, old_updated_at)) = existing {
-        if old_updated_at > slot.updated_at {
+        if old_updated_at > incoming_updated_at {
             let course_diff = old_course_id != slot.course_id;
             let day_diff = old_day_of_week != slot.day_of_week as i64;
             let start_diff = old_start_time != slot.start_time;
