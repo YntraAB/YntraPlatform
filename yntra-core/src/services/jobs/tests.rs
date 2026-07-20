@@ -286,6 +286,7 @@ async fn test_scheduling_and_sync() {
                 origin_parking_permit_needed: false,
                 destination_parking_permit_needed: false,
                 assigned_vehicle_id: None,
+                route_stops_json: None,
             }),
         )
         .await
@@ -709,3 +710,476 @@ async fn test_gps_routing_urls() {
     conn.execute("DELETE FROM users WHERE workspace_id = 'ws-gps-test'", ()).await.unwrap();
     conn.execute("DELETE FROM workspaces WHERE id = 'ws-gps-test'", ()).await.unwrap();
 }
+
+#[tokio::test]
+async fn test_client_self_service_inventory_flow() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    // 1. Setup workspace and a client user
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-client-inv-test', 'Client Inv WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-client-inv', 'ws-client-inv-test', 'client@selfservice.se', 'client')", ()).await.unwrap();
+
+    // 2. Create a job ticket (staff creator or admin, but assigned to client)
+    let job = create_job_ticket(
+        "u-client-inv".to_string(), // In this mock setup, we authorize the create with the client's ID
+        "ws-client-inv-test".to_string(),
+        "Client Relocation".to_string(),
+        "Self service inventory".to_string(),
+        "Client Home 1".to_string(),
+        "medium".to_string(),
+        Some("u-client-inv".to_string()),
+        "2026-09-10".to_string(),
+        "[]".to_string(),
+        Some("Client Home 1".to_string()),
+        Some("New Apartment 2".to_string()),
+        1,      // origin floor
+        2,      // destination floor
+        true,   // origin elevator
+        false,  // destination elevator (no elevator)
+        false,
+        false,
+    )
+    .await
+    .unwrap();
+
+    // 3. Client adds a Sofa (Qty 1, Vol 1.5 m3)
+    create_move_inventory_item(
+        "u-client-inv".to_string(),
+        job.id.clone(),
+        "Möbler".to_string(),
+        "Soffa".to_string(),
+        1,
+        1.5,
+        Some("Tung soffa".to_string()),
+    )
+    .await
+    .unwrap();
+
+    // 4. Client adds a Box (Qty 10, Vol 0.1 m3)
+    create_move_inventory_item(
+        "u-client-inv".to_string(),
+        job.id.clone(),
+        "Kartonger".to_string(),
+        "Kartong".to_string(),
+        10,
+        0.1,
+        None,
+    )
+    .await
+    .unwrap();
+
+    // 5. Verify inventory has been successfully created
+    let inv = get_move_inventory("u-client-inv".to_string(), job.id.clone())
+        .await
+        .unwrap();
+    assert_eq!(inv.len(), 2);
+    assert!(inv.iter().any(|i| i.item_name == "Soffa" && i.quantity == 1));
+    assert!(inv.iter().any(|i| i.item_name == "Kartong" && i.quantity == 10));
+
+    // 6. Client calculates quote
+    calculate_and_save_move_quote("u-client-inv".to_string(), job.id.clone())
+        .await
+        .unwrap();
+
+    let quote_opt = get_move_quote("u-client-inv".to_string(), job.id.clone())
+        .await
+        .unwrap();
+    assert!(quote_opt.is_some());
+    let q = quote_opt.unwrap();
+
+    // Total Volume = 1.5 * 1 + 0.1 * 10 = 2.5 m3
+    // Base Price = 2.5 * 500 = 1250 SEK
+    // Distance Fee = 800 SEK
+    // Stairs Surcharge = 2 floors * 300 SEK (destination floor 2, no elevator) = 600 SEK
+    // Packing supplies fee = 2.5 * 100 = 250 SEK
+    // Total = 1250 + 800 + 600 + 250 = 2900 SEK
+    assert_eq!(q.base_price, 1250);
+    assert_eq!(q.distance_fee, 800);
+    assert_eq!(q.stairs_surcharge, 600);
+    assert_eq!(q.packing_supplies_fee, 250);
+    assert_eq!(q.total_price, 2900);
+
+    // 7. Client deletes Sofa
+    let sofa_item = inv.iter().find(|i| i.item_name == "Soffa").unwrap();
+    delete_move_inventory_item("u-client-inv".to_string(), sofa_item.id.clone())
+        .await
+        .unwrap();
+
+    // 8. Verify count decreased
+    let inv_after = get_move_inventory("u-client-inv".to_string(), job.id.clone())
+        .await
+        .unwrap();
+    assert_eq!(inv_after.len(), 1);
+    assert_eq!(inv_after[0].item_name, "Kartong");
+
+    // Cleanup
+    conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = ?1", crate::params![&job.id]).await.ok();
+    conn.execute("DELETE FROM move_quotes WHERE job_ticket_id = ?1", crate::params![&job.id]).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE id = ?1", crate::params![&job.id]).await.unwrap();
+    conn.execute("DELETE FROM users WHERE id = 'u-client-inv'", ()).await.unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-client-inv-test'", ()).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_hourly_pricing_calculations() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    // 1. Setup workspace with custom hourly settings
+    let settings = r#"{"moving_pricing_model":"hourly","moving_hourly_rate":1500.0,"moving_hours_per_m3":0.2,"moving_minimum_hours":3.0,"moving_distance_fee_flat":500.0}"#;
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-hourly-test', 'Hourly Test WS', '[\"moving_company\"]', ?1)", crate::params![settings]).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-hourly-staff', 'ws-hourly-test', 'staff@hourly.io', 'admin')", ()).await.unwrap();
+
+    // 2. Create a job ticket (ground floor, no stairs surcharge)
+    let job = create_job_ticket(
+        "u-hourly-staff".to_string(),
+        "ws-hourly-test".to_string(),
+        "Hourly Relocation".to_string(),
+        "Testing hourly calculator".to_string(),
+        "Office 1".to_string(),
+        "medium".to_string(),
+        None,
+        "2026-09-12".to_string(),
+        "[]".to_string(),
+        Some("Office 1".to_string()),
+        Some("Office 2".to_string()),
+        0,      // origin floor
+        0,      // destination floor
+        true,   // origin elevator
+        true,   // destination elevator
+        false,
+        false,
+    )
+    .await
+    .unwrap();
+
+    // 3. Add inventory items: Qty 5, Vol 2.0 m3 each => Total Volume = 10.0 m3
+    create_move_inventory_item(
+        "u-hourly-staff".to_string(),
+        job.id.clone(),
+        "Möbler".to_string(),
+        "Bord".to_string(),
+        5,
+        2.0,
+        None,
+    )
+    .await
+    .unwrap();
+
+    // 4. Calculate Quote
+    calculate_and_save_move_quote("u-hourly-staff".to_string(), job.id.clone())
+        .await
+        .unwrap();
+
+    let quote_opt = get_move_quote("u-hourly-staff".to_string(), job.id.clone())
+        .await
+        .unwrap();
+    assert!(quote_opt.is_some());
+    let q = quote_opt.unwrap();
+
+    // Total = 4500 + 500 + 1000 (packing supplies) = 6000 SEK
+    assert_eq!(q.base_price, 4500);
+    assert_eq!(q.distance_fee, 500);
+    assert_eq!(q.total_price, 6000);
+
+    // 5. Add more items to exceed the minimum hours
+    // Add Qty 10, Vol 2.0 m3 each => Extra 20 m3 => Total Volume = 30.0 m3
+    create_move_inventory_item(
+        "u-hourly-staff".to_string(),
+        job.id.clone(),
+        "Möbler".to_string(),
+        "Skåp".to_string(),
+        10,
+        2.0,
+        None,
+    )
+    .await
+    .unwrap();
+
+    // Recalculate
+    calculate_and_save_move_quote("u-hourly-staff".to_string(), job.id.clone())
+        .await
+        .unwrap();
+
+    let q_updated = get_move_quote("u-hourly-staff".to_string(), job.id.clone())
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Total = 9000 + 500 + 3000 (packing supplies) = 12500 SEK
+    assert_eq!(q_updated.base_price, 9000);
+    assert_eq!(q_updated.total_price, 12500);
+
+    // Cleanup
+    conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = ?1", crate::params![&job.id]).await.ok();
+    conn.execute("DELETE FROM move_quotes WHERE job_ticket_id = ?1", crate::params![&job.id]).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE id = ?1", crate::params![&job.id]).await.unwrap();
+    conn.execute("DELETE FROM users WHERE id = 'u-hourly-staff'", ()).await.unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-hourly-test'", ()).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_swish_payment_flow() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    // 1. Setup workspace & user
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-swish-test', 'Swish Test WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-swish-client', 'ws-swish-test', 'client@swish.io', 'client')", ()).await.unwrap();
+
+    // 2. Create job ticket & quote & invoice
+    let job = create_job_ticket(
+        "u-swish-client".to_string(),
+        "ws-swish-test".to_string(),
+        "Swish Job".to_string(),
+        "Testing Swish payment integration".to_string(),
+        "Address 1".to_string(),
+        "medium".to_string(),
+        None,
+        "2026-09-12".to_string(),
+        "[]".to_string(),
+        Some("Address 1".to_string()),
+        Some("Address 2".to_string()),
+        0, 0, true, true, false, false,
+    )
+    .await
+    .unwrap();
+
+    // Insert dummy quote
+    let quote_id = "q-swish-test".to_string();
+    conn.execute(
+        "INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at) VALUES (?1, 'ws-swish-test', ?2, 1000.0, 500.0, 0.0, 0.0, 1500.0, 'accepted', 0)",
+        crate::params![&quote_id, &job.id],
+    )
+    .await
+    .unwrap();
+
+    // 3. Generate invoice
+    let inv = generate_move_invoice("u-swish-client".to_string(), quote_id, false)
+        .await
+        .unwrap();
+
+    // 4. Initiate Swish Payment Session
+    let session = initiate_swish_payment("u-swish-client".to_string(), inv.id.clone())
+        .await
+        .unwrap();
+
+    assert_eq!(session.amount, 1500.0);
+    assert_eq!(session.status, "pending");
+    assert!(session.swish_url.contains("swish://paymentrequest?token="));
+    assert!(session.qr_code_base64.contains("data:image/svg+xml;base64,"));
+
+    // 5. Complete payment using pay_move_invoice
+    pay_move_invoice("u-swish-client".to_string(), inv.id.clone())
+        .await
+        .unwrap();
+
+    let inv_after = get_move_invoice("u-swish-client".to_string(), "q-swish-test".to_string())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(inv_after.status, "paid");
+
+    // Cleanup
+    conn.execute("DELETE FROM move_invoices WHERE id = ?1", crate::params![&inv.id]).await.ok();
+    conn.execute("DELETE FROM move_quotes WHERE job_ticket_id = ?1", crate::params![&job.id]).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE id = ?1", crate::params![&job.id]).await.unwrap();
+    conn.execute("DELETE FROM users WHERE id = 'u-swish-client'", ()).await.unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-swish-test'", ()).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_skatteverket_rut_export_flow() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    // 1. Setup workspace & user with personal number
+    let settings = serde_json::json!({
+        "company_org_number": "556999-9999",
+        "moving_pricing_model": "hourly",
+        "moving_hourly_rate": 1000.0,
+        "moving_hours_per_m3": 0.2,
+        "moving_minimum_hours": 3.0
+    }).to_string();
+
+    conn.execute(
+        "INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-rut-test', 'RUT Test WS', '[\"moving_company\"]', ?1)",
+        crate::params![&settings]
+    ).await.unwrap();
+
+    let client_metadata = serde_json::json!({
+        "personal_number": "19880808-8888"
+    }).to_string();
+
+    conn.execute(
+        "INSERT OR REPLACE INTO users (id, workspace_id, email, role, full_name, metadata) VALUES ('client-1', 'ws-rut-test', 'client@rut.se', 'client', 'Anna Andersson', ?1)",
+        crate::params![&client_metadata]
+    ).await.unwrap();
+
+    // 2. Create job ticket, quote, and invoice
+    let job = create_job_ticket(
+        "client-1".to_string(),
+        "ws-rut-test".to_string(),
+        "RUT Job".to_string(),
+        "Testing Skatteverket export".to_string(),
+        "Address 1".to_string(),
+        "medium".to_string(),
+        None,
+        "2026-10-15".to_string(),
+        "[]".to_string(),
+        Some("Address 1".to_string()),
+        Some("Address 2".to_string()),
+        0, 0, true, true, false, false,
+    )
+    .await
+    .unwrap();
+
+    // Insert quote with base_price = 1200, stairs = 0, packing = 0. Total = 1200.
+    // Use RUT deduction
+    let quote_id = "q-rut-test".to_string();
+    conn.execute(
+        "INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at) VALUES (?1, 'ws-rut-test', ?2, 1200.0, 0.0, 0.0, 0.0, 1200.0, 'accepted', 0)",
+        crate::params![&quote_id, &job.id],
+    )
+    .await
+    .unwrap();
+
+    // Generate invoice with use_rut = true
+    let inv = generate_move_invoice("client-1".to_string(), quote_id, true)
+        .await
+        .unwrap();
+
+    // Assert RUT values: 50% of (base + stairs) = 50% of 1200 = 600.
+    assert_eq!(inv.rut_deduction, 600.0);
+    assert_eq!(inv.customer_amount, 600.0);
+
+    // Pay invoice
+    pay_move_invoice("client-1".to_string(), inv.id.clone())
+        .await
+        .unwrap();
+
+    // 3. Query RUT invoices listing
+    let list = get_rut_invoices("client-1".to_string())
+        .await
+        .unwrap();
+    
+    let overview = list.iter().find(|i| i.invoice_id == inv.id).unwrap();
+    assert_eq!(overview.customer_name, "Anna Andersson");
+    assert_eq!(overview.customer_pnum, "19880808-8888");
+    assert_eq!(overview.rut_amount, 600.0);
+    assert_eq!(overview.status, "paid");
+
+    // 4. Export XML
+    let xml = export_skatteverket_claims("client-1".to_string(), vec![inv.id.clone()], "xml".to_string())
+        .await
+        .unwrap();
+    
+    assert!(xml.contains("<BegaranFil xmlns=\"http://xmls.skatteverket.se/se/skatteverket/us/omr/rotrut/begaran/6.0\">"));
+    assert!(xml.contains("<UtforareOrgNr>556999-9999</UtforareOrgNr>"));
+    assert!(xml.contains("<KoparePersnr>19880808-8888</KoparePersnr>"));
+    assert!(xml.contains("<BegartBelopp>600</BegartBelopp>"));
+    assert!(xml.contains("<RutArbete>"));
+    assert!(xml.contains("<Flyttjanster>2</Flyttjanster>")); // 1200 / 600 = 2 hours
+
+    // 5. Export CSV
+    let csv = export_skatteverket_claims("client-1".to_string(), vec![inv.id.clone()], "csv".to_string())
+        .await
+        .unwrap();
+    
+    assert!(csv.contains("InvoiceID,OrgNr,KoparePersnr,BetalningsDatum,Arbetskostnad,BegartBelopp,ArbetadeTimmar,FlyttjansterHours"));
+    assert!(csv.contains("556999-9999,19880808-8888"));
+    assert!(csv.contains(",1200,600,2,2"));
+
+    // Cleanup
+    conn.execute("DELETE FROM move_invoices WHERE id = ?1", crate::params![&inv.id]).await.ok();
+    conn.execute("DELETE FROM move_quotes WHERE job_ticket_id = ?1", crate::params![&job.id]).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE id = ?1", crate::params![&job.id]).await.unwrap();
+    conn.execute("DELETE FROM users WHERE id = 'client-1'", ()).await.unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-rut-test'", ()).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_multi_stop_route_optimization() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    // 1. Setup workspace & user
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-route-test', 'Route Test WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-route-staff', 'ws-route-test', 'staff@route.io', 'admin')", ()).await.unwrap();
+
+    // 2. Create job ticket
+    let job = create_job_ticket(
+        "u-route-staff".to_string(),
+        "ws-route-test".to_string(),
+        "Relocation route".to_string(),
+        "Testing TSP optimization".to_string(),
+        "Recycling Center".to_string(),
+        "medium".to_string(),
+        None,
+        "2026-08-15".to_string(),
+        "[]".to_string(),
+        Some("Warehouse".to_string()),
+        Some("Drop-off B".to_string()),
+        0,
+        0,
+        false,
+        false,
+        false,
+        false,
+    )
+    .await
+    .unwrap();
+
+    // Verify initial stops
+    assert_eq!(job.route_stops_json, Some("[]".to_string()));
+
+    // 3. Update route stops
+    let stops = vec![
+        "Recycling Center".to_string(),
+        "Pickup A".to_string(),
+    ];
+    update_route_stops("u-route-staff".to_string(), job.id.clone(), stops.clone())
+        .await
+        .unwrap();
+
+    // Reload job and check stops
+    let tickets = get_job_tickets("u-route-staff".to_string()).await.unwrap();
+    let reloaded = tickets.iter().find(|t| t.id == job.id).unwrap();
+    assert_eq!(
+        reloaded.route_stops_json.as_deref(),
+        Some("[\"Recycling Center\",\"Pickup A\"]")
+    );
+
+    // 4. Optimize stops
+    let optimized = optimize_job_route("u-route-staff".to_string(), job.id.clone())
+        .await
+        .unwrap();
+    
+    assert_eq!(optimized.len(), 2);
+    let tickets2 = get_job_tickets("u-route-staff".to_string()).await.unwrap();
+    let reloaded2 = tickets2.iter().find(|t| t.id == job.id).unwrap();
+    let reloaded_stops: Vec<String> = serde_json::from_str(reloaded2.route_stops_json.as_deref().unwrap()).unwrap();
+    assert_eq!(reloaded_stops, optimized);
+
+    // 5. Directions URL verification
+    let directions_url = get_directions_url("u-route-staff".to_string(), job.id.clone())
+        .await
+        .unwrap();
+    
+    assert!(directions_url.contains("origin=Warehouse"));
+    assert!(directions_url.contains("destination=Drop-off%20B"));
+    assert!(directions_url.contains("waypoints="));
+    assert!(directions_url.contains("Recycling%20Center"));
+    assert!(directions_url.contains("Pickup%20A"));
+
+    // Cleanup
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-route-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-route-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-route-test'", ()).await.unwrap();
+}
+
+
+
+

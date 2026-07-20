@@ -17,6 +17,60 @@ fn urlencode(s: &str) -> String {
     encoded
 }
 
+pub fn mock_geocode(address: &str) -> (f64, f64) {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    address.hash(&mut hasher);
+    let hash = hasher.finish();
+    // Stockholm region coordinates mockup
+    let lat = 59.3293 + ((hash & 0xFFFF) as f64 / 65535.0) * 0.2 - 0.1;
+    let lng = 18.0686 + (((hash >> 16) & 0xFFFF) as f64 / 65535.0) * 0.2 - 0.1;
+    (lat, lng)
+}
+
+pub fn optimize_route(
+    origin: &str,
+    destination: &str,
+    intermediate_stops: &[String],
+) -> Vec<String> {
+    if intermediate_stops.is_empty() {
+        return Vec::new();
+    }
+
+    let origin_coords = mock_geocode(origin);
+    let mut unvisited: Vec<((f64, f64), String)> = intermediate_stops
+        .iter()
+        .map(|s| (mock_geocode(s), s.clone()))
+        .collect();
+
+    let mut current_pos = origin_coords;
+    let mut optimized = Vec::new();
+
+    while !unvisited.is_empty() {
+        let mut nearest_idx = 0;
+        let mut min_dist = f64::MAX;
+
+        for (idx, (coords, _)) in unvisited.iter().enumerate() {
+            let dist = {
+                let dx = current_pos.0 - coords.0;
+                let dy = current_pos.1 - coords.1;
+                (dx * dx + dy * dy).sqrt()
+            };
+            if dist < min_dist {
+                min_dist = dist;
+                nearest_idx = idx;
+            }
+        }
+
+        let (_, stop) = unvisited.remove(nearest_idx);
+        current_pos = mock_geocode(&stop);
+        optimized.push(stop);
+    }
+
+    optimized
+}
+
 #[uniffi::export]
 pub async fn get_directions_url(
     requester_user_id: String,
@@ -27,7 +81,7 @@ pub async fn get_directions_url(
 
     let job: JobTicket = conn
         .query_row(
-            "SELECT id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed, assigned_vehicle_id FROM job_tickets WHERE id = ?1",
+            "SELECT id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed, assigned_vehicle_id, route_stops_json FROM job_tickets WHERE id = ?1",
             crate::params![&job_id],
             |row| {
                 Ok(JobTicket {
@@ -54,6 +108,7 @@ pub async fn get_directions_url(
                     origin_parking_permit_needed: row.get::<bool>(20)?,
                     destination_parking_permit_needed: row.get::<bool>(21)?,
                     assigned_vehicle_id: row.get::<Option<String>>(22)?,
+                    route_stops_json: row.get::<Option<String>>(23)?,
                 })
             },
         )
@@ -76,16 +131,50 @@ pub async fn get_directions_url(
     let dest = job.destination_address.filter(|s| !s.trim().is_empty())
         .unwrap_or(job.location_address);
 
+    let stops_str = job.route_stops_json.unwrap_or_else(|| "[]".to_string());
+    let stops: Vec<String> = serde_json::from_str(&stops_str).unwrap_or_default();
+
     let url = match origin {
-        Some(org) => format!(
-            "https://www.google.com/maps/dir/?api=1&origin={}&destination={}",
-            urlencode(&org),
-            urlencode(&dest)
-        ),
-        None => format!(
-            "https://www.google.com/maps/dir/?api=1&destination={}",
-            urlencode(&dest)
-        ),
+        Some(org) => {
+            if stops.is_empty() {
+                format!(
+                    "https://www.google.com/maps/dir/?api=1&origin={}&destination={}",
+                    urlencode(&org),
+                    urlencode(&dest)
+                )
+            } else {
+                let waypoints_str = stops
+                    .iter()
+                    .map(|s| urlencode(s))
+                    .collect::<Vec<String>>()
+                    .join("%7C");
+                format!(
+                    "https://www.google.com/maps/dir/?api=1&origin={}&destination={}&waypoints={}",
+                    urlencode(&org),
+                    urlencode(&dest),
+                    waypoints_str
+                )
+            }
+        }
+        None => {
+            if stops.is_empty() {
+                format!(
+                    "https://www.google.com/maps/dir/?api=1&destination={}",
+                    urlencode(&dest)
+                )
+            } else {
+                let waypoints_str = stops
+                    .iter()
+                    .map(|s| urlencode(s))
+                    .collect::<Vec<String>>()
+                    .join("%7C");
+                format!(
+                    "https://www.google.com/maps/dir/?api=1&destination={}&waypoints={}",
+                    urlencode(&dest),
+                    waypoints_str
+                )
+            }
+        }
     };
 
     Ok(url)

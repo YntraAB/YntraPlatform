@@ -33,7 +33,7 @@ pub async fn get_job_tickets(requester_user_id: String) -> Result<Vec<JobTicket>
     }
 
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed, assigned_vehicle_id FROM job_tickets WHERE workspace_id = ?1",
+        "SELECT id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed, assigned_vehicle_id, route_stops_json FROM job_tickets WHERE workspace_id = ?1",
     ).await?;
 
     let list = stmt
@@ -62,6 +62,7 @@ pub async fn get_job_tickets(requester_user_id: String) -> Result<Vec<JobTicket>
                 origin_parking_permit_needed: row.get::<bool>(20)?,
                 destination_parking_permit_needed: row.get::<bool>(21)?,
                 assigned_vehicle_id: row.get::<Option<String>>(22)?,
+                route_stops_json: row.get::<Option<String>>(23)?,
             })
         })
         .await?;
@@ -124,6 +125,7 @@ pub async fn create_job_ticket(
         origin_parking_permit_needed,
         destination_parking_permit_needed,
         assigned_vehicle_id: None,
+        route_stops_json: Some("[]".to_string()),
     };
 
     let conn = database::acquire_connection().await?;
@@ -142,7 +144,7 @@ pub async fn create_job_ticket(
     }
 
     conn.execute(
-        "INSERT INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed, assigned_vehicle_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+        "INSERT INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed, assigned_vehicle_id, route_stops_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
         crate::params![
             job.id,
             job.workspace_id,
@@ -166,7 +168,8 @@ pub async fn create_job_ticket(
             job.destination_has_elevator,
             job.origin_parking_permit_needed,
             job.destination_parking_permit_needed,
-            job.assigned_vehicle_id
+            job.assigned_vehicle_id,
+            job.route_stops_json
         ],
     ).await?;
     Ok(job)
@@ -340,4 +343,132 @@ pub async fn get_job_tickets_rkyv(requester_user_id: String) -> Result<Vec<u8>, 
     let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&tickets)
         .map_err(|e| YntraError::SerializationError(e.to_string()))?;
     Ok(bytes.into_vec())
+}
+
+#[uniffi::export]
+pub async fn update_route_stops(
+    requester_user_id: String,
+    job_id: String,
+    stops: Vec<String>,
+) -> Result<(), YntraError> {
+    let now_ms = crate::infra::time::get_current_time_ms();
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let job_ws: String = conn
+        .query_row(
+            "SELECT workspace_id FROM job_tickets WHERE id = ?1",
+            crate::params![&job_id],
+            |r| r.get(0),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
+
+    if auth.workspace_id != job_ws {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    if !is_staff(&auth) {
+        return Err(YntraError::AuthError(
+            "Access denied: only staff can modify route stops".to_string(),
+        ));
+    }
+
+    let stops_json = serde_json::to_string(&stops)
+        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+
+    conn.execute(
+        "UPDATE job_tickets SET route_stops_json = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
+        crate::params![stops_json, now_ms, job_id],
+    ).await?;
+
+    notify_observers();
+    Ok(())
+}
+
+#[uniffi::export]
+pub async fn optimize_job_route(
+    requester_user_id: String,
+    job_id: String,
+) -> Result<Vec<String>, YntraError> {
+    let now_ms = crate::infra::time::get_current_time_ms();
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    // Load the job ticket
+    let job: JobTicket = conn
+        .query_row(
+            "SELECT id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed, assigned_vehicle_id, route_stops_json FROM job_tickets WHERE id = ?1",
+            crate::params![&job_id],
+            |row| {
+                Ok(JobTicket {
+                    id: row.get(0)?,
+                    workspace_id: row.get(1)?,
+                    title: row.get(2)?,
+                    description: row.get(3)?,
+                    location_address: row.get(4)?,
+                    priority: row.get(5)?,
+                    status: row.get(6)?,
+                    assigned_user_id: row.get(7)?,
+                    scheduled_date: row.get(8)?,
+                    checklist_json: row.get(9)?,
+                    completion_report: row.get(10)?,
+                    created_at: row.get(11)?,
+                    updated_at: row.get(12)?,
+                    sync_status: row.get(13)?,
+                    origin_address: row.get(14)?,
+                    destination_address: row.get(15)?,
+                    origin_floor: row.get(16)?,
+                    destination_floor: row.get(17)?,
+                    origin_has_elevator: row.get::<bool>(18)?,
+                    destination_has_elevator: row.get::<bool>(19)?,
+                    origin_parking_permit_needed: row.get::<bool>(20)?,
+                    destination_parking_permit_needed: row.get::<bool>(21)?,
+                    assigned_vehicle_id: row.get::<Option<String>>(22)?,
+                    route_stops_json: row.get::<Option<String>>(23)?,
+                })
+            },
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
+
+    if auth.workspace_id != job.workspace_id {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    if !is_staff(&auth) {
+        return Err(YntraError::AuthError(
+            "Access denied: only staff can optimize route".to_string(),
+        ));
+    }
+
+    let origin = job.origin_address.clone().filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| job.location_address.clone());
+    let destination = job.destination_address.clone().filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| job.location_address.clone());
+
+    let stops_str = job.route_stops_json.clone().unwrap_or_else(|| "[]".to_string());
+    let stops: Vec<String> = serde_json::from_str(&stops_str)
+        .unwrap_or_default();
+
+    if stops.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let optimized_stops = super::routing::optimize_route(&origin, &destination, &stops);
+
+    let optimized_json = serde_json::to_string(&optimized_stops)
+        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+
+    conn.execute(
+        "UPDATE job_tickets SET route_stops_json = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
+        crate::params![optimized_json, now_ms, job_id],
+    ).await?;
+
+    notify_observers();
+    Ok(optimized_stops)
 }

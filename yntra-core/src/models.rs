@@ -441,6 +441,7 @@ pub struct JobTicket {
     pub origin_parking_permit_needed: bool,
     pub destination_parking_permit_needed: bool,
     pub assigned_vehicle_id: Option<String>,
+    pub route_stops_json: Option<String>,
 }
 
 #[derive(
@@ -618,6 +619,50 @@ pub struct MoveInvoice {
 }
 
 #[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct SwishPaymentSession {
+    pub token: String,
+    pub swish_url: String,
+    pub qr_code_base64: String,
+    pub amount: f64,
+    pub status: String,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct RutInvoiceOverview {
+    pub invoice_id: String,
+    pub job_title: String,
+    pub customer_name: String,
+    pub customer_pnum: String,
+    pub payment_date: String,
+    pub rut_amount: f64,
+    pub status: String,
+}
+
+#[derive(
+
+
     uniffi::Record,
     Archive,
     Serialize,

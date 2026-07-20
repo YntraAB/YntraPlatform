@@ -4,6 +4,52 @@ use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::{JobTicket, MoveInventoryItem, MoveQuote};
 
+fn trigger_download(content: &str, file_name: &str) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let base64_str = crate::views::school::academics::utils::base64_encode(content.as_bytes());
+        let js_code = format!(
+            r#"
+            (function() {{
+                const base64 = "{}";
+                const filename = "{}";
+                const binString = atob(base64);
+                const bytes = Uint8Array.from(binString, (m) => m.codePointAt(0));
+                const blob = new Blob([bytes], {{ type: "application/octet-stream" }});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }})();
+            "#,
+            base64_str, file_name
+        );
+        let _ = js_sys::eval(&js_code);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let home_dir = std::env::var("USERPROFILE")
+            .or_else(|_| std::env::var("HOME"))
+            .unwrap_or_else(|_| ".".to_string());
+        let paths = vec![
+            format!("{}/Desktop", home_dir),
+            format!("{}/Downloads", home_dir),
+            home_dir.clone(),
+        ];
+        for path in paths {
+            let file_path = std::path::PathBuf::from(&path).join(file_name);
+            if std::fs::write(&file_path, content).is_ok() {
+                break;
+            }
+        }
+    }
+}
+
 #[derive(Props, Clone, PartialEq)]
 pub struct JobDetailsProps {
     pub job: JobTicket,
@@ -46,13 +92,40 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
     });
     let invoice = invoice_res.read().clone().flatten();
 
+    let mut new_stop_address = use_signal(String::new);
+    let uid_for_dir = active_user_id.clone();
+    let jid_for_dir = job.id.clone();
+    let directions_res = use_resource(move || {
+        let _ = db_trig_val;
+        let uid = uid_for_dir.clone();
+        let jid = jid_for_dir.clone();
+        async move {
+            yntra_core::get_directions_url(uid, jid).await.ok()
+        }
+    });
+
     let state = use_context::<crate::state::AppState>();
     let workspace_opt = state.workspace.read().clone();
-    let modules_active_val: serde_json::Value = if let Some(ws) = workspace_opt {
+    let modules_active_val: serde_json::Value = if let Some(ref ws) = workspace_opt {
         serde_json::from_str(&ws.modules_active).unwrap_or_default()
     } else {
         serde_json::from_str("{\"todos\":true,\"notes\":true,\"reporting\":true}").unwrap()
     };
+    let settings_json: serde_json::Value = if let Some(ref ws) = workspace_opt {
+        serde_json::from_str(&ws.settings).unwrap_or_default()
+    } else {
+        serde_json::Value::Null
+    };
+    let pricing_model = settings_json
+        .get("moving_pricing_model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("volume")
+        .to_string();
+    let hourly_rate = settings_json
+        .get("moving_hourly_rate")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(1200.0);
+    let hours = quote.as_ref().map(|q| q.base_price as f64 / hourly_rate).unwrap_or(0.0);
     let todos_enabled = modules_active_val
         .get("todos")
         .and_then(|v| v.as_bool())
@@ -86,6 +159,9 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
         .map(|i| i.estimated_volume_m3 * i.quantity as f64)
         .sum();
 
+    let stops_str = job.route_stops_json.clone().unwrap_or_else(|| "[]".to_string());
+    let stops: Vec<String> = serde_json::from_str(&stops_str).unwrap_or_default();
+
     rsx! {
         components::Card {
             class: "p-6 flex flex-col gap-5",
@@ -110,10 +186,11 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                 style: "margin: 0.5rem 0 0 0; line-height: 1.4;", "{job_description}" }
             }
 
-            // Location panel
-            if let (Some(ref origin), Some(ref dest)) = (job.origin_address.clone(), job.destination_address.clone()) {
-                div { class: "flex flex-col gap-3 border border-border p-4 rounded-lg",
-                    style: "background: var(--bg-app);",
+            // Location / Routing panel
+            div { class: "flex flex-col gap-3 border border-border p-4 rounded-lg",
+                style: "background: var(--bg-app);",
+
+                if let (Some(ref origin), Some(ref dest)) = (job.origin_address.clone(), job.destination_address.clone()) {
                     div { class: "flex items-start gap-3",
                         components::LucideIcon { name: "circle", size: "14", class: "accent-text mt-1", }
                         div {
@@ -127,6 +204,144 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                             }
                         }
                     }
+                } else {
+                    div { class: "flex items-start gap-3",
+                        components::LucideIcon { name: "map-pin", size: "16", class: "accent-text mt-1", }
+                        div {
+                            div { class: "text-[10px] font-bold text-muted-foreground uppercase", "{t(\"jobs-location-label\", &region)}" }
+                            div { class: "text-sm font-semibold", "{job_location}" }
+                        }
+                    }
+                }
+
+                // Intermediate stops list
+                if !stops.is_empty() {
+                    div { class: "h-px bg-border/40 ml-6", }
+                    div { class: "flex flex-col gap-2 ml-4 pl-2 border-l-2 border-dashed border-border/60",
+                        {stops.iter().enumerate().map(|(idx, stop)| {
+                            let stop_val = stop.clone();
+                            rsx! {
+                                div { key: "{idx}", class: "flex justify-between items-center gap-2 p-2 rounded bg-muted/20 border border-border/20",
+                                    div { class: "flex items-center gap-2",
+                                        span { class: "w-4 h-4 rounded-full bg-accent/20 text-[9px] font-extrabold flex items-center justify-center text-accent", "{idx + 1}" }
+                                        span { class: "text-xs font-medium text-foreground", "{stop}" }
+                                    }
+                                    div { class: "flex items-center gap-1",
+                                        button {
+                                            class: "p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground border-0 bg-transparent cursor-pointer disabled:opacity-30",
+                                            disabled: idx == 0,
+                                            onclick: {
+                                                let uid = active_user_id.clone();
+                                                let jid = job.id.clone();
+                                                let mut stops_clone = stops.clone();
+                                                let mut db_trigger = props.db_trigger;
+                                                move |_| {
+                                                    let uid = uid.clone();
+                                                    let jid = jid.clone();
+                                                    stops_clone.swap(idx, idx - 1);
+                                                    let stops_param = stops_clone.clone();
+                                                    spawn(async move {
+                                                        if yntra_core::update_route_stops(uid, jid, stops_param).await.is_ok() {
+                                                            let current = *db_trigger.read();
+                                                            db_trigger.set(current + 1);
+                                                        }
+                                                    });
+                                                }
+                                            },
+                                            components::LucideIcon { name: "arrow-up", size: "12" }
+                                        }
+                                        button {
+                                            class: "p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground border-0 bg-transparent cursor-pointer disabled:opacity-30",
+                                            disabled: idx == stops.len() - 1,
+                                            onclick: {
+                                                let uid = active_user_id.clone();
+                                                let jid = job.id.clone();
+                                                let mut stops_clone = stops.clone();
+                                                let mut db_trigger = props.db_trigger;
+                                                move |_| {
+                                                    let uid = uid.clone();
+                                                    let jid = jid.clone();
+                                                    stops_clone.swap(idx, idx + 1);
+                                                    let stops_param = stops_clone.clone();
+                                                    spawn(async move {
+                                                        if yntra_core::update_route_stops(uid, jid, stops_param).await.is_ok() {
+                                                            let current = *db_trigger.read();
+                                                            db_trigger.set(current + 1);
+                                                        }
+                                                    });
+                                                }
+                                            },
+                                            components::LucideIcon { name: "arrow-down", size: "12" }
+                                        }
+                                        button {
+                                            class: "p-1 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive border-0 bg-transparent cursor-pointer",
+                                            onclick: {
+                                                let uid = active_user_id.clone();
+                                                let jid = job.id.clone();
+                                                let mut stops_clone = stops.clone();
+                                                let mut db_trigger = props.db_trigger;
+                                                move |_| {
+                                                    let uid = uid.clone();
+                                                    let jid = jid.clone();
+                                                    stops_clone.remove(idx);
+                                                    let stops_param = stops_clone.clone();
+                                                    spawn(async move {
+                                                        if yntra_core::update_route_stops(uid, jid, stops_param).await.is_ok() {
+                                                            let current = *db_trigger.read();
+                                                            db_trigger.set(current + 1);
+                                                        }
+                                                    });
+                                                }
+                                            },
+                                            components::LucideIcon { name: "trash-2", size: "12" }
+                                        }
+                                    }
+                                }
+                            }
+                        })}
+                    }
+                }
+
+                // Add stop controls
+                div { class: "h-px bg-border/40 ml-6", }
+                div { class: "flex gap-2 items-center ml-6",
+                    input {
+                        type: "text",
+                        placeholder: "Lägg till delstopp (t.ex. Återvinning)...",
+                        value: "{new_stop_address}",
+                        oninput: move |e| new_stop_address.set(e.value()),
+                        class: "flex-1 px-2.5 py-1.5 text-xs bg-muted/40 border border-border rounded text-foreground focus:outline-none focus:border-accent",
+                    }
+                    button {
+                        class: "py-1.5 px-3 bg-secondary text-secondary-foreground hover:opacity-90 rounded text-xs font-bold border-0 cursor-pointer transition-all",
+                        onclick: {
+                            let uid = active_user_id.clone();
+                            let jid = job.id.clone();
+                            let mut stops_clone = stops.clone();
+                            let mut db_trigger = props.db_trigger;
+                            move |_| {
+                                let address = new_stop_address.read().trim().to_string();
+                                if !address.is_empty() {
+                                    let uid = uid.clone();
+                                    let jid = jid.clone();
+                                    let mut updated_stops = stops_clone.clone();
+                                    updated_stops.push(address);
+                                    spawn(async move {
+                                        if yntra_core::update_route_stops(uid, jid, updated_stops).await.is_ok() {
+                                            new_stop_address.set(String::new());
+                                            let current = *db_trigger.read();
+                                            db_trigger.set(current + 1);
+                                        }
+                                    });
+                                }
+                            }
+                        },
+                        "Lägg till"
+                    }
+                }
+
+                // Destination Address
+                if let (Some(_), Some(ref dest)) = (job.origin_address.clone(), job.destination_address.clone()) {
                     div { class: "h-px bg-border/40 ml-6", }
                     div { class: "flex items-start gap-3",
                         components::LucideIcon { name: "map-pin", size: "16", class: "text-primary mt-1", }
@@ -142,13 +357,38 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                         }
                     }
                 }
-            } else {
-                div { class: "flex items-center gap-2 border border-border p-3 rounded-lg",
-                    style: "background: var(--bg-app);",
-                    components::LucideIcon { name: "map-pin", size: "18", class: "accent-text", }
-                    div {
-                        div { class: "text-[11px] font-bold text-muted-foreground uppercase", "{t(\"jobs-location-label\", &region)}" }
-                        div { class: "text-sm font-semibold", "{job_location}" }
+
+                // Map & Optimize buttons
+                div { class: "flex gap-2 justify-end pt-2 border-t border-border/20 mt-2",
+                    button {
+                        class: "py-1.5 px-3 bg-accent text-accent-foreground hover:opacity-90 rounded text-xs font-bold border-0 cursor-pointer flex items-center gap-1.5 transition-all disabled:opacity-50",
+                        disabled: stops.is_empty(),
+                        onclick: {
+                            let uid = active_user_id.clone();
+                            let jid = job.id.clone();
+                            let mut db_trigger = props.db_trigger;
+                            move |_| {
+                                let uid = uid.clone();
+                                let jid = jid.clone();
+                                spawn(async move {
+                                    if yntra_core::optimize_job_route(uid, jid).await.is_ok() {
+                                        let current = *db_trigger.read();
+                                        db_trigger.set(current + 1);
+                                    }
+                                });
+                            }
+                        },
+                        components::LucideIcon { name: "sparkles", size: "14" }
+                        "Optimera rutt"
+                    }
+                    if let Some(Some(url)) = directions_res.read().as_ref() {
+                        a {
+                            href: "{url}",
+                            target: "_blank",
+                            class: "py-1.5 px-3 bg-primary text-primary-foreground hover:opacity-90 rounded text-xs font-bold border-0 cursor-pointer flex items-center gap-1.5 transition-all text-decoration-none",
+                            components::LucideIcon { name: "navigation", size: "14" }
+                            "Öppna i Google Maps"
+                        }
                     }
                 }
             }
@@ -419,10 +659,14 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                         }
                         if let Some(ref q) = quote {
                             div { class: "p-4 rounded-lg border border-border/20 bg-secondary/5 grid grid-cols-2 sm:grid-cols-4 gap-4",
-                                div {
-                                    div { class: "text-[10px] text-muted-foreground font-semibold", "Baspris" }
-                                    div { class: "text-xs font-bold text-foreground mt-0.5", "{q.base_price} kr" }
-                                 }
+                                  div {
+                                     if pricing_model == "hourly" {
+                                         div { class: "text-[10px] text-muted-foreground font-semibold", "Timpris ({hours:.1}h)" }
+                                     } else {
+                                         div { class: "text-[10px] text-muted-foreground font-semibold", "Baspris" }
+                                     }
+                                     div { class: "text-xs font-bold text-foreground mt-0.5", "{q.base_price} kr" }
+                                  }
                                  div {
                                      div { class: "text-[10px] text-muted-foreground font-semibold", "Distans" }
                                      div { class: "text-xs font-bold text-foreground mt-0.5", "{q.distance_fee} kr" }
@@ -460,6 +704,54 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                         span {
                                             class: if inv.status == "paid" { "text-emerald-500 font-bold" } else { "text-amber-500 font-bold" },
                                             if inv.status == "paid" { "Betald" } else { "Obetald" }
+                                        }
+                                    }
+                                    if inv.status == "paid" && inv.rut_deduction > 0.0 && is_staff {
+                                        div { class: "flex gap-2 pt-2 border-t border-border/10",
+                                            button {
+                                                class: "flex-1 py-1 bg-primary/20 hover:bg-primary/30 rounded text-[10px] font-bold text-foreground border border-primary/20 cursor-pointer flex items-center justify-center gap-1",
+                                                onclick: {
+                                                    let inv_id = inv.id.clone();
+                                                    let uid = active_user_id.clone();
+                                                    move |_| {
+                                                        let inv_id = inv_id.clone();
+                                                        let uid = uid.clone();
+                                                        spawn(async move {
+                                                            match yntra_core::export_skatteverket_claims(uid, vec![inv_id.clone()], "xml".to_string()).await {
+                                                                Ok(xml_content) => {
+                                                                    let file_name = format!("Skatteverket_RUT_{}.xml", inv_id);
+                                                                    trigger_download(&xml_content, &file_name);
+                                                                }
+                                                                Err(_) => {}
+                                                            }
+                                                        });
+                                                    }
+                                                },
+                                                components::LucideIcon { name: "download", size: "10" }
+                                                "XML (RUT)"
+                                            }
+                                            button {
+                                                class: "flex-1 py-1 bg-primary/20 hover:bg-primary/30 rounded text-[10px] font-bold text-foreground border border-primary/20 cursor-pointer flex items-center justify-center gap-1",
+                                                onclick: {
+                                                    let inv_id = inv.id.clone();
+                                                    let uid = active_user_id.clone();
+                                                    move |_| {
+                                                        let inv_id = inv_id.clone();
+                                                        let uid = uid.clone();
+                                                        spawn(async move {
+                                                            match yntra_core::export_skatteverket_claims(uid, vec![inv_id.clone()], "csv".to_string()).await {
+                                                                Ok(csv_content) => {
+                                                                    let file_name = format!("Skatteverket_RUT_{}.csv", inv_id);
+                                                                    trigger_download(&csv_content, &file_name);
+                                                                }
+                                                                Err(_) => {}
+                                                            }
+                                                        });
+                                                    }
+                                                },
+                                                components::LucideIcon { name: "download", size: "10" }
+                                                "CSV (RUT)"
+                                            }
                                         }
                                     }
                                 }

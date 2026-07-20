@@ -956,6 +956,14 @@ pub async fn run_schema_migrations(
         .await?;
         version = 19;
     }
+    if version < 20 {
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE job_tickets ADD COLUMN route_stops_json TEXT",
+        )
+        .await?;
+        version = 20;
+    }
     Ok(version)
 }
 
@@ -985,7 +993,7 @@ mod tests {
         conn.execute("PRAGMA user_version = 0", ()).await.unwrap();
 
         let migrated_version = run_schema_migrations(&conn, 0).await.unwrap();
-        assert_eq!(migrated_version, 19);
+        assert_eq!(migrated_version, 20);
 
         let has_oauth_sessions = conn.query_row(
             "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='oauth_auth_sessions'",

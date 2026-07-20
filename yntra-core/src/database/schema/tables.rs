@@ -308,6 +308,7 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             origin_parking_permit_needed INTEGER DEFAULT 0,
             destination_parking_permit_needed INTEGER DEFAULT 0,
             assigned_vehicle_id TEXT,
+            route_stops_json TEXT,
             FOREIGN KEY(assigned_user_id) REFERENCES users(id),
             FOREIGN KEY(assigned_vehicle_id) REFERENCES vehicles(id)
         );
