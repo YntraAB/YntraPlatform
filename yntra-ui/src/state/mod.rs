@@ -20,6 +20,14 @@ pub struct AppState {
     pub trigger_todos: Signal<u32>,
     pub trigger_clients: Signal<u32>,
     pub trigger_school: Signal<u32>,
+    pub trigger_users: Signal<u32>,
+    pub trigger_school_academics: Signal<u32>,
+    pub trigger_school_directory: Signal<u32>,
+    pub trigger_school_attendance: Signal<u32>,
+    pub trigger_school_health: Signal<u32>,
+    pub trigger_school_report_cards: Signal<u32>,
+    pub trigger_school_finance: Signal<u32>,
+    pub trigger_school_library: Signal<u32>,
     pub active_user_id: Signal<String>,
     pub active_section: Signal<String>,
     pub needs_setup: Signal<bool>,
@@ -175,6 +183,13 @@ pub fn use_init_app_state() -> AppState {
     let mut trigger_time = use_signal(|| 0);
     let mut trigger_clients = use_signal(|| 0);
     let mut trigger_school = use_signal(|| 0);
+    let mut trigger_school_academics = use_signal(|| 0);
+    let mut trigger_school_directory = use_signal(|| 0);
+    let mut trigger_school_attendance = use_signal(|| 0);
+    let mut trigger_school_health = use_signal(|| 0);
+    let mut trigger_school_report_cards = use_signal(|| 0);
+    let mut trigger_school_finance = use_signal(|| 0);
+    let mut trigger_school_library = use_signal(|| 0);
     let mut trigger_reports = use_signal(|| 0);
     let mut trigger_workspaces = use_signal(|| 0);
     let active_user_id = use_signal(|| "user-1".to_string());
@@ -505,19 +520,26 @@ pub fn use_init_app_state() -> AppState {
                                     pending_tables.insert(table);
                                 }
 
-                                let mut update_todos = false;
-                                let mut update_users = false;
-                                let mut update_teams = false;
-                                let mut update_events = false;
-                                let mut update_messages = false;
-                                let mut update_notes = false;
-                                let mut update_time = false;
-                                let mut update_clients = false;
-                                let mut update_school = false;
-                                let mut update_reports = false;
-                                let mut update_workspaces = false;
-                                let mut update_jobs = false;
-                                let mut update_db = false;
+                                 let mut update_todos = false;
+                                 let mut update_users = false;
+                                 let mut update_teams = false;
+                                 let mut update_events = false;
+                                 let mut update_messages = false;
+                                 let mut update_notes = false;
+                                 let mut update_time = false;
+                                 let mut update_clients = false;
+                                 let mut update_school = false;
+                                 let mut update_school_academics = false;
+                                 let mut update_school_directory = false;
+                                 let mut update_school_attendance = false;
+                                 let mut update_school_health = false;
+                                 let mut update_school_report_cards = false;
+                                 let mut update_school_finance = false;
+                                 let mut update_school_library = false;
+                                 let mut update_reports = false;
+                                 let mut update_workspaces = false;
+                                 let mut update_jobs = false;
+                                 let mut update_db = false;
 
                                 let mut todo_record_updates = Vec::new();
                                 let mut message_record_updates = Vec::new();
@@ -541,22 +563,44 @@ pub fn use_init_app_state() -> AppState {
                                                     "notes" | "note_updates" => update_notes = true,
                                                     "time_reports" => update_time = true,
                                                     "clients" | "client_medications" | "client_journals" => update_clients = true,
-                                                    "student_profiles"
-                                                    | "courses"
-                                                    | "assignments"
-                                                    | "submissions"
-                                                    | "attendance_records"
-                                                    | "term_grades"
-                                                    | "report_cards"
-                                                    | "library_books"
-                                                    | "library_lending_logs"
-                                                    | "school_invoices"
-                                                    | "school_payments"
-                                                    | "student_parents"
-                                                    | "health_records"
-                                                    | "health_incidents"
-                                                    | "school_conflicts"
-                                                    | "local_blobs" => update_school = true,
+                                                    "student_profiles" | "student_parents" => {
+                                                        update_school = true;
+                                                        update_school_directory = true;
+                                                    }
+                                                    "courses" | "assignments" | "submissions" | "term_grades" | "timetable_slots" | "school_conflicts" => {
+                                                        update_school = true;
+                                                        update_school_academics = true;
+                                                    }
+                                                    "attendance_records" => {
+                                                        update_school = true;
+                                                        update_school_attendance = true;
+                                                    }
+                                                    "health_records" | "health_incidents" => {
+                                                        update_school = true;
+                                                        update_school_health = true;
+                                                    }
+                                                    "report_cards" => {
+                                                        update_school = true;
+                                                        update_school_report_cards = true;
+                                                    }
+                                                    "school_invoices" | "school_payments" => {
+                                                        update_school = true;
+                                                        update_school_finance = true;
+                                                    }
+                                                    "library_books" | "library_lending_logs" => {
+                                                        update_school = true;
+                                                        update_school_library = true;
+                                                    }
+                                                    "local_blobs" => {
+                                                        update_school = true;
+                                                        update_school_academics = true;
+                                                        update_school_directory = true;
+                                                        update_school_attendance = true;
+                                                        update_school_health = true;
+                                                        update_school_report_cards = true;
+                                                        update_school_finance = true;
+                                                        update_school_library = true;
+                                                    }
                                                     "reports" => update_reports = true,
                                                     "workspaces" => update_workspaces = true,
                                                     "job_tickets" | "move_inventory" | "move_quotes" => update_jobs = true,
@@ -574,22 +618,44 @@ pub fn use_init_app_state() -> AppState {
                                             "notes" | "note_updates" => update_notes = true,
                                             "time_reports" => update_time = true,
                                             "clients" | "client_medications" | "client_journals" => update_clients = true,
-                                            "student_profiles"
-                                            | "courses"
-                                            | "assignments"
-                                            | "submissions"
-                                            | "attendance_records"
-                                            | "term_grades"
-                                            | "report_cards"
-                                            | "library_books"
-                                            | "library_lending_logs"
-                                            | "school_invoices"
-                                            | "school_payments"
-                                            | "student_parents"
-                                            | "health_records"
-                                            | "health_incidents"
-                                            | "school_conflicts"
-                                            | "local_blobs" => update_school = true,
+                                            "student_profiles" | "student_parents" => {
+                                                update_school = true;
+                                                update_school_directory = true;
+                                            }
+                                            "courses" | "assignments" | "submissions" | "term_grades" | "timetable_slots" | "school_conflicts" => {
+                                                update_school = true;
+                                                update_school_academics = true;
+                                            }
+                                            "attendance_records" => {
+                                                update_school = true;
+                                                update_school_attendance = true;
+                                            }
+                                            "health_records" | "health_incidents" => {
+                                                update_school = true;
+                                                update_school_health = true;
+                                            }
+                                            "report_cards" => {
+                                                update_school = true;
+                                                update_school_report_cards = true;
+                                            }
+                                            "school_invoices" | "school_payments" => {
+                                                update_school = true;
+                                                update_school_finance = true;
+                                            }
+                                            "library_books" | "library_lending_logs" => {
+                                                update_school = true;
+                                                update_school_library = true;
+                                            }
+                                            "local_blobs" => {
+                                                update_school = true;
+                                                update_school_academics = true;
+                                                update_school_directory = true;
+                                                update_school_attendance = true;
+                                                update_school_health = true;
+                                                update_school_report_cards = true;
+                                                update_school_finance = true;
+                                                update_school_library = true;
+                                            }
                                             "reports" => update_reports = true,
                                             "workspaces" => update_workspaces = true,
                                             "job_tickets" | "move_inventory" | "move_quotes" => update_jobs = true,
@@ -605,6 +671,13 @@ pub fn use_init_app_state() -> AppState {
                                                 update_time = true;
                                                 update_clients = true;
                                                 update_school = true;
+                                                update_school_academics = true;
+                                                update_school_directory = true;
+                                                update_school_attendance = true;
+                                                update_school_health = true;
+                                                update_school_report_cards = true;
+                                                update_school_finance = true;
+                                                update_school_library = true;
                                                 update_reports = true;
                                                 update_workspaces = true;
                                                 update_jobs = true;
@@ -697,6 +770,13 @@ pub fn use_init_app_state() -> AppState {
                                  if update_time { let next = *trigger_time.read() + 1; trigger_time.set(next); }
                                  if update_clients { let next = *trigger_clients.read() + 1; trigger_clients.set(next); }
                                  if update_school { let next = *trigger_school.read() + 1; trigger_school.set(next); }
+                                 if update_school_academics { let next = *trigger_school_academics.read() + 1; trigger_school_academics.set(next); }
+                                 if update_school_directory { let next = *trigger_school_directory.read() + 1; trigger_school_directory.set(next); }
+                                 if update_school_attendance { let next = *trigger_school_attendance.read() + 1; trigger_school_attendance.set(next); }
+                                 if update_school_health { let next = *trigger_school_health.read() + 1; trigger_school_health.set(next); }
+                                 if update_school_report_cards { let next = *trigger_school_report_cards.read() + 1; trigger_school_report_cards.set(next); }
+                                 if update_school_finance { let next = *trigger_school_finance.read() + 1; trigger_school_finance.set(next); }
+                                 if update_school_library { let next = *trigger_school_library.read() + 1; trigger_school_library.set(next); }
                                  if update_reports { let next = *trigger_reports.read() + 1; trigger_reports.set(next); }
                                  if update_workspaces { let next = *trigger_workspaces.read() + 1; trigger_workspaces.set(next); }
                                  if update_jobs { let next = *trigger_jobs.read() + 1; trigger_jobs.set(next); }
@@ -918,6 +998,14 @@ pub fn use_init_app_state() -> AppState {
         trigger_todos,
         trigger_clients,
         trigger_school,
+        trigger_users,
+        trigger_school_academics,
+        trigger_school_directory,
+        trigger_school_attendance,
+        trigger_school_health,
+        trigger_school_report_cards,
+        trigger_school_finance,
+        trigger_school_library,
 
         workspace,
         users,

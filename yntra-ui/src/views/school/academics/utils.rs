@@ -154,3 +154,38 @@ pub fn BlobDownloadLink(
         }
     }
 }
+
+pub fn encrypt_field_with_proof(seed: &str, plaintext: &str, user_id: &str, role: &str) -> String {
+    if plaintext.is_empty() {
+        return String::new();
+    }
+    let trust = yntra_core::ZkCryptoTrust::new();
+    if let Ok(ciphertext) = trust.encrypt_workspace_field(seed.to_string(), plaintext.to_string()) {
+        if let Ok(proof) = trust.generate_compliance_proof(seed.to_string(), ciphertext.clone(), user_id.to_string(), role.to_string()) {
+            return format!("zero_copy_enc:{}:{}", proof, ciphertext);
+        }
+    }
+    plaintext.to_string()
+}
+
+pub fn decrypt_field(seed: &str, val: &str) -> String {
+    if val.starts_with("zero_copy_enc:") {
+        let parts: Vec<&str> = val.split(':').collect();
+        if parts.len() == 3 {
+            let ciphertext = parts[2];
+            let trust = yntra_core::ZkCryptoTrust::new();
+            if let Ok(decrypted) = trust.decrypt_workspace_field(seed.to_string(), ciphertext.to_string()) {
+                return decrypted;
+            }
+        }
+    }
+    val.to_string()
+}
+
+pub fn encrypt_opt_field_with_proof(seed: &str, plaintext: Option<String>, user_id: &str, role: &str) -> Option<String> {
+    plaintext.map(|p| encrypt_field_with_proof(seed, &p, user_id, role))
+}
+
+pub fn decrypt_opt_field(seed: &str, val: Option<String>) -> Option<String> {
+    val.map(|v| decrypt_field(seed, &v))
+}

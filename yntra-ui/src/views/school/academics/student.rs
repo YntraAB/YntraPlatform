@@ -5,7 +5,8 @@ use crate::locales::t;
 use super::SchoolViewProps;
 use super::utils::{
     is_deadline_passed, parse_submission_content_and_advanced_attachment,
-    format_file_size, compute_mock_hash, base64_encode, AdvancedAttachment, BlobDownloadLink
+    format_file_size, compute_mock_hash, base64_encode, AdvancedAttachment, BlobDownloadLink,
+    decrypt_field, decrypt_opt_field, encrypt_field_with_proof, encrypt_opt_field_with_proof
 };
 use yntra_core::{
     get_assignments, get_student_submissions, get_timetable_slots, save_submission,
@@ -20,7 +21,10 @@ pub fn StudentPortal(
     mut selected_student_profile_id: Signal<String>,
 ) -> Element {
     let state = use_context::<crate::state::AppState>();
-    let db_trigger = state.trigger_school;
+    let mut db_trigger = state.trigger_school_academics;
+    let db_trigger_academics = state.trigger_school_academics;
+    let db_trigger_attendance = state.trigger_school_attendance;
+    let db_trigger_library = state.trigger_school_library;
     let locale = school_props.locale.clone();
     let user_id = school_props.active_user_id.clone();
     let ws_id = school_props.workspace_id.clone();
@@ -41,7 +45,7 @@ pub fn StudentPortal(
     let user_id_clone_att = user_id.clone();
     let ws_id_clone_att = ws_id.clone();
     let student_attendance_res = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = db_trigger_attendance.read();
         let s_id = selected_student_profile_id.read().clone();
         let uid = user_id_clone_att.clone();
         let ws = ws_id_clone_att.clone();
@@ -58,7 +62,7 @@ pub fn StudentPortal(
     let user_id_clone6 = user_id.clone();
     let ws_id_clone6 = ws_id.clone();
     let submissions_res = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = db_trigger_academics.read();
         let s_id = selected_student_profile_id.read().clone();
         let uid = user_id_clone6.clone();
         let ws = ws_id_clone6.clone();
@@ -75,7 +79,7 @@ pub fn StudentPortal(
     let user_id_clone7 = user_id.clone();
     let ws_id_clone7 = ws_id.clone();
     let timetable_res = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = db_trigger_academics.read();
         let uid = user_id_clone7.clone();
         let ws = ws_id_clone7.clone();
         async move {
@@ -87,7 +91,7 @@ pub fn StudentPortal(
     let user_id_clone_courses = user_id.clone();
     let ws_id_clone_courses = ws_id.clone();
     let courses_res = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = db_trigger_academics.read();
         let uid = user_id_clone_courses.clone();
         let ws = ws_id_clone_courses.clone();
         async move { yntra_core::get_workspace_courses(uid, ws).await.unwrap_or_default() }
@@ -99,7 +103,7 @@ pub fn StudentPortal(
     let user_id_clone5 = user_id.clone();
     let ws_id_clone5 = ws_id.clone();
     let all_assignments_res = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = db_trigger_academics.read();
         let uid = user_id_clone5.clone();
         let ws = ws_id_clone5.clone();
         let courses_list = courses_clone.clone();
@@ -118,14 +122,23 @@ pub fn StudentPortal(
     let user_id_clone_lib = user_id.clone();
     let ws_id_clone_lib = ws_id.clone();
     let library_logs_res = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = db_trigger_library.read();
         let uid = user_id_clone_lib.clone();
         let ws = ws_id_clone_lib.clone();
         async move { get_library_lending_logs(uid, ws).await.unwrap_or_default() }
     });
 
+    let seed = state.get_passkey_seed();
     let all_assignments = all_assignments_res.read().clone().unwrap_or_default();
-    let student_submissions = submissions_res.read().clone().unwrap_or_default();
+    let student_submissions = submissions_res.read().clone().unwrap_or_default()
+        .into_iter()
+        .map(|mut s| {
+            s.content = decrypt_field(&seed, &s.content);
+            s.grade = decrypt_opt_field(&seed, s.grade);
+            s.feedback = decrypt_opt_field(&seed, s.feedback);
+            s
+        })
+        .collect::<Vec<_>>();
 
     let announcements = all_assignments.iter().filter(|a| a.max_points == -1).cloned().collect::<Vec<_>>();
     let comments = all_assignments.iter().filter(|a| a.max_points == -2).cloned().collect::<Vec<_>>();
@@ -148,7 +161,13 @@ pub fn StudentPortal(
     }).cloned().collect::<Vec<_>>();
 
     let timetable = timetable_res.read().clone().unwrap_or_default();
-    let attendance = student_attendance_res.read().clone().unwrap_or_default();
+    let attendance = student_attendance_res.read().clone().unwrap_or_default()
+        .into_iter()
+        .map(|mut a| {
+            a.notes = decrypt_opt_field(&seed, a.notes);
+            a
+        })
+        .collect::<Vec<_>>();
     let library_logs = library_logs_res.read().clone().unwrap_or_default();
 
     let enrolled_course_ids: std::collections::HashSet<String> = {
@@ -1122,14 +1141,16 @@ pub fn StudentPortal(
                                                                             let role = state.active_user_role.read().clone();
                                                                             let u_id = state.active_user_id.read().clone();
                                                                             let proof = yntra_core::ZkCryptoTrust::new()
-                                                                                .generate_role_proof(state.get_passkey_seed(), u_id, role)
+                                                                                .generate_role_proof(state.get_passkey_seed(), u_id.clone(), role.clone())
                                                                                 .ok();
+                                                                            let seed_val = state.get_passkey_seed();
+                                                                            let enc_content = encrypt_field_with_proof(&seed_val, &final_content, &u_id, &role);
                                                                             let sub_rec = Submission {
                                                                                 id: uuid::Uuid::new_v4().to_string(),
                                                                                 workspace_id: ws_c.clone(),
                                                                                 assignment_id: a_id.clone(),
                                                                                 student_id: s_id.clone(),
-                                                                                content: final_content,
+                                                                                content: enc_content,
                                                                                 grade: None,
                                                                                 feedback: None,
                                                                                 submitted_at: chrono::Utc::now().to_rfc3339(),

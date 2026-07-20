@@ -18,7 +18,9 @@ use super::SchoolViewProps;
 #[component]
 pub fn LibraryView(props: SchoolViewProps) -> Element {
     let state = use_context::<crate::state::AppState>();
-    let mut db_trigger = state.trigger_school;
+    let mut db_trigger = state.trigger_school_library;
+    let trigger_school_library = state.trigger_school_library;
+    let trigger_school_directory = state.trigger_school_directory;
     let user_id = props.active_user_id.clone();
     let ws_id = props.workspace_id.clone();
     let locale = props.locale.clone();
@@ -47,11 +49,10 @@ pub fn LibraryView(props: SchoolViewProps) -> Element {
     let mut edit_book_total_copies = use_signal(String::new);
     let mut edit_book_copies_available = use_signal(|| 0);
 
-    let db_trig_val = *db_trigger.read();
     let user_id_clone = user_id.clone();
     let ws_id_clone = ws_id.clone();
     let books_res = use_resource(move || {
-        let _ = db_trig_val;
+        let _trig = trigger_school_library.read();
         let uid = user_id_clone.clone();
         let ws = ws_id_clone.clone();
         async move { get_library_books(uid, ws).await.unwrap_or_default() }
@@ -60,7 +61,7 @@ pub fn LibraryView(props: SchoolViewProps) -> Element {
     let user_id_clone2 = user_id.clone();
     let ws_id_clone2 = ws_id.clone();
     let logs_res = use_resource(move || {
-        let _ = db_trig_val;
+        let _trig = trigger_school_library.read();
         let uid = user_id_clone2.clone();
         let ws = ws_id_clone2.clone();
         async move { get_library_lending_logs(uid, ws).await.unwrap_or_default() }
@@ -69,7 +70,7 @@ pub fn LibraryView(props: SchoolViewProps) -> Element {
     let user_id_clone3 = user_id.clone();
     let ws_id_clone3 = ws_id.clone();
     let students_res = use_resource(move || {
-        let _ = db_trig_val;
+        let _trig = trigger_school_directory.read();
         let uid = user_id_clone3.clone();
         let ws = ws_id_clone3.clone();
         async move { get_student_profiles(uid, ws).await.unwrap_or_default() }
@@ -78,7 +79,7 @@ pub fn LibraryView(props: SchoolViewProps) -> Element {
     let user_id_clone_p = user_id.clone();
     let ws_id_clone_p = ws_id.clone();
     let parent_students_res = use_resource(move || {
-        let _ = db_trig_val;
+        let _trig = trigger_school_directory.read();
         let uid = user_id_clone_p.clone();
         let ws = ws_id_clone_p.clone();
         async move { get_parent_students(uid.clone(), ws, uid).await.unwrap_or_default() }
@@ -315,7 +316,7 @@ pub fn LibraryView(props: SchoolViewProps) -> Element {
                                                                      let role = state.active_user_role.read().clone();
                                                                      let u_id = state.active_user_id.read().clone();
                                                                       let proof = yntra_core::ZkCryptoTrust::new()
-                                                                          .generate_role_proof(state.get_passkey_seed(), u_id, role)
+                                                                          .generate_role_proof(state.get_passkey_seed(), u_id.clone(), role.clone())
                                                                           .ok();
                                                                      let u = uid_c.clone();
                                                                      let w = ws_c.clone();
@@ -341,7 +342,7 @@ pub fn LibraryView(props: SchoolViewProps) -> Element {
                                                                     let role = state.active_user_role.read().clone();
                                                                     let u_id = state.active_user_id.read().clone();
                                                                     let proof = yntra_core::ZkCryptoTrust::new()
-                                                                        .generate_role_proof(state.get_passkey_seed(), u_id, role)
+                                                                        .generate_role_proof(state.get_passkey_seed(), u_id.clone(), role.clone())
                                                                         .ok();
                                                                     let u = uid_c.clone();
                                                                     let w = ws_c.clone();
@@ -464,7 +465,7 @@ pub fn LibraryView(props: SchoolViewProps) -> Element {
                                           let role = state.active_user_role.read().clone();
                                           let u_id = state.active_user_id.read().clone();
                                           let proof = yntra_core::ZkCryptoTrust::new()
-                                              .generate_role_proof(state.get_passkey_seed(), u_id, role)
+                                              .generate_role_proof(state.get_passkey_seed(), u_id.clone(), role.clone())
                                               .ok();
                                           let bk_id = checkout_book_id.read().clone();
                                          let std_id = checkout_student_id.read().clone();
@@ -537,7 +538,7 @@ pub fn LibraryView(props: SchoolViewProps) -> Element {
                                           let role = state.active_user_role.read().clone();
                                           let u_id = state.active_user_id.read().clone();
                                           let proof = yntra_core::ZkCryptoTrust::new()
-                                              .generate_role_proof(state.get_passkey_seed(), u_id, role)
+                                              .generate_role_proof(state.get_passkey_seed(), u_id.clone(), role.clone())
                                               .ok();
                                           let tot_copies = edit_book_total_copies.read().parse::<i32>().unwrap_or(1);
                                          let av = *edit_book_copies_available.read();
@@ -608,7 +609,7 @@ pub fn LibraryView(props: SchoolViewProps) -> Element {
                                                  let role = state.active_user_role.read().clone();
                                                  let u_id = state.active_user_id.read().clone();
                                                  let proof = yntra_core::ZkCryptoTrust::new()
-                                                     .generate_role_proof(state.get_passkey_seed(), u_id, role)
+                                                     .generate_role_proof(state.get_passkey_seed(), u_id.clone(), role.clone())
                                                      .ok();
                                                  let u = uid_c.clone();
                                                  let w = ws_c.clone();

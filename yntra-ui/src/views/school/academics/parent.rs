@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 use crate::components::{Button, Card, CardContent, CardDescription, CardHeader, CardTitle, LucideIcon, Dialog, Input};
 use crate::locales::t;
 use super::SchoolViewProps;
+use super::utils::{decrypt_field, decrypt_opt_field};
 use yntra_core::{
     get_student_attendance_records, get_student_health_records, get_health_incidents,
     get_report_cards, get_course_term_grades, get_timetable_slots, StudentProfile,
@@ -15,11 +16,15 @@ pub fn ParentPortal(
     students: Vec<StudentProfile>,
     mut selected_student_profile_id: Signal<String>,
 ) -> Element {
-    let db_trigger = school_props.db_trigger;
+    let state = use_context::<crate::state::AppState>();
+    let mut db_trigger = state.trigger_school_academics;
+    let db_trigger_academics = state.trigger_school_academics;
+    let db_trigger_attendance = state.trigger_school_attendance;
+    let db_trigger_health = state.trigger_school_health;
+    let db_trigger_report_cards = state.trigger_school_report_cards;
     let locale = school_props.locale.clone();
     let user_id = school_props.active_user_id.clone();
     let ws_id = school_props.workspace_id.clone();
-    let mut state = use_context::<crate::state::AppState>();
     let toast = use_toast();
 
     let mut link_input_id = use_signal(String::new);
@@ -33,7 +38,7 @@ pub fn ParentPortal(
     let user_id_clone_att = user_id.clone();
     let ws_id_clone_att = ws_id.clone();
     let student_attendance_res = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = db_trigger_attendance.read();
         let s_id = selected_student_profile_id.read().clone();
         let uid = user_id_clone_att.clone();
         let ws = ws_id_clone_att.clone();
@@ -49,7 +54,7 @@ pub fn ParentPortal(
     let user_id_clone_h = user_id.clone();
     let ws_id_clone_h = ws_id.clone();
     let student_health_records_res = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = db_trigger_health.read();
         let s_id = selected_student_profile_id.read().clone();
         let uid = user_id_clone_h.clone();
         let ws = ws_id_clone_h.clone();
@@ -65,7 +70,7 @@ pub fn ParentPortal(
     let user_id_clone_inc = user_id.clone();
     let ws_id_clone_inc = ws_id.clone();
     let student_health_incidents_res = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = db_trigger_health.read();
         let s_id = selected_student_profile_id.read().clone();
         let uid = user_id_clone_inc.clone();
         let ws = ws_id_clone_inc.clone();
@@ -82,7 +87,7 @@ pub fn ParentPortal(
     let user_id_clone_rc = user_id.clone();
     let ws_id_clone_rc = ws_id.clone();
     let student_report_cards_res = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = db_trigger_report_cards.read();
         let s_id = selected_student_profile_id.read().clone();
         let uid = user_id_clone_rc.clone();
         let ws = ws_id_clone_rc.clone();
@@ -99,7 +104,7 @@ pub fn ParentPortal(
     let user_id_clone_courses = user_id.clone();
     let ws_id_clone_courses = ws_id.clone();
     let courses_res = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = db_trigger_academics.read();
         let uid = user_id_clone_courses.clone();
         let ws = ws_id_clone_courses.clone();
         async move { yntra_core::get_workspace_courses(uid, ws).await.unwrap_or_default() }
@@ -109,7 +114,7 @@ pub fn ParentPortal(
     let user_id_clone7 = user_id.clone();
     let ws_id_clone7 = ws_id.clone();
     let timetable_res = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = db_trigger_academics.read();
         let uid = user_id_clone7.clone();
         let ws = ws_id_clone7.clone();
         async move {
@@ -121,7 +126,7 @@ pub fn ParentPortal(
     let user_id_clone_cg = user_id.clone();
     let ws_id_clone_cg = ws_id.clone();
     let course_grades_res = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = db_trigger_academics.read();
         let s_id = selected_student_profile_id.read().clone();
         let uid = user_id_clone_cg.clone();
         let ws = ws_id_clone_cg.clone();
@@ -151,7 +156,7 @@ pub fn ParentPortal(
     let user_id_clone_sub = user_id.clone();
     let ws_id_clone_sub = ws_id.clone();
     let student_submissions_res = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = db_trigger_academics.read();
         let s_id = selected_student_profile_id.read().clone();
         let uid = user_id_clone_sub.clone();
         let ws = ws_id_clone_sub.clone();
@@ -169,7 +174,7 @@ pub fn ParentPortal(
     let user_id_clone_assign = user_id.clone();
     let ws_id_clone_assign = ws_id.clone();
     let all_assignments_res = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = db_trigger_academics.read();
         let uid = user_id_clone_assign.clone();
         let ws = ws_id_clone_assign.clone();
         let courses_list = courses_clone.clone();
@@ -251,11 +256,42 @@ pub fn ParentPortal(
         };
     }
 
+    let seed = state.get_passkey_seed();
     // Read parent portal child resources
-    let attendance = student_attendance_res.read().clone().unwrap_or_default();
-    let health_records = student_health_records_res.read().clone().unwrap_or_default();
-    let health_incidents = student_health_incidents_res.read().clone().unwrap_or_default();
-    let report_cards = student_report_cards_res.read().clone().unwrap_or_default();
+    let attendance = student_attendance_res.read().clone().unwrap_or_default()
+        .into_iter()
+        .map(|mut a| {
+            a.notes = decrypt_opt_field(&seed, a.notes);
+            a
+        })
+        .collect::<Vec<_>>();
+    let health_records = student_health_records_res.read().clone().unwrap_or_default()
+        .into_iter()
+        .map(|mut r| {
+            r.vaccine_name = decrypt_field(&seed, &r.vaccine_name);
+            r.status = decrypt_field(&seed, &r.status);
+            r.administered_at = decrypt_opt_field(&seed, r.administered_at);
+            r
+        })
+        .collect::<Vec<_>>();
+    let health_incidents = student_health_incidents_res.read().clone().unwrap_or_default()
+        .into_iter()
+        .map(|mut i| {
+            i.visit_reason = decrypt_field(&seed, &i.visit_reason);
+            i.treatment = decrypt_field(&seed, &i.treatment);
+            i.checked_in_at = decrypt_field(&seed, &i.checked_in_at);
+            i.checked_out_at = decrypt_opt_field(&seed, i.checked_out_at);
+            i.notes = decrypt_opt_field(&seed, i.notes);
+            i
+        })
+        .collect::<Vec<_>>();
+    let report_cards = student_report_cards_res.read().clone().unwrap_or_default()
+        .into_iter()
+        .map(|mut rc| {
+            rc.principal_comments = decrypt_opt_field(&seed, rc.principal_comments);
+            rc
+        })
+        .collect::<Vec<_>>();
     let (chart_points, chart_line_d, chart_area_d) = {
         let mut sorted_reports = report_cards.clone();
         sorted_reports.sort_by_key(|r| r.updated_at);
@@ -299,8 +335,23 @@ pub fn ParentPortal(
         
         (points, line_d, area_d)
     };
-    let course_grades = course_grades_res.read().clone().unwrap_or_default();
-    let student_submissions = student_submissions_res.read().clone().unwrap_or_default();
+    let course_grades = course_grades_res.read().clone().unwrap_or_default()
+        .into_iter()
+        .map(|mut g| {
+            g.final_grade = decrypt_opt_field(&seed, g.final_grade);
+            g.teacher_comments = decrypt_opt_field(&seed, g.teacher_comments);
+            g
+        })
+        .collect::<Vec<_>>();
+    let student_submissions = student_submissions_res.read().clone().unwrap_or_default()
+        .into_iter()
+        .map(|mut s| {
+            s.content = decrypt_field(&seed, &s.content);
+            s.grade = decrypt_opt_field(&seed, s.grade);
+            s.feedback = decrypt_opt_field(&seed, s.feedback);
+            s
+        })
+        .collect::<Vec<_>>();
     let all_assignments = all_assignments_res.read().clone().unwrap_or_default();
 
     let enrolled_course_ids: std::collections::HashSet<String> = {

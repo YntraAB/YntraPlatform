@@ -1,5 +1,6 @@
 use crate::components::{Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, Input, LucideIcon, SuggestionInput};
 use crate::locales::t;
+use crate::views::school::academics::utils::{decrypt_field, decrypt_opt_field, encrypt_field_with_proof, encrypt_opt_field_with_proof};
 use dioxus::prelude::*;
 use yntra_core::{
     checkout_book, create_school_invoice, get_assignments, get_library_books,
@@ -18,7 +19,10 @@ use super::SchoolViewProps;
 #[component]
 pub fn AttendanceView(props: SchoolViewProps) -> Element {
     let state = use_context::<crate::state::AppState>();
-    let mut db_trigger = state.trigger_school;
+    let mut db_trigger = state.trigger_school_attendance;
+    let trigger_school_academics = state.trigger_school_academics;
+    let trigger_school_directory = state.trigger_school_directory;
+    let trigger_school_attendance = state.trigger_school_attendance;
     let user_id = props.active_user_id.clone();
     let ws_id = props.workspace_id.clone();
 
@@ -35,11 +39,10 @@ pub fn AttendanceView(props: SchoolViewProps) -> Element {
     let mut editing_note_student = use_signal(|| Option::<StudentProfile>::None);
     let mut note_text = use_signal(String::new);
 
-    let db_trig_val = *db_trigger.read();
     let user_id_clone = user_id.clone();
     let ws_id_clone = ws_id.clone();
     let courses_res = use_resource(move || {
-        let _ = db_trig_val;
+        let _trig = trigger_school_academics.read();
         let uid = user_id_clone.clone();
         let ws = ws_id_clone.clone();
         async move { get_workspace_courses(uid, ws).await.unwrap_or_default() }
@@ -48,7 +51,7 @@ pub fn AttendanceView(props: SchoolViewProps) -> Element {
     let user_id_clone2 = user_id.clone();
     let ws_id_clone2 = ws_id.clone();
     let students_res = use_resource(move || {
-        let _ = db_trig_val;
+        let _trig = trigger_school_directory.read();
         let uid = user_id_clone2.clone();
         let ws = ws_id_clone2.clone();
         async move { get_student_profiles(uid, ws).await.unwrap_or_default() }
@@ -59,7 +62,7 @@ pub fn AttendanceView(props: SchoolViewProps) -> Element {
     let user_id_clone3 = user_id.clone();
     let ws_id_clone3 = ws_id.clone();
     let attendance_res = use_resource(move || {
-        let _ = db_trig_val;
+        let _trig = trigger_school_attendance.read();
         let c_id = active_course.clone();
         let dt = active_date.clone();
         let uid = user_id_clone3.clone();
@@ -73,9 +76,25 @@ pub fn AttendanceView(props: SchoolViewProps) -> Element {
         }
     });
 
+    let seed = state.get_passkey_seed();
     let courses = courses_res.read().clone().unwrap_or_default();
-    let students = students_res.read().clone().unwrap_or_default();
-    let attendance = attendance_res.read().clone().unwrap_or_default();
+    let students = students_res.read().clone().unwrap_or_default()
+        .into_iter()
+        .map(|mut s| {
+            s.first_name = decrypt_field(&seed, &s.first_name);
+            s.last_name = decrypt_field(&seed, &s.last_name);
+            s.grade_level = decrypt_field(&seed, &s.grade_level);
+            s.parent_contact = decrypt_opt_field(&seed, s.parent_contact);
+            s
+        })
+        .collect::<Vec<_>>();
+    let attendance = attendance_res.read().clone().unwrap_or_default()
+        .into_iter()
+        .map(|mut a| {
+            a.notes = decrypt_opt_field(&seed, a.notes);
+            a
+        })
+        .collect::<Vec<_>>();
 
     rsx! {
         div { class: "p-6 space-y-6 max-w-5xl mx-auto animate-in fade-in slide-in-from-top-4 duration-300",
@@ -202,7 +221,7 @@ pub fn AttendanceView(props: SchoolViewProps) -> Element {
                                                                             let role = state.active_user_role.read().clone();
                                                                             let u_id = state.active_user_id.read().clone();
                                                                             let proof = yntra_core::ZkCryptoTrust::new()
-                                                                                .generate_role_proof(state.get_passkey_seed(), u_id, role)
+                                                                                .generate_role_proof(state.get_passkey_seed(), u_id.clone(), role.clone())
                                                                                 .ok();
                                                                             let r = yntra_core::AttendanceRecord {
                                                                                 id: uuid::Uuid::new_v4().to_string(),
@@ -325,10 +344,15 @@ pub fn AttendanceView(props: SchoolViewProps) -> Element {
                                             let role = state.active_user_role.read().clone();
                                             let u_id = state.active_user_id.read().clone();
                                             let proof = yntra_core::ZkCryptoTrust::new()
-                                                .generate_role_proof(state.get_passkey_seed(), u_id, role)
+                                                .generate_role_proof(state.get_passkey_seed(), u_id.clone(), role.clone())
                                                 .ok();
+                                            let seed_val = state.get_passkey_seed();
                                             let note_val = note_text.read().trim().to_string();
-                                            let note_opt = if note_val.is_empty() { None } else { Some(note_val) };
+                                            let note_opt = if note_val.is_empty() {
+                                                None
+                                            } else {
+                                                Some(encrypt_field_with_proof(&seed_val, &note_val, &u_id, &role))
+                                            };
 
                                             let r = yntra_core::AttendanceRecord {
                                                 id: record_id.clone(),

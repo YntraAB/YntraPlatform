@@ -23,11 +23,11 @@ pub fn TeacherPortal(
     mut show_course_modal: Signal<bool>,
     can_manage_schedule: bool,
 ) -> Element {
-    let db_trigger = school_props.db_trigger;
+    let state = use_context::<crate::state::AppState>();
+    let db_trigger = state.trigger_school_academics;
     let locale = school_props.locale.clone();
     let user_id = school_props.active_user_id.clone();
     let ws_id = school_props.workspace_id.clone();
-    let state = use_context::<crate::state::AppState>();
 
     // Local states
     let mut active_menu_id = use_signal(|| "".to_string());
@@ -64,7 +64,7 @@ pub fn TeacherPortal(
     
     let user_id_clone_users = user_id.clone();
     let users_res = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = state.trigger_users.read();
         let uid = user_id_clone_users.clone();
         async move { yntra_core::get_users(uid).await.unwrap_or_default() }
     });

@@ -1,5 +1,6 @@
 use crate::components::{Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, Input, LucideIcon, SuggestionInput};
 use crate::locales::t;
+use crate::views::school::academics::utils::{decrypt_field, decrypt_opt_field, encrypt_field_with_proof, encrypt_opt_field_with_proof};
 use dioxus::prelude::*;
 use yntra_core::{
     checkout_book, create_school_invoice, get_assignments, get_library_books,
@@ -19,7 +20,9 @@ use super::SchoolViewProps;
 #[component]
 pub fn ReportCardsView(props: SchoolViewProps) -> Element {
     let state = use_context::<crate::state::AppState>();
-    let mut db_trigger = state.trigger_school;
+    let mut db_trigger = state.trigger_school_report_cards;
+    let trigger_school_report_cards = state.trigger_school_report_cards;
+    let trigger_school_directory = state.trigger_school_directory;
     let user_id = props.active_user_id.clone();
     let ws_id = props.workspace_id.clone();
     let locale = props.locale.clone();
@@ -31,11 +34,10 @@ pub fn ReportCardsView(props: SchoolViewProps) -> Element {
     let mut report_gpa = use_signal(|| 4.0);
     let mut report_comments = use_signal(String::new);
 
-    let db_trig_val = *db_trigger.read();
     let user_id_clone = user_id.clone();
     let ws_id_clone = ws_id.clone();
     let students_res = use_resource(move || {
-        let _ = db_trig_val;
+        let _trig = trigger_school_directory.read();
         let uid = user_id_clone.clone();
         let ws = ws_id_clone.clone();
         async move { get_student_profiles(uid, ws).await.unwrap_or_default() }
@@ -44,7 +46,7 @@ pub fn ReportCardsView(props: SchoolViewProps) -> Element {
     let user_id_clone2 = user_id.clone();
     let ws_id_clone2 = ws_id.clone();
     let reports_res = use_resource(move || {
-        let _ = db_trig_val;
+        let _trig = trigger_school_report_cards.read();
         let s_id = selected_student_id.read().clone();
         let uid = user_id_clone2.clone();
         let ws = ws_id_clone2.clone();
@@ -60,19 +62,37 @@ pub fn ReportCardsView(props: SchoolViewProps) -> Element {
     let user_id_clone_p = user_id.clone();
     let ws_id_clone_p = ws_id.clone();
     let parent_students_res = use_resource(move || {
-        let _ = db_trig_val;
+        let _trig = trigger_school_directory.read();
         let uid = user_id_clone_p.clone();
         let ws = ws_id_clone_p.clone();
         async move { get_parent_students(uid.clone(), ws, uid).await.unwrap_or_default() }
     });
 
     let current_role = state.active_user_role.read().clone();
-    let students = if current_role == "parent" || current_role == "role-school-parent" {
-        parent_students_res.read().clone().unwrap_or_default()
-    } else {
-        students_res.read().clone().unwrap_or_default()
+    let seed = state.get_passkey_seed();
+    let students = {
+        let raw = if current_role == "parent" || current_role == "role-school-parent" {
+            parent_students_res.read().clone().unwrap_or_default()
+        } else {
+            students_res.read().clone().unwrap_or_default()
+        };
+        raw.into_iter()
+            .map(|mut s| {
+                s.first_name = decrypt_field(&seed, &s.first_name);
+                s.last_name = decrypt_field(&seed, &s.last_name);
+                s.grade_level = decrypt_field(&seed, &s.grade_level);
+                s.parent_contact = decrypt_opt_field(&seed, s.parent_contact);
+                s
+            })
+            .collect::<Vec<_>>()
     };
-    let report_cards = reports_res.read().clone().unwrap_or_default();
+    let report_cards = reports_res.read().clone().unwrap_or_default()
+        .into_iter()
+        .map(|mut rc| {
+            rc.principal_comments = decrypt_opt_field(&seed, rc.principal_comments);
+            rc
+        })
+        .collect::<Vec<_>>();
 
     use_effect(move || {
         let role = state.active_user_role.read().clone();
@@ -278,15 +298,16 @@ pub fn ReportCardsView(props: SchoolViewProps) -> Element {
                                          let role = state.active_user_role.read().clone();
                                          let u_id = state.active_user_id.read().clone();
                                          let proof = yntra_core::ZkCryptoTrust::new()
-                                             .generate_role_proof(state.get_passkey_seed(), u_id, role)
+                                             .generate_role_proof(state.get_passkey_seed(), u_id.clone(), role.clone())
                                              .ok();
+                                         let seed_val = state.get_passkey_seed();
                                          let rc = ReportCard {
                                             id: uuid::Uuid::new_v4().to_string(),
                                             workspace_id: ws.clone(),
                                             student_id: active_s.clone(),
                                             term_name: report_term.read().clone(),
                                             gpa: *report_gpa.read(),
-                                            principal_comments: Some(report_comments.read().clone()),
+                                            principal_comments: Some(encrypt_field_with_proof(&seed_val, &report_comments.read(), &u_id, &role)),
                                             status: "published".to_string(),
                                             updated_at: 0,
                                         };

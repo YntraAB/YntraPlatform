@@ -8,7 +8,7 @@ pub mod student;
 pub mod parent;
 pub mod teacher;
 
-pub use utils::AdvancedAttachment;
+pub use utils::{decrypt_field, decrypt_opt_field, AdvancedAttachment};
 pub use student::StudentPortal;
 pub use parent::ParentPortal;
 pub use teacher::TeacherPortal;
@@ -17,14 +17,15 @@ pub use super::infer_subject_from_course;
 #[component]
 pub fn AcademicsView(props: SchoolViewProps) -> Element {
     let state = use_context::<crate::state::AppState>();
-    let trigger_school = state.trigger_school;
+    let trigger_school_academics = state.trigger_school_academics;
+    let trigger_school_directory = state.trigger_school_directory;
     let locale = props.locale.clone();
     let user_id = props.active_user_id.clone();
     let ws_id = props.workspace_id.clone();
 
     // View mode switcher: "teacher", "student", or "parent"
     let mut view_mode = use_signal(|| {
-        let role = state.active_user_role.read();
+        let role = state.active_user_role.read().clone();
         let r = role.as_str();
         if r == "student" || r == "role-school-student" {
             "student".to_string()
@@ -44,7 +45,7 @@ pub fn AcademicsView(props: SchoolViewProps) -> Element {
     let user_id_clone = user_id.clone();
     let ws_id_clone = ws_id.clone();
     let courses_res = use_resource(move || {
-        let _trig = trigger_school.read();
+        let _trig = trigger_school_academics.read();
         let uid = user_id_clone.clone();
         let ws = ws_id_clone.clone();
         async move { yntra_core::get_workspace_courses(uid, ws).await.unwrap_or_default() }
@@ -53,7 +54,7 @@ pub fn AcademicsView(props: SchoolViewProps) -> Element {
     let user_id_clone4 = user_id.clone();
     let ws_id_clone4 = ws_id.clone();
     let students_res = use_resource(move || {
-        let _trig = trigger_school.read();
+        let _trig = trigger_school_directory.read();
         let uid = user_id_clone4.clone();
         let ws = ws_id_clone4.clone();
         async move { yntra_core::get_student_profiles(uid, ws).await.unwrap_or_default() }
@@ -72,7 +73,7 @@ pub fn AcademicsView(props: SchoolViewProps) -> Element {
     let user_id_clone_p = user_id.clone();
     let ws_id_clone_p = ws_id.clone();
     let parent_students_res = use_resource(move || {
-        let _trig = trigger_school.read();
+        let _trig = trigger_school_directory.read();
         let uid = user_id_clone_p.clone();
         let ws = ws_id_clone_p.clone();
         async move {
@@ -105,10 +106,22 @@ pub fn AcademicsView(props: SchoolViewProps) -> Element {
     let courses = courses_res.read().clone().unwrap_or_default();
     let can_manage_schedule = can_manage_schedule_res.read().cloned().unwrap_or(false);
     let active_role = state.active_user_role.read().clone();
-    let students = if active_role == "parent" || active_role == "role-school-parent" {
-        parent_students_res.read().clone().unwrap_or_default()
-    } else {
-        students_res.read().clone().unwrap_or_default()
+    let seed = state.get_passkey_seed();
+    let students = {
+        let raw = if active_role == "parent" || active_role == "role-school-parent" {
+            parent_students_res.read().clone().unwrap_or_default()
+        } else {
+            students_res.read().clone().unwrap_or_default()
+        };
+        raw.into_iter()
+            .map(|mut s| {
+                s.first_name = decrypt_field(&seed, &s.first_name);
+                s.last_name = decrypt_field(&seed, &s.last_name);
+                s.grade_level = decrypt_field(&seed, &s.grade_level);
+                s.parent_contact = decrypt_opt_field(&seed, s.parent_contact);
+                s
+            })
+            .collect::<Vec<_>>()
     };
 
     rsx! {

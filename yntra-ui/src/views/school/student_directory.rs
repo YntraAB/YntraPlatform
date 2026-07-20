@@ -1,5 +1,6 @@
 use crate::components::{Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, Input, LucideIcon, SuggestionInput};
 use crate::locales::t;
+use crate::views::school::academics::utils::{decrypt_field, decrypt_opt_field, encrypt_field_with_proof, encrypt_opt_field_with_proof};
 use dioxus::prelude::*;
 use yntra_core::{
     checkout_book, create_school_invoice, get_assignments, get_library_books,
@@ -19,7 +20,10 @@ use super::SchoolViewProps;
 #[component]
 pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
     let state = use_context::<crate::state::AppState>();
-    let mut db_trigger = state.trigger_school;
+    let mut db_trigger = state.trigger_school_directory;
+    let trigger_school_directory = state.trigger_school_directory;
+    let trigger_school_health = state.trigger_school_health;
+    let trigger_users = state.trigger_users;
     let _locale = props.locale.clone();
     let user_id = props.active_user_id.clone();
     let ws_id = props.workspace_id.clone();
@@ -75,12 +79,11 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
     let vaccine_status = use_signal(|| "administered".to_string());
     let mut vaccine_date = use_signal(|| chrono::Local::now().format("%Y-%m-%d").to_string());
 
-    let db_trig_val = *db_trigger.read();
     let user_id_clone = user_id.clone();
     let ws_id_clone = ws_id.clone();
     let is_parent = current_role == "parent" || current_role == "role-school-parent";
     let students_res = use_resource(move || {
-        let _ = db_trig_val;
+        let _trig = trigger_school_directory.read();
         let uid = user_id_clone.clone();
         let ws = ws_id_clone.clone();
         async move {
@@ -106,7 +109,7 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
     let user_id_clone2 = user_id.clone();
     let ws_id_clone2 = ws_id.clone();
     let parents_res = use_resource(move || {
-        let _ = db_trig_val;
+        let _trig = trigger_school_directory.read();
         let s_id = active_student.clone();
         let uid = user_id_clone2.clone();
         let ws = ws_id_clone2.clone();
@@ -123,7 +126,7 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
     let user_id_clone3 = user_id.clone();
     let ws_id_clone3 = ws_id.clone();
     let health_res = use_resource(move || {
-        let _ = db_trig_val;
+        let _trig = trigger_school_health.read();
         let s_id = active_student_h.clone();
         let uid = user_id_clone3.clone();
         let ws = ws_id_clone3.clone();
@@ -138,14 +141,32 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
 
     let user_id_clone4 = user_id.clone();
     let users_res = use_resource(move || {
-        let _ = db_trig_val;
+        let _trig = trigger_users.read();
         let uid = user_id_clone4.clone();
         async move { get_users(uid).await.unwrap_or_default() }
     });
 
-    let students = students_res.read().clone().unwrap_or_default();
+    let seed = state.get_passkey_seed();
+    let students = students_res.read().clone().unwrap_or_default()
+        .into_iter()
+        .map(|mut s| {
+            s.first_name = decrypt_field(&seed, &s.first_name);
+            s.last_name = decrypt_field(&seed, &s.last_name);
+            s.grade_level = decrypt_field(&seed, &s.grade_level);
+            s.parent_contact = decrypt_opt_field(&seed, s.parent_contact);
+            s
+        })
+        .collect::<Vec<_>>();
     let parents = parents_res.read().clone().unwrap_or_default();
-    let health_records = health_res.read().clone().unwrap_or_default();
+    let health_records = health_res.read().clone().unwrap_or_default()
+        .into_iter()
+        .map(|mut r| {
+            r.vaccine_name = decrypt_field(&seed, &r.vaccine_name);
+            r.status = decrypt_field(&seed, &r.status);
+            r.administered_at = decrypt_opt_field(&seed, r.administered_at);
+            r
+        })
+        .collect::<Vec<_>>();
     let all_users = users_res.read().clone().unwrap_or_default();
 
     rsx! {
@@ -392,18 +413,19 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
                                           let role = state.active_user_role.read().clone();
                                           let u_id = state.active_user_id.read().clone();
                                           let proof = yntra_core::ZkCryptoTrust::new()
-                                              .generate_role_proof(state.get_passkey_seed(), u_id, role)
+                                              .generate_role_proof(state.get_passkey_seed(), u_id.clone(), role.clone())
                                               .ok();
                                           let student_user_id = enroll_student_user_id.read().clone();
                                           let user_id_val = if student_user_id.is_empty() { None } else { Some(student_user_id) };
+                                          let seed_val = state.get_passkey_seed();
                                           let sp = StudentProfile {
                                              id: editing_student_id.read().clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
                                              workspace_id: ws.clone(),
                                              user_id: user_id_val,
-                                             first_name: enroll_first_name.read().clone(),
-                                             last_name: enroll_last_name.read().clone(),
-                                             grade_level: enroll_grade.read().clone(),
-                                             parent_contact: Some(enroll_contact.read().clone()),
+                                             first_name: encrypt_field_with_proof(&seed_val, &enroll_first_name.read(), &u_id, &role),
+                                             last_name: encrypt_field_with_proof(&seed_val, &enroll_last_name.read(), &u_id, &role),
+                                             grade_level: encrypt_field_with_proof(&seed_val, &enroll_grade.read(), &u_id, &role),
+                                             parent_contact: Some(encrypt_field_with_proof(&seed_val, &enroll_contact.read(), &u_id, &role)),
                                              updated_at: 0,
                                          };
                                          let uid_c = uid.clone();
@@ -461,7 +483,7 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
                                           let role = state.active_user_role.read().clone();
                                           let u_id = state.active_user_id.read().clone();
                                           let proof = yntra_core::ZkCryptoTrust::new()
-                                              .generate_role_proof(state.get_passkey_seed(), u_id, role)
+                                              .generate_role_proof(state.get_passkey_seed(), u_id.clone(), role.clone())
                                               .ok();
                                           let parent_id = select_parent_user_id.read().clone();
                                          if !parent_id.is_empty() {
@@ -523,15 +545,16 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
                                          let role = state.active_user_role.read().clone();
                                          let u_id = state.active_user_id.read().clone();
                                          let proof = yntra_core::ZkCryptoTrust::new()
-                                             .generate_role_proof(state.get_passkey_seed(), u_id, role)
+                                             .generate_role_proof(state.get_passkey_seed(), u_id.clone(), role.clone())
                                              .ok();
+                                         let seed_val = state.get_passkey_seed();
                                          let hr = HealthRecord {
                                              id: uuid::Uuid::new_v4().to_string(),
                                              workspace_id: ws.clone(),
                                              student_id: active_s.clone(),
-                                             vaccine_name: vaccine_name.read().clone(),
-                                             status: vaccine_status.read().clone(),
-                                             administered_at: Some(vaccine_date.read().clone()),
+                                             vaccine_name: encrypt_field_with_proof(&seed_val, &vaccine_name.read(), &u_id, &role),
+                                             status: encrypt_field_with_proof(&seed_val, &vaccine_status.read(), &u_id, &role),
+                                             administered_at: Some(encrypt_field_with_proof(&seed_val, &vaccine_date.read(), &u_id, &role)),
                                              updated_at: 0,
                                          };
                                          let uid_c = uid.clone();

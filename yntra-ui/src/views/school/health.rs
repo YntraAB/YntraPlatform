@@ -1,5 +1,6 @@
 use crate::components::{Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, Input, LucideIcon, SuggestionInput};
 use crate::locales::t;
+use crate::views::school::academics::utils::{decrypt_field, decrypt_opt_field, encrypt_field_with_proof, encrypt_opt_field_with_proof};
 use dioxus::prelude::*;
 use yntra_core::{
     checkout_book, create_school_invoice, get_assignments, get_library_books,
@@ -19,7 +20,9 @@ use super::SchoolViewProps;
 #[component]
 pub fn HealthClinicView(props: SchoolViewProps) -> Element {
     let state = use_context::<crate::state::AppState>();
-    let mut db_trigger = state.trigger_school;
+    let mut db_trigger = state.trigger_school_health;
+    let trigger_school_health = state.trigger_school_health;
+    let trigger_school_directory = state.trigger_school_directory;
     let locale = props.locale.clone();
     let user_id = props.active_user_id.clone();
     let ws_id = props.workspace_id.clone();
@@ -37,11 +40,10 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
     let mut health_context_menu_pos = use_signal(|| (0, 0));
     let mut health_context_menu_val = use_signal(|| Option::<HealthIncident>::None);
 
-    let db_trig_val = *db_trigger.read();
     let user_id_clone = user_id.clone();
     let ws_id_clone = ws_id.clone();
     let incidents_res = use_resource(move || {
-        let _ = db_trig_val;
+        let _trig = trigger_school_health.read();
         let uid = user_id_clone.clone();
         let ws = ws_id_clone.clone();
         async move { get_health_incidents(uid, ws).await.unwrap_or_default() }
@@ -50,7 +52,7 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
     let user_id_clone2 = user_id.clone();
     let ws_id_clone2 = ws_id.clone();
     let students_res = use_resource(move || {
-        let _ = db_trig_val;
+        let _trig = trigger_school_directory.read();
         let uid = user_id_clone2.clone();
         let ws = ws_id_clone2.clone();
         async move { get_student_profiles(uid, ws).await.unwrap_or_default() }
@@ -59,7 +61,7 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
     let user_id_clone_p = user_id.clone();
     let ws_id_clone_p = ws_id.clone();
     let parent_students_res = use_resource(move || {
-        let _ = db_trig_val;
+        let _trig = trigger_school_directory.read();
         let uid = user_id_clone_p.clone();
         let ws = ws_id_clone_p.clone();
         async move { get_parent_students(uid.clone(), ws, uid).await.unwrap_or_default() }
@@ -71,7 +73,7 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
     let parent_students_res_c = parent_students_res.clone();
     let students_res_c = students_res.clone();
     let health_records_res = use_resource(move || {
-        let _ = db_trig_val;
+        let _trig = trigger_school_health.read();
         let uid = user_id_clone_hr.clone();
         let ws = ws_id_clone_hr.clone();
         let state = state_c.clone();
@@ -108,31 +110,65 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
 
     let incidents_raw = incidents_res.read().clone().unwrap_or_default();
     let current_role = state.active_user_role.read().clone();
-    let students = if current_role == "parent" || current_role == "role-school-parent" {
-        parent_students_res.read().clone().unwrap_or_default()
-    } else {
-        students_res.read().clone().unwrap_or_default()
+    let seed = state.get_passkey_seed();
+    let students = {
+        let raw = if current_role == "parent" || current_role == "role-school-parent" {
+            parent_students_res.read().clone().unwrap_or_default()
+        } else {
+            students_res.read().clone().unwrap_or_default()
+        };
+        raw.into_iter()
+            .map(|mut s| {
+                s.first_name = decrypt_field(&seed, &s.first_name);
+                s.last_name = decrypt_field(&seed, &s.last_name);
+                s.grade_level = decrypt_field(&seed, &s.grade_level);
+                s.parent_contact = decrypt_opt_field(&seed, s.parent_contact);
+                s
+            })
+            .collect::<Vec<_>>()
     };
 
-    let incidents = if current_role == "parent" || current_role == "role-school-parent" {
-        let s_id = selected_student_id.read().clone();
-        incidents_raw.into_iter().filter(|inc| inc.student_id == s_id).collect::<Vec<_>>()
-    } else if current_role == "student" || current_role == "role-school-student" {
-        let student_ids: std::collections::HashSet<String> = students.iter()
-            .filter(|s| s.user_id.as_ref() == Some(&user_id))
-            .map(|s| s.id.clone())
-            .collect();
-        incidents_raw.into_iter().filter(|inc| student_ids.contains(&inc.student_id)).collect::<Vec<_>>()
-    } else {
-        incidents_raw
+    let incidents = {
+        let raw = if current_role == "parent" || current_role == "role-school-parent" {
+            let s_id = selected_student_id.read().clone();
+            incidents_raw.into_iter().filter(|inc| inc.student_id == s_id).collect::<Vec<_>>()
+        } else if current_role == "student" || current_role == "role-school-student" {
+            let student_ids: std::collections::HashSet<String> = students.iter()
+                .filter(|s| s.user_id.as_ref() == Some(&user_id))
+                .map(|s| s.id.clone())
+                .collect();
+            incidents_raw.into_iter().filter(|inc| student_ids.contains(&inc.student_id)).collect::<Vec<_>>()
+        } else {
+            incidents_raw
+        };
+        raw.into_iter()
+            .map(|mut i| {
+                i.visit_reason = decrypt_field(&seed, &i.visit_reason);
+                i.treatment = decrypt_field(&seed, &i.treatment);
+                i.checked_in_at = decrypt_field(&seed, &i.checked_in_at);
+                i.checked_out_at = decrypt_opt_field(&seed, i.checked_out_at);
+                i.notes = decrypt_opt_field(&seed, i.notes);
+                i
+            })
+            .collect::<Vec<_>>()
     };
 
     let health_records_all = health_records_res.read().clone().unwrap_or_default();
-    let health_records = if current_role == "parent" || current_role == "role-school-parent" {
-        let s_id = selected_student_id.read().clone();
-        health_records_all.into_iter().filter(|hr| hr.student_id == s_id).collect::<Vec<_>>()
-    } else {
-        health_records_all
+    let health_records = {
+        let raw = if current_role == "parent" || current_role == "role-school-parent" {
+            let s_id = selected_student_id.read().clone();
+            health_records_all.into_iter().filter(|hr| hr.student_id == s_id).collect::<Vec<_>>()
+        } else {
+            health_records_all
+        };
+        raw.into_iter()
+            .map(|mut r| {
+                r.vaccine_name = decrypt_field(&seed, &r.vaccine_name);
+                r.status = decrypt_field(&seed, &r.status);
+                r.administered_at = decrypt_opt_field(&seed, r.administered_at);
+                r
+            })
+            .collect::<Vec<_>>()
     };
 
     rsx! {
@@ -279,14 +315,23 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
                                                                     let state = state;
                                                                     move |_| {
                                                                         hr_update.status = "consented".to_string();
-                                                                        let proof = state.get_passkey_seed();
-                                                                        let hr_save = hr_update.clone();
+                                                                        let seed_val = state.get_passkey_seed();
                                                                         let u = uid_c.clone();
                                                                         let r = role_c.clone();
+                                                                        let mut hr_save = hr_update.clone();
+                                                                        hr_save.vaccine_name = encrypt_field_with_proof(&seed_val, &hr_save.vaccine_name, &u, &r);
+                                                                        hr_save.status = encrypt_field_with_proof(&seed_val, &hr_save.status, &u, &r);
+                                                                        let admin_val = hr_save.administered_at.clone().unwrap_or_default();
+                                                                        hr_save.administered_at = if admin_val.is_empty() {
+                                                                            None
+                                                                        } else {
+                                                                            Some(encrypt_field_with_proof(&seed_val, &admin_val, &u, &r))
+                                                                        };
+                                                                        
                                                                         let mut db_t = db_trigger.clone();
                                                                         spawn(async move {
                                                                             let proof_val = yntra_core::ZkCryptoTrust::new()
-                                                                                .generate_role_proof(proof, u.clone(), r)
+                                                                                .generate_role_proof(seed_val, u.clone(), r)
                                                                                 .ok();
                                                                             let _ = yntra_core::save_student_health_record(u, hr_save, proof_val).await;
                                                                             let cur = *db_t.read();
@@ -368,17 +413,18 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
                                          let role = state.active_user_role.read().clone();
                                          let u_id = state.active_user_id.read().clone();
                                          let proof = yntra_core::ZkCryptoTrust::new()
-                                             .generate_role_proof(state.get_passkey_seed(), u_id, role)
+                                             .generate_role_proof(state.get_passkey_seed(), u_id.clone(), role.clone())
                                              .ok();
+                                         let seed_val = state.get_passkey_seed();
                                          let inc = HealthIncident {
                                              id: uuid::Uuid::new_v4().to_string(),
                                              workspace_id: ws.clone(),
                                              student_id: new_inc_student_id.read().clone(),
-                                             visit_reason: new_inc_reason.read().clone(),
-                                             treatment: new_inc_treatment.read().clone(),
-                                             checked_in_at: new_inc_checkin.read().clone(),
+                                             visit_reason: encrypt_field_with_proof(&seed_val, &new_inc_reason.read(), &u_id, &role),
+                                             treatment: encrypt_field_with_proof(&seed_val, &new_inc_treatment.read(), &u_id, &role),
+                                             checked_in_at: encrypt_field_with_proof(&seed_val, &new_inc_checkin.read(), &u_id, &role),
                                              checked_out_at: None,
-                                             notes: Some(new_inc_notes.read().clone()),
+                                             notes: Some(encrypt_field_with_proof(&seed_val, &new_inc_notes.read(), &u_id, &role)),
                                              updated_at: 0,
                                          };
                                          let uid_c = uid.clone();
@@ -421,12 +467,22 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
                                 let role = state.active_user_role.read().clone();
                                 let u_id = state.active_user_id.read().clone();
                                  let proof = yntra_core::ZkCryptoTrust::new()
-                                     .generate_role_proof(state.get_passkey_seed(), u_id, role)
+                                     .generate_role_proof(state.get_passkey_seed(), u_id.clone(), role.clone())
                                      .ok();
-                                let now_str = chrono::Local::now().format("%H:%M").to_string();
-                                inc_val.checked_out_at = Some(now_str);
-                                let u = uid.clone();
-                                let incident = inc_val.clone();
+                                 let seed_val = state.get_passkey_seed();
+                                 let now_str = chrono::Local::now().format("%H:%M").to_string();
+                                 inc_val.visit_reason = encrypt_field_with_proof(&seed_val, &inc_val.visit_reason, &u_id, &role);
+                                 inc_val.treatment = encrypt_field_with_proof(&seed_val, &inc_val.treatment, &u_id, &role);
+                                 inc_val.checked_in_at = encrypt_field_with_proof(&seed_val, &inc_val.checked_in_at, &u_id, &role);
+                                 inc_val.checked_out_at = Some(encrypt_field_with_proof(&seed_val, &now_str, &u_id, &role));
+                                 let notes_val = inc_val.notes.clone().unwrap_or_default();
+                                 inc_val.notes = if notes_val.is_empty() {
+                                     None
+                                 } else {
+                                     Some(encrypt_field_with_proof(&seed_val, &notes_val, &u_id, &role))
+                                 };
+                                 let u = uid.clone();
+                                 let incident = inc_val.clone();
                                 let mut d_trig = db_trig;
                                 spawn(async move {
                                     let _ = save_health_incident(u, incident, proof).await;

@@ -39,7 +39,9 @@ fn get_currency_label(locale: &str) -> String {
 #[component]
 pub fn FinanceView(props: SchoolViewProps) -> Element {
     let state = use_context::<crate::state::AppState>();
-    let mut db_trigger = state.trigger_school;
+    let mut db_trigger = state.trigger_school_finance;
+    let trigger_school_finance = state.trigger_school_finance;
+    let trigger_school_directory = state.trigger_school_directory;
     let user_id = props.active_user_id.clone();
     let ws_id = props.workspace_id.clone();
     let locale = props.locale.clone();
@@ -65,11 +67,10 @@ pub fn FinanceView(props: SchoolViewProps) -> Element {
     let mut context_menu_pos = use_signal(|| (0, 0));
     let mut context_menu_invoice = use_signal(|| Option::<SchoolInvoice>::None);
 
-    let db_trig_val = *db_trigger.read();
     let user_id_clone = user_id.clone();
     let ws_id_clone = ws_id.clone();
     let invoices_res = use_resource(move || {
-        let _ = db_trig_val;
+        let _trig = trigger_school_finance.read();
         let uid = user_id_clone.clone();
         let ws = ws_id_clone.clone();
         async move { get_school_invoices(uid, ws).await.unwrap_or_default() }
@@ -78,7 +79,7 @@ pub fn FinanceView(props: SchoolViewProps) -> Element {
     let user_id_clone2 = user_id.clone();
     let ws_id_clone2 = ws_id.clone();
     let students_res = use_resource(move || {
-        let _ = db_trig_val;
+        let _trig = trigger_school_directory.read();
         let uid = user_id_clone2.clone();
         let ws = ws_id_clone2.clone();
         async move { get_student_profiles(uid, ws).await.unwrap_or_default() }
@@ -87,7 +88,7 @@ pub fn FinanceView(props: SchoolViewProps) -> Element {
     let user_id_clone_p = user_id.clone();
     let ws_id_clone_p = ws_id.clone();
     let parent_students_res = use_resource(move || {
-        let _ = db_trig_val;
+        let _trig = trigger_school_directory.read();
         let uid = user_id_clone_p.clone();
         let ws = ws_id_clone_p.clone();
         async move { get_parent_students(uid.clone(), ws, uid).await.unwrap_or_default() }
@@ -247,7 +248,7 @@ pub fn FinanceView(props: SchoolViewProps) -> Element {
                                                                              let role = state.active_user_role.read().clone();
                                                                              let u_id = state.active_user_id.read().clone();
                                                                              let proof = yntra_core::ZkCryptoTrust::new()
-                                                                             .generate_role_proof(state.get_passkey_seed(), u_id, role)
+                                                                             .generate_role_proof(state.get_passkey_seed(), u_id.clone(), role.clone())
                                                                                  .ok();
                                                                              let u = uid_c.clone();
                                                                              let w = ws_c.clone();
@@ -353,7 +354,7 @@ pub fn FinanceView(props: SchoolViewProps) -> Element {
                                           let role = state.active_user_role.read().clone();
                                           let u_id = state.active_user_id.read().clone();
                                           let proof = yntra_core::ZkCryptoTrust::new()
-                                              .generate_role_proof(state.get_passkey_seed(), u_id, role)
+                                              .generate_role_proof(state.get_passkey_seed(), u_id.clone(), role.clone())
                                               .ok();
                                           let inv = SchoolInvoice {
                                              id: uuid::Uuid::new_v4().to_string(),
@@ -423,7 +424,7 @@ pub fn FinanceView(props: SchoolViewProps) -> Element {
                                              let role = state.active_user_role.read().clone();
                                              let u_id = state.active_user_id.read().clone();
                                              let proof = yntra_core::ZkCryptoTrust::new()
-                                                .generate_role_proof(state.get_passkey_seed(), u_id, role)
+                                                .generate_role_proof(state.get_passkey_seed(), u_id.clone(), role.clone())
                                                  .ok();
                                              let u = uid_c.clone();
                                              let w = ws_c.clone();
