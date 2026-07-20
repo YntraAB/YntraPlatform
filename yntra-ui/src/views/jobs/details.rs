@@ -2,7 +2,10 @@ use super::ChecklistItem;
 use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
-use yntra_core::{JobTicket, MoveInventoryItem, MoveQuote};
+use yntra_core::{
+    JobTicket, MoveInventoryItem, MoveQuote, MoveVehicle, WorkspaceUser,
+    save_job_signature, get_job_signature,
+};
 
 fn trigger_download(content: &str, file_name: &str) {
     #[cfg(target_arch = "wasm32")]
@@ -91,6 +94,139 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
         }
     });
     let invoice = invoice_res.read().clone().flatten();
+
+    // Crew & Vehicle resources
+    let jid_for_crew = job.id.clone();
+    let uid_for_crew = active_user_id.clone();
+    let crew_res = use_resource(move || {
+        let _ = db_trig_val;
+        let uid = uid_for_crew.clone();
+        let jid = jid_for_crew.clone();
+        async move {
+            if jid.is_empty() {
+                Vec::new()
+            } else {
+                yntra_core::get_job_crew(uid, jid).await.unwrap_or_default()
+            }
+        }
+    });
+    let crew_list = crew_res.read().clone().unwrap_or_default();
+
+    let uid_for_users = active_user_id.clone();
+    let users_res = use_resource(move || {
+        let _ = db_trig_val;
+        let uid = uid_for_users.clone();
+        async move {
+            yntra_core::get_users(uid).await.unwrap_or_default()
+        }
+    });
+    let workspace_users = users_res.read().clone().unwrap_or_default();
+
+    let uid_for_vehicles = active_user_id.clone();
+    let vehicles_res = use_resource(move || {
+        let _ = db_trig_val;
+        let uid = uid_for_vehicles.clone();
+        async move {
+            yntra_core::get_vehicles(uid).await.unwrap_or_default()
+        }
+    });
+    let vehicles_list = vehicles_res.read().clone().unwrap_or_default();
+
+    let jid_for_sig = job.id.clone();
+    let uid_for_sig = active_user_id.clone();
+    let signature_res = use_resource(move || {
+        let _ = db_trig_val;
+        let uid = uid_for_sig.clone();
+        let jid = jid_for_sig.clone();
+        async move {
+            if jid.is_empty() {
+                None
+            } else {
+                yntra_core::get_job_signature(uid, jid).await.unwrap_or(None)
+            }
+        }
+    });
+    let signature_opt = signature_res.read().clone().flatten();
+
+    // Form inputs for signature
+    let mut signer_name = use_signal(String::new);
+
+    // Initialize signature pad drawing listeners
+    let jid_c = job.id.clone();
+    use_effect(move || {
+        let _ = db_trig_val;
+        let _jid = jid_c.clone();
+        let script = r#"
+            (function() {
+                const canvas = document.getElementById('signature-pad');
+                if (!canvas) return;
+
+                let drawing = false;
+                let lastX = 0;
+                let lastY = 0;
+
+                function getPos(e) {
+                    const rect = canvas.getBoundingClientRect();
+                    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                    return {
+                        x: clientX - rect.left,
+                        y: clientY - rect.top
+                    };
+                }
+
+                function startDraw(e) {
+                    drawing = true;
+                    const pos = getPos(e);
+                    lastX = pos.x;
+                    lastY = pos.y;
+                    
+                    const ctx = canvas.getContext('2d');
+                    ctx.beginPath();
+                    ctx.moveTo(lastX, lastY);
+                    if (e.cancelable) e.preventDefault();
+                }
+
+                function draw(e) {
+                    if (!drawing) return;
+                    const pos = getPos(e);
+                    const ctx = canvas.getContext('2d');
+                    ctx.lineTo(pos.x, pos.y);
+                    ctx.stroke();
+                    lastX = pos.x;
+                    lastY = pos.y;
+                    if (e.cancelable) e.preventDefault();
+                }
+
+                function stopDraw() {
+                    drawing = false;
+                }
+
+                // Clone to clear any old event listeners
+                const clone = canvas.cloneNode(true);
+                canvas.replaceWith(clone);
+
+                const ctx = clone.getContext('2d');
+                ctx.strokeStyle = '#0f172a';
+                ctx.lineWidth = 3;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+
+                clone.addEventListener('mousedown', startDraw);
+                clone.addEventListener('mousemove', draw);
+                clone.addEventListener('mouseup', stopDraw);
+                clone.addEventListener('mouseleave', stopDraw);
+
+                clone.addEventListener('touchstart', startDraw, { passive: false });
+                clone.addEventListener('touchmove', draw, { passive: false });
+                clone.addEventListener('touchend', stopDraw);
+            })();
+        "#;
+        let _ = dioxus::document::eval(script);
+    });
+
+    let mut selected_crew_user_id = use_signal(|| "999".to_string());
+    let mut new_crew_role = use_signal(|| "Bärare".to_string());
 
     let mut new_stop_address = use_signal(String::new);
     let uid_for_dir = active_user_id.clone();
@@ -388,6 +524,163 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                             class: "py-1.5 px-3 bg-primary text-primary-foreground hover:opacity-90 rounded text-xs font-bold border-0 cursor-pointer flex items-center gap-1.5 transition-all text-decoration-none",
                             components::LucideIcon { name: "navigation", size: "14" }
                             "Öppna i Google Maps"
+                        }
+                    }
+                }
+            }
+
+            // Crew & Vehicle Planning Section
+            div { class: "border-t border-border/40 pt-4 flex flex-col gap-4 animate-in fade-in duration-300",
+                h3 { class: "text-sm font-extrabold flex items-center gap-1.5 m-0",
+                    components::LucideIcon { name: "users", size: "16", class: "accent-text" }
+                    "Bemannings- & Fordonsplanering"
+                }
+
+                div { class: "grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-xl border border-border/20 bg-secondary/5",
+                    
+                    // Vehicle Assignment Column
+                    div { class: "space-y-3",
+                        label { class: "text-[11px] font-bold text-muted-foreground uppercase tracking-wider block", "Tilldelat Fordon" }
+                        
+                        // Select element for assigning vehicle
+                        select {
+                            value: if let Some(ref vid) = job.assigned_vehicle_id { vid.clone() } else { "none".to_string() },
+                            onchange: {
+                                let jid = job.id.clone();
+                                let uid = active_user_id.clone();
+                                let mut db_trigger = props.db_trigger;
+                                move |e: FormEvent| {
+                                    let jid = jid.clone();
+                                    let uid = uid.clone();
+                                    let selected_vid = e.value();
+                                    let arg_vid = if selected_vid == "none" { None } else { Some(selected_vid) };
+                                    spawn(async move {
+                                        if yntra_core::assign_vehicle_to_job(uid, jid, arg_vid).await.is_ok() {
+                                            let current = *db_trigger.read();
+                                            db_trigger.set(current + 1);
+                                        }
+                                    });
+                                }
+                            },
+                            class: "w-full text-xs p-2 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-all",
+                            option { value: "none", "Inget fordon tilldelat" }
+                            for veh in vehicles_list.iter() {
+                                option { value: "{veh.id}", "{veh.name} ({veh.license_plate}) • {veh.capacity_m3}m³" }
+                            }
+                        }
+                    }
+
+                    // Crew Assignment Column
+                    div { class: "space-y-3",
+                        label { class: "text-[11px] font-bold text-muted-foreground uppercase tracking-wider block", "Lägg till bemanning" }
+                        
+                        div { class: "flex flex-col gap-2",
+                            // Dropdown of users
+                            select {
+                                value: "{selected_crew_user_id}",
+                                onchange: move |e: FormEvent| {
+                                    selected_crew_user_id.set(e.value());
+                                },
+                                class: "w-full text-xs p-2 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-all",
+                                option { value: "999", disabled: true, "Välj medarbetare..." }
+                                for user in workspace_users.iter() {
+                                    if !crew_list.iter().any(|c| c.id == user.id) {
+                                        option { value: "{user.id}", "{user.full_name.clone().unwrap_or_else(|| user.email.clone())} ({user.role})" }
+                                    }
+                                }
+                            }
+
+                            // Role selection
+                            div { class: "flex gap-2",
+                                select {
+                                    value: "{new_crew_role}",
+                                    onchange: move |e: FormEvent| {
+                                        new_crew_role.set(e.value());
+                                    },
+                                    class: "flex-1 text-xs p-2 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-all",
+                                    option { value: "Bärare", "Bärare (Packer)" }
+                                    option { value: "Förare", "Förare (Driver)" }
+                                    option { value: "Arbetsledare", "Arbetsledare (Supervisor)" }
+                                }
+                                button {
+                                    class: "py-2 px-4 bg-primary hover:opacity-90 rounded-lg text-xs font-bold text-primary-foreground border-0 cursor-pointer flex items-center justify-center gap-1 transition-all disabled:opacity-50",
+                                    disabled: *selected_crew_user_id.read() == "999",
+                                    onclick: {
+                                        let jid = job.id.clone();
+                                        let uid = active_user_id.clone();
+                                        let mut db_trigger = props.db_trigger;
+                                        move |_| {
+                                            let selected_uid = selected_crew_user_id.read().clone();
+                                            if selected_uid == "999" { return; }
+                                            let role = new_crew_role.read().clone();
+                                            let jid = jid.clone();
+                                            let uid = uid.clone();
+                                            
+                                            // Reset dropdown
+                                            selected_crew_user_id.set("999".to_string());
+                                            
+                                            spawn(async move {
+                                                if yntra_core::add_crew_member(uid, jid, selected_uid, role).await.is_ok() {
+                                                    let current = *db_trigger.read();
+                                                    db_trigger.set(current + 1);
+                                                }
+                                            });
+                                        }
+                                    },
+                                    components::LucideIcon { name: "plus", size: "14" }
+                                    "Lägg till"
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Assigned Crew Members List
+                if !crew_list.is_empty() {
+                    div { class: "space-y-2 pl-2 border-l-2 border-dashed border-border/60",
+                        label { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider block", "Tilldelad Bemanning" }
+                        div { class: "grid grid-cols-1 sm:grid-cols-2 gap-2",
+                            for member in crew_list.iter() {
+                                {
+                                    let m_id = member.id.clone();
+                                    let m_name = member.full_name.clone().unwrap_or_else(|| member.email.clone());
+                                    let m_email = member.email.clone();
+                                    let m_role = member.role.clone();
+                                    let jid = job.id.clone();
+                                    let uid = active_user_id.clone();
+                                    let mut db_trigger = props.db_trigger;
+                                    rsx! {
+                                        div {
+                                            key: "{m_id}",
+                                            class: "flex items-center justify-between p-2.5 rounded-lg border border-border/10 bg-background/50",
+                                            div { class: "min-w-0 flex-1",
+                                                div { class: "text-xs font-bold text-foreground truncate", "{m_name}" }
+                                                div { class: "text-[10px] text-muted-foreground flex items-center gap-1 truncate mt-0.5",
+                                                    span { class: "text-primary font-semibold", "{m_role}" }
+                                                    span { "•" }
+                                                    span { "{m_email}" }
+                                                }
+                                            }
+                                            button {
+                                                onclick: move |_| {
+                                                    let member_id = m_id.clone();
+                                                    let jid = jid.clone();
+                                                    let uid = uid.clone();
+                                                    spawn(async move {
+                                                        if yntra_core::remove_crew_member(uid, jid, member_id).await.is_ok() {
+                                                            let current = *db_trigger.read();
+                                                            db_trigger.set(current + 1);
+                                                        }
+                                                    });
+                                                },
+                                                class: "p-1 rounded text-red-500 hover:bg-red-500/10 border-0 bg-transparent cursor-pointer flex items-center justify-center transition-all",
+                                                title: "Ta bort från bemanning",
+                                                components::LucideIcon { name: "trash-2", size: "14" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -801,6 +1094,84 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                 }
             }
 
+            // Signature capture panel for in_progress status
+            if job_status == "in_progress" {
+                div { class: "border-t border-border/40 pt-4 flex flex-col gap-4 animate-in fade-in duration-300",
+                    h3 { class: "text-sm font-extrabold flex items-center gap-1.5 m-0",
+                        components::LucideIcon { name: "pen-tool", size: "16", class: "accent-text" }
+                        "Kundens signatur och godkännande"
+                    }
+                    div { class: "p-4 rounded-xl border border-border/20 bg-secondary/5 space-y-4 max-w-md",
+                        div {
+                            label { class: "text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-1", "Namnförtydligande (Kund)" }
+                            input {
+                                r#type: "text",
+                                placeholder: "t.ex. Anna Andersson",
+                                value: "{signer_name}",
+                                oninput: move |e| signer_name.set(e.value()),
+                                class: "w-full text-xs p-2.5 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-all",
+                            }
+                        }
+                        div { class: "space-y-1.5",
+                            label { class: "text-[11px] font-bold text-muted-foreground uppercase tracking-wider block", "Rita signatur" }
+                            canvas {
+                                id: "signature-pad",
+                                width: "400",
+                                height: "150",
+                                class: "border border-border bg-white rounded-lg cursor-crosshair w-full h-[150px] shadow-sm select-none touch-none",
+                            }
+                            div { class: "flex justify-end",
+                                button {
+                                    onclick: move |_| {
+                                        let _ = dioxus::document::eval(r#"
+                                            const canvas = document.getElementById('signature-pad');
+                                            if (canvas) {
+                                                const ctx = canvas.getContext('2d');
+                                                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                                            }
+                                        "#);
+                                    },
+                                    class: "py-1.5 px-3 rounded-lg text-xs font-semibold text-muted-foreground bg-transparent hover:bg-secondary/20 hover:text-foreground border border-border/40 cursor-pointer transition-all",
+                                    "Rensa"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Display captured signature if it exists
+            if let Some(ref sig) = signature_opt {
+                {
+                    let formatted_time = chrono::DateTime::from_timestamp(sig.signed_at / 1000, 0)
+                        .map(|d| d.format("%Y-%m-%d %H:%M").to_string())
+                        .unwrap_or_default();
+                    rsx! {
+                        div { class: "border-t border-border/40 pt-4 flex flex-col gap-3 animate-in fade-in duration-300",
+                            h3 { class: "text-sm font-extrabold flex items-center gap-1.5 m-0",
+                                components::LucideIcon { name: "check-square", size: "16", class: "text-emerald-500" }
+                                "Godkänd & Signerad"
+                            }
+                            div { class: "p-4 rounded-xl border border-border/20 bg-emerald-500/5 flex flex-col gap-2 max-w-sm",
+                                div { class: "bg-white border border-border rounded-lg p-2 flex items-center justify-center shadow-inner",
+                                    img {
+                                        src: "{sig.signature_data_base64}",
+                                        class: "h-[80px] object-contain select-none max-w-full",
+                                        alt: "Digital signatur"
+                                    }
+                                }
+                                div { class: "text-xs font-bold text-foreground",
+                                    "Signerat av: {sig.signer_name}"
+                                }
+                                div { class: "text-[10px] text-muted-foreground",
+                                    "Tid: {formatted_time}"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Action Buttons
             {
                 let uid_for_start = active_user_id.clone();
@@ -822,14 +1193,52 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                         } else if job_status == "in_progress" {
                             components::Button {
                                 variant: components::ButtonVariant::Primary,
-                                onclick: move |_| {
-                                    let checklist_str = serde_json::to_string(&*checklist_state.read()).unwrap();
-                                    let report_str = completion_report_state.read().clone();
+                                disabled: signer_name.read().trim().is_empty(),
+                                onclick: {
+                                    let checklist_state = checklist_state.clone();
+                                    let completion_report_state = completion_report_state.clone();
                                     let job_id = job_id_submit.clone();
                                     let uid = uid_for_complete.clone();
-                                    spawn(async move {
-                                        let _ = yntra_core::submit_job_completion(uid, job_id, checklist_str, report_str).await;
-                                    });
+                                    let signer_name_sig = signer_name.clone();
+                                    let mut db_trigger = props.db_trigger;
+                                    move |_| {
+                                        let checklist_str = serde_json::to_string(&*checklist_state.read()).unwrap();
+                                        let report_str = completion_report_state.read().clone();
+                                        let job_id = job_id.clone();
+                                        let uid = uid.clone();
+                                        let signer = signer_name_sig.read().trim().to_string();
+                                        
+                                        spawn(async move {
+                                            // 1. Capture base64 signature from canvas
+                                            let mut eval = dioxus::document::eval(r#"
+                                                const canvas = document.getElementById('signature-pad');
+                                                if (canvas) {
+                                                    const dataUrl = canvas.toDataURL('image/png');
+                                                    dioxus.send(dataUrl);
+                                                } else {
+                                                    dioxus.send("");
+                                                }
+                                            "#);
+                                            
+                                            let signature_data = eval.recv::<String>().await.unwrap_or_default();
+                                            
+                                            // 2. Save signature if we captured one
+                                            if !signature_data.is_empty() && !signer.is_empty() {
+                                                let _ = yntra_core::save_job_signature(
+                                                    uid.clone(),
+                                                    job_id.clone(),
+                                                    signer,
+                                                    signature_data,
+                                                ).await;
+                                            }
+                                            
+                                            // 3. Complete the job
+                                            if yntra_core::submit_job_completion(uid, job_id, checklist_str, report_str).await.is_ok() {
+                                                let current = *db_trigger.read();
+                                                db_trigger.set(current + 1);
+                                            }
+                                        });
+                                    }
                                 },
                                 "{t(\"jobs-action-complete\", &region)}"
                             }

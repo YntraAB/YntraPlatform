@@ -4,6 +4,7 @@ use yntra_core::{
     generate_move_invoice, get_move_invoice, pay_move_invoice,
     create_move_inventory_item, delete_move_inventory_item,
     calculate_and_save_move_quote, initiate_swish_payment, SwishPaymentSession,
+    initiate_stripe_payment, initiate_adyen_payment, StripePaymentSession, AdyenPaymentSession,
 };
 use crate::components;
 
@@ -131,8 +132,24 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
     let mut new_item_vol = use_signal(|| 0.5);
     let mut new_item_notes = use_signal(String::new);
     let mut show_swish_modal = use_signal(|| Option::<SwishPaymentSession>::None);
+    let mut show_stripe_modal = use_signal(|| Option::<StripePaymentSession>::None);
+    let mut show_adyen_modal = use_signal(|| Option::<AdyenPaymentSession>::None);
     let mut swish_polling_seconds = use_signal(|| 0);
 
+    let state = use_context::<crate::state::AppState>();
+    let workspace_opt = state.workspace.read().clone();
+    let target_region = if let Some(ref ws) = workspace_opt {
+        let settings_json: serde_json::Value = serde_json::from_str(&ws.settings).unwrap_or_default();
+        settings_json.get("target_region").and_then(|v| v.as_str()).unwrap_or("SE").to_uppercase()
+    } else {
+        "SE".to_string()
+    };
+
+    let (tax_label, currency_suffix, payment_method_label) = match target_region.as_str() {
+        "US" => ("Moms / Sales Tax:".to_string(), " $".to_string(), "Betala med Stripe (Kort)".to_string()),
+        "DE" => ("Moms / VAT (MwSt):".to_string(), " €".to_string(), "Betala med Adyen".to_string()),
+        _ => ("Skatteverket RUT-avdrag (söks av oss):".to_string(), " kr".to_string(), "Betala med Swish".to_string()),
+    };
 
     let quote_id_for_inv = quote.as_ref().map(|q| q.id.clone()).unwrap_or_default();
     let active_uid_for_invoice = props.active_user_id.clone();
@@ -176,32 +193,68 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
         });
     };
 
+    let active_uid_for_stripe_complete = props.active_user_id.clone();
+    let on_complete_stripe_payment = move |invoice_id: String| {
+        let uid = active_uid_for_stripe_complete.clone();
+        spawn(async move {
+            if pay_move_invoice(uid, invoice_id).await.is_ok() {
+                let current_val = *db_trigger.read();
+                db_trigger.set(current_val + 1);
+            }
+            show_stripe_modal.set(None);
+        });
+    };
+
+    let active_uid_for_adyen_complete = props.active_user_id.clone();
+    let on_complete_adyen_payment = move |invoice_id: String| {
+        let uid = active_uid_for_adyen_complete.clone();
+        spawn(async move {
+            if pay_move_invoice(uid, invoice_id).await.is_ok() {
+                let current_val = *db_trigger.read();
+                db_trigger.set(current_val + 1);
+            }
+            show_adyen_modal.set(None);
+        });
+    };
+
     let active_uid_for_pay_c = props.active_user_id.clone();
+    let region_for_pay = target_region.clone();
     let on_pay_invoice = move |invoice_id: String| {
         let uid = active_uid_for_pay_c.clone();
+        let region = region_for_pay.clone();
         spawn(async move {
-            if let Ok(session) = initiate_swish_payment(uid.clone(), invoice_id.clone()).await {
-                show_swish_modal.set(Some(session));
-                swish_polling_seconds.set(0);
-                
-                let invoice_id_c = invoice_id.clone();
-                let uid_c = uid.clone();
-                spawn(async move {
-                    for sec in 1..=4 {
-                        crate::utils::sleep_ms(1000).await;
-                        if show_swish_modal.read().is_none() {
-                            break;
-                        }
-                        swish_polling_seconds.set(sec);
-                        if sec == 4 {
-                            if pay_move_invoice(uid_c.clone(), invoice_id_c.clone()).await.is_ok() {
-                                let current_val = *db_trigger.read();
-                                db_trigger.set(current_val + 1);
+            if region == "US" {
+                if let Ok(session) = initiate_stripe_payment(uid, invoice_id).await {
+                    show_stripe_modal.set(Some(session));
+                }
+            } else if region == "DE" {
+                if let Ok(session) = initiate_adyen_payment(uid, invoice_id).await {
+                    show_adyen_modal.set(Some(session));
+                }
+            } else {
+                if let Ok(session) = initiate_swish_payment(uid.clone(), invoice_id.clone()).await {
+                    show_swish_modal.set(Some(session));
+                    swish_polling_seconds.set(0);
+                    
+                    let invoice_id_c = invoice_id.clone();
+                    let uid_c = uid.clone();
+                    spawn(async move {
+                        for sec in 1..=4 {
+                            crate::utils::sleep_ms(1000).await;
+                            if show_swish_modal.read().is_none() {
+                                break;
                             }
-                            show_swish_modal.set(None);
+                            swish_polling_seconds.set(sec);
+                            if sec == 4 {
+                                if pay_move_invoice(uid_c.clone(), invoice_id_c.clone()).await.is_ok() {
+                                    let current_val = *db_trigger.read();
+                                    db_trigger.set(current_val + 1);
+                                }
+                                show_swish_modal.set(None);
+                            }
                         }
-                    }
-                });
+                    });
+                }
             }
         });
     };
@@ -320,60 +373,82 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                             class: "pt-6 space-y-4 flex-1 flex flex-col justify-between",
                             if q.status != "accepted" {
                                 {
-                                    let is_rut = *use_rut.read();
+                                    let is_rut = *use_rut.read() && target_region == "SE";
                                     let labor_cost = q.base_price + q.stairs_surcharge;
-                                    let rut_reduction = if is_rut { (0.5 * labor_cost as f64) as i64 } else { 0 };
-                                    let final_total = q.total_price - rut_reduction;
+                                    
+                                    let (tax_amount, final_total) = match target_region.as_str() {
+                                        "US" => {
+                                            let tax = (q.total_price as f64 * 0.08) as i64;
+                                            (tax, q.total_price + tax)
+                                        }
+                                        "DE" => {
+                                            let tax = (q.total_price as f64 * 0.19) as i64;
+                                            (tax, q.total_price + tax)
+                                        }
+                                        _ => {
+                                            let rut = if is_rut { (0.5 * labor_cost as f64) as i64 } else { 0 };
+                                            (rut, q.total_price - rut)
+                                        }
+                                    };
+
                                     let hours = q.base_price as f64 / hourly_rate;
                                     rsx! {
                                         div { class: "space-y-3",
                                             div { class: "space-y-1.5",
                                                 div { class: "flex items-center justify-between text-xs text-muted-foreground",
                                                     if pricing_model == "hourly" {
-                                                        span { "Baspris ({hours:.1} tim à {hourly_rate} kr/tim):" }
+                                                        span { "Baspris ({hours:.1} tim à {hourly_rate}{currency_suffix}/tim):" }
                                                     } else {
                                                         span { "Baspris (arbete/tid):" }
                                                     }
-                                                    span { class: "font-semibold text-foreground", "{q.base_price} kr" }
+                                                    span { class: "font-semibold text-foreground", "{q.base_price}{currency_suffix}" }
                                                 }
                                                 div { class: "flex items-center justify-between text-xs text-muted-foreground",
                                                     span { "Distansavgift:" }
-                                                    span { class: "font-semibold text-foreground", "{q.distance_fee} kr" }
+                                                    span { class: "font-semibold text-foreground", "{q.distance_fee}{currency_suffix}" }
                                                 }
                                                 div { class: "flex items-center justify-between text-xs text-muted-foreground",
                                                     span { "Trapptillägg:" }
-                                                    span { class: "font-semibold text-foreground", "{q.stairs_surcharge} kr" }
+                                                    span { class: "font-semibold text-foreground", "{q.stairs_surcharge}{currency_suffix}" }
                                                 }
                                                 div { class: "flex items-center justify-between text-xs text-muted-foreground",
                                                     span { "Packmaterial & utrustning:" }
-                                                    span { class: "font-semibold text-foreground", "{q.packing_supplies_fee} kr" }
+                                                    span { class: "font-semibold text-foreground", "{q.packing_supplies_fee}{currency_suffix}" }
                                                 }
-                                                if is_rut {
+                                                if target_region == "SE" && is_rut {
                                                     div { class: "flex items-center justify-between text-xs text-emerald-500 font-semibold",
                                                         span { "Preliminärt RUT-avdrag (50%):" }
-                                                        span { "-{rut_reduction} kr" }
+                                                        span { "-{tax_amount}{currency_suffix}" }
+                                                    }
+                                                }
+                                                if target_region != "SE" && tax_amount > 0 {
+                                                    div { class: "flex items-center justify-between text-xs text-muted-foreground",
+                                                        span { "{tax_label}" }
+                                                        span { "+{tax_amount}{currency_suffix}" }
                                                     }
                                                 }
                                             }
 
-                                            div { class: "flex items-center gap-2 pt-2.5 border-t border-border/20 text-xs text-muted-foreground",
-                                                input {
-                                                    r#type: "checkbox",
-                                                    id: "rut_checkbox",
-                                                    checked: is_rut,
-                                                    onclick: move |_| {
-                                                        let val = *use_rut.read();
-                                                        use_rut.set(!val);
-                                                    },
-                                                    class: "rounded border-border bg-background text-primary focus:ring-primary cursor-pointer"
+                                            if target_region == "SE" {
+                                                div { class: "flex items-center gap-2 pt-2.5 border-t border-border/20 text-xs text-muted-foreground",
+                                                    input {
+                                                        r#type: "checkbox",
+                                                        id: "rut_checkbox",
+                                                        checked: is_rut,
+                                                        onclick: move |_| {
+                                                            let val = *use_rut.read();
+                                                            use_rut.set(!val);
+                                                        },
+                                                        class: "rounded border-border bg-background text-primary focus:ring-primary cursor-pointer"
+                                                    }
+                                                    label { r#for: "rut_checkbox", class: "font-bold cursor-pointer select-none text-foreground/80 hover:text-foreground", "Ansök om RUT-avdrag" }
                                                 }
-                                                label { r#for: "rut_checkbox", class: "font-bold cursor-pointer select-none text-foreground/80 hover:text-foreground", "Ansök om RUT-avdrag" }
                                             }
 
                                             div { class: "h-px bg-border/40 my-2", }
                                             div { class: "flex items-center justify-between text-sm font-extrabold",
                                                 span { if is_rut { "Ditt pris efter RUT:" } else { "Totalt pris:" } }
-                                                span { class: "text-primary text-base", "{final_total} kr" }
+                                                span { class: "text-primary text-base", "{final_total}{currency_suffix}" }
                                             }
 
                                             div { class: "pt-4",
@@ -400,23 +475,29 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                             }
                                             div { class: "text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60 mt-1 select-none", "Fakturaspecifikation" }
                                             div { class: "flex items-center justify-between text-xs text-muted-foreground",
-                                                span { "Totalsumma (exkl. RUT):" }
-                                                span { class: "font-semibold text-foreground", "{inv.subtotal} kr" }
+                                                span { if target_region == "SE" { "Totalsumma (exkl. RUT):" } else { "Subtotal:" } }
+                                                span { class: "font-semibold text-foreground", "{inv.subtotal}{currency_suffix}" }
                                             }
-                                            if inv.rut_deduction > 0.0 {
+                                            if target_region == "SE" && inv.rut_deduction > 0.0 {
                                                 div { class: "flex items-center justify-between text-xs text-emerald-500 font-semibold",
                                                     span { "RUT-avdrag (skattereduktion):" }
-                                                    span { "-{inv.rut_deduction} kr" }
+                                                    span { "-{inv.rut_deduction}{currency_suffix}" }
                                                 }
                                                 div { class: "flex items-center justify-between text-xs text-muted-foreground",
                                                     span { "Skatteverket (söks av oss):" }
-                                                    span { "{inv.tax_authority_amount} kr" }
+                                                    span { "{inv.tax_authority_amount}{currency_suffix}" }
+                                                }
+                                            }
+                                            if target_region != "SE" && inv.tax_authority_amount > 0.0 {
+                                                div { class: "flex items-center justify-between text-xs text-muted-foreground",
+                                                    span { "{tax_label}" }
+                                                    span { "{inv.tax_authority_amount}{currency_suffix}" }
                                                 }
                                             }
                                             div { class: "h-px bg-border/40 my-1", }
                                             div { class: "flex items-center justify-between text-sm font-extrabold",
                                                 span { "Att betala (Kund):" }
-                                                span { class: "text-primary text-base", "{inv.customer_amount} kr" }
+                                                span { class: "text-primary text-base", "{inv.customer_amount}{currency_suffix}" }
                                             }
                                             div { class: "flex items-center justify-between text-[10px] text-muted-foreground/75 pt-2",
                                                 span { "Fakturadatum:" }
@@ -431,7 +512,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                                 if inv.status == "paid" {
                                                     div { class: "flex items-center justify-center gap-2 p-2.5 rounded-lg bg-blue-500/10 text-blue-500 text-xs font-bold text-center border border-blue-500/20 select-none",
                                                         components::LucideIcon { name: "credit-card", class: "h-4 w-4" }
-                                                        span { "Faktura Betald (Swish)" }
+                                                        span { "Faktura Betald" }
                                                     }
                                                 } else {
                                                     button {
@@ -441,7 +522,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                                         },
                                                         class: "w-full rounded-lg bg-emerald-500 text-white py-2.5 text-xs font-bold shadow hover:opacity-90 hover:scale-[1.01] transition-all border-0 cursor-pointer flex items-center justify-center gap-2 select-none",
                                                         components::LucideIcon { name: "credit-card", class: "h-4 w-4" }
-                                                        "Betala med Swish"
+                                                        "{payment_method_label}"
                                                     }
                                                 }
                                             }
@@ -913,7 +994,153 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
             }
         }
 
+        if let Some(ref stripe_sess) = *show_stripe_modal.read() {
+            {
+                let invoice_id = current_inv_id.clone();
+                rsx! {
+                    div {
+                        class: "fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200",
+                        div {
+                            class: "bg-sidebar border border-border rounded-2xl w-full max-w-md p-6 shadow-2xl flex flex-col gap-5 relative animate-in zoom-in-95 duration-200",
+                            button {
+                                onclick: move |_| {
+                                    show_stripe_modal.set(None);
+                                },
+                                class: "absolute top-4 right-4 p-1 rounded-full hover:bg-muted border-0 bg-transparent cursor-pointer text-muted-foreground transition-all",
+                                components::LucideIcon { name: "x", size: "16" }
+                            }
+                            div { class: "flex items-center gap-3 border-b border-border/40 pb-4",
+                                div { class: "p-2 rounded-xl bg-blue-500/10 text-blue-500",
+                                    components::LucideIcon { name: "credit-card", class: "h-6 w-6" }
+                                }
+                                div {
+                                    h3 { class: "text-base font-bold text-foreground m-0", "Betala med Stripe" }
+                                    p { class: "text-xs text-muted-foreground m-0", "Fyll i dina kortuppgifter för att slutföra betalningen." }
+                                }
+                            }
+                            div { class: "space-y-4 pt-2",
+                                div { class: "space-y-1",
+                                    label { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider block", "Kortinnehavare" }
+                                    input {
+                                        r#type: "text",
+                                        placeholder: "t.ex. Anna Andersson",
+                                        class: "w-full text-xs p-2.5 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-all",
+                                    }
+                                }
+                                div { class: "space-y-1",
+                                    label { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider block", "Kortnummer" }
+                                    div { class: "relative",
+                                        input {
+                                            r#type: "text",
+                                            placeholder: "4111 2222 3333 4444",
+                                            class: "w-full text-xs p-2.5 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-all pl-9",
+                                        }
+                                        div { class: "absolute left-3 top-2.5 text-muted-foreground",
+                                            components::LucideIcon { name: "credit-card", size: "16" }
+                                        }
+                                    }
+                                }
+                                div { class: "grid grid-cols-2 gap-4",
+                                    div { class: "space-y-1",
+                                        label { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider block", "Utgångsdatum" }
+                                        input {
+                                            r#type: "text",
+                                            placeholder: "MM/ÅÅ",
+                                            class: "w-full text-xs p-2.5 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-all",
+                                        }
+                                    }
+                                    div { class: "space-y-1",
+                                        label { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider block", "CVC" }
+                                        input {
+                                            r#type: "password",
+                                            placeholder: "•••",
+                                            maxlength: "3",
+                                            class: "w-full text-xs p-2.5 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-all",
+                                        }
+                                    }
+                                }
+                            }
+                            div { class: "bg-muted/40 p-4 rounded-xl border border-border/30 text-xs flex justify-between items-center mt-2",
+                                span { class: "text-muted-foreground", "Att betala:" }
+                                span { class: "font-bold text-foreground text-sm", "{stripe_sess.amount}{currency_suffix}" }
+                            }
+                            button {
+                                onclick: {
+                                    let inv_id = invoice_id.clone();
+                                    move |_| on_complete_stripe_payment(inv_id.clone())
+                                },
+                                class: "w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-xs font-bold text-white shadow border-0 cursor-pointer transition-all flex items-center justify-center gap-2 mt-2",
+                                components::LucideIcon { name: "check", size: "16" }
+                                "Slutför kortbetalning"
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
+        if let Some(ref adyen_sess) = *show_adyen_modal.read() {
+            {
+                let invoice_id = current_inv_id.clone();
+                rsx! {
+                    div {
+                        class: "fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200",
+                        div {
+                            class: "bg-sidebar border border-border rounded-2xl w-full max-w-md p-6 shadow-2xl flex flex-col gap-5 relative animate-in zoom-in-95 duration-200",
+                            button {
+                                onclick: move |_| {
+                                    show_adyen_modal.set(None);
+                                },
+                                class: "absolute top-4 right-4 p-1 rounded-full hover:bg-muted border-0 bg-transparent cursor-pointer text-muted-foreground transition-all",
+                                components::LucideIcon { name: "x", size: "16" }
+                            }
+                            div { class: "flex items-center gap-3 border-b border-border/40 pb-4",
+                                div { class: "p-2 rounded-xl bg-[#00112C] text-white flex items-center justify-center font-bold text-xs w-10 h-10 select-none",
+                                    "Adyen"
+                                }
+                                div {
+                                    h3 { class: "text-base font-bold text-foreground m-0", "Betala med Adyen" }
+                                    p { class: "text-xs text-muted-foreground m-0", "Koppla upp säkert mot din internetbank via Adyen." }
+                                }
+                            }
+                            div { class: "space-y-4 pt-2",
+                                div { class: "space-y-2",
+                                    label { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider block", "Välj din bank" }
+                                    select {
+                                        class: "w-full text-xs p-2.5 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-all",
+                                        option { "Deutsche Bank" }
+                                        option { "Commerzbank" }
+                                        option { "Sparkasse" }
+                                        option { "Volksbank" }
+                                    }
+                                }
+                                div { class: "space-y-1",
+                                    label { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider block", "IBAN" }
+                                    input {
+                                        r#type: "text",
+                                        placeholder: "DE89 3704 0044 0532 0130 00",
+                                        class: "w-full text-xs p-2.5 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-all",
+                                    }
+                                }
+                            }
+                            div { class: "bg-muted/40 p-4 rounded-xl border border-border/30 text-xs flex justify-between items-center mt-2",
+                                span { class: "text-muted-foreground", "Att betala:" }
+                                span { class: "font-bold text-foreground text-sm", "{adyen_sess.amount}{currency_suffix}" }
+                            }
+                            button {
+                                onclick: {
+                                    let inv_id = invoice_id.clone();
+                                    move |_| on_complete_adyen_payment(inv_id.clone())
+                                },
+                                class: "w-full py-3 rounded-xl bg-[#00112C] hover:opacity-90 text-xs font-bold text-white shadow border-0 cursor-pointer transition-all flex items-center justify-center gap-2 mt-2",
+                                components::LucideIcon { name: "check", size: "16" }
+                                "Slutför bankbetalning"
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
