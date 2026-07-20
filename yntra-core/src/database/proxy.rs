@@ -2,6 +2,82 @@ use crate::database;
 use crate::{YntraError, ZkCryptoTrust, ZeroCopyStore};
 use std::sync::Arc;
 
+fn parse_insert_columns_and_values(
+    sql: &str,
+    params: &[serde_json::Value],
+) -> std::collections::HashMap<String, serde_json::Value> {
+    let mut map = std::collections::HashMap::new();
+    if let Some(start_cols) = sql.find('(') {
+        if let Some(end_cols) = sql[start_cols..].find(')') {
+            let cols_str = &sql[start_cols + 1..start_cols + end_cols];
+            let cols: Vec<String> = cols_str
+                .split(',')
+                .map(|s| s.trim().trim_matches('`').trim_matches('"').trim_matches('\'').to_lowercase())
+                .collect();
+            for (idx, col) in cols.iter().enumerate() {
+                if idx < params.len() {
+                    map.insert(col.clone(), params[idx].clone());
+                }
+            }
+        }
+    }
+    map
+}
+
+fn normalize_clock_skew(
+    sql: &str,
+    params: &mut [serde_json::Value],
+) {
+    let now_ms = crate::infra::time::get_current_time_ms();
+    let lower_sql = sql.to_lowercase();
+
+    // 1. Handle INSERT / REPLACE statements
+    if lower_sql.contains("insert") || lower_sql.contains("replace") {
+        if let Some(start_cols) = sql.find('(') {
+            if let Some(end_cols) = sql[start_cols..].find(')') {
+                let cols_str = &sql[start_cols + 1..start_cols + end_cols];
+                let cols: Vec<&str> = cols_str.split(',').map(|s| s.trim()).collect();
+                for (idx, col) in cols.iter().enumerate() {
+                    let col_clean = col.trim_matches('`').trim_matches('"').trim_matches('\'').to_lowercase();
+                    if col_clean == "updated_at" && idx < params.len() {
+                        if let Some(client_time) = params[idx].as_i64() {
+                            // If client timestamp is in the future (plus a small 5-second tolerance for delays)
+                            if client_time > now_ms + 5000 {
+                                params[idx] = serde_json::Value::Number(serde_json::Number::from(now_ms));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // 2. Handle UPDATE statements
+    else if lower_sql.contains("update") {
+        if let Some(pos) = lower_sql.find("updated_at") {
+            let search_slice = &sql[pos..];
+            if let Some(q_pos) = search_slice.find('?') {
+                let start_digits = pos + q_pos + 1;
+                let mut end_digits = start_digits;
+                while end_digits < sql.len() && sql.as_bytes()[end_digits].is_ascii_digit() {
+                    end_digits += 1;
+                }
+                if end_digits > start_digits {
+                    if let Ok(param_idx_1based) = sql[start_digits..end_digits].parse::<usize>() {
+                        let param_idx = param_idx_1based - 1;
+                        if param_idx < params.len() {
+                            if let Some(client_time) = params[param_idx].as_i64() {
+                                if client_time > now_ms + 5000 {
+                                    params[param_idx] = serde_json::Value::Number(serde_json::Number::from(now_ms));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[derive(Clone, uniffi::Object)]
 pub struct RemoteSyncCoordinator {}
 
@@ -83,13 +159,150 @@ impl RemoteSyncCoordinator {
             }
         }
 
-        // 3. Parse JSON params and execute inside a transaction for atomic safety
-        let parsed_params: Vec<serde_json::Value> = if params_json.is_empty() {
+        // 3. Parse JSON params
+        let mut parsed_params: Vec<serde_json::Value> = if params_json.is_empty() {
             Vec::new()
         } else {
             serde_json::from_str(&params_json)
                 .map_err(|e| YntraError::SerializationError(e.to_string()))?
         };
+
+        normalize_clock_skew(&sql, &mut parsed_params);
+
+        // 4. Enforce server-side Role-Based Access Control (RBAC) validations on SQL write payloads
+        let role_lower = role.to_lowercase();
+        let is_unprivileged = role_lower == "student" || role_lower == "role-school-student" || role_lower == "parent" || role_lower == "role-school-parent";
+
+        if is_unprivileged {
+            let table_name_opt = database::parser::extract_table_name(&sql);
+            let table_name = match table_name_opt {
+                Some(t) => t.to_lowercase(),
+                None => {
+                    return Err(YntraError::AuthError(
+                        "Access denied: SQL command has invalid or untrackable table".to_string(),
+                    ));
+                }
+            };
+
+            if table_name == "submissions" {
+                let col_vals = parse_insert_columns_and_values(&sql, &parsed_params);
+
+                // Enforce that unprivileged users cannot write/modify grades or feedback
+                if let Some(grade) = col_vals.get("grade") {
+                    if !grade.is_null() && grade.as_str() != Some("") {
+                        return Err(YntraError::AuthError(
+                            "Access denied: Students and Parents cannot set or modify grades".to_string(),
+                        ));
+                    }
+                }
+                if let Some(feedback) = col_vals.get("feedback") {
+                    if !feedback.is_null() && feedback.as_str() != Some("") {
+                        return Err(YntraError::AuthError(
+                            "Access denied: Students and Parents cannot set or modify feedback".to_string(),
+                        ));
+                    }
+                }
+
+                // Enforce that student_id belongs to the requester
+                let student_id = col_vals.get("student_id").and_then(|v| v.as_str());
+                match student_id {
+                    Some(sid) => {
+                        let mut authorized = false;
+                        if role_lower == "student" || role_lower == "role-school-student" {
+                            let profile_uid: Option<String> = conn
+                                .query_row(
+                                    "SELECT user_id FROM student_profiles WHERE id = ?1",
+                                    crate::params![sid],
+                                    |r| r.get(0),
+                                )
+                                .await
+                                .ok()
+                                .flatten();
+                            if let Some(uid) = profile_uid {
+                                if uid == requester_user_id {
+                                    authorized = true;
+                                }
+                            }
+                        } else if role_lower == "parent" || role_lower == "role-school-parent" {
+                            let linked: Option<i64> = conn
+                                .query_row(
+                                    "SELECT 1 FROM student_parents WHERE student_id = ?1 AND parent_user_id = ?2",
+                                    crate::params![sid, &requester_user_id],
+                                    |r| r.get(0),
+                                )
+                                .await
+                                .ok();
+                            if linked.is_some() {
+                                authorized = true;
+                            }
+                        }
+
+                        if !authorized {
+                            return Err(YntraError::AuthError(
+                                "Access denied: You are not authorized to submit for this student".to_string(),
+                            ));
+                        }
+                    }
+                    None => {
+                        return Err(YntraError::ValidationError(
+                            "student_id is required for submissions".to_string(),
+                        ));
+                    }
+                }
+            } else if table_name == "library_lending_logs" {
+                let lower_sql = sql.to_lowercase();
+                if lower_sql.contains("update") {
+                    let log_id = parsed_params.iter().find(|v| v.is_string() && (v.as_str().unwrap().starts_with("log-") || v.as_str().unwrap().starts_with("lend-")));
+                    if let Some(log_id_val) = log_id {
+                        let log_id_str = log_id_val.as_str().unwrap();
+                        let student_id: Option<String> = conn.query_row(
+                            "SELECT student_id FROM library_lending_logs WHERE id = ?1",
+                            crate::params![log_id_str],
+                            |r| r.get(0)
+                        ).await.ok();
+
+                        if let Some(sid) = student_id {
+                            let mut authorized = false;
+                            if role_lower == "student" || role_lower == "role-school-student" {
+                                let profile_uid: Option<String> = conn.query_row(
+                                    "SELECT user_id FROM student_profiles WHERE id = ?1",
+                                    crate::params![&sid],
+                                    |r| r.get(0)
+                                ).await.ok().flatten();
+                                if let Some(uid) = profile_uid {
+                                    if uid == requester_user_id {
+                                        authorized = true;
+                                    }
+                                }
+                            } else if role_lower == "parent" || role_lower == "role-school-parent" {
+                                let count: Option<i64> = conn.query_row(
+                                    "SELECT 1 FROM student_parents WHERE student_id = ?1 AND parent_user_id = ?2",
+                                    crate::params![&sid, &requester_user_id],
+                                    |r| r.get(0)
+                                ).await.ok();
+                                if count.is_some() {
+                                    authorized = true;
+                                }
+                            }
+                            if !authorized {
+                                return Err(YntraError::AuthError("Access denied: You are not authorized to modify this library log".to_string()));
+                            }
+                        } else {
+                            return Err(YntraError::NotFoundError("Lending log not found".to_string()));
+                        }
+                    } else {
+                        return Err(YntraError::ValidationError("Missing library log ID".to_string()));
+                    }
+                } else {
+                    return Err(YntraError::AuthError("Access denied: Students/Parents can only update library logs".to_string()));
+                }
+            } else {
+                return Err(YntraError::AuthError(format!(
+                    "Access denied: role '{}' does not have write permissions to table '{}'",
+                    role, table_name
+                )));
+            }
+        }
 
         conn.begin_transaction().await?;
 
@@ -607,6 +820,240 @@ impl RemoteSyncCoordinator {
                 }
                 list
             }
+            "submissions" => {
+                let mut stmt = if auth.role == "platform_admin" {
+                    conn.prepare("SELECT id, workspace_id, assignment_id, student_id, content, grade, feedback, submitted_at, updated_at FROM submissions").await?
+                } else if is_privileged {
+                    conn.prepare("SELECT id, workspace_id, assignment_id, student_id, content, grade, feedback, submitted_at, updated_at FROM submissions WHERE workspace_id = ?1").await?
+                } else {
+                    let place_holders = if student_ids.is_empty() {
+                        "''".to_string()
+                    } else {
+                        student_ids.iter().map(|id| format!("'{}'", id.replace('\'', "''"))).collect::<Vec<_>>().join(",")
+                    };
+                    let query = format!(
+                        "SELECT id, workspace_id, assignment_id, student_id, content, grade, feedback, submitted_at, updated_at FROM submissions WHERE workspace_id = ?1 AND student_id IN ({})",
+                        place_holders
+                    );
+                    conn.prepare(&query).await?
+                };
+
+                let mut rows = if auth.role == "platform_admin" {
+                    stmt.query(()).await?
+                } else {
+                    stmt.query(crate::params![&auth.workspace_id]).await?
+                };
+
+                let mut list = Vec::new();
+                while let Some(row) = rows.next().await? {
+                    let grade: Option<String> = row.get(5)?;
+                    let feedback: Option<String> = row.get(6)?;
+                    let item = serde_json::json!({
+                        "id": row.get::<String>(0)?,
+                        "workspace_id": row.get::<String>(1)?,
+                        "assignment_id": row.get::<String>(2)?,
+                        "student_id": row.get::<String>(3)?,
+                        "content": row.get::<String>(4)?,
+                        "grade": grade,
+                        "feedback": feedback,
+                        "submitted_at": row.get::<String>(7)?,
+                        "updated_at": row.get::<i64>(8)?,
+                    });
+                    list.push(item);
+                }
+                list
+            }
+            "health_records" => {
+                let mut stmt = if auth.role == "platform_admin" {
+                    conn.prepare("SELECT id, workspace_id, student_id, vaccine_name, status, administered_at, updated_at FROM health_records").await?
+                } else if is_privileged {
+                    conn.prepare("SELECT id, workspace_id, student_id, vaccine_name, status, administered_at, updated_at FROM health_records WHERE workspace_id = ?1").await?
+                } else {
+                    let place_holders = if student_ids.is_empty() {
+                        "''".to_string()
+                    } else {
+                        student_ids.iter().map(|id| format!("'{}'", id.replace('\'', "''"))).collect::<Vec<_>>().join(",")
+                    };
+                    let query = format!(
+                        "SELECT id, workspace_id, student_id, vaccine_name, status, administered_at, updated_at FROM health_records WHERE workspace_id = ?1 AND student_id IN ({})",
+                        place_holders
+                    );
+                    conn.prepare(&query).await?
+                };
+
+                let mut rows = if auth.role == "platform_admin" {
+                    stmt.query(()).await?
+                } else {
+                    stmt.query(crate::params![&auth.workspace_id]).await?
+                };
+
+                let mut list = Vec::new();
+                while let Some(row) = rows.next().await? {
+                    let administered_at: Option<String> = row.get(5)?;
+                    let item = serde_json::json!({
+                        "id": row.get::<String>(0)?,
+                        "workspace_id": row.get::<String>(1)?,
+                        "student_id": row.get::<String>(2)?,
+                        "vaccine_name": row.get::<String>(3)?,
+                        "status": row.get::<String>(4)?,
+                        "administered_at": administered_at,
+                        "updated_at": row.get::<i64>(6)?,
+                    });
+                    list.push(item);
+                }
+                list
+            }
+            "report_cards" => {
+                let mut stmt = if auth.role == "platform_admin" {
+                    conn.prepare("SELECT id, workspace_id, student_id, term_name, gpa, principal_comments, status, updated_at FROM report_cards").await?
+                } else if is_privileged {
+                    conn.prepare("SELECT id, workspace_id, student_id, term_name, gpa, principal_comments, status, updated_at FROM report_cards WHERE workspace_id = ?1").await?
+                } else {
+                    let place_holders = if student_ids.is_empty() {
+                        "''".to_string()
+                    } else {
+                        student_ids.iter().map(|id| format!("'{}'", id.replace('\'', "''"))).collect::<Vec<_>>().join(",")
+                    };
+                    let query = format!(
+                        "SELECT id, workspace_id, student_id, term_name, gpa, principal_comments, status, updated_at FROM report_cards WHERE workspace_id = ?1 AND student_id IN ({})",
+                        place_holders
+                    );
+                    conn.prepare(&query).await?
+                };
+
+                let mut rows = if auth.role == "platform_admin" {
+                    stmt.query(()).await?
+                } else {
+                    stmt.query(crate::params![&auth.workspace_id]).await?
+                };
+
+                let mut list = Vec::new();
+                while let Some(row) = rows.next().await? {
+                    let principal_comments: Option<String> = row.get(5)?;
+                    let item = serde_json::json!({
+                        "id": row.get::<String>(0)?,
+                        "workspace_id": row.get::<String>(1)?,
+                        "student_id": row.get::<String>(2)?,
+                        "term_name": row.get::<String>(3)?,
+                        "gpa": row.get::<f64>(4)?,
+                        "principal_comments": principal_comments,
+                        "status": row.get::<String>(6)?,
+                        "updated_at": row.get::<i64>(7)?,
+                    });
+                    list.push(item);
+                }
+                list
+            }
+            "library_books" => {
+                let mut stmt = if auth.role == "platform_admin" {
+                    conn.prepare("SELECT id, workspace_id, title, author, isbn, copies_available, total_copies, updated_at FROM library_books").await?
+                } else {
+                    conn.prepare("SELECT id, workspace_id, title, author, isbn, copies_available, total_copies, updated_at FROM library_books WHERE workspace_id = ?1").await?
+                };
+
+                let mut rows = if auth.role == "platform_admin" {
+                    stmt.query(()).await?
+                } else {
+                    stmt.query(crate::params![&auth.workspace_id]).await?
+                };
+
+                let mut list = Vec::new();
+                while let Some(row) = rows.next().await? {
+                    let item = serde_json::json!({
+                        "id": row.get::<String>(0)?,
+                        "workspace_id": row.get::<String>(1)?,
+                        "title": row.get::<String>(2)?,
+                        "author": row.get::<String>(3)?,
+                        "isbn": row.get::<String>(4)?,
+                        "copies_available": row.get::<i64>(5)?,
+                        "total_copies": row.get::<i64>(6)?,
+                        "updated_at": row.get::<i64>(7)?,
+                    });
+                    list.push(item);
+                }
+                list
+            }
+            "library_lending_logs" => {
+                let mut stmt = if auth.role == "platform_admin" {
+                    conn.prepare("SELECT id, workspace_id, book_id, student_id, checked_out_at, due_date, returned_at, status, updated_at FROM library_lending_logs").await?
+                } else if is_privileged {
+                    conn.prepare("SELECT id, workspace_id, book_id, student_id, checked_out_at, due_date, returned_at, status, updated_at FROM library_lending_logs WHERE workspace_id = ?1").await?
+                } else {
+                    let place_holders = if student_ids.is_empty() {
+                        "''".to_string()
+                    } else {
+                        student_ids.iter().map(|id| format!("'{}'", id.replace('\'', "''"))).collect::<Vec<_>>().join(",")
+                    };
+                    let query = format!(
+                        "SELECT id, workspace_id, book_id, student_id, checked_out_at, due_date, returned_at, status, updated_at FROM library_lending_logs WHERE workspace_id = ?1 AND student_id IN ({})",
+                        place_holders
+                    );
+                    conn.prepare(&query).await?
+                };
+
+                let mut rows = if auth.role == "platform_admin" {
+                    stmt.query(()).await?
+                } else {
+                    stmt.query(crate::params![&auth.workspace_id]).await?
+                };
+
+                let mut list = Vec::new();
+                while let Some(row) = rows.next().await? {
+                    let returned_at: Option<String> = row.get(6)?;
+                    let item = serde_json::json!({
+                        "id": row.get::<String>(0)?,
+                        "workspace_id": row.get::<String>(1)?,
+                        "book_id": row.get::<String>(2)?,
+                        "student_id": row.get::<String>(3)?,
+                        "checked_out_at": row.get::<String>(4)?,
+                        "due_date": row.get::<String>(5)?,
+                        "returned_at": returned_at,
+                        "status": row.get::<String>(7)?,
+                        "updated_at": row.get::<i64>(8)?,
+                    });
+                    list.push(item);
+                }
+                list
+            }
+            "school_payments" => {
+                let mut stmt = if auth.role == "platform_admin" {
+                    conn.prepare("SELECT id, workspace_id, invoice_id, amount, payment_method, paid_at, updated_at FROM school_payments").await?
+                } else if is_privileged {
+                    conn.prepare("SELECT id, workspace_id, invoice_id, amount, payment_method, paid_at, updated_at FROM school_payments WHERE workspace_id = ?1").await?
+                } else {
+                    let place_holders = if student_ids.is_empty() {
+                        "''".to_string()
+                    } else {
+                        student_ids.iter().map(|id| format!("'{}'", id.replace('\'', "''"))).collect::<Vec<_>>().join(",")
+                    };
+                    let query = format!(
+                        "SELECT id, workspace_id, invoice_id, amount, payment_method, paid_at, updated_at FROM school_payments WHERE workspace_id = ?1 AND invoice_id IN (SELECT id FROM school_invoices WHERE student_id IN ({}))",
+                        place_holders
+                    );
+                    conn.prepare(&query).await?
+                };
+
+                let mut rows = if auth.role == "platform_admin" {
+                    stmt.query(()).await?
+                } else {
+                    stmt.query(crate::params![&auth.workspace_id]).await?
+                };
+
+                let mut list = Vec::new();
+                while let Some(row) = rows.next().await? {
+                    let item = serde_json::json!({
+                        "id": row.get::<String>(0)?,
+                        "workspace_id": row.get::<String>(1)?,
+                        "invoice_id": row.get::<String>(2)?,
+                        "amount": row.get::<f64>(3)?,
+                        "payment_method": row.get::<String>(4)?,
+                        "paid_at": row.get::<String>(5)?,
+                        "updated_at": row.get::<i64>(6)?,
+                    });
+                    list.push(item);
+                }
+                list
+            }
             _ => {
                 return Err(YntraError::DbError(format!(
                     "Sync partitioning is not supported for table '{}'",
@@ -904,5 +1351,197 @@ mod tests {
         conn.execute("DELETE FROM student_profiles WHERE workspace_id = 'ws-partition-test'", ()).await.unwrap();
         conn.execute("DELETE FROM users WHERE workspace_id = 'ws-partition-test'", ()).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id = 'ws-partition-test'", ()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_remote_sync_coordinator_write_rbac() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let trust = ZkCryptoTrust::new();
+
+        // 1. Setup passkey seeds, public keys and user metadata
+        let passkey_student = "seed-write-rbac-student".to_string();
+        let passkey_parent = "seed-write-rbac-parent".to_string();
+
+        let pk_student = trust.derive_public_key(passkey_student.clone()).unwrap();
+        let pk_parent = trust.derive_public_key(passkey_parent.clone()).unwrap();
+
+        let meta_student = serde_json::json!({ "public_key": pk_student }).to_string();
+        let meta_parent = serde_json::json!({ "public_key": pk_parent }).to_string();
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-rbac-test', 'RBAC WS', '[]', '{}')", ()).await.unwrap();
+        
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-rbac-student', 'ws-rbac-test', 'stud@rbac.com', 'student', ?1)", crate::params![&meta_student]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-rbac-parent', 'ws-rbac-test', 'parent@rbac.com', 'parent', ?1)", crate::params![&meta_parent]).await.unwrap();
+
+        // Setup student profiles
+        conn.execute("INSERT OR REPLACE INTO student_profiles (id, workspace_id, user_id, first_name, last_name, grade_level, updated_at) VALUES ('stud-rbac-1', 'ws-rbac-test', 'u-rbac-student', 'Alice', 'Smith', '10A', 0)", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO student_profiles (id, workspace_id, user_id, first_name, last_name, grade_level, updated_at) VALUES ('stud-rbac-2', 'ws-rbac-test', NULL, 'Bob', 'Jones', '10B', 0)", ()).await.unwrap();
+
+        // Link parent to stud-rbac-1
+        conn.execute("INSERT OR REPLACE INTO student_parents (student_id, parent_user_id, workspace_id) VALUES ('stud-rbac-1', 'u-rbac-parent', 'ws-rbac-test')", ()).await.unwrap();
+
+        // Insert library books
+        conn.execute("INSERT OR REPLACE INTO library_books (id, workspace_id, title, author, isbn, copies_available, total_copies, updated_at) VALUES ('book-1', 'ws-rbac-test', 'Book A', 'Author A', '123456', 1, 1, 0)", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO library_books (id, workspace_id, title, author, isbn, copies_available, total_copies, updated_at) VALUES ('book-2', 'ws-rbac-test', 'Book B', 'Author B', '789012', 1, 1, 0)", ()).await.unwrap();
+
+        // Insert course and assignment
+        conn.execute("INSERT OR REPLACE INTO courses (id, name, subject, classroom, workspace_id, updated_at) VALUES ('crs-rbac-1', 'Course A', 'Subj A', 'Room A', 'ws-rbac-test', 0)", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO assignments (id, workspace_id, course_id, title, description, max_points, due_date, updated_at) VALUES ('assign-1', 'ws-rbac-test', 'crs-rbac-1', 'Assignment 1', 'Desc', 100, '2026-07-31', 0)", ()).await.unwrap();
+
+        // Insert library log
+        conn.execute("INSERT OR REPLACE INTO library_lending_logs (id, workspace_id, book_id, student_id, checked_out_at, due_date, status, updated_at) VALUES ('log-rbac-1', 'ws-rbac-test', 'book-1', 'stud-rbac-1', '2026-07-01', '2026-07-15', 'borrowed', 0)", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO library_lending_logs (id, workspace_id, book_id, student_id, checked_out_at, due_date, status, updated_at) VALUES ('log-rbac-2', 'ws-rbac-test', 'book-2', 'stud-rbac-2', '2026-07-01', '2026-07-15', 'borrowed', 0)", ()).await.unwrap();
+
+        let coordinator = RemoteSyncCoordinator::new();
+        let proof_student = trust.generate_role_proof(passkey_student.clone(), "u-rbac-student".to_string(), "student".to_string()).unwrap();
+        let proof_parent = trust.generate_role_proof(passkey_parent.clone(), "u-rbac-parent".to_string(), "parent".to_string()).unwrap();
+
+        // A. Verify student writing to courses is rejected
+        let res_course = coordinator.verify_and_execute_write(
+            "u-rbac-student".to_string(),
+            "student".to_string(),
+            Some(proof_student.clone()),
+            "INSERT INTO courses (id, name, subject, classroom, workspace_id, updated_at) VALUES ('c1', 'A', 'B', 'C', 'ws-rbac-test', 0)".to_string(),
+            "[]".to_string()
+        ).await;
+        assert!(res_course.is_err(), "Student allowed to write to courses");
+        assert!(res_course.err().unwrap().to_string().contains("does not have write permissions"), "Mismatched error message");
+
+        // B. Verify student submitting with mismatched student_id is rejected
+        let res_sub_mismatched = coordinator.verify_and_execute_write(
+            "u-rbac-student".to_string(),
+            "student".to_string(),
+            Some(proof_student.clone()),
+            "INSERT OR REPLACE INTO submissions (id, workspace_id, assignment_id, student_id, content, grade, feedback, submitted_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)".to_string(),
+            "[\"sub-1\", \"ws-rbac-test\", \"assign-1\", \"stud-rbac-2\", \"content\", null, null, \"2026-07-20\", 0]".to_string()
+        ).await;
+        assert!(res_sub_mismatched.is_err(), "Student allowed to write other student's submission");
+
+        // C. Verify student submitting with grade set is rejected
+        let res_sub_grade = coordinator.verify_and_execute_write(
+            "u-rbac-student".to_string(),
+            "student".to_string(),
+            Some(proof_student.clone()),
+            "INSERT OR REPLACE INTO submissions (id, workspace_id, assignment_id, student_id, content, grade, feedback, submitted_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)".to_string(),
+            "[\"sub-2\", \"ws-rbac-test\", \"assign-1\", \"stud-rbac-1\", \"content\", \"A\", null, \"2026-07-20\", 0]".to_string()
+        ).await;
+        assert!(res_sub_grade.is_err(), "Student allowed to write submission with grade");
+
+        // D. Verify student submitting with valid owned profile & null grade/feedback is allowed
+        let res_sub_ok = coordinator.verify_and_execute_write(
+            "u-rbac-student".to_string(),
+            "student".to_string(),
+            Some(proof_student.clone()),
+            "INSERT OR REPLACE INTO submissions (id, workspace_id, assignment_id, student_id, content, grade, feedback, submitted_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)".to_string(),
+            "[\"sub-ok-1\", \"ws-rbac-test\", \"assign-1\", \"stud-rbac-1\", \"my answers\", null, null, \"2026-07-20\", 0]".to_string()
+        ).await;
+        assert!(res_sub_ok.is_ok(), "Student valid submission rejected: {:?}", res_sub_ok.err());
+
+        // E. Verify student renewing their own book log is allowed
+        let res_renew_student = coordinator.verify_and_execute_write(
+            "u-rbac-student".to_string(),
+            "student".to_string(),
+            Some(proof_student.clone()),
+            "UPDATE library_lending_logs SET due_date = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3".to_string(),
+            "[\"2026-08-01\", 12345, \"log-rbac-1\"]".to_string()
+        ).await;
+        assert!(res_renew_student.is_ok(), "Student renewing own book rejected: {:?}", res_renew_student.err());
+
+        // F. Verify student renewing someone else's book log is rejected
+        let res_renew_bad = coordinator.verify_and_execute_write(
+            "u-rbac-student".to_string(),
+            "student".to_string(),
+            Some(proof_student.clone()),
+            "UPDATE library_lending_logs SET due_date = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3".to_string(),
+            "[\"2026-08-01\", 12345, \"log-rbac-2\"]".to_string()
+        ).await;
+        assert!(res_renew_bad.is_err(), "Student allowed to renew other's book");
+
+        // G. Verify parent renewing linked student's book is allowed
+        let res_renew_parent_ok = coordinator.verify_and_execute_write(
+            "u-rbac-parent".to_string(),
+            "parent".to_string(),
+            Some(proof_parent.clone()),
+            "UPDATE library_lending_logs SET due_date = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3".to_string(),
+            "[\"2026-08-01\", 12345, \"log-rbac-1\"]".to_string()
+        ).await;
+        assert!(res_renew_parent_ok.is_ok(), "Parent renewing child's book rejected: {:?}", res_renew_parent_ok.err());
+
+        // H. Verify parent renewing mismatched student's book is rejected
+        let res_renew_parent_bad = coordinator.verify_and_execute_write(
+            "u-rbac-parent".to_string(),
+            "parent".to_string(),
+            Some(proof_parent.clone()),
+            "UPDATE library_lending_logs SET due_date = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3".to_string(),
+            "[\"2026-08-01\", 12345, \"log-rbac-2\"]".to_string()
+        ).await;
+        assert!(res_renew_parent_bad.is_err(), "Parent allowed to renew unlinked book");
+
+        // Cleanup
+        conn.execute("DELETE FROM library_lending_logs WHERE workspace_id = 'ws-rbac-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM submissions WHERE workspace_id = 'ws-rbac-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM student_parents WHERE workspace_id = 'ws-rbac-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM student_profiles WHERE workspace_id = 'ws-rbac-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-rbac-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-rbac-test'", ()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_remote_sync_coordinator_clock_skew() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let trust = ZkCryptoTrust::new();
+
+        // 1. Setup passkey seed, public key and user metadata
+        let passkey_student = "seed-skew-student".to_string();
+        let pk_student = trust.derive_public_key(passkey_student.clone()).unwrap();
+        let meta_student = serde_json::json!({ "public_key": pk_student }).to_string();
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-skew-test', 'Skew WS', '[]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-skew-student', 'ws-skew-test', 'stud@skew.com', 'student', ?1)", crate::params![&meta_student]).await.unwrap();
+
+        // Setup student profile
+        conn.execute("INSERT OR REPLACE INTO student_profiles (id, workspace_id, user_id, first_name, last_name, grade_level, updated_at) VALUES ('stud-skew-1', 'ws-skew-test', 'u-skew-student', 'Alice', 'Smith', '10A', 0)", ()).await.unwrap();
+
+        // Insert course and assignment
+        conn.execute("INSERT OR REPLACE INTO courses (id, name, subject, classroom, workspace_id, updated_at) VALUES ('crs-skew-1', 'Course A', 'Subj A', 'Room A', 'ws-skew-test', 0)", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO assignments (id, workspace_id, course_id, title, description, max_points, due_date, updated_at) VALUES ('assign-1', 'ws-skew-test', 'crs-skew-1', 'Assignment 1', 'Desc', 100, '2026-07-31', 0)", ()).await.unwrap();
+
+        let coordinator = RemoteSyncCoordinator::new();
+        let proof_student = trust.generate_role_proof(passkey_student.clone(), "u-skew-student".to_string(), "student".to_string()).unwrap();
+
+        // 2. Perform write with future updated_at timestamp (year 2030, ~1893456000000)
+        let future_time = 1893456000000i64;
+        let res = coordinator.verify_and_execute_write(
+            "u-skew-student".to_string(),
+            "student".to_string(),
+            Some(proof_student.clone()),
+            "INSERT OR REPLACE INTO submissions (id, workspace_id, assignment_id, student_id, content, grade, feedback, submitted_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)".to_string(),
+            format!("[\"sub-skew-1\", \"ws-skew-test\", \"assign-1\", \"stud-skew-1\", \"some answers\", null, null, \"2026-07-20\", {}]", future_time)
+        ).await;
+        assert!(res.is_ok(), "Write with clock skew rejected: {:?}", res.err());
+
+        // 3. Query the inserted record to verify that updated_at was normalized (i.e. is not equal to future_time)
+        let inserted_updated_at: i64 = conn.query_row(
+            "SELECT updated_at FROM submissions WHERE id = 'sub-skew-1'",
+            (),
+            |r| r.get(0)
+        ).await.unwrap();
+
+        assert!(inserted_updated_at < future_time, "Clock skew was not normalized on the server side: {} vs {}", inserted_updated_at, future_time);
+        
+        let now_ms = crate::infra::time::get_current_time_ms();
+        assert!(inserted_updated_at <= now_ms + 1000 && inserted_updated_at >= now_ms - 5000, "Clock skew was not normalized to current server time: {}", inserted_updated_at);
+
+        // Cleanup
+        conn.execute("DELETE FROM submissions WHERE workspace_id = 'ws-skew-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM assignments WHERE workspace_id = 'ws-skew-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM courses WHERE workspace_id = 'ws-skew-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM student_profiles WHERE workspace_id = 'ws-skew-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-skew-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-skew-test'", ()).await.unwrap();
     }
 }
