@@ -213,6 +213,54 @@ mod tests {
         conn.execute("DELETE FROM users WHERE id = 'u-gps-staff'", ()).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id = 'ws-gps-sim-test'", ()).await.unwrap();
     }
+
+    #[tokio::test]
+    async fn test_hardware_gps_webhook_processing() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        // 1. Setup workspace with webhook settings
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-hw-gps', 'HW GPS WS', '[\"moving_company\"]', '{\"gps_webhook_token\":\"secret-token-123\"}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-hw-gps-staff', 'ws-hw-gps', 'staff-hw-gps@fleet.io', 'admin')", ()).await.unwrap();
+
+        // 2. Create vehicle with GPS Device ID
+        let v = create_vehicle("u-hw-gps-staff".to_string(), "HW Sim Truck".to_string(), "GPS-HW-888".to_string(), 35.0, Some("IMEI-HW-999".to_string())).await.unwrap();
+
+        // Test case A: Valid Traccar/Generic JSON
+        let payload_a = r#"{"deviceId": "IMEI-HW-999", "lat": 59.3293, "lon": 18.0686}"#;
+        register_gps_ping_from_webhook("ws-hw-gps".to_string(), "secret-token-123".to_string(), payload_a.to_string()).await.unwrap();
+
+        // Verify coords updated
+        let list_a = get_vehicles("u-hw-gps-staff".to_string()).await.unwrap();
+        let v_a = list_a.iter().find(|item| item.id == v.id).unwrap();
+        assert_eq!(v_a.latitude, Some(59.3293));
+        assert_eq!(v_a.longitude, Some(18.0686));
+
+        // Test case B: Teltonika JSON (nested/custom field names)
+        let payload_b = r#"{"imei": "IMEI-HW-999", "latitude": 57.7089, "longitude": 11.9746}"#;
+        register_gps_ping_from_webhook("ws-hw-gps".to_string(), "secret-token-123".to_string(), payload_b.to_string()).await.unwrap();
+
+        // Verify coords updated to Gothenburg
+        let list_b = get_vehicles("u-hw-gps-staff".to_string()).await.unwrap();
+        let v_b = list_b.iter().find(|item| item.id == v.id).unwrap();
+        assert_eq!(v_b.latitude, Some(57.7089));
+        assert_eq!(v_b.longitude, Some(11.9746));
+
+        // Test case C: Invalid Webhook Token (should fail with AuthError)
+        let payload_c = r#"{"deviceId": "IMEI-HW-999", "lat": 59.3293, "lon": 18.0686}"#;
+        let err_c = register_gps_ping_from_webhook("ws-hw-gps".to_string(), "wrong-token".to_string(), payload_c.to_string()).await;
+        assert!(matches!(err_c, Err(YntraError::AuthError(_))));
+
+        // Test case D: Non-existent Device ID (should fail with NotFoundError)
+        let payload_d = r#"{"deviceId": "IMEI-NON-EXISTENT", "lat": 59.3293, "lon": 18.0686}"#;
+        let err_d = register_gps_ping_from_webhook("ws-hw-gps".to_string(), "secret-token-123".to_string(), payload_d.to_string()).await;
+        assert!(matches!(err_d, Err(YntraError::NotFoundError(_))));
+
+        // Cleanup
+        conn.execute("DELETE FROM vehicles WHERE workspace_id = 'ws-hw-gps'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE id = 'u-hw-gps-staff'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-hw-gps'", ()).await.unwrap();
+    }
 }
 
 #[uniffi::export]
@@ -304,3 +352,71 @@ pub async fn simulate_vehicle_movement(
     notify_observers();
     Ok(())
 }
+
+#[uniffi::export]
+pub async fn register_gps_ping_from_webhook(
+    workspace_id: String,
+    webhook_token: String,
+    payload_json: String,
+) -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    
+    let settings_str: String = conn
+        .query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![&workspace_id],
+            |r| Ok(r.get::<String>(0)?),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Workspace not found".to_string()))?;
+    
+    let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
+    let expected_token = settings_json
+        .get("gps_webhook_token")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    
+    if expected_token.is_empty() || expected_token != webhook_token {
+        return Err(YntraError::AuthError("Access denied: invalid or missing webhook token".to_string()));
+    }
+    
+    let parsed: serde_json::Value = serde_json::from_str(&payload_json)
+        .map_err(|e| YntraError::ValidationError(format!("Invalid JSON payload: {}", e)))?;
+        
+    let device_id = parsed.get("deviceId")
+        .or_else(|| parsed.get("device_id"))
+        .or_else(|| parsed.get("imei"))
+        .or_else(|| parsed.get("id"))
+        .and_then(|v| v.as_str().map(|s| s.to_string()).or_else(|| v.as_i64().map(|i| i.to_string())))
+        .ok_or_else(|| YntraError::ValidationError("Missing device identification".to_string()))?;
+        
+    let latitude = parsed.get("lat")
+        .or_else(|| parsed.get("latitude"))
+        .and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok())))
+        .ok_or_else(|| YntraError::ValidationError("Missing or invalid latitude".to_string()))?;
+        
+    let longitude = parsed.get("lon")
+        .or_else(|| parsed.get("lng"))
+        .or_else(|| parsed.get("longitude"))
+        .and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok())))
+        .ok_or_else(|| YntraError::ValidationError("Missing or invalid longitude".to_string()))?;
+        
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    
+    let mut stmt = conn.prepare(
+        "SELECT id FROM vehicles WHERE workspace_id = ?1 AND (id = ?2 OR license_plate = ?2 OR gps_device_id = ?2)"
+    ).await?;
+    let mut rows = stmt.query(crate::params![workspace_id, &device_id]).await?;
+    if let Some(row) = rows.next().await? {
+        let vehicle_id: String = row.get(0)?;
+        conn.execute(
+            "UPDATE vehicles SET latitude = ?1, longitude = ?2, last_ping = ?3, updated_at = ?3 WHERE id = ?4",
+            crate::params![latitude, longitude, now_ms, vehicle_id]
+        ).await?;
+        notify_observers();
+        Ok(())
+    } else {
+        Err(YntraError::NotFoundError(format!("No matching vehicle found for device ID '{}'", device_id)))
+    }
+}
+
