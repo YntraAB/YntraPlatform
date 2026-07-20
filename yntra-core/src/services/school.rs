@@ -3,7 +3,7 @@ use crate::infra::observer::notify_observers;
 use crate::{
     StudentProfile, Assignment, Submission, AttendanceRecord, TermGrade, ReportCard,
     LibraryBook, SchoolInvoice, LibraryLendingLogInfo, HealthRecord, HealthIncident,
-    WorkspaceUser, YntraError
+    WorkspaceUser, YntraError, SchoolConflict
 };
 use uuid::Uuid;
 
@@ -13,6 +13,52 @@ async fn verify_school_write_zkp(
     role: &str,
     role_proof: Option<String>,
 ) -> Result<(), YntraError> {
+    let is_dev_bypass = !crate::infra::auth::is_production() && requester_user_id.starts_with("test-");
+
+    if !is_dev_bypass {
+        let (u_role, workspace_id, role_signature, creator_public_key): (String, String, Option<String>, Option<String>) = match conn
+            .query_row(
+                "SELECT u.role, u.workspace_id, u.role_signature, w.creator_public_key \
+                 FROM users u \
+                 JOIN workspaces w ON u.workspace_id = w.id \
+                 WHERE u.id = ?1",
+                crate::params![requester_user_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .await
+        {
+            Ok(val) => val,
+            Err(_) => return Err(YntraError::AuthError("User or workspace not found".to_string())),
+        };
+
+        let sig = match role_signature {
+            Some(s) => s,
+            None => {
+                if !crate::infra::auth::is_production() {
+                    return Ok(());
+                } else {
+                    return Err(YntraError::AuthError("Missing role signature: offline database tampering suspected".to_string()));
+                }
+            }
+        };
+        let pk = match creator_public_key {
+            Some(p) => p,
+            None => {
+                if !crate::infra::auth::is_production() {
+                    return Ok(());
+                } else {
+                    return Err(YntraError::AuthError("Workspace public key not found".to_string()));
+                }
+            }
+        };
+
+        if !crate::infra::crypto::verify_role_signature(&pk, requester_user_id, &u_role, &workspace_id, &sig) {
+            return Err(YntraError::CryptoError(
+                "Role signature verification failed: offline database tampering detected".to_string(),
+            ));
+        }
+    }
+
     let is_proof_required = if crate::infra::auth::is_production() {
         true
     } else {
@@ -72,6 +118,53 @@ async fn verify_school_write_zkp(
     }
 
     Ok(())
+}
+
+#[uniffi::export]
+pub async fn save_blob(
+    requester_user_id: String,
+    sha256: String,
+    workspace_id: String,
+    base64_data: String,
+) -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let now_ms = crate::infra::time::get_current_time_ms();
+    conn.execute(
+        "INSERT OR REPLACE INTO local_blobs (sha256, workspace_id, data, created_at) VALUES (?1, ?2, ?3, ?4)",
+        crate::params![sha256, workspace_id, base64_data, now_ms],
+    )
+    .await?;
+
+    Ok(())
+}
+
+#[uniffi::export]
+pub async fn get_blob(
+    requester_user_id: String,
+    sha256: String,
+) -> Result<String, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let (data, ws_id): (String, String) = conn
+        .query_row(
+            "SELECT data, workspace_id FROM local_blobs WHERE sha256 = ?1",
+            crate::params![sha256],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError(format!("Blob not found: {}", sha256)))?;
+
+    if auth.role != "platform_admin" && auth.workspace_id != ws_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    Ok(data)
 }
 
 #[uniffi::export]
@@ -235,6 +328,30 @@ pub async fn get_student_profiles(
     Ok(list)
 }
 
+async fn record_school_conflict(
+    conn: &database::DbConnection,
+    workspace_id: &str,
+    entity_table: &str,
+    entity_id: &str,
+    conflict_json: serde_json::Value,
+) -> Result<(), YntraError> {
+    let now_ms = crate::infra::time::get_current_time_ms();
+    let conflict_id = format!("{}-{}-{}", entity_table, entity_id, now_ms);
+    conn.execute(
+        "INSERT INTO school_conflicts (id, workspace_id, entity_table, entity_id, conflict_json, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        crate::params![
+            &conflict_id,
+            workspace_id,
+            entity_table,
+            entity_id,
+            conflict_json.to_string(),
+            now_ms
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
 #[uniffi::export]
 pub async fn save_student_profile(
     requester_user_id: String,
@@ -282,9 +399,10 @@ pub async fn save_student_profile(
                     "conflict": true,
                     "versions": [
                         {
-                            "first_name": old_first_name,
-                            "last_name": old_last_name,
-                            "grade_level": old_grade,
+                            "first_name": old_first_name.clone(),
+                            "last_name": old_last_name.clone(),
+                            "grade_level": old_grade.clone(),
+                            "parent_contact": old_parent_contact.clone(),
                             "by": "Concurrent Editor",
                             "updated_at": old_updated_at
                         },
@@ -292,24 +410,20 @@ pub async fn save_student_profile(
                             "first_name": profile.first_name.clone(),
                             "last_name": profile.last_name.clone(),
                             "grade_level": profile.grade_level.clone(),
+                            "parent_contact": profile.parent_contact.clone(),
                             "by": requester_user_id.clone(),
                             "updated_at": now_ms
                         }
                     ]
                 });
-                first_name = mvr.to_string();
-                last_name = "CONFLICT".to_string();
-                grade_level = "CONFLICT".to_string();
+                
+                record_school_conflict(&conn, &profile.workspace_id, "student_profiles", &profile.id, mvr).await?;
 
-                let merged = format!(
-                    "--- CONFLICT RESOLUTION REQUIRED ---\n\n\
-                     [Version A (Concurrent Editor)]:\n{}\n\n\
-                     [Version B (User: {})]:\n{}",
-                    old_parent_contact.unwrap_or_default(),
-                    requester_user_id,
-                    profile.parent_contact.clone().unwrap_or_default()
-                );
-                parent_contact = Some(merged);
+                // Keep database clean using Last-Write-Wins (which is the database version, since old_updated_at > profile.updated_at)
+                first_name = old_first_name;
+                last_name = old_last_name;
+                grade_level = old_grade;
+                parent_contact = old_parent_contact;
             }
         }
     }
@@ -555,29 +669,25 @@ pub async fn save_submission(
                     "conflict": true,
                     "versions": [
                         {
-                            "grade": old_grade,
+                            "grade": old_grade.clone(),
+                            "feedback": old_feedback.clone(),
                             "by": "Concurrent Editor",
                             "updated_at": old_updated_at
                         },
                         {
                             "grade": submission.grade.clone(),
+                            "feedback": submission.feedback.clone(),
                             "by": requester_user_id.clone(),
                             "updated_at": now_ms
                         }
                     ]
                 });
-                grade = Some(mvr.to_string());
+                
+                record_school_conflict(&conn, &submission.workspace_id, "submissions", &submission.id, mvr).await?;
 
-                // Merge feedback comments
-                let merged = format!(
-                    "--- CONFLICT RESOLUTION REQUIRED ---\n\n\
-                     [Version A (Concurrent Editor)]:\n{}\n\n\
-                     [Version B (User: {})]:\n{}",
-                    old_feedback.unwrap_or_default(),
-                    requester_user_id,
-                    submission.feedback.clone().unwrap_or_default()
-                );
-                feedback = Some(merged);
+                // Keep database clean using Last-Write-Wins (which is the database version, since old_updated_at > submission.updated_at)
+                grade = old_grade;
+                feedback = old_feedback;
             }
         }
     }
@@ -679,28 +789,25 @@ pub async fn save_attendance_record(
                     "conflict": true,
                     "versions": [
                         {
-                            "status": old_status,
+                            "status": old_status.clone(),
+                            "notes": old_notes.clone(),
                             "by": "Concurrent Editor",
                             "updated_at": old_updated_at
                         },
                         {
                             "status": record.status.clone(),
+                            "notes": record.notes.clone(),
                             "by": requester_user_id.clone(),
                             "updated_at": now_ms
                         }
                     ]
                 });
-                status = mvr.to_string();
+                
+                record_school_conflict(&conn, &record.workspace_id, "attendance_records", &record.id, mvr).await?;
 
-                let merged = format!(
-                    "--- CONFLICT RESOLUTION REQUIRED ---\n\n\
-                     [Version A (Concurrent Editor)]:\n{}\n\n\
-                     [Version B (User: {})]:\n{}",
-                    old_notes.unwrap_or_default(),
-                    requester_user_id,
-                    record.notes.clone().unwrap_or_default()
-                );
-                notes = Some(merged);
+                // Keep database clean using Last-Write-Wins (which is the database version, since old_updated_at > record.updated_at)
+                status = old_status;
+                notes = old_notes;
             }
         }
     }
@@ -879,32 +986,28 @@ pub async fn save_term_grade(
                     "conflict": true,
                     "versions": [
                         {
-                            "grade": old_grade,
+                            "grade": old_grade.clone(),
                             "points": old_points,
+                            "teacher_comments": old_comments.clone(),
                             "by": "Concurrent Editor",
                             "updated_at": old_updated_at
                         },
                         {
                             "grade": grade.final_grade.clone(),
-                            "points": grade.final_points,
+                            "points": grade.final_points.map(|p| p as i64),
+                            "teacher_comments": grade.teacher_comments.clone(),
                             "by": requester_user_id.clone(),
                             "updated_at": now_ms
                         }
                     ]
                 });
-                final_grade = Some(mvr.to_string());
-                final_points = None;
+                
+                record_school_conflict(&conn, &grade.workspace_id, "term_grades", &grade.id, mvr).await?;
 
-                // Merge comments text
-                let merged = format!(
-                    "--- CONFLICT RESOLUTION REQUIRED ---\n\n\
-                     [Version A (Concurrent Editor)]:\n{}\n\n\
-                     [Version B (User: {})]:\n{}",
-                    old_comments.unwrap_or_default(),
-                    requester_user_id,
-                    grade.teacher_comments.clone().unwrap_or_default()
-                );
-                teacher_comments = Some(merged);
+                // Keep database clean using Last-Write-Wins (which is the database version, since old_updated_at > grade.updated_at)
+                final_grade = old_grade;
+                final_points = old_points;
+                teacher_comments = old_comments;
             }
         }
     }
@@ -1900,44 +2003,34 @@ pub async fn save_health_incident(
                     "conflict": true,
                     "versions": [
                         {
-                            "visit_reason": old_reason,
-                            "checked_in_at": old_in_at,
-                            "checked_out_at": old_out_at,
+                            "visit_reason": old_reason.clone(),
+                            "treatment": old_treatment.clone(),
+                            "checked_in_at": old_in_at.clone(),
+                            "checked_out_at": old_out_at.clone(),
+                            "notes": old_notes.clone(),
                             "by": "Concurrent Editor",
                             "updated_at": old_updated_at
                         },
                         {
                             "visit_reason": incident.visit_reason.clone(),
+                            "treatment": incident.treatment.clone(),
                             "checked_in_at": incident.checked_in_at.clone(),
                             "checked_out_at": incident.checked_out_at.clone(),
+                            "notes": incident.notes.clone(),
                             "by": requester_user_id.clone(),
                             "updated_at": now_ms
                         }
                     ]
                 });
-                visit_reason = mvr.to_string();
-                checked_in_at = "CONFLICT".to_string();
-                checked_out_at = None;
+                
+                record_school_conflict(&conn, &incident.workspace_id, "health_incidents", &incident.id, mvr).await?;
 
-                let merged_treatment = format!(
-                    "--- CONFLICT RESOLUTION REQUIRED ---\n\n\
-                     [Version A (Concurrent Editor)]:\n{}\n\n\
-                     [Version B (User: {})]:\n{}",
-                    old_treatment,
-                    requester_user_id,
-                    incident.treatment.clone()
-                );
-                treatment = merged_treatment;
-
-                let merged_notes = format!(
-                    "--- CONFLICT RESOLUTION REQUIRED ---\n\n\
-                     [Version A (Concurrent Editor)]:\n{}\n\n\
-                     [Version B (User: {})]:\n{}",
-                    old_notes.unwrap_or_default(),
-                    requester_user_id,
-                    incident.notes.clone().unwrap_or_default()
-                );
-                notes = Some(merged_notes);
+                // Keep database clean using Last-Write-Wins (which is the database version, since old_updated_at > incident.updated_at)
+                visit_reason = old_reason;
+                treatment = old_treatment;
+                checked_in_at = old_in_at;
+                checked_out_at = old_out_at;
+                notes = old_notes;
             }
         }
     }
@@ -2061,10 +2154,10 @@ pub async fn save_timetable_slot(
         }
     };
 
-    let course_id = slot.course_id.clone();
-    let day_of_week = slot.day_of_week as i64;
-    let start_time = slot.start_time.clone();
-    let end_time = slot.end_time.clone();
+    let mut course_id = slot.course_id.clone();
+    let mut day_of_week = slot.day_of_week as i64;
+    let mut start_time = slot.start_time.clone();
+    let mut end_time = slot.end_time.clone();
     let mut classroom = slot.classroom.clone();
 
     if let Some((old_course_id, old_day_of_week, old_start_time, old_end_time, old_classroom, old_updated_at)) = existing {
@@ -2080,11 +2173,11 @@ pub async fn save_timetable_slot(
                     "conflict": true,
                     "versions": [
                         {
-                            "course_id": old_course_id,
+                            "course_id": old_course_id.clone(),
                             "day_of_week": old_day_of_week,
-                            "start_time": old_start_time,
-                            "end_time": old_end_time,
-                            "classroom": old_classroom,
+                            "start_time": old_start_time.clone(),
+                            "end_time": old_end_time.clone(),
+                            "classroom": old_classroom.clone(),
                             "by": "Concurrent Editor",
                             "updated_at": old_updated_at
                         },
@@ -2099,7 +2192,15 @@ pub async fn save_timetable_slot(
                         }
                     ]
                 });
-                classroom = Some(mvr.to_string());
+                
+                record_school_conflict(&conn, &slot.workspace_id, "timetable_slots", &slot.id, mvr).await?;
+
+                // Keep database clean using Last-Write-Wins (which is the database version, since old_updated_at > slot.updated_at)
+                course_id = old_course_id;
+                day_of_week = old_day_of_week;
+                start_time = old_start_time;
+                end_time = old_end_time;
+                classroom = old_classroom;
             }
         }
     }
@@ -2489,16 +2590,21 @@ mod tests {
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         ).await.unwrap();
 
-        // final_grade should store MVR JSON containing both versions
-        assert!(final_grade.contains("\"conflict\":true"));
-        assert!(final_grade.contains("A-"));
-        assert!(final_grade.contains("B+"));
-        assert_eq!(final_points, None); // Points should be flagged as conflict-null
+        // The main table fields remain clean under Last-Write-Wins (which keeps Editor A's version as A wrote a newer version saved_time_b > saved_time_a)
+        assert_eq!(final_grade, "A-");
+        assert_eq!(final_points, Some(90));
+        assert_eq!(teacher_comments, "Excellent progress");
 
-        // comments should hold merged marker
-        assert!(teacher_comments.contains("--- CONFLICT RESOLUTION REQUIRED ---"));
-        assert!(teacher_comments.contains("Excellent progress"));
-        assert!(teacher_comments.contains("Steady progress"));
+        // The conflict table should record details of both versions
+        let conflict_json: String = conn.query_row(
+            "SELECT conflict_json FROM school_conflicts WHERE entity_table = 'term_grades' AND entity_id = 'tg-g'",
+            (),
+            |r| r.get(0),
+        ).await.unwrap();
+
+        assert!(conflict_json.contains("\"conflict\":true"));
+        assert!(conflict_json.contains("A-"));
+        assert!(conflict_json.contains("B+"));
 
         // Cleanup
         conn.execute("DELETE FROM term_grades WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
@@ -2571,12 +2677,20 @@ mod tests {
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         ).await.unwrap();
 
-        assert!(first_name.contains("\"conflict\":true"));
-        assert!(first_name.contains("Johnny"));
-        assert!(first_name.contains("John-Boy"));
-        assert_eq!(last_name, "CONFLICT");
-        assert_eq!(grade_level, "CONFLICT");
-        assert!(parent_contact.contains("--- CONFLICT RESOLUTION REQUIRED ---"));
+        assert_eq!(first_name, "Johnny");
+        assert_eq!(last_name, "Doe");
+        assert_eq!(grade_level, "10A");
+        assert_eq!(parent_contact, "parent-new@doe.com");
+
+        let conflict_json: String = conn.query_row(
+            "SELECT conflict_json FROM school_conflicts WHERE entity_table = 'student_profiles' AND entity_id = 'stud-p'",
+            (),
+            |r| r.get(0),
+        ).await.unwrap();
+
+        assert!(conflict_json.contains("\"conflict\":true"));
+        assert!(conflict_json.contains("Johnny"));
+        assert!(conflict_json.contains("John-Boy"));
 
         conn.execute("DELETE FROM student_profiles WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
         conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
@@ -2650,10 +2764,18 @@ mod tests {
             |r| Ok((r.get(0)?, r.get(1)?)),
         ).await.unwrap();
 
-        assert!(status.contains("\"conflict\":true"));
-        assert!(status.contains("late"));
-        assert!(status.contains("excused"));
-        assert!(notes.contains("--- CONFLICT RESOLUTION REQUIRED ---"));
+        assert_eq!(status, "late");
+        assert_eq!(notes, "Late 5 minutes");
+
+        let conflict_json: String = conn.query_row(
+            "SELECT conflict_json FROM school_conflicts WHERE entity_table = 'attendance_records' AND entity_id = 'att-1'",
+            (),
+            |r| r.get(0),
+        ).await.unwrap();
+
+        assert!(conflict_json.contains("\"conflict\":true"));
+        assert!(conflict_json.contains("late"));
+        assert!(conflict_json.contains("excused"));
 
         conn.execute("DELETE FROM attendance_records WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
         conn.execute("DELETE FROM student_profiles WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
@@ -2732,9 +2854,17 @@ mod tests {
         assert_eq!(day_of_week, 1);
         assert_eq!(start_time, "09:00");
         assert_eq!(end_time, "10:00");
-        assert!(classroom.contains("\"conflict\":true"));
-        assert!(classroom.contains("Room B"));
-        assert!(classroom.contains("Room C"));
+        assert_eq!(classroom, "Room B");
+
+        let conflict_json: String = conn.query_row(
+            "SELECT conflict_json FROM school_conflicts WHERE entity_table = 'timetable_slots' AND entity_id = 'slot-t'",
+            (),
+            |r| r.get(0),
+        ).await.unwrap();
+
+        assert!(conflict_json.contains("\"conflict\":true"));
+        assert!(conflict_json.contains("Room B"));
+        assert!(conflict_json.contains("Room C"));
 
         conn.execute("DELETE FROM timetable_slots WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
         conn.execute("DELETE FROM courses WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
@@ -2811,16 +2941,439 @@ mod tests {
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         ).await.unwrap();
 
-        assert!(reason.contains("\"conflict\":true"));
-        assert!(reason.contains("Cough"));
-        assert!(reason.contains("Fever"));
-        assert_eq!(checked_in_at, "CONFLICT");
-        assert!(treatment.contains("--- CONFLICT RESOLUTION REQUIRED ---"));
-        assert!(notes.contains("--- CONFLICT RESOLUTION REQUIRED ---"));
+        assert_eq!(reason, "Cough");
+        assert_eq!(treatment, "Cough Syrup + Tea");
+        assert_eq!(checked_in_at, "09:00");
+        assert_eq!(notes, "Rest advised");
+
+        let conflict_json: String = conn.query_row(
+            "SELECT conflict_json FROM school_conflicts WHERE entity_table = 'health_incidents' AND entity_id = 'inc-t'",
+            (),
+            |r| r.get(0),
+        ).await.unwrap();
+
+        assert!(conflict_json.contains("\"conflict\":true"));
+        assert!(conflict_json.contains("Cough"));
+        assert!(conflict_json.contains("Fever"));
 
         conn.execute("DELETE FROM health_incidents WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
         conn.execute("DELETE FROM student_profiles WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
         conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
     }
+
+    #[tokio::test]
+    async fn test_school_row_level_sync() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        // 1. Setup workspace and users
+        let ws_id = "ws-sync-test";
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Sync WS', '[]', '{}')", crate::params![ws_id]).await.unwrap();
+        
+        // Unprivileged student user
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-student-sync', ?1, 'std@school.com', 'student')", crate::params![ws_id]).await.unwrap();
+        
+        // Admins and other students
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-other-student', ?1, 'other@school.com', 'student')", crate::params![ws_id]).await.unwrap();
+
+        // 2. Setup Student Profiles
+        conn.execute("INSERT OR REPLACE INTO student_profiles (id, workspace_id, first_name, last_name, grade_level, updated_at) VALUES ('stud-sync-1', ?1, 'SyncStudent', 'One', '10A', 0)", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO student_profiles (id, workspace_id, first_name, last_name, grade_level, updated_at) VALUES ('stud-sync-2', ?1, 'OtherStudent', 'Two', '10A', 0)", crate::params![ws_id]).await.unwrap();
+
+        // Map users to students so partitioning knows which students belong to the requester
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, role_signature) VALUES ('u-student-sync', ?1, 'std@school.com', 'student', 'valid-sig')", crate::params![ws_id]).await.unwrap();
+        // Insert student profile link for student-sync
+        conn.execute("UPDATE student_profiles SET user_id = 'u-student-sync' WHERE id = 'stud-sync-1'", ()).await.unwrap();
+
+        // Insert Course and Assignment to satisfy foreign key constraints
+        conn.execute("INSERT OR REPLACE INTO courses (id, workspace_id, name, subject, teacher_id, classroom, updated_at) VALUES ('crs-sync-1', ?1, 'Math', 'MATH101', 'u-teacher', 'Room 101', 0)", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO assignments (id, workspace_id, course_id, title, description, due_date, max_points, updated_at) VALUES ('assign-sync-1', ?1, 'crs-sync-1', 'HW1', 'Homework 1', '2026-08-01', 100, 0)", crate::params![ws_id]).await.unwrap();
+
+        // 3. Create a pending local write on submissions (e.g. submitting an assignment)
+        conn.execute("INSERT OR REPLACE INTO submissions (id, workspace_id, assignment_id, student_id, content, submitted_at, updated_at, sync_status) VALUES ('sub-sync-1', ?1, 'assign-sync-1', 'stud-sync-1', 'My Homework Content', '2026-07-20', 0, 'pending')", crate::params![ws_id]).await.unwrap();
+
+        // 4. Configure database sync to enable sync loop (local/mock mode)
+        crate::database::sync::configure_database_sync("local_url".to_string(), "local_token".to_string());
+
+        // 5. Trigger sync
+        crate::database::sync::sync_database().await.unwrap();
+
+        // 6. Verify that submissions is marked as synced locally
+        let sync_status: String = conn.query_row(
+            "SELECT sync_status FROM submissions WHERE id = 'sub-sync-1'",
+            (),
+            |r| r.get(0),
+        ).await.unwrap();
+        assert_eq!(sync_status, "synced");
+
+        // Clean up
+        conn.execute("DELETE FROM submissions WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM assignments WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM courses WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM student_profiles WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_school_conflict_resolution() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let ws_id = "ws-conflict-test";
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Conflict WS', '[]', '{}')", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-conflict-admin', ?1, 'admin@conf.com', 'admin')", crate::params![ws_id]).await.unwrap();
+
+        // 1. Setup a conflict record in school_conflicts
+        let conflict_json = serde_json::json!({
+            "conflict": true,
+            "versions": [
+                {
+                    "status": "absent",
+                    "notes": "Original note",
+                    "by": "Concurrent Editor",
+                    "updated_at": 100
+                },
+                {
+                    "status": "present",
+                    "notes": "New note",
+                    "by": "u-conflict-admin",
+                    "updated_at": 200
+                }
+            ]
+        });
+
+        // Insert a dummy student_profile, course, and attendance_record to satisfy foreign keys
+        conn.execute("INSERT OR REPLACE INTO student_profiles (id, workspace_id, user_id, first_name, last_name, grade_level, updated_at) VALUES ('stud-c', ?1, NULL, 'John', 'Doe', '10', 0)", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO courses (id, name, subject, classroom, workspace_id, updated_at) VALUES ('crs-c', 'Math', 'Math', 'Room 1', ?1, 0)", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO attendance_records (id, workspace_id, student_id, course_id, date, status, notes, updated_at) VALUES ('att-c', ?1, 'stud-c', 'crs-c', '2026-07-20', 'absent', 'Original note', 100)", crate::params![ws_id]).await.unwrap();
+
+        let conflict_id = "attendance_records-att-c-12345";
+        conn.execute(
+            "INSERT INTO school_conflicts (id, workspace_id, entity_table, entity_id, conflict_json, updated_at) VALUES (?1, ?2, 'attendance_records', 'att-c', ?3, 200)",
+            crate::params![conflict_id, ws_id, conflict_json.to_string()]
+        ).await.unwrap();
+
+        // 2. Verify get_school_conflicts retrieves it
+        let conflicts = get_school_conflicts("u-conflict-admin".to_string(), ws_id.to_string()).await.unwrap();
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].id, conflict_id);
+        assert_eq!(conflicts[0].entity_table, "attendance_records");
+
+        // 3. Resolve using version choice "1" (present, New note)
+        resolve_school_conflict(
+            "u-conflict-admin".to_string(),
+            ws_id.to_string(),
+            conflict_id.to_string(),
+            "1".to_string(),
+            None,
+            None
+        ).await.unwrap();
+
+        // 4. Verify record in database has been updated and conflict has been removed
+        let (resolved_status, resolved_notes): (String, Option<String>) = conn.query_row(
+            "SELECT status, notes FROM attendance_records WHERE id = 'att-c'",
+            (),
+            |r| Ok((r.get(0)?, r.get(1)?))
+        ).await.unwrap();
+        assert_eq!(resolved_status, "present");
+        assert_eq!(resolved_notes.unwrap(), "New note");
+
+        let remaining = get_school_conflicts("u-conflict-admin".to_string(), ws_id.to_string()).await.unwrap();
+        assert_eq!(remaining.len(), 0);
+
+        // 5. Clean up
+        conn.execute("DELETE FROM attendance_records WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM courses WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM student_profiles WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
+    }
+}
+
+#[uniffi::export]
+pub async fn get_student_profiles_rkyv(
+    requester_user_id: String,
+    workspace_id: String,
+) -> Result<Vec<u8>, YntraError> {
+    let profiles = get_student_profiles(requester_user_id, workspace_id).await?;
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&profiles)
+        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    Ok(bytes.into_vec())
+}
+
+#[uniffi::export]
+pub async fn get_assignments_rkyv(
+    requester_user_id: String,
+    workspace_id: String,
+    course_id: String,
+) -> Result<Vec<u8>, YntraError> {
+    let assignments = get_assignments(requester_user_id, workspace_id, course_id).await?;
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&assignments)
+        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    Ok(bytes.into_vec())
+}
+
+#[uniffi::export]
+pub async fn get_student_submissions_rkyv(
+    requester_user_id: String,
+    workspace_id: String,
+    student_id: String,
+) -> Result<Vec<u8>, YntraError> {
+    let submissions = get_student_submissions(requester_user_id, workspace_id, student_id).await?;
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&submissions)
+        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    Ok(bytes.into_vec())
+}
+
+fn choose_version_from_conflict(conflict_json_str: &str, choice: &str) -> Result<serde_json::Value, YntraError> {
+    let val: serde_json::Value = serde_json::from_str(conflict_json_str)
+        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    
+    let versions = val.get("versions").and_then(|v| v.as_array())
+        .ok_or_else(|| YntraError::ValidationError("Invalid conflict JSON format: versions array missing".to_string()))?;
+    
+    if let Ok(idx) = choice.parse::<usize>() {
+        if idx < versions.len() {
+            return Ok(versions[idx].clone());
+        }
+    }
+    
+    for v in versions {
+        if let Some(by) = v.get("by").and_then(|b| b.as_str()) {
+            if by == choice {
+                return Ok(v.clone());
+            }
+        }
+    }
+    
+    Err(YntraError::ValidationError(format!("Conflict resolution version choice '{}' not found", choice)))
+}
+
+#[uniffi::export]
+pub async fn get_school_conflicts(
+    requester_user_id: String,
+    workspace_id: String,
+) -> Result<Vec<SchoolConflict>, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let is_privileged = auth.role == "platform_admin"
+        || auth.role == "admin"
+        || auth.role == "school-admin"
+        || auth.role == "role-school-admin"
+        || auth.role == "teacher"
+        || auth.role == "role-school-teacher"
+        || auth.role == "principal"
+        || auth.role == "role-school-principal";
+
+    if !is_privileged {
+        return Err(YntraError::AuthError("Access denied: only administrators and teachers can access conflicts".to_string()));
+    }
+
+    let mut stmt = conn
+        .prepare("SELECT id, workspace_id, entity_table, entity_id, conflict_json, updated_at FROM school_conflicts WHERE workspace_id = ?1 ORDER BY updated_at DESC")
+        .await?;
+
+    let mut rows = stmt.query(crate::params![&workspace_id]).await?;
+    let mut conflicts = Vec::new();
+    while let Some(row) = rows.next().await? {
+        conflicts.push(SchoolConflict {
+            id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            entity_table: row.get(2)?,
+            entity_id: row.get(3)?,
+            conflict_json: row.get(4)?,
+            updated_at: row.get(5)?,
+        });
+    }
+
+    Ok(conflicts)
+}
+
+#[uniffi::export]
+pub async fn resolve_school_conflict(
+    requester_user_id: String,
+    workspace_id: String,
+    conflict_id: String,
+    resolution_choice: String,
+    custom_resolved_json: Option<String>,
+    role_proof: Option<String>,
+) -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
+
+    let conflict: (String, String, String) = conn.query_row(
+        "SELECT entity_table, entity_id, conflict_json FROM school_conflicts WHERE id = ?1 AND workspace_id = ?2",
+        crate::params![&conflict_id, &workspace_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+    ).await.map_err(|_| YntraError::NotFoundError("Conflict record not found".to_string()))?;
+
+    let entity_table = conflict.0;
+    let entity_id = conflict.1;
+    let conflict_json_str = conflict.2;
+
+    if auth.role != "platform_admin" && auth.role != "admin" && auth.role != "school-admin" {
+        match entity_table.as_str() {
+            "student_profiles" => verify_school_permission(&auth, "can_manage_students")?,
+            "submissions" | "term_grades" => verify_school_permission(&auth, "can_manage_grades")?,
+            "attendance_records" => {
+                if !has_school_permission(&auth, "can_manage_grades") && !has_school_permission(&auth, "can_manage_schedule") {
+                    return Err(YntraError::AuthError("Access denied: insufficient permissions to resolve attendance conflicts".to_string()));
+                }
+            }
+            "timetable_slots" => verify_school_permission(&auth, "can_manage_schedule")?,
+            "health_incidents" => verify_school_permission(&auth, "can_access_health_records")?,
+            _ => return Err(YntraError::AuthError("Access denied: insufficient permissions to resolve conflicts".to_string())),
+        }
+    }
+
+    let resolved_val = if let Some(ref custom_str) = custom_resolved_json {
+        if !custom_str.is_empty() {
+            serde_json::from_str::<serde_json::Value>(custom_str)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?
+        } else {
+            choose_version_from_conflict(&conflict_json_str, &resolution_choice)?
+        }
+    } else {
+        choose_version_from_conflict(&conflict_json_str, &resolution_choice)?
+    };
+
+    let now_ms = crate::infra::time::get_current_time_ms();
+    match entity_table.as_str() {
+        "student_profiles" => {
+            let first_name = resolved_val.get("first_name").and_then(|v| v.as_str()).unwrap_or_default();
+            let last_name = resolved_val.get("last_name").and_then(|v| v.as_str()).unwrap_or_default();
+            let grade_level = resolved_val.get("grade_level").and_then(|v| v.as_str()).unwrap_or_default();
+            let parent_contact = resolved_val.get("parent_contact").and_then(|v| v.as_str());
+
+            conn.execute(
+                "UPDATE student_profiles SET first_name = ?1, last_name = ?2, grade_level = ?3, parent_contact = ?4, updated_at = ?5, sync_status = 'pending' WHERE id = ?6",
+                crate::params![first_name, last_name, grade_level, parent_contact, now_ms, &entity_id]
+            ).await?;
+        }
+        "submissions" => {
+            let grade = resolved_val.get("grade").and_then(|v| v.as_str());
+            let feedback = resolved_val.get("feedback").and_then(|v| v.as_str());
+            let content = resolved_val.get("content").and_then(|v| v.as_str()).unwrap_or_default();
+
+            conn.execute(
+                "UPDATE submissions SET grade = ?1, feedback = ?2, content = ?3, updated_at = ?4, sync_status = 'pending' WHERE id = ?5",
+                crate::params![grade, feedback, content, now_ms, &entity_id]
+            ).await?;
+        }
+        "attendance_records" => {
+            let status = resolved_val.get("status").and_then(|v| v.as_str()).unwrap_or_default();
+            let notes = resolved_val.get("notes").and_then(|v| v.as_str());
+
+            conn.execute(
+                "UPDATE attendance_records SET status = ?1, notes = ?2, updated_at = ?3, sync_status = 'pending' WHERE id = ?4",
+                crate::params![status, notes, now_ms, &entity_id]
+            ).await?;
+        }
+        "term_grades" => {
+            let final_grade = resolved_val.get("grade").and_then(|v| v.as_str());
+            let final_grade_val = final_grade.or_else(|| resolved_val.get("final_grade").and_then(|v| v.as_str()));
+
+            let final_points = resolved_val.get("points").and_then(|v| v.as_i64())
+                .or_else(|| resolved_val.get("final_points").and_then(|v| v.as_i64()));
+
+            let teacher_comments = resolved_val.get("teacher_comments").and_then(|v| v.as_str())
+                .or_else(|| resolved_val.get("comments").and_then(|v| v.as_str()));
+
+            conn.execute(
+                "UPDATE term_grades SET final_grade = ?1, final_points = ?2, teacher_comments = ?3, updated_at = ?4, sync_status = 'pending' WHERE id = ?5",
+                crate::params![final_grade_val, final_points, teacher_comments, now_ms, &entity_id]
+            ).await?;
+        }
+        "health_incidents" => {
+            let visit_reason = resolved_val.get("visit_reason").and_then(|v| v.as_str()).unwrap_or_default();
+            let treatment = resolved_val.get("treatment").and_then(|v| v.as_str());
+            let checked_in_at = resolved_val.get("checked_in_at").and_then(|v| v.as_str()).unwrap_or_default();
+            let checked_out_at = resolved_val.get("checked_out_at").and_then(|v| v.as_str());
+            let notes = resolved_val.get("notes").and_then(|v| v.as_str());
+
+            conn.execute(
+                "UPDATE health_incidents SET visit_reason = ?1, treatment = ?2, checked_in_at = ?3, checked_out_at = ?4, notes = ?5, updated_at = ?6, sync_status = 'pending' WHERE id = ?7",
+                crate::params![visit_reason, treatment, checked_in_at, checked_out_at, notes, now_ms, &entity_id]
+            ).await?;
+        }
+        "timetable_slots" => {
+            let course_id = resolved_val.get("course_id").and_then(|v| v.as_str()).unwrap_or_default();
+            let day_of_week = resolved_val.get("day_of_week").and_then(|v| v.as_i64()).unwrap_or_default();
+            let start_time = resolved_val.get("start_time").and_then(|v| v.as_str()).unwrap_or_default();
+            let end_time = resolved_val.get("end_time").and_then(|v| v.as_str()).unwrap_or_default();
+            let classroom = resolved_val.get("classroom").and_then(|v| v.as_str());
+
+            conn.execute(
+                "UPDATE timetable_slots SET course_id = ?1, day_of_week = ?2, start_time = ?3, end_time = ?4, classroom = ?5, updated_at = ?6, sync_status = 'pending' WHERE id = ?7",
+                crate::params![course_id, day_of_week, start_time, end_time, classroom, now_ms, &entity_id]
+            ).await?;
+        }
+        _ => {
+            return Err(YntraError::ValidationError(format!("Unsupported conflict entity table: {}", entity_table)));
+        }
+    }
+
+    conn.execute(
+        "DELETE FROM school_conflicts WHERE id = ?1",
+        crate::params![&conflict_id]
+    ).await?;
+
+    notify_observers();
+    Ok(())
+}
+
+#[uniffi::export]
+pub async fn delete_school_conflict(
+    requester_user_id: String,
+    workspace_id: String,
+    conflict_id: String,
+    role_proof: Option<String>,
+) -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
+
+    let entity_table: String = conn.query_row(
+        "SELECT entity_table FROM school_conflicts WHERE id = ?1 AND workspace_id = ?2",
+        crate::params![&conflict_id, &workspace_id],
+        |r| r.get(0)
+    ).await.map_err(|_| YntraError::NotFoundError("Conflict record not found".to_string()))?;
+
+    if auth.role != "platform_admin" && auth.role != "admin" && auth.role != "school-admin" {
+        match entity_table.as_str() {
+            "student_profiles" => verify_school_permission(&auth, "can_manage_students")?,
+            "submissions" | "term_grades" => verify_school_permission(&auth, "can_manage_grades")?,
+            "attendance_records" => {
+                if !has_school_permission(&auth, "can_manage_grades") && !has_school_permission(&auth, "can_manage_schedule") {
+                    return Err(YntraError::AuthError("Access denied: insufficient permissions to delete attendance conflicts".to_string()));
+                }
+            }
+            "timetable_slots" => verify_school_permission(&auth, "can_manage_schedule")?,
+            "health_incidents" => verify_school_permission(&auth, "can_access_health_records")?,
+            _ => return Err(YntraError::AuthError("Access denied: insufficient permissions to delete conflicts".to_string())),
+        }
+    }
+
+    conn.execute(
+        "DELETE FROM school_conflicts WHERE id = ?1",
+        crate::params![&conflict_id]
+    ).await?;
+
+    notify_observers();
+    Ok(())
 }
