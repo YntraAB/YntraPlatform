@@ -616,6 +616,7 @@ pub struct MoveInvoice {
     pub customer_amount: f64,
     pub tax_authority_amount: f64,
     pub status: String,
+    pub currency: String,
 }
 
 #[derive(
@@ -635,6 +636,47 @@ pub struct SwishPaymentSession {
     pub swish_url: String,
     pub qr_code_base64: String,
     pub amount: f64,
+    pub status: String,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct StripePaymentSession {
+    pub session_id: String,
+    pub checkout_url: String,
+    pub client_secret: Option<String>,
+    pub amount: f64,
+    pub currency: String,
+    pub status: String,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct AdyenPaymentSession {
+    pub session_id: String,
+    pub session_data: String,
+    pub amount: f64,
+    pub currency: String,
     pub status: String,
 }
 
@@ -683,6 +725,10 @@ pub struct MoveVehicle {
     pub status: String,
     pub updated_at: i64,
     pub sync_status: String,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+    pub last_ping: Option<i64>,
+    pub gps_device_id: Option<String>,
 }
 
 #[derive(

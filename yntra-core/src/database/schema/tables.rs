@@ -261,7 +261,11 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             capacity_m3 REAL NOT NULL,
             status TEXT NOT NULL,
             updated_at INTEGER NOT NULL DEFAULT 0,
-            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced'))
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            latitude REAL,
+            longitude REAL,
+            last_ping INTEGER,
+            gps_device_id TEXT
         );
 
         CREATE TABLE IF NOT EXISTS job_crew (

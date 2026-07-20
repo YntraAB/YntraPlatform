@@ -964,6 +964,17 @@ pub async fn run_schema_migrations(
         .await?;
         version = 20;
     }
+    if version < 21 {
+        execute_migration_batch(
+            conn,
+            "ALTER TABLE vehicles ADD COLUMN latitude REAL;
+             ALTER TABLE vehicles ADD COLUMN longitude REAL;
+             ALTER TABLE vehicles ADD COLUMN last_ping INTEGER;
+             ALTER TABLE vehicles ADD COLUMN gps_device_id TEXT;",
+        )
+        .await?;
+        version = 21;
+    }
     Ok(version)
 }
 
@@ -993,7 +1004,7 @@ mod tests {
         conn.execute("PRAGMA user_version = 0", ()).await.unwrap();
 
         let migrated_version = run_schema_migrations(&conn, 0).await.unwrap();
-        assert_eq!(migrated_version, 20);
+        assert_eq!(migrated_version, 21);
 
         let has_oauth_sessions = conn.query_row(
             "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='oauth_auth_sessions'",
