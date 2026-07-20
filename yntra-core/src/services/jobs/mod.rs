@@ -40,6 +40,8 @@ pub use billing::initiate_stripe_payment;
 pub use billing::initiate_adyen_payment;
 pub use billing::get_rut_invoices;
 pub use billing::export_skatteverket_claims;
+pub use billing::initiate_bankid_skatteverket_session;
+pub use billing::submit_skatteverket_claim_direct;
 
 pub use routing::get_directions_url;
 

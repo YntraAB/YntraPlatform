@@ -78,6 +78,17 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
     let inventories = props.inventories;
     let quote = props.quote;
 
+    let state = use_context::<crate::state::AppState>();
+    let workspace_opt = state.workspace.read().clone();
+    let settings_json: serde_json::Value = if let Some(ref ws) = workspace_opt {
+        serde_json::from_str(&ws.settings).unwrap_or_default()
+    } else {
+        serde_json::Value::Null
+    };
+    let show_rut = settings_json
+        .get("show_rut_deduction")
+        .and_then(|v| v.as_bool())
+        .unwrap_or_else(|| region == "SE");
     let quote_id_for_inv = quote.as_ref().map(|q| q.id.clone()).unwrap_or_default();
     let uid_for_inv = active_user_id.clone();
     let db_trig_val = *props.db_trigger.read();
@@ -980,17 +991,21 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                             if let Some(ref inv) = invoice {
                                 div { class: "mt-3 p-3 rounded bg-muted/20 border border-border/10 space-y-1.5",
                                     div { class: "text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground", "Fakturainformation" }
-                                    div { class: "flex items-center justify-between text-[11px] text-muted-foreground",
-                                        span { "RUT-avdrag:" }
-                                        span { class: "font-semibold text-foreground", "{inv.rut_deduction} kr" }
+                                    if show_rut {
+                                        div { class: "flex items-center justify-between text-[11px] text-muted-foreground",
+                                            span { "RUT-avdrag:" }
+                                            span { class: "font-semibold text-foreground", "{inv.rut_deduction} kr" }
+                                        }
                                     }
                                     div { class: "flex items-center justify-between text-[11px] text-muted-foreground",
                                         span { "Kundbelopp:" }
                                         span { class: "font-semibold text-foreground", "{inv.customer_amount} kr" }
                                     }
-                                    div { class: "flex items-center justify-between text-[11px] text-muted-foreground",
-                                        span { "Skatteverket (RUT):" }
-                                        span { class: "font-semibold text-foreground", "{inv.tax_authority_amount} kr" }
+                                    if show_rut {
+                                        div { class: "flex items-center justify-between text-[11px] text-muted-foreground",
+                                            span { "Skatteverket (RUT):" }
+                                            span { class: "font-semibold text-foreground", "{inv.tax_authority_amount} kr" }
+                                        }
                                     }
                                     div { class: "flex items-center justify-between text-[11px] text-muted-foreground pt-1 border-t border-border/10",
                                         span { "Fakturastatus:" }
@@ -999,7 +1014,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                             if inv.status == "paid" { "Betald" } else { "Obetald" }
                                         }
                                     }
-                                    if inv.status == "paid" && inv.rut_deduction > 0.0 && is_staff {
+                                    if show_rut && inv.status == "paid" && inv.rut_deduction > 0.0 && is_staff {
                                         div { class: "flex gap-2 pt-2 border-t border-border/10",
                                             button {
                                                 class: "flex-1 py-1 bg-primary/20 hover:bg-primary/30 rounded text-[10px] font-bold text-foreground border border-primary/20 cursor-pointer flex items-center justify-center gap-1",

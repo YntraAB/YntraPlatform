@@ -1,7 +1,11 @@
 use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
-use yntra_core::{JobTicket, MoveInventoryItem, MoveQuote, MoveVehicle};
+use yntra_core::{
+    JobTicket, MoveInventoryItem, MoveQuote, MoveVehicle,
+    initiate_bankid_skatteverket_session, submit_skatteverket_claim_direct,
+    SkatteverketSubmitResult, BankIdAuthSession,
+};
 
 fn trigger_download(content: &str, file_name: &str) {
     #[cfg(target_arch = "wasm32")]
@@ -74,7 +78,18 @@ impl PartialEq for JobsViewProps {
 pub fn JobsView(props: JobsViewProps) -> Element {
     let region = props.auth_region.read().clone();
     let db_trig = *props.db_trigger.read();
-    let db_trigger = props.db_trigger;
+    let mut db_trigger = props.db_trigger;
+    let state = use_context::<crate::state::AppState>();
+    let workspace_opt = state.workspace.read().clone();
+    let settings_json: serde_json::Value = if let Some(ref ws) = workspace_opt {
+        serde_json::from_str(&ws.settings).unwrap_or_default()
+    } else {
+        serde_json::Value::Null
+    };
+    let show_rut = settings_json
+        .get("show_rut_deduction")
+        .and_then(|v| v.as_bool())
+        .unwrap_or_else(|| region == "SE");
 
     // Fetch jobs from the FFI service
     let jobs_resource = use_resource(move || {
@@ -101,6 +116,14 @@ pub fn JobsView(props: JobsViewProps) -> Element {
     let mut checklist_state = use_signal(Vec::<ChecklistItem>::new);
     let mut completion_report_state = use_signal(String::new);
     let mut active_status_state = use_signal(|| "all".to_string());
+    let mut is_simulating = use_signal(|| false);
+    
+    // Skatteverket Direct Submission signals
+    let mut show_skatteverket_modal = use_signal(|| false);
+    let mut skatteverket_bankid_session = use_signal(|| Option::<BankIdAuthSession>::None);
+    let mut skatteverket_submit_result = use_signal(|| Option::<SkatteverketSubmitResult>::None);
+    let mut skatteverket_loading = use_signal(|| false);
+    let mut bankid_personal_number = use_signal(|| "".to_string());
 
     // Context Menu signals
     let mut job_context_menu_open = use_signal(|| false);
@@ -170,6 +193,38 @@ pub fn JobsView(props: JobsViewProps) -> Element {
     });
     let vehicles = vehicles_res.read().clone().unwrap_or_default();
 
+    // GPS Real-time Telemetry Simulation Loop
+    use_effect(move || {
+        let active_tab = active_status_state.read().clone();
+        let sim_active = *is_simulating.read();
+        let uid = props.active_user_id.read().clone();
+        
+        if sim_active && active_tab == "live_map" {
+            spawn(async move {
+                let mut tick = 0;
+                loop {
+                    // Check if simulation is still active
+                    if !*is_simulating.read() || active_status_state.read().clone() != "live_map" {
+                        break;
+                    }
+                    
+                    if let Ok(v_list) = yntra_core::get_vehicles(uid.clone()).await {
+                        for v in v_list {
+                            if v.status == "active" {
+                                let _ = yntra_core::simulate_vehicle_movement(uid.clone(), v.id, tick).await;
+                            }
+                        }
+                    }
+                    
+                    let current = *db_trigger.read();
+                    db_trigger.set(current + 1);
+                    
+                    tick += 1;
+                    crate::utils::sleep_ms(3000).await;
+                }
+            });
+        }
+    });
 
     // Reactive effect to update map markers dynamically without iframe reload
     use_effect(move || {
@@ -205,7 +260,7 @@ pub fn JobsView(props: JobsViewProps) -> Element {
 
     // Localized Headers & Labels
 
-    let tabs_list = vec![
+    let mut tabs_list = vec![
         components::tabs::TabItem {
             value: "all".to_string(),
             label: t("jobs-filter-all", &region),
@@ -226,22 +281,27 @@ pub fn JobsView(props: JobsViewProps) -> Element {
             label: t("jobs-filter-completed", &region),
             icon: None,
         },
-        components::tabs::TabItem {
+    ];
+
+    if show_rut {
+        tabs_list.push(components::tabs::TabItem {
             value: "rut_exports".to_string(),
             label: "RUT-avdrag".to_string(),
             icon: None,
-        },
-        components::tabs::TabItem {
-            value: "live_map".to_string(),
-            label: "Livekarta".to_string(),
-            icon: None,
-        },
-        components::tabs::TabItem {
-            value: "fleet".to_string(),
-            label: "Fordonsflotta".to_string(),
-            icon: None,
-        },
-    ];
+        });
+    }
+
+    tabs_list.push(components::tabs::TabItem {
+        value: "live_map".to_string(),
+        label: "Livekarta".to_string(),
+        icon: None,
+    });
+
+    tabs_list.push(components::tabs::TabItem {
+        value: "fleet".to_string(),
+        label: "Fordonsflotta".to_string(),
+        icon: None,
+    });
 
     rsx! {
         div {
@@ -301,6 +361,18 @@ pub fn JobsView(props: JobsViewProps) -> Element {
                                 },
                                 components::LucideIcon { name: "download", size: "14" }
                                 "Exportera CSV"
+                            }
+                            button {
+                                class: "py-1.5 px-3 bg-blue-600 text-white hover:opacity-90 rounded text-xs font-bold border-0 cursor-pointer flex items-center gap-1.5 transition-all disabled:opacity-50",
+                                disabled: selected_rut_invoices.read().is_empty(),
+                                onclick: move |_| {
+                                    skatteverket_bankid_session.set(None);
+                                    skatteverket_submit_result.set(None);
+                                    skatteverket_loading.set(false);
+                                    show_skatteverket_modal.set(true);
+                                },
+                                components::LucideIcon { name: "send", size: "14" }
+                                "Skicka Direkt"
                             }
                         }
                     }
@@ -371,8 +443,16 @@ pub fn JobsView(props: JobsViewProps) -> Element {
                                                 td { class: "p-3", "{item.payment_date}" }
                                                 td { class: "p-3 text-right font-bold text-emerald-500", "{item.rut_amount} kr" }
                                                 td { class: "p-3 text-center",
-                                                    span { class: "px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-500",
-                                                        "Betald"
+                                                    {
+                                                        let (badge_text, badge_style) = match item.status.as_str() {
+                                                            "claimed" | "submitted" => ("Inskickad", "bg-blue-500/10 text-blue-500"),
+                                                            _ => ("Klar för inskick", "bg-emerald-500/10 text-emerald-500"),
+                                                        };
+                                                        rsx! {
+                                                            span { class: "px-1.5 py-0.5 rounded text-[10px] font-bold {badge_style}",
+                                                                "{badge_text}"
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }
@@ -745,9 +825,19 @@ pub fn JobsView(props: JobsViewProps) -> Element {
                                         }
                                     }
                                 }
-                                div { class: "border-t border-white/10 pt-2 text-[9px] text-slate-300 space-y-1",
+                                div { class: "border-t border-white/10 pt-2 text-[9px] text-slate-300 space-y-1 flex flex-col gap-1.5",
                                     p { class: "m-0", "Mottagare: " span { class: "font-mono text-white/80", "https://api.yntra.se/v1/gps/ping" } }
                                     p { class: "m-0 text-slate-400", "Enheter identifieras via IMEI / GPS Tracker ID." }
+                                    button {
+                                        class: format!("mt-1 py-1.5 px-3 rounded text-[10px] font-bold border-0 cursor-pointer transition-all {}",
+                                            if *is_simulating.read() { "bg-rose-500/20 text-rose-400 hover:bg-rose-500/30" } else { "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30" }
+                                        ),
+                                        onclick: move |_| {
+                                            let current = *is_simulating.read();
+                                            is_simulating.set(!current);
+                                        },
+                                        if *is_simulating.read() { "Stoppa GPS-simulering" } else { "Starta GPS-simulering" }
+                                    }
                                 }
                             }
                         }
@@ -1043,6 +1133,186 @@ pub fn JobsView(props: JobsViewProps) -> Element {
                                 style: "margin: 1rem 0 0.25rem 0;", "{t(\"jobs-detail-empty-title\", &region)}" }
                                 p { class: "text-sm m-0",
                                 style: "max-width: 280px; line-height: 1.4;", "{t(\"jobs-detail-empty-desc\", &region)}" }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Skatteverket Direct Submission Modal
+        if *show_skatteverket_modal.read() {
+            {
+                let selected_ids_list: Vec<String> = selected_rut_invoices.read().iter().cloned().collect();
+                let selected_amount_sum: f64 = list.iter()
+                    .filter(|item| selected_ids_list.contains(&item.invoice_id))
+                    .map(|item| item.rut_amount)
+                    .sum();
+                    
+                rsx! {
+                    div {
+                        class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200",
+                        div {
+                            class: "w-full max-w-md rounded-2xl border border-border bg-sidebar p-6 shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col gap-4 text-foreground",
+                            
+                            // Header
+                            div { class: "flex items-center justify-between border-b border-border/40 pb-3",
+                                div { class: "flex items-center gap-2",
+                                    div { class: "rounded-lg bg-blue-500/10 p-2 text-blue-500",
+                                        components::LucideIcon { name: "send", class: "h-5 w-5" }
+                                    }
+                                    div {
+                                        h3 { class: "text-sm font-extrabold m-0", "Direktsändning Skatteverket" }
+                                        p { class: "text-[10px] text-muted-foreground m-0 mt-0.5", "Elektronisk insändning via BankID" }
+                                    }
+                                }
+                                button {
+                                    onclick: move |_| show_skatteverket_modal.set(false),
+                                    class: "p-1 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground border-0 bg-transparent cursor-pointer transition-colors",
+                                    components::LucideIcon { name: "x", class: "h-4 w-4" }
+                                }
+                            }
+
+                            if let Some(ref result) = *skatteverket_submit_result.read() {
+                                // Result View
+                                div { class: "flex flex-col gap-4 py-3 text-center",
+                                    if result.status == "accepted" {
+                                        div { class: "mx-auto rounded-full bg-emerald-500/10 p-3 text-emerald-500 w-fit",
+                                            components::LucideIcon { name: "check-circle", class: "h-8 w-8" }
+                                        }
+                                        h4 { class: "text-sm font-extrabold text-foreground m-0", "Sändning Godkänd" }
+                                        p { class: "text-xs text-muted-foreground m-0 px-2", "{result.message}" }
+                                        
+                                        div { class: "mt-2 p-3 rounded-lg bg-background/50 border border-border/20 text-left text-xs space-y-1.5",
+                                            div { class: "flex justify-between",
+                                                span { class: "text-muted-foreground", "Referensnummer:" }
+                                                span { class: "font-mono font-bold text-foreground", "{result.reference_number}" }
+                                            }
+                                            div { class: "flex justify-between",
+                                                span { class: "text-muted-foreground", "Antal ärenden:" }
+                                                span { class: "font-bold text-foreground", "{result.total_claims} st" }
+                                            }
+                                            div { class: "flex justify-between",
+                                                span { class: "text-muted-foreground", "Totalt belopp:" }
+                                                span { class: "font-bold text-emerald-500", "{result.total_amount} kr" }
+                                            }
+                                        }
+                                    } else {
+                                        div { class: "mx-auto rounded-full bg-red-500/10 p-3 text-red-500 w-fit",
+                                            components::LucideIcon { name: "alert-triangle", class: "h-8 w-8" }
+                                        }
+                                        h4 { class: "text-sm font-extrabold text-foreground m-0", "Sändning Misslyckades" }
+                                        p { class: "text-xs text-red-500 m-0 px-2", "{result.message}" }
+                                    }
+                                    
+                                    button {
+                                        onclick: move |_| {
+                                            show_skatteverket_modal.set(false);
+                                            let current = *db_trigger.read();
+                                            db_trigger.set(current + 1);
+                                        },
+                                        class: "w-full py-2 bg-primary text-primary-foreground hover:opacity-90 rounded-lg text-xs font-bold border-0 cursor-pointer transition-all mt-2",
+                                        "Klar"
+                                    }
+                                }
+                            } else if let Some(ref session) = *skatteverket_bankid_session.read() {
+                                // Loading/Signing View
+                                div { class: "flex flex-col items-center justify-center gap-4 py-6 text-center select-none",
+                                    div { class: "relative flex items-center justify-center w-24 h-24 rounded-2xl bg-white p-2 border border-border/30",
+                                        img {
+                                            src: "https://www.bankid.com/assets/bankid-logo.svg",
+                                            class: "w-16 h-16 animate-pulse"
+                                        }
+                                    }
+                                    
+                                    div { class: "space-y-1",
+                                        h4 { class: "text-xs font-bold text-foreground m-0 animate-pulse", "Öppna BankID-säkerhetsapp" }
+                                        p { class: "text-[10px] text-muted-foreground m-0", "Signerar Begäran om RUT-avdrag till Skatteverket." }
+                                    }
+
+                                    // Progress Bar simulation
+                                    div { class: "w-full bg-muted rounded-full h-1.5 mt-2 overflow-hidden",
+                                        div {
+                                            class: "bg-blue-500 h-1.5 rounded-full transition-all duration-300",
+                                            style: "width: {session.progress}%"
+                                        }
+                                    }
+                                    
+                                    p { class: "text-[10px] font-mono text-muted-foreground", "Svarar från BankID..." }
+                                }
+                            } else {
+                                // Initial BankID Prompt
+                                div { class: "flex flex-col gap-4 py-2",
+                                    div { class: "p-3 rounded-lg bg-background/50 border border-border/20 text-xs space-y-1.5",
+                                        div { class: "flex justify-between",
+                                            span { class: "text-muted-foreground", "Valda fakturor:" }
+                                            span { class: "font-bold text-foreground", "{selected_ids_list.len()} st" }
+                                        }
+                                        div { class: "flex justify-between",
+                                            span { class: "text-muted-foreground", "Totalt belopp att ansöka:" }
+                                            span { class: "font-bold text-emerald-500", "{selected_amount_sum} kr" }
+                                        }
+                                    }
+                                    
+                                    div { class: "space-y-1.5",
+                                        label { class: "text-[10px] font-bold text-muted-foreground uppercase", "Signerande Personnummer" }
+                                        input {
+                                            r#type: "text",
+                                            placeholder: "YYYYMMDD-XXXX",
+                                            value: "{bankid_personal_number}",
+                                            oninput: move |e: FormEvent| bankid_personal_number.set(e.value()),
+                                            class: "w-full text-xs p-2 rounded border border-border bg-background text-foreground focus:outline-none focus:border-primary"
+                                        }
+                                    }
+
+                                    button {
+                                        disabled: *skatteverket_loading.read() || bankid_personal_number.read().trim().is_empty(),
+                                        onclick: move |_| {
+                                            skatteverket_loading.set(true);
+                                            let uid = props.active_user_id.read().clone();
+                                            let ids_c = selected_ids_list.clone();
+                                            
+                                            spawn(async move {
+                                                if let Ok(session) = initiate_bankid_skatteverket_session(uid.clone()).await {
+                                                    skatteverket_bankid_session.set(Some(session.clone()));
+                                                    
+                                                    // Simulate BankID progress ticking
+                                                    let mut prog = 0.0;
+                                                    for _ in 1..=4 {
+                                                        crate::utils::sleep_ms(700).await;
+                                                        prog += 25.0;
+                                                        let mut updated = session.clone();
+                                                        updated.progress = prog;
+                                                        skatteverket_bankid_session.set(Some(updated));
+                                                    }
+                                                    
+                                                    // Execute final Skatteverket Direct API Submission
+                                                    match submit_skatteverket_claim_direct(uid, session.id, ids_c).await {
+                                                        Ok(res) => {
+                                                            skatteverket_submit_result.set(Some(res));
+                                                        }
+                                                        Err(e) => {
+                                                            skatteverket_submit_result.set(Some(SkatteverketSubmitResult {
+                                                                reference_number: "".to_string(),
+                                                                total_claims: 0,
+                                                                total_amount: 0.0,
+                                                                status: "failed".to_string(),
+                                                                message: e.to_string(),
+                                                            }));
+                                                        }
+                                                    }
+                                                    skatteverket_bankid_session.set(None);
+                                                    skatteverket_loading.set(false);
+                                                } else {
+                                                    skatteverket_loading.set(false);
+                                                }
+                                            });
+                                        },
+                                        class: "w-full py-2.5 bg-blue-600 hover:opacity-90 rounded-lg text-xs font-bold text-white border-0 cursor-pointer flex items-center justify-center gap-1.5 transition-all disabled:opacity-50",
+                                        components::LucideIcon { name: "send", size: "14" }
+                                        "Starta BankID-signering & Skicka"
+                                    }
+                                }
                             }
                         }
                     }

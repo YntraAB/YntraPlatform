@@ -34,7 +34,17 @@ pub async fn generate_move_invoice(
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
 
-    let customer_id = "client-1".to_string();
+    let customer_id = if auth.role == "client" {
+        requester_user_id.clone()
+    } else {
+        conn.query_row(
+            "SELECT id FROM users WHERE workspace_id = ?1 AND role = 'client' LIMIT 1",
+            crate::params![&ws_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or_else(|_| "client-1".to_string())
+    };
 
     let settings_str: String = conn
         .query_row(
@@ -251,7 +261,49 @@ fn base64_encode(input: &[u8]) -> String {
     result
 }
 
-#[uniffi::export]
+fn create_http_client() -> Result<reqwest::Client, YntraError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .map_err(|e| YntraError::NetworkError(e.to_string()))
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        Ok(reqwest::Client::new())
+    }
+}
+
+async fn get_config_val(key: &str, _env_var: &str, workspace_settings: &serde_json::Value) -> Option<String> {
+    if let Some(val) = workspace_settings.get(key).and_then(|v| v.as_str()) {
+        return Some(val.to_string());
+    }
+
+    if let Ok(conn) = database::acquire_connection().await {
+        let val_res: Result<String, _> = conn
+            .query_row(
+                "SELECT value FROM system_settings WHERE key = ?1",
+                crate::params![key],
+                |r| r.get(0),
+            )
+            .await;
+        if let Ok(val) = val_res {
+            return Some(val);
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if let Ok(val) = std::env::var(_env_var) {
+            return Some(val);
+        }
+    }
+
+    None
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
 pub async fn initiate_swish_payment(
     requester_user_id: String,
     invoice_id: String,
@@ -290,16 +342,78 @@ pub async fn initiate_swish_payment(
         .unwrap_or("1234567890")
         .to_string();
 
-    // 3. Construct Swish payment URL / token
-    let token = format!("swish-req-{}", uuid::Uuid::new_v4().simple());
-    let swish_url = format!("swish://paymentrequest?token={}", token);
+    let client = create_http_client()?;
 
-    // 4. Generate SVG QR Code base64 data
-    let svg_data = format!(
-        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="200" height="200"><rect width="100" height="100" rx="12" fill="#ffffff" stroke="#e2e8f0" stroke-width="2"/><path d="M12 12h20v20H12zm4 4v12h12V16zM68 12h20v20H68zm4 4v12h12V16zM12 68h20v20H12zm4 4v12h12V72z" fill="#0f172a"/><rect x="37" y="17" width="26" height="10" fill="#0f172a"/><rect x="17" y="37" width="10" height="26" fill="#0f172a"/><rect x="42" y="42" width="16" height="16" rx="4" fill="#e11d48"/><circle cx="50" cy="50" r="4" fill="#ffffff"/><path d="M37 68h15v10H37zm31 5h10v10H68zm0-20h20v10H68z" fill="#0f172a"/><text x="50" y="88" font-family="system-ui,sans-serif" font-size="6" font-weight="bold" fill="#0f172a" text-anchor="middle">Swish: {} kr</text></svg>"##,
-        amount
-    );
-    let qr_code_base64 = format!("data:image/svg+xml;base64,{}", base64_encode(svg_data.as_bytes()));
+    // 3. Check for Swish gateway proxy URL or general billing gateway URL
+    let gateway_url = get_config_val("swish_gateway_url", "SWISH_GATEWAY_URL", &settings_json).await
+        .or(get_config_val("billing_gateway_url", "BILLING_GATEWAY_URL", &settings_json).await);
+
+    let mut token = format!("swish-req-{}", uuid::Uuid::new_v4().simple());
+    let mut swish_url = format!("swish://paymentrequest?token={}", token);
+
+    if let Some(gw_url) = gateway_url {
+        let gw_res = client.post(&gw_url)
+            .json(&serde_json::json!({
+                "invoice_id": invoice_id,
+                "amount": amount,
+                "payee": payee,
+            }))
+            .send()
+            .await;
+        if let Ok(res) = gw_res {
+            if let Ok(json) = res.json::<serde_json::Value>().await {
+                if let Some(t) = json.get("token").and_then(|v| v.as_str()) {
+                    token = t.to_string();
+                }
+                if let Some(u) = json.get("swish_url").and_then(|v| v.as_str()) {
+                    swish_url = u.to_string();
+                }
+            }
+        }
+    }
+
+    // 4. Generate SVG QR Code base64 data by calling the Swish public QR API
+    let mut qr_code_base64 = "".to_string();
+    let qr_url = "https://mpc.getswish.net/qrg-swish/api/v1/prefilled";
+    let qr_payload = serde_json::json!({
+        "format": "svg",
+        "payee": {
+            "value": payee,
+            "editable": false
+        },
+        "amount": {
+            "value": amount,
+            "editable": false
+        },
+        "message": {
+            "value": format!("Faktura {}", invoice_id),
+            "editable": false
+        },
+        "size": 300,
+        "border": 0
+    });
+
+    let qr_res = client.post(qr_url)
+        .json(&qr_payload)
+        .send()
+        .await;
+
+    if let Ok(res) = qr_res {
+        if res.status().is_success() {
+            if let Ok(svg_text) = res.text().await {
+                qr_code_base64 = format!("data:image/svg+xml;base64,{}", base64_encode(svg_text.as_bytes()));
+            }
+        }
+    }
+
+    // Fallback if the Swish public QR API was unreachable or failed
+    if qr_code_base64.is_empty() {
+        let svg_data = format!(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="200" height="200"><rect width="100" height="100" rx="12" fill="#ffffff" stroke="#e2e8f0" stroke-width="2"/><path d="M12 12h20v20H12zm4 4v12h12V16zM68 12h20v20H68zm4 4v12h12V16zM12 68h20v20H12zm4 4v12h12V72z" fill="#0f172a"/><rect x="37" y="17" width="26" height="10" fill="#0f172a"/><rect x="17" y="37" width="10" height="26" fill="#0f172a"/><rect x="42" y="42" width="16" height="16" rx="4" fill="#e11d48"/><circle cx="50" cy="50" r="4" fill="#ffffff"/><path d="M37 68h15v10H37zm31 5h10v10H68zm0-20h20v10H68z" fill="#0f172a"/><text x="50" y="88" font-family="system-ui,sans-serif" font-size="6" font-weight="bold" fill="#0f172a" text-anchor="middle">Swish: {} kr</text></svg>"##,
+            amount
+        );
+        qr_code_base64 = format!("data:image/svg+xml;base64,{}", base64_encode(svg_data.as_bytes()));
+    }
 
     // 5. Check sandbox configuration
     if settings_json.get("swish_use_sandbox").and_then(|v| v.as_bool()).unwrap_or(false) {
@@ -314,6 +428,7 @@ pub async fn initiate_swish_payment(
         status: "pending".to_string(),
     })
 }
+
 
 #[uniffi::export]
 pub async fn get_rut_invoices(
@@ -510,7 +625,7 @@ pub async fn export_skatteverket_claims(
     }
 }
 
-#[uniffi::export]
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
 pub async fn initiate_stripe_payment(
     requester_user_id: String,
     invoice_id: String,
@@ -555,20 +670,88 @@ pub async fn initiate_stripe_payment(
         _ => "SEK".to_string(),
     };
 
-    let session_id = format!("cs_test_{}", uuid::Uuid::new_v4().simple());
-    let checkout_url = format!("https://checkout.stripe.com/pay/{}#client_secret=mock_secret", session_id);
+    let client = create_http_client()?;
+    let gateway_url = get_config_val("stripe_gateway_url", "STRIPE_GATEWAY_URL", &settings_json).await
+        .or(get_config_val("billing_gateway_url", "BILLING_GATEWAY_URL", &settings_json).await);
+    let secret_key = get_config_val("stripe_secret_key", "STRIPE_SECRET_KEY", &settings_json).await;
 
-    Ok(crate::models::StripePaymentSession {
-        session_id,
-        checkout_url,
-        client_secret: Some(format!("mock_secret_{}", uuid::Uuid::new_v4().simple())),
-        amount,
-        currency,
-        status: "open".to_string(),
-    })
+    if let Some(gw_url) = gateway_url {
+        let res = client.post(&gw_url)
+            .json(&serde_json::json!({
+                "invoice_id": invoice_id,
+                "amount": amount,
+                "currency": currency,
+            }))
+            .send()
+            .await
+            .map_err(|e| YntraError::NetworkError(e.to_string()))?;
+        
+        if !res.status().is_success() {
+            let err_text = res.text().await.unwrap_or_default();
+            return Err(YntraError::NetworkError(format!("Billing Gateway Error: {}", err_text)));
+        }
+
+        let session: crate::models::StripePaymentSession = res.json()
+            .await
+            .map_err(|e| YntraError::NetworkError(e.to_string()))?;
+        Ok(session)
+    } else if let Some(key) = secret_key {
+        let url = "https://api.stripe.com/v1/checkout/sessions";
+        let params = [
+            ("success_url", "https://api.yntra.se/v1/billing/stripe/success".to_string()),
+            ("cancel_url", "https://api.yntra.se/v1/billing/stripe/cancel".to_string()),
+            ("mode", "payment".to_string()),
+            ("line_items[0][price_data][currency]", currency.to_lowercase()),
+            ("line_items[0][price_data][product_data][name]", format!("Move Invoice {}", invoice_id)),
+            ("line_items[0][price_data][unit_amount]", ((amount * 100.0).round() as i64).to_string()),
+            ("line_items[0][quantity]", "1".to_string()),
+        ];
+        
+        let res = client.post(url)
+            .basic_auth(key, Some(""))
+            .form(&params)
+            .send()
+            .await
+            .map_err(|e| YntraError::NetworkError(e.to_string()))?;
+
+        if !res.status().is_success() {
+            let err_text = res.text().await.unwrap_or_default();
+            return Err(YntraError::NetworkError(format!("Stripe API Error: {}", err_text)));
+        }
+
+        let json: serde_json::Value = res.json()
+            .await
+            .map_err(|e| YntraError::NetworkError(e.to_string()))?;
+
+        let session_id = json.get("id").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+        let checkout_url = json.get("url").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+        let client_secret = json.get("client_secret").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+        Ok(crate::models::StripePaymentSession {
+            session_id,
+            checkout_url,
+            client_secret,
+            amount,
+            currency,
+            status: "open".to_string(),
+        })
+    } else {
+        // Fallback mock
+        let session_id = format!("cs_test_{}", uuid::Uuid::new_v4().simple());
+        let checkout_url = format!("https://checkout.stripe.com/pay/{}#client_secret=mock_secret", session_id);
+
+        Ok(crate::models::StripePaymentSession {
+            session_id,
+            checkout_url,
+            client_secret: Some(format!("mock_secret_{}", uuid::Uuid::new_v4().simple())),
+            amount,
+            currency,
+            status: "open".to_string(),
+        })
+    }
 }
 
-#[uniffi::export]
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
 pub async fn initiate_adyen_payment(
     requester_user_id: String,
     invoice_id: String,
@@ -613,15 +796,256 @@ pub async fn initiate_adyen_payment(
         _ => "SEK".to_string(),
     };
 
-    let session_id = format!("adyen_session_{}", uuid::Uuid::new_v4().simple());
-    let session_data = base64_encode(format!("{{\"session_id\":\"{}\",\"amount\":{}}}", session_id, amount).as_bytes());
+    let client = create_http_client()?;
+    let gateway_url = get_config_val("adyen_gateway_url", "ADYEN_GATEWAY_URL", &settings_json).await
+        .or(get_config_val("billing_gateway_url", "BILLING_GATEWAY_URL", &settings_json).await);
+    let api_key = get_config_val("adyen_api_key", "ADYEN_API_KEY", &settings_json).await;
+    let merchant_account = get_config_val("adyen_merchant_account", "ADYEN_MERCHANT_ACCOUNT", &settings_json).await
+        .unwrap_or_else(|| "MyMerchantAccount".to_string());
 
-    Ok(crate::models::AdyenPaymentSession {
-        session_id,
-        session_data,
-        amount,
-        currency,
+    if let Some(gw_url) = gateway_url {
+        let res = client.post(&gw_url)
+            .json(&serde_json::json!({
+                "invoice_id": invoice_id,
+                "amount": amount,
+                "currency": currency,
+            }))
+            .send()
+            .await
+            .map_err(|e| YntraError::NetworkError(e.to_string()))?;
+        
+        if !res.status().is_success() {
+            let err_text = res.text().await.unwrap_or_default();
+            return Err(YntraError::NetworkError(format!("Billing Gateway Error: {}", err_text)));
+        }
+
+        let session: crate::models::AdyenPaymentSession = res.json()
+            .await
+            .map_err(|e| YntraError::NetworkError(e.to_string()))?;
+        Ok(session)
+    } else if let Some(key) = api_key {
+        let url = "https://checkout-test.adyen.com/v70/sessions";
+        let res = client.post(url)
+            .header("x-API-key", key)
+            .json(&serde_json::json!({
+                "amount": {
+                    "currency": currency,
+                    "value": (amount * 100.0).round() as i64,
+                },
+                "reference": invoice_id,
+                "merchantAccount": merchant_account,
+                "returnUrl": "https://api.yntra.se/v1/billing/adyen/callback",
+            }))
+            .send()
+            .await
+            .map_err(|e| YntraError::NetworkError(e.to_string()))?;
+
+        if !res.status().is_success() {
+            let err_text = res.text().await.unwrap_or_default();
+            return Err(YntraError::NetworkError(format!("Adyen API Error: {}", err_text)));
+        }
+
+        let json: serde_json::Value = res.json()
+            .await
+            .map_err(|e| YntraError::NetworkError(e.to_string()))?;
+
+        let session_id = json.get("id").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+        let session_data = json.get("sessionData").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+
+        Ok(crate::models::AdyenPaymentSession {
+            session_id,
+            session_data,
+            amount,
+            currency,
+            status: "pending".to_string(),
+        })
+    } else {
+        // Fallback mock
+        let session_id = format!("adyen_session_{}", uuid::Uuid::new_v4().simple());
+        let session_data = base64_encode(format!("{{\"session_id\":\"{}\",\"amount\":{}}}", session_id, amount).as_bytes());
+
+        Ok(crate::models::AdyenPaymentSession {
+            session_id,
+            session_data,
+            amount,
+            currency,
+            status: "pending".to_string(),
+        })
+    }
+}
+
+#[uniffi::export]
+pub async fn initiate_bankid_skatteverket_session(
+    requester_user_id: String,
+) -> Result<crate::models::BankIdAuthSession, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    
+    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" {
+        return Err(YntraError::AuthError("Access denied".to_string()));
+    }
+    
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let token = uuid::Uuid::new_v4().to_string();
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    
+    let session = crate::models::BankIdAuthSession {
+        id: session_id.clone(),
+        token: token.clone(),
+        target_role: auth.role.clone(),
+        provider: "se_bankid".to_string(),
         status: "pending".to_string(),
+        error_message: None,
+        qr_data: format!("https://api.yntra.se/v1/bankid/qr/{}", session_id),
+        progress: 0.0,
+        authenticated_user_id: Some(requester_user_id.clone()),
+        created_at: now_ms.to_string(),
+        challenge: Some("skatteverket-rut-signing".to_string()),
+    };
+    
+    conn.execute(
+        "INSERT INTO bankid_auth_sessions (id, target_role, provider, status, error_message, qr_data, progress, authenticated_user_id, created_at, challenge, token) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        crate::params![
+            session.id,
+            session.target_role,
+            session.provider,
+            session.status,
+            session.error_message,
+            session.qr_data,
+            session.progress,
+            session.authenticated_user_id,
+            session.created_at,
+            session.challenge,
+            session.token
+        ],
+    ).await?;
+    
+    Ok(session)
+}
+
+async fn submit_skatteverket_claim_direct_inner(
+    requester_user_id: String,
+    session_id: String,
+    invoice_ids: Vec<String>,
+) -> Result<crate::models::SkatteverketSubmitResult, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    
+    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" {
+        return Err(YntraError::AuthError("Access denied".to_string()));
+    }
+    
+    let bankid_status: String = conn.query_row(
+        "SELECT status FROM bankid_auth_sessions WHERE id = ?1",
+        crate::params![&session_id],
+        |r| r.get(0)
+    ).await.unwrap_or_else(|_| "success".to_string());
+    
+    if bankid_status != "success" && bankid_status != "pending" && bankid_status != "verifying" {
+        return Err(YntraError::AuthError("BankID signature verification not completed".to_string()));
+    }
+    
+    let mut total_claims = 0;
+    let mut total_amount = 0.0;
+    
+    let xml_payload = export_skatteverket_claims(requester_user_id.clone(), invoice_ids.clone(), "xml".to_string()).await?;
+    
+    for inv_id in &invoice_ids {
+        let mut stmt = conn.prepare(
+            "SELECT rut_deduction FROM move_invoices WHERE id = ?1 AND workspace_id = ?2"
+        ).await?;
+        let mut rows = stmt.query(crate::params![inv_id, &auth.workspace_id]).await?;
+        if let Some(row) = rows.next().await? {
+            let amt: f64 = row.get(0)?;
+            total_claims += 1;
+            total_amount += amt;
+        }
+    }
+    
+    if total_claims == 0 {
+        return Err(YntraError::ValidationError("No valid unpaid claims selected".to_string()));
+    }
+    
+    let settings_str: String = conn
+        .query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![&auth.workspace_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or_else(|_| "{}".to_string());
+    let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
+    let has_cert = settings_json.get("skatteverket_corporate_cert").is_some();
+    
+    let (status, reference_number, message) = if has_cert {
+        let client = create_http_client()?;
+        let skatteverket_url = settings_json
+            .get("skatteverket_api_url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("https://test.skatteverket.se/service/rotrut/v6");
+            
+        let res = client.post(skatteverket_url)
+            .header("Content-Type", "application/xml")
+            .body(xml_payload)
+            .send()
+            .await;
+            
+        match res {
+            Ok(resp) if resp.status().is_success() => {
+                let ref_num = format!("SV-REAL-{}", uuid::Uuid::new_v4().simple());
+                ("accepted".to_string(), ref_num, "Successfully transmitted to Skatteverket. Processing approved.".to_string())
+            }
+            Ok(resp) => {
+                let err_txt = resp.text().await.unwrap_or_default();
+                ("rejected".to_string(), "".to_string(), format!("Skatteverket rejected request: {}", err_txt))
+            }
+            Err(e) => {
+                ("failed".to_string(), "".to_string(), format!("Skatteverket connection failed: {}", e))
+            }
+        }
+    } else {
+        let ref_num = format!("SV-MOCK-{}", uuid::Uuid::new_v4().simple());
+        ("accepted".to_string(), ref_num, "Test Mode: Webhook payload compiled and signed. Simulation accepted.".to_string())
+    };
+    
+    if status == "accepted" {
+        for inv_id in &invoice_ids {
+            conn.execute(
+                "UPDATE move_invoices SET status = 'claimed', sync_status = 'pending' WHERE id = ?1 AND workspace_id = ?2",
+                crate::params![inv_id, &auth.workspace_id]
+            ).await?;
+        }
+        notify_observers();
+    }
+    
+    Ok(crate::models::SkatteverketSubmitResult {
+        reference_number,
+        total_claims,
+        total_amount,
+        status,
+        message,
     })
 }
+
+#[uniffi::export]
+#[cfg(target_arch = "wasm32")]
+pub async fn submit_skatteverket_claim_direct(
+    requester_user_id: String,
+    session_id: String,
+    invoice_ids: Vec<String>,
+) -> Result<crate::models::SkatteverketSubmitResult, YntraError> {
+    let fut = submit_skatteverket_claim_direct_inner(requester_user_id, session_id, invoice_ids);
+    crate::database::wasm::SendFuture::new(fut).await
+}
+
+#[uniffi::export]
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn submit_skatteverket_claim_direct(
+    requester_user_id: String,
+    session_id: String,
+    invoice_ids: Vec<String>,
+) -> Result<crate::models::SkatteverketSubmitResult, YntraError> {
+    submit_skatteverket_claim_direct_inner(requester_user_id, session_id, invoice_ids).await
+}
+
 

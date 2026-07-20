@@ -1180,6 +1180,98 @@ async fn test_multi_stop_route_optimization() {
     conn.execute("DELETE FROM workspaces WHERE id = 'ws-route-test'", ()).await.unwrap();
 }
 
+#[tokio::test]
+async fn test_real_time_geocoding_with_fallback() {
+    // Test with Stockholm (this should resolve via Nominatim if online, or fall back to mock)
+    let coords = geocode("Stockholm").await;
+    assert!(coords.0 != 0.0);
+    assert!(coords.1 != 0.0);
+
+    // Test with empty string
+    let coords_empty = geocode("").await;
+    assert_eq!(coords_empty, (0.0, 0.0));
+
+    // Test that fallback works for a random address string
+    let _mock_coords = mock_geocode("Random non-existent address 12345");
+    let coords_fallback = geocode("Random non-existent address 12345").await;
+    
+    // It should either resolve to actual coords or fall back to mock coords
+    assert!(coords_fallback.0 != 0.0);
+}
+
+#[tokio::test]
+async fn test_skatteverket_direct_submission() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    // 1. Setup workspace & user
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-direct-test', 'Direct RUT WS', '[\"moving_company\"]', '{\"skatteverket_api_url\":\"https://test.skatteverket.se/service/rotrut/v6\"}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-direct-staff', 'ws-direct-test', 'staff@direct.io', 'admin', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('client-direct-1', 'ws-direct-test', 'client@direct.io', 'client', '{\"personal_number\":\"19900101-1234\"}')", ()).await.unwrap();
+
+    // 2. Create job, quote, and invoice with RUT deduction
+    let job = create_job_ticket(
+        "u-direct-staff".to_string(),
+        "ws-direct-test".to_string(),
+        "Direct Move".to_string(),
+        "Testing direct Skatteverket submission".to_string(),
+        "Start Address".to_string(),
+        "high".to_string(),
+        None,
+        "2026-08-01".to_string(),
+        "[]".to_string(),
+        Some("Start Address".to_string()),
+        Some("End Address".to_string()),
+        0,
+        0,
+        true,
+        true,
+        false,
+        false,
+    )
+    .await
+    .unwrap();
+
+    conn.execute(
+        "INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status) VALUES ('quote-direct-1', 'ws-direct-test', ?1, 1000.0, 500.0, 0.0, 0.0, 1500.0, 'accepted')",
+        crate::params![&job.id]
+    ).await.unwrap();
+
+    let inv = generate_move_invoice("u-direct-staff".to_string(), "quote-direct-1".to_string(), true).await.unwrap();
+    assert_eq!(inv.status, "unpaid");
+
+    // Pay invoice
+    pay_move_invoice("u-direct-staff".to_string(), inv.id.clone()).await.unwrap();
+
+    // 3. Initiate BankID session for Skatteverket
+    let session = initiate_bankid_skatteverket_session("u-direct-staff".to_string()).await.unwrap();
+    assert_eq!(session.challenge, Some("skatteverket-rut-signing".to_string()));
+
+    // 4. Submit claim directly
+    let result = submit_skatteverket_claim_direct("u-direct-staff".to_string(), session.id, vec![inv.id.clone()]).await.unwrap();
+    assert_eq!(result.status, "accepted");
+    assert!(result.reference_number.contains("SV-"));
+    assert_eq!(result.total_claims, 1);
+    assert_eq!(result.total_amount, 500.0);
+
+    // Verify invoice status in DB transitioned to 'claimed'
+    let updated_status: String = conn.query_row(
+        "SELECT status FROM move_invoices WHERE id = ?1",
+        crate::params![&inv.id],
+        |r| r.get(0)
+    ).await.unwrap();
+    assert_eq!(updated_status, "claimed");
+
+    // Cleanup
+    conn.execute("DELETE FROM move_invoices WHERE workspace_id = 'ws-direct-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-direct-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-direct-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-direct-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-direct-test'", ()).await.unwrap();
+}
+
+
+
 
 
 

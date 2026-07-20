@@ -1146,4 +1146,25 @@ pub struct SchoolConflict {
     pub updated_at: i64,
 }
 
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct SkatteverketSubmitResult {
+    pub reference_number: String,
+    pub total_claims: i32,
+    pub total_amount: f64,
+    pub status: String,
+    pub message: String,
+}
+
+
 
