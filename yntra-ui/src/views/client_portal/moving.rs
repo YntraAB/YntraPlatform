@@ -131,6 +131,19 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
     let mut new_item_qty = use_signal(|| 1);
     let mut new_item_vol = use_signal(|| 0.5);
     let mut new_item_notes = use_signal(String::new);
+    let mut new_item_length = use_signal(|| "".to_string());
+    let mut new_item_width = use_signal(|| "".to_string());
+    let mut new_item_height = use_signal(|| "".to_string());
+    let mut update_volume_from_dims = move |l_str: String, w_str: String, h_str: String| {
+        let l = l_str.parse::<f64>().unwrap_or(0.0);
+        let w = w_str.parse::<f64>().unwrap_or(0.0);
+        let h = h_str.parse::<f64>().unwrap_or(0.0);
+        if l > 0.0 && w > 0.0 && h > 0.0 {
+            let vol = (l * w * h) / 1_000_000.0;
+            let rounded = (vol * 1000.0).round() / 1000.0;
+            new_item_vol.set(rounded);
+        }
+    };
     let mut show_swish_modal = use_signal(|| Option::<SwishPaymentSession>::None);
     let mut show_stripe_modal = use_signal(|| Option::<StripePaymentSession>::None);
     let mut show_adyen_modal = use_signal(|| Option::<AdyenPaymentSession>::None);
@@ -138,12 +151,20 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
 
     let state = use_context::<crate::state::AppState>();
     let workspace_opt = state.workspace.read().clone();
-    let target_region = if let Some(ref ws) = workspace_opt {
-        let settings_json: serde_json::Value = serde_json::from_str(&ws.settings).unwrap_or_default();
-        settings_json.get("target_region").and_then(|v| v.as_str()).unwrap_or("SE").to_uppercase()
+    let settings_json: serde_json::Value = if let Some(ref ws) = workspace_opt {
+        serde_json::from_str(&ws.settings).unwrap_or_default()
     } else {
-        "SE".to_string()
+        serde_json::Value::Null
     };
+    let target_region = settings_json
+        .get("target_region")
+        .and_then(|v| v.as_str())
+        .unwrap_or("SE")
+        .to_uppercase();
+    let show_rut = settings_json
+        .get("show_rut_deduction")
+        .and_then(|v| v.as_bool())
+        .unwrap_or_else(|| target_region == "SE");
 
     let (tax_label, currency_suffix, payment_method_label) = match target_region.as_str() {
         "US" => ("Moms / Sales Tax:".to_string(), " $".to_string(), "Betala med Stripe (Kort)".to_string()),
@@ -373,7 +394,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                             class: "pt-6 space-y-4 flex-1 flex flex-col justify-between",
                             if q.status != "accepted" {
                                 {
-                                    let is_rut = *use_rut.read() && target_region == "SE";
+                                    let is_rut = *use_rut.read() && show_rut;
                                     let labor_cost = q.base_price + q.stairs_surcharge;
                                     
                                     let (tax_amount, final_total) = match target_region.as_str() {
@@ -415,7 +436,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                                     span { "Packmaterial & utrustning:" }
                                                     span { class: "font-semibold text-foreground", "{q.packing_supplies_fee}{currency_suffix}" }
                                                 }
-                                                if target_region == "SE" && is_rut {
+                                                if show_rut && is_rut {
                                                     div { class: "flex items-center justify-between text-xs text-emerald-500 font-semibold",
                                                         span { "Preliminärt RUT-avdrag (50%):" }
                                                         span { "-{tax_amount}{currency_suffix}" }
@@ -429,7 +450,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                                 }
                                             }
 
-                                            if target_region == "SE" {
+                                            if show_rut {
                                                 div { class: "flex items-center gap-2 pt-2.5 border-t border-border/20 text-xs text-muted-foreground",
                                                     input {
                                                         r#type: "checkbox",
@@ -475,10 +496,10 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                             }
                                             div { class: "text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60 mt-1 select-none", "Fakturaspecifikation" }
                                             div { class: "flex items-center justify-between text-xs text-muted-foreground",
-                                                span { if target_region == "SE" { "Totalsumma (exkl. RUT):" } else { "Subtotal:" } }
+                                                span { if show_rut { "Totalsumma (exkl. RUT):" } else { "Subtotal:" } }
                                                 span { class: "font-semibold text-foreground", "{inv.subtotal}{currency_suffix}" }
                                             }
-                                            if target_region == "SE" && inv.rut_deduction > 0.0 {
+                                            if show_rut && inv.rut_deduction > 0.0 {
                                                 div { class: "flex items-center justify-between text-xs text-emerald-500 font-semibold",
                                                     span { "RUT-avdrag (skattereduktion):" }
                                                     span { "-{inv.rut_deduction}{currency_suffix}" }
@@ -755,6 +776,9 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                                                         new_item_category.set("Möbler".to_string());
                                                                         new_item_vol.set(0.5);
                                                                     }
+                                                                    new_item_length.set(String::new());
+                                                                    new_item_width.set(String::new());
+                                                                    new_item_height.set(String::new());
                                                                 },
                                                                 class: "w-full text-xs p-1.5 rounded border border-border bg-background text-foreground focus:outline-none focus:border-primary",
                                                                 option { value: "999", "Annan möbel eller låda (anpassad)..." }
@@ -814,6 +838,50 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                                                         }
                                                                     }
                                                                 }
+                                                                div { class: "grid grid-cols-3 gap-2 mt-1",
+                                                                    div {
+                                                                        label { class: "text-[9px] text-muted-foreground block mb-0.5", "Längd (cm)" }
+                                                                        input {
+                                                                            r#type: "number",
+                                                                            placeholder: "t.ex. 120",
+                                                                            value: "{new_item_length}",
+                                                                            oninput: move |e: FormEvent| {
+                                                                                let val = e.value();
+                                                                                new_item_length.set(val.clone());
+                                                                                update_volume_from_dims(val, new_item_width.read().clone(), new_item_height.read().clone());
+                                                                            },
+                                                                            class: "w-full text-xs p-1.5 rounded border border-border bg-background text-foreground focus:outline-none focus:border-primary",
+                                                                        }
+                                                                    }
+                                                                    div {
+                                                                        label { class: "text-[9px] text-muted-foreground block mb-0.5", "Bredd (cm)" }
+                                                                        input {
+                                                                            r#type: "number",
+                                                                            placeholder: "t.ex. 60",
+                                                                            value: "{new_item_width}",
+                                                                            oninput: move |e: FormEvent| {
+                                                                                let val = e.value();
+                                                                                new_item_width.set(val.clone());
+                                                                                update_volume_from_dims(new_item_length.read().clone(), val, new_item_height.read().clone());
+                                                                            },
+                                                                            class: "w-full text-xs p-1.5 rounded border border-border bg-background text-foreground focus:outline-none focus:border-primary",
+                                                                        }
+                                                                    }
+                                                                    div {
+                                                                        label { class: "text-[9px] text-muted-foreground block mb-0.5", "Höjd (cm)" }
+                                                                        input {
+                                                                            r#type: "number",
+                                                                            placeholder: "t.ex. 80",
+                                                                            value: "{new_item_height}",
+                                                                            oninput: move |e: FormEvent| {
+                                                                                let val = e.value();
+                                                                                new_item_height.set(val.clone());
+                                                                                update_volume_from_dims(new_item_length.read().clone(), new_item_width.read().clone(), val);
+                                                                            },
+                                                                            class: "w-full text-xs p-1.5 rounded border border-border bg-background text-foreground focus:outline-none focus:border-primary",
+                                                                        }
+                                                                    }
+                                                                }
                                                             }
                                                         } else {
                                                             // Predefined item: just quantity selector
@@ -863,6 +931,9 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                                                     new_item_notes.set(String::new());
                                                                     new_item_qty.set(1);
                                                                     new_item_vol.set(0.5);
+                                                                    new_item_length.set(String::new());
+                                                                    new_item_width.set(String::new());
+                                                                    new_item_height.set(String::new());
                                                                     selected_template_idx.set(999);
                                                                     show_add_form.set(false);
 
