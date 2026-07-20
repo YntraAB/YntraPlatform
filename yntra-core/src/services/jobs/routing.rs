@@ -29,20 +29,63 @@ pub fn mock_geocode(address: &str) -> (f64, f64) {
     (lat, lng)
 }
 
-pub fn optimize_route(
+pub async fn geocode(address: &str) -> (f64, f64) {
+    if address.trim().is_empty() {
+        return (0.0, 0.0);
+    }
+    let url = format!(
+        "https://nominatim.openstreetmap.org/search?q={}&format=json&limit=1",
+        urlencode(address)
+    );
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let client_res = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .user_agent("YntraPlatform/1.0 (contact@yntra.se)")
+        .build();
+
+    #[cfg(target_arch = "wasm32")]
+    let client_res = reqwest::Client::builder()
+        .user_agent("YntraPlatform/1.0 (contact@yntra.se)")
+        .build();
+
+    if let Ok(client) = client_res {
+        if let Ok(resp) = client.get(&url).send().await {
+            #[derive(serde::Deserialize)]
+            struct GeocodeResponse {
+                lat: String,
+                lon: String,
+            }
+            if let Ok(results) = resp.json::<Vec<GeocodeResponse>>().await {
+                if let Some(first) = results.first() {
+                    let lat_parsed = first.lat.parse::<f64>();
+                    let lon_parsed = first.lon.parse::<f64>();
+                    if let (Ok(lat), Ok(lon)) = (lat_parsed, lon_parsed) {
+                        return (lat, lon);
+                    }
+                }
+            }
+        }
+    }
+
+    mock_geocode(address)
+}
+
+pub async fn optimize_route(
     origin: &str,
-    destination: &str,
+    _destination: &str,
     intermediate_stops: &[String],
 ) -> Vec<String> {
     if intermediate_stops.is_empty() {
         return Vec::new();
     }
 
-    let origin_coords = mock_geocode(origin);
-    let mut unvisited: Vec<((f64, f64), String)> = intermediate_stops
-        .iter()
-        .map(|s| (mock_geocode(s), s.clone()))
-        .collect();
+    let origin_coords = geocode(origin).await;
+    let mut unvisited = Vec::new();
+    for s in intermediate_stops {
+        let coords = geocode(s).await;
+        unvisited.push((coords, s.clone()));
+    }
 
     let mut current_pos = origin_coords;
     let mut optimized = Vec::new();
@@ -63,8 +106,8 @@ pub fn optimize_route(
             }
         }
 
-        let (_, stop) = unvisited.remove(nearest_idx);
-        current_pos = mock_geocode(&stop);
+        let (coords, stop) = unvisited.remove(nearest_idx);
+        current_pos = coords;
         optimized.push(stop);
     }
 

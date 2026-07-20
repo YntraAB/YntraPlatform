@@ -388,8 +388,7 @@ pub async fn update_route_stops(
     Ok(())
 }
 
-#[uniffi::export]
-pub async fn optimize_job_route(
+async fn optimize_job_route_inner(
     requester_user_id: String,
     job_id: String,
 ) -> Result<Vec<String>, YntraError> {
@@ -459,7 +458,7 @@ pub async fn optimize_job_route(
         return Ok(Vec::new());
     }
 
-    let optimized_stops = super::routing::optimize_route(&origin, &destination, &stops);
+    let optimized_stops = super::routing::optimize_route(&origin, &destination, &stops).await;
 
     let optimized_json = serde_json::to_string(&optimized_stops)
         .map_err(|e| YntraError::SerializationError(e.to_string()))?;
@@ -471,4 +470,23 @@ pub async fn optimize_job_route(
 
     notify_observers();
     Ok(optimized_stops)
+}
+
+#[uniffi::export]
+#[cfg(target_arch = "wasm32")]
+pub async fn optimize_job_route(
+    requester_user_id: String,
+    job_id: String,
+) -> Result<Vec<String>, YntraError> {
+    let fut = optimize_job_route_inner(requester_user_id, job_id);
+    crate::database::wasm::SendFuture::new(fut).await
+}
+
+#[uniffi::export]
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn optimize_job_route(
+    requester_user_id: String,
+    job_id: String,
+) -> Result<Vec<String>, YntraError> {
+    optimize_job_route_inner(requester_user_id, job_id).await
 }
