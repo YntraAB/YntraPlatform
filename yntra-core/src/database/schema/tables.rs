@@ -597,7 +597,25 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
         );
 
 
+        CREATE TABLE IF NOT EXISTS school_conflicts (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            entity_table TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            conflict_json TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS local_blobs (
+            sha256 TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            data TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+
         -- Indices
+        CREATE INDEX IF NOT EXISTS idx_school_conflicts_entity ON school_conflicts(entity_table, entity_id);
+        CREATE INDEX IF NOT EXISTS idx_local_blobs_workspace ON local_blobs(workspace_id);
         CREATE INDEX IF NOT EXISTS idx_student_profiles_workspace ON student_profiles(workspace_id);
         CREATE INDEX IF NOT EXISTS idx_student_profiles_user ON student_profiles(user_id);
         CREATE INDEX IF NOT EXISTS idx_courses_workspace ON courses(workspace_id);

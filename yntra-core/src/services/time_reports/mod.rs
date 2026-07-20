@@ -1006,7 +1006,7 @@ mod tests {
 
         let _ = conn
             .execute(
-                "DELETE FROM users WHERE workspace_id IN ('ws-time-a', 'ws-time-b')",
+                "DELETE FROM users WHERE workspace_id IN ('ws-time-a', 'ws-time-b') OR id IN ('u-admin-a', 'u-user-b')",
                 (),
             )
             .await;

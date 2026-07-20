@@ -1034,4 +1034,25 @@ pub struct MedicationItem {
     pub sync_status: String,
 }
 
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct SchoolConflict {
+    pub id: String,
+    pub workspace_id: String,
+    pub entity_table: String,
+    pub entity_id: String,
+    pub conflict_json: String,
+    pub updated_at: i64,
+}
+
 

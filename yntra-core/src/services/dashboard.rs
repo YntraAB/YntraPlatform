@@ -302,3 +302,14 @@ mod tests {
 
     }
 }
+
+#[uniffi::export]
+pub async fn get_workspace_courses_rkyv(
+    requester_user_id: String,
+    workspace_id: String,
+) -> Result<Vec<u8>, YntraError> {
+    let courses = get_workspace_courses(requester_user_id, workspace_id).await?;
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&courses)
+        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    Ok(bytes.into_vec())
+}

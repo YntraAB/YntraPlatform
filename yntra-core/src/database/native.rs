@@ -136,13 +136,47 @@ where
 
 static INIT_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+async fn is_local_user_unprivileged(db_path: &str) -> bool {
+    if db_path.contains("mode=memory") {
+        return false;
+    }
+    let path = db_path.strip_prefix("file:").unwrap_or(db_path);
+    let path_clean = path.split('?').next().unwrap_or(path);
+    if !std::path::Path::new(path_clean).exists() {
+        return false;
+    }
+
+    if let Ok(db) = libsql::Builder::new_local(db_path).build().await {
+        if let Ok(conn) = db.connect() {
+            if let Ok(mut table_rows) = conn.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'", ()).await {
+                if let Ok(Some(_)) = table_rows.next().await {
+                    if let Ok(mut role_rows) = conn.query("SELECT role FROM users", ()).await {
+                        while let Ok(Some(r_row)) = role_rows.next().await {
+                            if let Ok(role) = r_row.get::<String>(0) {
+                                let r_lower = role.to_lowercase();
+                                if r_lower == "student" || r_lower == "role-school-student" || r_lower == "parent" || r_lower == "role-school-parent" {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 async fn build_and_setup_database() -> Result<libsql::Database, YntraError> {
     let db_path = if cfg!(test) {
         "file:memdb1?mode=memory&cache=shared".to_string()
     } else {
         get_database_path("yntra_local.db")
     };
-    let credentials = if let Some(creds) = super::sync::get_configured_credentials() {
+    let is_unprivileged = is_local_user_unprivileged(&db_path).await;
+    let credentials = if is_unprivileged {
+        None
+    } else if let Some(creds) = super::sync::get_configured_credentials() {
         Some(creds)
     } else if let (Ok(url), Ok(token)) = (std::env::var("LIBSQL_URL"), std::env::var("LIBSQL_AUTH_TOKEN")) {
         Some((url, token))
@@ -507,6 +541,10 @@ impl Row {
     pub fn get<T: FromLibsqlRow>(&self, idx: i32) -> Result<T, YntraError> {
         T::get_from_row(&self.inner, idx)
     }
+
+    pub fn get_value(&self, idx: i32) -> Result<libsql::Value, YntraError> {
+        self.inner.get_value(idx).map_err(|e| YntraError::DbError(e.to_string()))
+    }
 }
 
 pub trait FromLibsqlRow: Sized {
@@ -588,7 +626,6 @@ impl FromLibsqlRow for Option<i32> {
         }
     }
 }
-
 impl FromLibsqlRow for Option<f64> {
     fn get_from_row(row: &libsql::Row, idx: i32) -> Result<Self, YntraError> {
         row.get::<Option<f64>>(idx)
@@ -596,6 +633,12 @@ impl FromLibsqlRow for Option<f64> {
     }
 }
 
+impl FromLibsqlRow for Option<bool> {
+    fn get_from_row(row: &libsql::Row, idx: i32) -> Result<Self, YntraError> {
+        row.get::<Option<bool>>(idx)
+            .map_err(|e| YntraError::DbError(e.to_string()))
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

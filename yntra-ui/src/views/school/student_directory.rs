@@ -18,11 +18,11 @@ use super::SchoolViewProps;
 
 #[component]
 pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
-    let mut db_trigger = props.db_trigger;
+    let state = use_context::<crate::state::AppState>();
+    let mut db_trigger = state.trigger_school;
     let _locale = props.locale.clone();
     let user_id = props.active_user_id.clone();
     let ws_id = props.workspace_id.clone();
-    let state = use_context::<crate::state::AppState>();
 
     let current_role = state.active_user_role.read().clone();
     let can_edit = current_role != "parent" && current_role != "role-school-parent" && current_role != "student" && current_role != "role-school-student";

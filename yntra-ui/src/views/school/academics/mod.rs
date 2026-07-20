@@ -16,11 +16,11 @@ pub use super::infer_subject_from_course;
 
 #[component]
 pub fn AcademicsView(props: SchoolViewProps) -> Element {
-    let db_trigger = props.db_trigger;
+    let state = use_context::<crate::state::AppState>();
+    let trigger_school = state.trigger_school;
     let locale = props.locale.clone();
     let user_id = props.active_user_id.clone();
     let ws_id = props.workspace_id.clone();
-    let state = use_context::<crate::state::AppState>();
 
     // View mode switcher: "teacher", "student", or "parent"
     let mut view_mode = use_signal(|| {
@@ -44,7 +44,7 @@ pub fn AcademicsView(props: SchoolViewProps) -> Element {
     let user_id_clone = user_id.clone();
     let ws_id_clone = ws_id.clone();
     let courses_res = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = trigger_school.read();
         let uid = user_id_clone.clone();
         let ws = ws_id_clone.clone();
         async move { yntra_core::get_workspace_courses(uid, ws).await.unwrap_or_default() }
@@ -53,7 +53,7 @@ pub fn AcademicsView(props: SchoolViewProps) -> Element {
     let user_id_clone4 = user_id.clone();
     let ws_id_clone4 = ws_id.clone();
     let students_res = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = trigger_school.read();
         let uid = user_id_clone4.clone();
         let ws = ws_id_clone4.clone();
         async move { yntra_core::get_student_profiles(uid, ws).await.unwrap_or_default() }
@@ -72,7 +72,7 @@ pub fn AcademicsView(props: SchoolViewProps) -> Element {
     let user_id_clone_p = user_id.clone();
     let ws_id_clone_p = ws_id.clone();
     let parent_students_res = use_resource(move || {
-        let _trig = db_trigger.read();
+        let _trig = trigger_school.read();
         let uid = user_id_clone_p.clone();
         let ws = ws_id_clone_p.clone();
         async move {

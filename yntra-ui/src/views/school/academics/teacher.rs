@@ -1229,8 +1229,8 @@ pub fn TeacherPortal(
                                          };
                                          let final_desc = match new_assign_file.read().as_ref() {
                                              Some(staged) => format!(
-                                                 "{}\n[Attachment: {} | {} | {} | {} | {}]",
-                                                 new_assign_desc.read(), staged.filename, staged.size_str, staged.sha256, staged.e2ee, staged.dataurl
+                                                 "{}\n[Attachment: {} | {} | {} | {} | blob://{}]",
+                                                 new_assign_desc.read(), staged.filename, staged.size_str, staged.sha256, staged.e2ee, staged.sha256
                                              ),
                                              None => new_assign_desc.read().clone(),
                                          };
@@ -1250,7 +1250,12 @@ pub fn TeacherPortal(
                                              updated_at: 0,
                                          };
                                          let uid_c = uid.clone();
+                                         let ws_blob = ws.clone();
+                                         let staged_blob = new_assign_file.read().clone();
                                          spawn(async move {
+                                             if let Some(staged) = staged_blob {
+                                                 let _ = yntra_core::save_blob(uid_c.clone(), staged.sha256, ws_blob, staged.dataurl).await;
+                                             }
                                              let _ = save_assignment(uid_c, a, proof).await;
                                          });
                                         new_assign_title.set(String::new());

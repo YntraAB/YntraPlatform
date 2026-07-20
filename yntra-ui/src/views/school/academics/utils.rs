@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use dioxus::prelude::*;
+use crate::components::LucideIcon;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AdvancedAttachment {
@@ -100,4 +102,55 @@ pub fn base64_encode(bytes: &[u8]) -> String {
         result.push(c4);
     }
     result
+}
+
+#[component]
+pub fn BlobDownloadLink(
+    filename: String,
+    dataurl: String,
+    sha256: String,
+    class: String,
+    children: Element,
+) -> Element {
+    let state = use_context::<crate::state::AppState>();
+    let active_uid = state.active_user_id.read().clone();
+
+    let mut resolved_url = use_signal(|| {
+        if dataurl.starts_with("blob://") {
+            String::new()
+        } else {
+            dataurl.clone()
+        }
+    });
+
+    use_effect(move || {
+        let url = dataurl.clone();
+        let hash = sha256.clone();
+        let uid = active_uid.clone();
+        spawn(async move {
+            if url.starts_with("blob://") {
+                if let Ok(data) = yntra_core::get_blob(uid, hash).await {
+                    resolved_url.set(data);
+                }
+            }
+        });
+    });
+
+    if resolved_url.read().is_empty() {
+        rsx! {
+            span { class: "{class} opacity-50 cursor-wait flex items-center gap-1.5",
+                LucideIcon { name: "loader", class: "h-3.5 w-3.5 animate-spin mr-1.5" }
+                span { "{filename}" }
+            }
+        }
+    } else {
+        rsx! {
+            a {
+                class: "{class}",
+                href: "{resolved_url}",
+                download: "{filename}",
+                {children}
+            }
+        }
+    }
 }

@@ -17,10 +17,10 @@ use super::SchoolViewProps;
 
 #[component]
 pub fn LibraryView(props: SchoolViewProps) -> Element {
-    let mut db_trigger = props.db_trigger;
+    let state = use_context::<crate::state::AppState>();
+    let mut db_trigger = state.trigger_school;
     let user_id = props.active_user_id.clone();
     let ws_id = props.workspace_id.clone();
-    let state = use_context::<crate::state::AppState>();
     let locale = props.locale.clone();
 
     let mut search_query = use_signal(String::new);

@@ -921,6 +921,41 @@ pub async fn run_schema_migrations(
         .await?;
         version = 18;
     }
+    if version < 19 {
+        execute_migration_sql(
+            conn,
+            "CREATE TABLE IF NOT EXISTS school_conflicts (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                entity_table TEXT NOT NULL,
+                entity_id TEXT NOT NULL,
+                conflict_json TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            )",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "CREATE INDEX IF NOT EXISTS idx_school_conflicts_entity ON school_conflicts(entity_table, entity_id)",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "CREATE TABLE IF NOT EXISTS local_blobs (
+                sha256 TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                data TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            )",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "CREATE INDEX IF NOT EXISTS idx_local_blobs_workspace ON local_blobs(workspace_id)",
+        )
+        .await?;
+        version = 19;
+    }
     Ok(version)
 }
 
@@ -950,7 +985,7 @@ mod tests {
         conn.execute("PRAGMA user_version = 0", ()).await.unwrap();
 
         let migrated_version = run_schema_migrations(&conn, 0).await.unwrap();
-        assert_eq!(migrated_version, 18);
+        assert_eq!(migrated_version, 19);
 
         let has_oauth_sessions = conn.query_row(
             "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='oauth_auth_sessions'",

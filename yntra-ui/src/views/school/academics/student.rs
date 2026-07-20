@@ -5,7 +5,7 @@ use crate::locales::t;
 use super::SchoolViewProps;
 use super::utils::{
     is_deadline_passed, parse_submission_content_and_advanced_attachment,
-    format_file_size, compute_mock_hash, base64_encode, AdvancedAttachment
+    format_file_size, compute_mock_hash, base64_encode, AdvancedAttachment, BlobDownloadLink
 };
 use yntra_core::{
     get_assignments, get_student_submissions, get_timetable_slots, save_submission,
@@ -19,11 +19,11 @@ pub fn StudentPortal(
     students: Vec<StudentProfile>,
     mut selected_student_profile_id: Signal<String>,
 ) -> Element {
-    let db_trigger = school_props.db_trigger;
+    let state = use_context::<crate::state::AppState>();
+    let db_trigger = state.trigger_school;
     let locale = school_props.locale.clone();
     let user_id = school_props.active_user_id.clone();
     let ws_id = school_props.workspace_id.clone();
-    let state = use_context::<crate::state::AppState>();
 
     // Local states specific to student submissions and files
     let mut assignment_inputs = use_signal(std::collections::HashMap::<String, String>::new);
@@ -860,9 +860,10 @@ pub fn StudentPortal(
                                                     div { class: "font-bold text-sm text-foreground", "{a.title}" }
                                                     div { class: "text-xs text-muted-foreground mt-0.5", "{desc_text}" }
                                                     if let Some(staged) = attachment {
-                                                        a {
-                                                            href: "{staged.dataurl}",
-                                                            download: "{staged.filename}",
+                                                        BlobDownloadLink {
+                                                            filename: staged.filename.clone(),
+                                                            dataurl: staged.dataurl.clone(),
+                                                            sha256: staged.sha256.clone(),
                                                             class: "flex items-center gap-2 p-2 bg-card/45 border border-primary/25 hover:bg-card/75 rounded-xl no-underline text-foreground cursor-pointer transition-all mt-2.5 w-fit max-w-sm",
                                                             LucideIcon { name: "file-text", class: "h-4 w-4 text-primary shrink-0" }
                                                             span { class: "text-[10px] font-semibold truncate max-w-[150px]", "{staged.filename}" }
@@ -1112,8 +1113,8 @@ pub fn StudentPortal(
                                                                         let staged = submission_files.read().get(&a_id).cloned();
                                                                         let final_content = match staged.as_ref() {
                                                                             Some(staged_f) => format!(
-                                                                                "{}\n[Attachment: {} | {} | {} | {} | {}]",
-                                                                                ans, staged_f.filename, staged_f.size_str, staged_f.sha256, staged_f.e2ee, staged_f.dataurl
+                                                                                "{}\n[Attachment: {} | {} | {} | {} | blob://{}]",
+                                                                                ans, staged_f.filename, staged_f.size_str, staged_f.sha256, staged_f.e2ee, staged_f.sha256
                                                                             ),
                                                                             None => ans.clone(),
                                                                         };
@@ -1139,8 +1140,13 @@ pub fn StudentPortal(
                                                                             let mut db_trigger_c = db_trigger.clone();
                                                                             let toast_c = toast.clone();
                                                                             let locale_sub = locale_c.clone();
+                                                                            let ws_blob = ws_c.clone();
+                                                                            let staged_blob = staged.clone();
                                                                             submitting_map.write().insert(a_id.clone());
                                                                             spawn(async move {
+                                                                                if let Some(staged_f) = staged_blob {
+                                                                                    let _ = yntra_core::save_blob(uid_sub.clone(), staged_f.sha256, ws_blob, staged_f.dataurl).await;
+                                                                                }
                                                                                 match save_submission(uid_sub, sub_rec, proof).await {
                                                                                     Ok(_) => {
                                                                                         toast_c.success(

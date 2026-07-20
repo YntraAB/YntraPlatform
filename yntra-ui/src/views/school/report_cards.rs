@@ -18,11 +18,11 @@ use super::SchoolViewProps;
 
 #[component]
 pub fn ReportCardsView(props: SchoolViewProps) -> Element {
-    let mut db_trigger = props.db_trigger;
+    let state = use_context::<crate::state::AppState>();
+    let mut db_trigger = state.trigger_school;
     let user_id = props.active_user_id.clone();
     let ws_id = props.workspace_id.clone();
     let locale = props.locale.clone();
-    let state = use_context::<crate::state::AppState>();
 
     // Local states
     let mut selected_student_id = use_signal(|| "".to_string());

@@ -18,11 +18,11 @@ use super::SchoolViewProps;
 
 #[component]
 pub fn HealthClinicView(props: SchoolViewProps) -> Element {
-    let mut db_trigger = props.db_trigger;
+    let state = use_context::<crate::state::AppState>();
+    let mut db_trigger = state.trigger_school;
     let locale = props.locale.clone();
     let user_id = props.active_user_id.clone();
     let ws_id = props.workspace_id.clone();
-    let state = use_context::<crate::state::AppState>();
 
     // Local states
     let mut show_incident_modal = use_signal(|| false);

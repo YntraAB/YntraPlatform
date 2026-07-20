@@ -17,10 +17,10 @@ use super::SchoolViewProps;
 
 #[component]
 pub fn AttendanceView(props: SchoolViewProps) -> Element {
-    let mut db_trigger = props.db_trigger;
+    let state = use_context::<crate::state::AppState>();
+    let mut db_trigger = state.trigger_school;
     let user_id = props.active_user_id.clone();
     let ws_id = props.workspace_id.clone();
-    let state = use_context::<crate::state::AppState>();
 
     let mut selected_course_id = use_signal(|| "".to_string());
     let mut selected_date = use_signal(|| "2026-07-16".to_string());

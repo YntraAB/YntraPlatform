@@ -19,6 +19,7 @@ pub struct AppState {
     pub trigger_jobs: Signal<u32>,
     pub trigger_todos: Signal<u32>,
     pub trigger_clients: Signal<u32>,
+    pub trigger_school: Signal<u32>,
     pub active_user_id: Signal<String>,
     pub active_section: Signal<String>,
     pub needs_setup: Signal<bool>,
@@ -173,6 +174,7 @@ pub fn use_init_app_state() -> AppState {
     let mut trigger_notes = use_signal(|| 0);
     let mut trigger_time = use_signal(|| 0);
     let mut trigger_clients = use_signal(|| 0);
+    let mut trigger_school = use_signal(|| 0);
     let mut trigger_reports = use_signal(|| 0);
     let mut trigger_workspaces = use_signal(|| 0);
     let active_user_id = use_signal(|| "user-1".to_string());
@@ -511,6 +513,7 @@ pub fn use_init_app_state() -> AppState {
                                 let mut update_notes = false;
                                 let mut update_time = false;
                                 let mut update_clients = false;
+                                let mut update_school = false;
                                 let mut update_reports = false;
                                 let mut update_workspaces = false;
                                 let mut update_jobs = false;
@@ -538,6 +541,22 @@ pub fn use_init_app_state() -> AppState {
                                                     "notes" | "note_updates" => update_notes = true,
                                                     "time_reports" => update_time = true,
                                                     "clients" | "client_medications" | "client_journals" => update_clients = true,
+                                                    "student_profiles"
+                                                    | "courses"
+                                                    | "assignments"
+                                                    | "submissions"
+                                                    | "attendance_records"
+                                                    | "term_grades"
+                                                    | "report_cards"
+                                                    | "library_books"
+                                                    | "library_lending_logs"
+                                                    | "school_invoices"
+                                                    | "school_payments"
+                                                    | "student_parents"
+                                                    | "health_records"
+                                                    | "health_incidents"
+                                                    | "school_conflicts"
+                                                    | "local_blobs" => update_school = true,
                                                     "reports" => update_reports = true,
                                                     "workspaces" => update_workspaces = true,
                                                     "job_tickets" | "move_inventory" | "move_quotes" => update_jobs = true,
@@ -555,6 +574,22 @@ pub fn use_init_app_state() -> AppState {
                                             "notes" | "note_updates" => update_notes = true,
                                             "time_reports" => update_time = true,
                                             "clients" | "client_medications" | "client_journals" => update_clients = true,
+                                            "student_profiles"
+                                            | "courses"
+                                            | "assignments"
+                                            | "submissions"
+                                            | "attendance_records"
+                                            | "term_grades"
+                                            | "report_cards"
+                                            | "library_books"
+                                            | "library_lending_logs"
+                                            | "school_invoices"
+                                            | "school_payments"
+                                            | "student_parents"
+                                            | "health_records"
+                                            | "health_incidents"
+                                            | "school_conflicts"
+                                            | "local_blobs" => update_school = true,
                                             "reports" => update_reports = true,
                                             "workspaces" => update_workspaces = true,
                                             "job_tickets" | "move_inventory" | "move_quotes" => update_jobs = true,
@@ -569,6 +604,7 @@ pub fn use_init_app_state() -> AppState {
                                                 update_notes = true;
                                                 update_time = true;
                                                 update_clients = true;
+                                                update_school = true;
                                                 update_reports = true;
                                                 update_workspaces = true;
                                                 update_jobs = true;
@@ -660,6 +696,7 @@ pub fn use_init_app_state() -> AppState {
                                  if update_notes { let next = *trigger_notes.read() + 1; trigger_notes.set(next); }
                                  if update_time { let next = *trigger_time.read() + 1; trigger_time.set(next); }
                                  if update_clients { let next = *trigger_clients.read() + 1; trigger_clients.set(next); }
+                                 if update_school { let next = *trigger_school.read() + 1; trigger_school.set(next); }
                                  if update_reports { let next = *trigger_reports.read() + 1; trigger_reports.set(next); }
                                  if update_workspaces { let next = *trigger_workspaces.read() + 1; trigger_workspaces.set(next); }
                                  if update_jobs { let next = *trigger_jobs.read() + 1; trigger_jobs.set(next); }
@@ -880,6 +917,7 @@ pub fn use_init_app_state() -> AppState {
         trigger_jobs,
         trigger_todos,
         trigger_clients,
+        trigger_school,
 
         workspace,
         users,
