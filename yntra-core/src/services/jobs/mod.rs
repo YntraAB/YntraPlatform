@@ -34,6 +34,7 @@ pub use moves::accept_move_quote;
 pub use moves::create_move_inventory_item;
 pub use moves::delete_move_inventory_item;
 pub use moves::calculate_and_save_move_quote;
+pub use moves::update_move_quote_price_adjustments;
 pub use moves::add_job_packaging_item;
 pub use moves::remove_job_packaging_item;
 pub use moves::update_job_packaging_item_returned;
@@ -54,7 +55,7 @@ pub use billing::submit_skatteverket_claim_direct;
 pub use billing::process_swish_payment_webhook;
 pub use billing::process_stripe_payment_webhook;
 
-pub use routing::get_directions_url;
+pub use routing::{get_directions_url, geocode};
 
 pub use notifications::send_external_notification;
 pub use public_lead::submit_public_booking_lead;

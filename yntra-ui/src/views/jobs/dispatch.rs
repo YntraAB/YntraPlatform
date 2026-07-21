@@ -89,6 +89,45 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
         }
     });
 
+    let workspace_id = if let Some(ref ws) = workspace_opt {
+        ws.id.clone()
+    } else {
+        "workspace-1".to_string()
+    };
+
+    // Load dynamic coordinate resolutions for all addresses in jobs
+    let workspace_id_c = workspace_id.clone();
+    let jobs_list_c = jobs.clone();
+    let db_trig_val = *db_trigger.read();
+    let coords_res = use_resource(move || {
+        let ws_id = workspace_id_c.clone();
+        let jobs_list = jobs_list_c.clone();
+        let _trig = db_trig_val;
+        async move {
+            let mut coords_map = HashMap::new();
+            for job in jobs_list {
+                let mut addresses = Vec::new();
+                addresses.push(job.location_address.clone());
+                if let Some(ref origin) = job.origin_address {
+                    addresses.push(origin.clone());
+                }
+                if let Some(ref dest) = job.destination_address {
+                    addresses.push(dest.clone());
+                }
+
+                for addr in addresses {
+                    if !addr.trim().is_empty() && !coords_map.contains_key(&addr) {
+                        let (lat, lon) = yntra_core::geocode(&ws_id, &addr).await;
+                        coords_map.insert(addr, [lat, lon]);
+                    }
+                }
+            }
+            coords_map
+        }
+    });
+
+    let coords = coords_res.read().clone().unwrap_or_default();
+
     // Load inventory volumes for all jobs dynamically
     let active_uid_c = active_user_id.clone();
     let jobs_list = jobs.clone();
@@ -465,6 +504,7 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
                         dt.with_timezone(&chrono::Local).format("%H:%M:%S").to_string()
                     });
 
+                    let coords_json = serde_json::to_string(&coords).unwrap_or_else(|_| "{}".to_string());
                     let v_json = serde_json::to_string(&resolved_v).unwrap_or_else(|_| "null".to_string());
                     let jobs_json = serde_json::to_string(&tracking_jobs).unwrap_or_else(|_| "[]".to_string());
 
@@ -576,7 +616,8 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
             attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
         }}).addTo(map);
 
-        var coordsMap = {{
+        var dynamicCoords = {coords_json};
+        var coordsMap = Object.assign({{
             "Vasagatan 12, Stockholm": [59.3315, 18.0583],
             "Kungsgatan 3, Stockholm": [59.3352, 18.0682],
             "Location St 20": [59.3242, 18.0722],
@@ -592,7 +633,7 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
             "Friedrichstraße, Berlin": [52.5162, 13.3889],
             "Kurfürstendamm, Berlin": [52.5012, 13.3289],
             "Potsdamer Platz, Berlin": [52.5096, 13.3759]
-        }};
+        }}, dynamicCoords);
 
         var vehicleMarker = null;
         var jobMarkers = [];
@@ -701,7 +742,7 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
     </script>
 </body>
 </html>
-"#, center_lat=center_lat, center_lon=center_lon, v_json=v_json, jobs_json=jobs_json);
+"#, center_lat=center_lat, center_lon=center_lon, v_json=v_json, jobs_json=jobs_json, coords_json=coords_json);
 
                     rsx! {
                         div { class: "fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200",

@@ -17,15 +17,19 @@ fn urlencode(s: &str) -> String {
     encoded
 }
 
+#[allow(dead_code)]
 pub fn mock_geocode(address: &str) -> (f64, f64) {
+    mock_geocode_with_center(address, 59.3293, 18.0686)
+}
+
+pub fn mock_geocode_with_center(address: &str, center_lat: f64, center_lng: f64) -> (f64, f64) {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
     let mut hasher = DefaultHasher::new();
     address.hash(&mut hasher);
     let hash = hasher.finish();
-    // Stockholm region coordinates mockup
-    let lat = 59.3293 + ((hash & 0xFFFF) as f64 / 65535.0) * 0.2 - 0.1;
-    let lng = 18.0686 + (((hash >> 16) & 0xFFFF) as f64 / 65535.0) * 0.2 - 0.1;
+    let lat = center_lat + ((hash & 0xFFFF) as f64 / 65535.0) * 0.2 - 0.1;
+    let lng = center_lng + (((hash >> 16) & 0xFFFF) as f64 / 65535.0) * 0.2 - 0.1;
     (lat, lng)
 }
 
@@ -63,6 +67,41 @@ pub async fn geocode(workspace_id: &str, address: &str) -> (f64, f64) {
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
+    // Resolve fallback mock center coordinates based on company country/default settings
+    let center_lat = settings_json
+        .get("default_geocoding_latitude")
+        .and_then(|v| v.as_f64())
+        .or_else(|| {
+            let country = settings_json.get("company_country").and_then(|v| v.as_str()).unwrap_or("");
+            match country.to_lowercase().as_str() {
+                "us" | "usa" | "united states" => Some(37.7749),
+                "de" | "germany" | "deutschland" => Some(52.5200),
+                "gb" | "uk" | "united kingdom" => Some(51.5074),
+                "fi" | "finland" => Some(60.1699),
+                "no" | "norway" => Some(59.9139),
+                "dk" | "denmark" => Some(55.6761),
+                _ => None,
+            }
+        })
+        .unwrap_or(59.3293);
+
+    let center_lng = settings_json
+        .get("default_geocoding_longitude")
+        .and_then(|v| v.as_f64())
+        .or_else(|| {
+            let country = settings_json.get("company_country").and_then(|v| v.as_str()).unwrap_or("");
+            match country.to_lowercase().as_str() {
+                "us" | "usa" | "united states" => Some(-122.4194),
+                "de" | "germany" | "deutschland" => Some(13.4050),
+                "gb" | "uk" | "united kingdom" => Some(-0.1278),
+                "fi" | "finland" => Some(24.9384),
+                "no" | "norway" => Some(10.7522),
+                "dk" | "denmark" => Some(12.5683),
+                _ => None,
+            }
+        })
+        .unwrap_or(18.0686);
+
     #[cfg(not(target_arch = "wasm32"))]
     let client_res = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(3))
@@ -76,7 +115,13 @@ pub async fn geocode(workspace_id: &str, address: &str) -> (f64, f64) {
 
     let client = match client_res {
         Ok(c) => c,
-        Err(_) => return mock_geocode(address),
+        Err(_) => {
+            tracing::warn!(
+                "Geocoder HTTP client initialization failed. Falling back to mock geocoding centered at ({:.4}, {:.4}) for address: {}",
+                center_lat, center_lng, address
+            );
+            return mock_geocode_with_center(address, center_lat, center_lng);
+        }
     };
 
     match provider {
@@ -91,7 +136,11 @@ pub async fn geocode(workspace_id: &str, address: &str) -> (f64, f64) {
             };
 
             if key.is_empty() {
-                return mock_geocode(address);
+                tracing::warn!(
+                    "Google Maps API key missing. Falling back to mock geocoding centered at ({:.4}, {:.4}) for address: {}",
+                    center_lat, center_lng, address
+                );
+                return mock_geocode_with_center(address, center_lat, center_lng);
             }
 
             let url = format!(
@@ -137,7 +186,11 @@ pub async fn geocode(workspace_id: &str, address: &str) -> (f64, f64) {
             };
 
             if token.is_empty() {
-                return mock_geocode(address);
+                tracing::warn!(
+                    "Mapbox access token missing. Falling back to mock geocoding centered at ({:.4}, {:.4}) for address: {}",
+                    center_lat, center_lng, address
+                );
+                return mock_geocode_with_center(address, center_lat, center_lng);
             }
 
             let url = format!(
@@ -237,7 +290,57 @@ pub async fn geocode(workspace_id: &str, address: &str) -> (f64, f64) {
         }
     }
 
-    mock_geocode(address)
+    tracing::warn!(
+        "Geocoding API request failed or returned empty results. Falling back to mock geocoding centered at ({:.4}, {:.4}) for address: {}",
+        center_lat, center_lng, address
+    );
+    mock_geocode_with_center(address, center_lat, center_lng)
+}
+
+fn haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+    let r = 6371.0; // Earth radius in km
+    let d_lat = (lat2 - lat1).to_radians();
+    let d_lon = (lon2 - lon1).to_radians();
+    let a = (d_lat / 2.0).sin().powi(2)
+        + lat1.to_radians().cos() * lat2.to_radians().cos() * (d_lon / 2.0).sin().powi(2);
+    let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
+    r * c
+}
+
+async fn get_road_distances_osrm(
+    client: &reqwest::Client,
+    base_url: &str,
+    current_pos: (f64, f64),
+    targets: &[(f64, f64)],
+) -> Option<Vec<f64>> {
+    let mut coords_str = format!("{},{}", current_pos.1, current_pos.0);
+    for t in targets {
+        coords_str.push_str(&format!(";{},{}", t.1, t.0));
+    }
+
+    let url = format!(
+        "{}/table/v1/driving/{}?sources=0&annotations=distance",
+        base_url.trim_end_matches('/'),
+        coords_str
+    );
+
+    if let Ok(resp) = client.get(&url).send().await {
+        #[derive(serde::Deserialize)]
+        struct OSRMTableResponse {
+            distances: Option<Vec<Vec<Option<f64>>>>,
+        }
+        if let Ok(table) = resp.json::<OSRMTableResponse>().await {
+            if let Some(distances_rows) = table.distances {
+                if let Some(first_row) = distances_rows.first() {
+                    let dists: Vec<f64> = first_row.iter().skip(1).map(|opt| opt.unwrap_or(f64::MAX)).collect();
+                    if dists.len() == targets.len() {
+                        return Some(dists);
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 pub async fn optimize_route(
@@ -249,6 +352,43 @@ pub async fn optimize_route(
     if intermediate_stops.is_empty() {
         return Vec::new();
     }
+
+    // 1. Fetch workspace settings
+    let settings_str: String = if let Ok(conn) = database::acquire_connection().await {
+        conn.query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![workspace_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or_else(|_| "{}".to_string())
+    } else {
+        "{}".to_string()
+    };
+    let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
+
+    let routing_provider = settings_json
+        .get("routing_provider")
+        .and_then(|v| v.as_str())
+        .unwrap_or("osrm");
+
+    let routing_url = settings_json
+        .get("routing_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("https://router.project-osrm.org");
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let client_res = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .user_agent("YntraPlatform/1.0 (contact@yntra.se)")
+        .build();
+
+    #[cfg(target_arch = "wasm32")]
+    let client_res = reqwest::Client::builder()
+        .user_agent("YntraPlatform/1.0 (contact@yntra.se)")
+        .build();
+
+    let client = client_res.ok();
 
     let origin_coords = geocode(workspace_id, origin).await;
     let mut unvisited = Vec::new();
@@ -264,15 +404,30 @@ pub async fn optimize_route(
         let mut nearest_idx = 0;
         let mut min_dist = f64::MAX;
 
-        for (idx, (coords, _)) in unvisited.iter().enumerate() {
-            let dist = {
-                let dx = current_pos.0 - coords.0;
-                let dy = current_pos.1 - coords.1;
-                (dx * dx + dy * dy).sqrt()
-            };
-            if dist < min_dist {
-                min_dist = dist;
-                nearest_idx = idx;
+        // Try querying the road network matrix first if configured
+        let mut queried_distances = None;
+        if routing_provider == "osrm" && !routing_url.is_empty() {
+            if let Some(ref cl) = client {
+                let targets: Vec<(f64, f64)> = unvisited.iter().map(|(coords, _)| *coords).collect();
+                queried_distances = get_road_distances_osrm(cl, routing_url, current_pos, &targets).await;
+            }
+        }
+
+        if let Some(dists) = queried_distances {
+            for (idx, dist) in dists.iter().enumerate() {
+                if *dist < min_dist {
+                    min_dist = *dist;
+                    nearest_idx = idx;
+                }
+            }
+        } else {
+            // Fall back to compliant spherical Haversine distance
+            for (idx, (coords, _)) in unvisited.iter().enumerate() {
+                let dist = haversine_distance(current_pos.0, current_pos.1, coords.0, coords.1);
+                if dist < min_dist {
+                    min_dist = dist;
+                    nearest_idx = idx;
+                }
             }
         }
 

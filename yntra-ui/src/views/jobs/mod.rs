@@ -7,9 +7,14 @@ use yntra_core::{
     SkatteverketSubmitResult, BankIdAuthSession,
 };
 
-fn trigger_download(content: &str, file_name: &str) {
+fn trigger_download(toast: &dioxus_primitives::toast::Toasts, locale: &str, content: &str, file_name: &str) {
     #[cfg(target_arch = "wasm32")]
     {
+        toast.info(
+            t("school-toast-download-started", locale),
+            dioxus_primitives::toast::ToastOptions::new().description(t("school-toast-browser-download-desc", locale))
+        );
+
         let base64_str = crate::views::school::academics::utils::base64_encode(content.as_bytes());
         let js_code = format!(
             r#"
@@ -36,18 +41,21 @@ fn trigger_download(content: &str, file_name: &str) {
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let home_dir = std::env::var("USERPROFILE")
-            .or_else(|_| std::env::var("HOME"))
-            .unwrap_or_else(|_| ".".to_string());
-        let paths = vec![
-            format!("{}/Desktop", home_dir),
-            format!("{}/Downloads", home_dir),
-            home_dir.clone(),
-        ];
-        for path in paths {
-            let file_path = std::path::PathBuf::from(&path).join(file_name);
-            if std::fs::write(&file_path, content).is_ok() {
-                break;
+        let file_path = rfd::FileDialog::new()
+            .set_file_name(file_name)
+            .save_file();
+        if let Some(path) = file_path {
+            if std::fs::write(&path, content).is_ok() {
+                let desc = format!("{} {}", t("school-toast-saved-to", locale), path.display());
+                toast.success(
+                    t("school-toast-export-success", locale),
+                    dioxus_primitives::toast::ToastOptions::new().description(desc)
+                );
+            } else {
+                toast.error(
+                    t("school-toast-export-failed", locale),
+                    dioxus_primitives::toast::ToastOptions::new().description(t("school-toast-export-failed-desc", locale))
+                );
             }
         }
     }
@@ -78,6 +86,7 @@ impl PartialEq for JobsViewProps {
 
 #[component]
 pub fn JobsView(props: JobsViewProps) -> Element {
+    let toast = dioxus_primitives::toast::use_toast();
     let region = props.auth_region.read().clone();
     let db_trig = *props.db_trigger.read();
     let mut db_trigger = props.db_trigger;
@@ -117,6 +126,39 @@ pub fn JobsView(props: JobsViewProps) -> Element {
     });
 
     let jobs = jobs_resource.read().clone().unwrap_or_default();
+
+    // Load dynamic coordinate resolutions for all addresses in jobs
+    let workspace_id_c = workspace_id.clone();
+    let jobs_list_c = jobs.clone();
+    let db_trig_val = db_trig;
+    let coords_res = use_resource(move || {
+        let ws_id = workspace_id_c.clone();
+        let jobs_list = jobs_list_c.clone();
+        let _trig = db_trig_val;
+        async move {
+            let mut coords_map = std::collections::HashMap::new();
+            for job in jobs_list {
+                let mut addresses = Vec::new();
+                addresses.push(job.location_address.clone());
+                if let Some(ref origin) = job.origin_address {
+                    addresses.push(origin.clone());
+                }
+                if let Some(ref dest) = job.destination_address {
+                    addresses.push(dest.clone());
+                }
+
+                for addr in addresses {
+                    if !addr.trim().is_empty() && !coords_map.contains_key(&addr) {
+                        let (lat, lon) = yntra_core::geocode(&ws_id, &addr).await;
+                        coords_map.insert(addr, [lat, lon]);
+                    }
+                }
+            }
+            coords_map
+        }
+    });
+
+    let coords = coords_res.read().clone().unwrap_or_default();
 
     // Selected job state
     let mut selected_job_id = use_signal(|| Option::<String>::None);
@@ -243,16 +285,18 @@ pub fn JobsView(props: JobsViewProps) -> Element {
     use_effect(move || {
         let v_data = vehicles_res.read().clone().unwrap_or_default();
         let j_data = jobs_resource.read().clone().unwrap_or_default();
+        let c_data = coords_res.read().clone().unwrap_or_default();
         let v_json = serde_json::to_string(&v_data).unwrap_or_else(|_| "[]".to_string());
         let j_json = serde_json::to_string(&j_data).unwrap_or_else(|_| "[]".to_string());
+        let c_json = serde_json::to_string(&c_data).unwrap_or_else(|_| "{}".to_string());
         let script = format!(
             r#"
             var iframe = document.querySelector('iframe');
             if (iframe && iframe.contentWindow && typeof iframe.contentWindow.updateMapData === 'function') {{
-                iframe.contentWindow.updateMapData({}, {});
+                iframe.contentWindow.updateMapData({}, {}, {});
             }}
             "#,
-            v_json, j_json
+            v_json, j_json, c_json
         );
         let _ = dioxus::document::eval(&script);
     });
@@ -356,12 +400,16 @@ pub fn JobsView(props: JobsViewProps) -> Element {
                                 disabled: selected_rut_invoices.read().is_empty(),
                                 onclick: {
                                     let uid = props.active_user_id.read().clone();
+                                    let toast_c = toast.clone();
+                                    let region_c = region.clone();
                                     move |_| {
                                         let uid = uid.clone();
+                                        let toast_c = toast_c.clone();
+                                        let region_c = region_c.clone();
                                         let ids: Vec<String> = selected_rut_invoices.read().iter().cloned().collect();
                                         spawn(async move {
                                             if let Ok(xml_content) = yntra_core::export_skatteverket_claims(uid, ids, "xml".to_string()).await {
-                                                trigger_download(&xml_content, "Skatteverket_RUT_Bulk.xml");
+                                                trigger_download(&toast_c, &region_c, &xml_content, "Skatteverket_RUT_Bulk.xml");
                                             }
                                         });
                                     }
@@ -374,12 +422,16 @@ pub fn JobsView(props: JobsViewProps) -> Element {
                                 disabled: selected_rut_invoices.read().is_empty(),
                                 onclick: {
                                     let uid = props.active_user_id.read().clone();
+                                    let toast_c = toast.clone();
+                                    let region_c = region.clone();
                                     move |_| {
                                         let uid = uid.clone();
+                                        let toast_c = toast_c.clone();
+                                        let region_c = region_c.clone();
                                         let ids: Vec<String> = selected_rut_invoices.read().iter().cloned().collect();
                                         spawn(async move {
                                             if let Ok(csv_content) = yntra_core::export_skatteverket_claims(uid, ids, "csv".to_string()).await {
-                                                trigger_download(&csv_content, "Skatteverket_RUT_Bulk.csv");
+                                                trigger_download(&toast_c, &region_c, &csv_content, "Skatteverket_RUT_Bulk.csv");
                                             }
                                         });
                                     }
@@ -496,6 +548,7 @@ pub fn JobsView(props: JobsViewProps) -> Element {
                         _ => (59.3293, 18.0686, 12),
                     };
 
+                    let coords_json = serde_json::to_string(&coords).unwrap_or_else(|_| "{}".to_string());
                     let vehicles_json = serde_json::to_string(&vehicles).unwrap_or_else(|_| "[]".to_string());
                     let jobs_json = serde_json::to_string(&jobs).unwrap_or_else(|_| "[]".to_string());
 
@@ -635,7 +688,8 @@ pub fn JobsView(props: JobsViewProps) -> Element {
             "Potsdamer Platz, Berlin": [52.5096, 13.3759]
         }};
 
-        var coordsMap = Object.assign({{}}, addressCoords, sfCoords, berlinCoords);
+        var dynamicCoords = {coords_json};
+        var coordsMap = Object.assign({{}}, addressCoords, sfCoords, berlinCoords, dynamicCoords);
 
         var vehicleMarkers = {{}};
         var routeLines = [];
@@ -659,7 +713,10 @@ pub fn JobsView(props: JobsViewProps) -> Element {
             requestAnimationFrame(tick);
         }}
 
-        window.updateMapData = function(vehicles, jobs) {{
+        window.updateMapData = function(vehicles, jobs, newCoords) {{
+            if (newCoords) {{
+                Object.assign(coordsMap, newCoords);
+            }}
             vehicles.forEach(function(v) {{
                 if (v.latitude !== null && v.longitude !== null) {{
                     var popupContent = '<div class="vehicle-popup">' +
@@ -782,7 +839,7 @@ pub fn JobsView(props: JobsViewProps) -> Element {
     </script>
 </body>
 </html>
-"#, center_lat=center_lat, center_lon=center_lon, zoom=zoom, vehicles_json=vehicles_json, jobs_json=jobs_json);
+"#, center_lat=center_lat, center_lon=center_lon, zoom=zoom, vehicles_json=vehicles_json, jobs_json=jobs_json, coords_json=coords_json);
 
                     rsx! {
                         div { class: "relative w-full h-[620px] rounded-3xl border border-border overflow-hidden bg-background shadow-2xl animate-in fade-in zoom-in duration-500",

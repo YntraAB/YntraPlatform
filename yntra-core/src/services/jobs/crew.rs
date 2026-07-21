@@ -65,10 +65,33 @@ pub async fn assign_vehicle_to_job(
         }
 
         if total_volume > capacity_m3 {
-            return Err(YntraError::ValidationError(format!(
-                "Cannot assign vehicle {}: total cargo volume ({:.2} m³) exceeds vehicle capacity ({:.2} m³)",
-                vehicle_name, total_volume, capacity_m3
-            )));
+            let settings_str: String = conn
+                .query_row(
+                    "SELECT settings FROM workspaces WHERE id = ?1",
+                    crate::params![&auth.workspace_id],
+                    |r| r.get(0),
+                )
+                .await
+                .unwrap_or_else(|_| "{}".to_string());
+            let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
+
+            let enforce_single_trip = settings_json
+                .get("enforce_single_trip_capacity")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
+            if enforce_single_trip {
+                return Err(YntraError::ValidationError(format!(
+                    "Cannot assign vehicle {}: total cargo volume ({:.2} m³) exceeds vehicle capacity ({:.2} m³)",
+                    vehicle_name, total_volume, capacity_m3
+                )));
+            } else {
+                let trips_needed = (total_volume / capacity_m3).ceil() as i64;
+                tracing::info!(
+                    "Vehicle {} assigned to job {} requires {} trips. Cargo volume ({:.2} m³) exceeds vehicle capacity ({:.2} m³)",
+                    vehicle_name, job_id, trips_needed, total_volume, capacity_m3
+                );
+            }
         }
     }
 
