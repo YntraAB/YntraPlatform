@@ -566,7 +566,7 @@ async fn test_skatteverket_rut_export_flow() {
     
     assert!(xml.contains("<BegaranFil xmlns=\"http://xmls.skatteverket.se/se/skatteverket/us/omr/rotrut/begaran/6.0\">"));
     assert!(xml.contains("<UtforareOrgNr>556999-9999</UtforareOrgNr>"));
-    assert!(xml.contains("<KoparePersnr>19880808-8888</KoparePersnr>"));
+    assert!(xml.contains("<KoparePersnr>198808088888</KoparePersnr>"));
     assert!(xml.contains("<BegartBelopp>600</BegartBelopp>"));
     assert!(xml.contains("<RutArbete>"));
     assert!(xml.contains("<Flyttjanster>3</Flyttjanster>")); // minimum_hours = 3.0
@@ -577,7 +577,7 @@ async fn test_skatteverket_rut_export_flow() {
         .unwrap();
     
     assert!(csv.contains("InvoiceID,OrgNr,KoparePersnr,BetalningsDatum,Arbetskostnad,BegartBelopp,ArbetadeTimmar,FlyttjansterHours"));
-    assert!(csv.contains("556999-9999,19880808-8888"));
+    assert!(csv.contains("556999-9999,198808088888"));
     assert!(csv.contains(",1200,600,3,3"));
 
     // Cleanup

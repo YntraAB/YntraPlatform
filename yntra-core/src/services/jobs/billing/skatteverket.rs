@@ -1,8 +1,9 @@
 use crate::database;
 use crate::infra::observer::notify_observers;
 use crate::infra::errors::YntraError;
-use super::helpers::create_http_client;
+use super::helpers::{create_http_client, get_config_val};
 use super::invoices::calculate_eligible_labor_cost;
+use chrono::Datelike;
 
 #[uniffi::export]
 pub async fn get_rut_invoices(
@@ -90,7 +91,7 @@ pub async fn export_skatteverket_claims(
 
         for inv_id in invoice_ids {
             let mut stmt = conn.prepare(
-                "SELECT i.id, i.invoice_date, i.rut_deduction, q.base_price, q.stairs_surcharge, i.customer_id, q.job_ticket_id
+                "SELECT i.id, i.invoice_date, i.rut_deduction, q.base_price, q.stairs_surcharge, i.customer_id, q.job_ticket_id, q.distance_fee, q.packing_supplies_fee, i.additional_charges
                  FROM move_invoices i
                  JOIN move_quotes q ON i.quote_id = q.id
                  WHERE i.id = ?1 AND i.workspace_id = ?2"
@@ -104,6 +105,9 @@ pub async fn export_skatteverket_claims(
                 let stairs_surcharge = row.get::<f64>(4)?;
                 let customer_id = row.get::<String>(5)?;
                 let job_ticket_id = row.get::<String>(6)?;
+                let _distance_fee = row.get::<f64>(7)?;
+                let _packing_supplies_fee = row.get::<f64>(8)?;
+                let _additional_charges = row.get::<Option<f64>>(9)?.unwrap_or(0.0);
 
                 let mut user_stmt = conn.prepare(
                     "SELECT metadata FROM users WHERE id = ?1"
@@ -127,6 +131,13 @@ pub async fn export_skatteverket_claims(
                 } else {
                     raw_pnum
                 };
+
+                let current_year = chrono::Utc::now().year();
+                let normalized_pnum = crate::services::clients::normalize_swedish_pnum(&customer_pnum, current_year)
+                    .ok_or_else(|| YntraError::ValidationError(format!(
+                        "Invalid Swedish personal number '{}' for invoice {}. Skatteverket requires a valid 10 or 12 digit personal number.",
+                        customer_pnum, inv_id
+                    )))?;
 
                 let eligible_labor = calculate_eligible_labor_cost(&conn, &job_ticket_id, base_price, &settings_json).await?;
                 let labor_cost = eligible_labor + stairs_surcharge;
@@ -157,7 +168,7 @@ pub async fn export_skatteverket_claims(
 
                 csv.push_str(&format!(
                     "{},{},{},{},{},{},{},{}\n",
-                    inv_id, org_number, customer_pnum, inv_date, labor_cost, rut_deduction, hours, hours
+                    inv_id, org_number, normalized_pnum, inv_date, labor_cost.round() as i64, rut_deduction.round() as i64, hours, hours
                 ));
             }
         }
@@ -169,7 +180,7 @@ pub async fn export_skatteverket_claims(
 
         for inv_id in invoice_ids {
             let mut stmt = conn.prepare(
-                "SELECT i.id, i.invoice_date, i.rut_deduction, q.base_price, q.stairs_surcharge, i.customer_id, q.job_ticket_id
+                "SELECT i.id, i.invoice_date, i.rut_deduction, q.base_price, q.stairs_surcharge, i.customer_id, q.job_ticket_id, q.distance_fee, q.packing_supplies_fee, i.additional_charges
                  FROM move_invoices i
                  JOIN move_quotes q ON i.quote_id = q.id
                  WHERE i.id = ?1 AND i.workspace_id = ?2"
@@ -183,6 +194,9 @@ pub async fn export_skatteverket_claims(
                 let stairs_surcharge = row.get::<f64>(4)?;
                 let customer_id = row.get::<String>(5)?;
                 let job_ticket_id = row.get::<String>(6)?;
+                let distance_fee = row.get::<f64>(7)?;
+                let packing_supplies_fee = row.get::<f64>(8)?;
+                let additional_charges = row.get::<Option<f64>>(9)?.unwrap_or(0.0);
 
                 let mut user_stmt = conn.prepare(
                     "SELECT metadata FROM users WHERE id = ?1"
@@ -206,6 +220,13 @@ pub async fn export_skatteverket_claims(
                 } else {
                     raw_pnum
                 };
+
+                let current_year = chrono::Utc::now().year();
+                let normalized_pnum = crate::services::clients::normalize_swedish_pnum(&customer_pnum, current_year)
+                    .ok_or_else(|| YntraError::ValidationError(format!(
+                        "Invalid Swedish personal number '{}' for invoice {}. Skatteverket requires a valid 10 or 12 digit personal number.",
+                        customer_pnum, inv_id
+                    )))?;
 
                 let eligible_labor = calculate_eligible_labor_cost(&conn, &job_ticket_id, base_price, &settings_json).await?;
                 let labor_cost = eligible_labor + stairs_surcharge;
@@ -236,13 +257,13 @@ pub async fn export_skatteverket_claims(
 
                 xml.push_str("  <Arende>\n");
                 xml.push_str(&format!("    <UtforareOrgNr>{}</UtforareOrgNr>\n", org_number));
-                xml.push_str(&format!("    <KoparePersnr>{}</KoparePersnr>\n", customer_pnum));
+                xml.push_str(&format!("    <KoparePersnr>{}</KoparePersnr>\n", normalized_pnum));
                 xml.push_str(&format!("    <BetalningsDatum>{}</BetalningsDatum>\n", inv_date));
-                xml.push_str(&format!("    <Arbetskostnad>{}</Arbetskostnad>\n", labor_cost));
-                xml.push_str(&format!("    <BegartBelopp>{}</BegartBelopp>\n", rut_deduction));
+                xml.push_str(&format!("    <Arbetskostnad>{}</Arbetskostnad>\n", labor_cost.round() as i64));
+                xml.push_str(&format!("    <BegartBelopp>{}</BegartBelopp>\n", rut_deduction.round() as i64));
                 xml.push_str(&format!("    <ArbetadeTimmar>{}</ArbetadeTimmar>\n", hours));
-                xml.push_str("    <Materialkostnad>0</Materialkostnad>\n");
-                xml.push_str("    <OvrigKostnad>0</OvrigKostnad>\n");
+                xml.push_str(&format!("    <Materialkostnad>{}</Materialkostnad>\n", packing_supplies_fee.round() as i64));
+                xml.push_str(&format!("    <OvrigKostnad>{}</OvrigKostnad>\n", (distance_fee + additional_charges).round() as i64));
                 xml.push_str("    <RutArbete>\n");
                 xml.push_str(&format!("      <Flyttjanster>{}</Flyttjanster>\n", hours));
                 xml.push_str("    </RutArbete>\n");
@@ -265,6 +286,19 @@ pub async fn initiate_bankid_skatteverket_session(
     if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" {
         return Err(YntraError::AuthError("Access denied".to_string()));
     }
+
+    let settings_str: String = conn
+        .query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![&auth.workspace_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or_else(|_| "{}".to_string());
+    let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
+    let api_base_url = get_config_val("api_base_url", "API_BASE_URL", &settings_json).await
+        .unwrap_or_else(|| "https://api.yntra.se".to_string());
+    let api_base_url = api_base_url.trim_end_matches('/');
     
     let session_id = uuid::Uuid::new_v4().to_string();
     let token = uuid::Uuid::new_v4().to_string();
@@ -277,7 +311,7 @@ pub async fn initiate_bankid_skatteverket_session(
         provider: "se_bankid".to_string(),
         status: "pending".to_string(),
         error_message: None,
-        qr_data: format!("https://api.yntra.se/v1/bankid/qr/{}", session_id),
+        qr_data: format!("{}/v1/bankid/qr/{}", api_base_url, session_id),
         progress: 0.0,
         authenticated_user_id: Some(requester_user_id.clone()),
         created_at: now_ms.to_string(),
