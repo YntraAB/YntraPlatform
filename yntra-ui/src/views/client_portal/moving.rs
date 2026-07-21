@@ -3,7 +3,7 @@ use yntra_core::{
     get_job_tickets, get_move_inventory, get_move_quote, accept_move_quote,
     generate_move_invoice, get_move_invoice, pay_move_invoice,
     create_move_inventory_item, delete_move_inventory_item,
-    calculate_and_save_move_quote, initiate_swish_payment, SwishPaymentSession,
+    calculate_and_save_move_quote, initiate_swish_payment, check_swish_payment_status, SwishPaymentSession,
     initiate_stripe_payment, initiate_adyen_payment, StripePaymentSession, AdyenPaymentSession,
 };
 use crate::components;
@@ -254,24 +254,37 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                 }
             } else {
                 if let Ok(session) = initiate_swish_payment(uid.clone(), invoice_id.clone()).await {
-                    show_swish_modal.set(Some(session));
+                    show_swish_modal.set(Some(session.clone()));
                     swish_polling_seconds.set(0);
                     
                     let invoice_id_c = invoice_id.clone();
                     let uid_c = uid.clone();
+                    let token_c = session.token.clone();
                     spawn(async move {
-                        for sec in 1..=4 {
-                            crate::utils::sleep_ms(1000).await;
+                        // Poll Swish payment status every 2 seconds for up to 120 seconds (60 iterations)
+                        for iteration in 1..=60 {
+                            crate::utils::sleep_ms(2000).await;
                             if show_swish_modal.read().is_none() {
                                 break;
                             }
-                            swish_polling_seconds.set(sec);
-                            if sec == 4 {
-                                if pay_move_invoice(uid_c.clone(), invoice_id_c.clone()).await.is_ok() {
+                            swish_polling_seconds.set(iteration * 2);
+                            
+                            if let Ok(status) = check_swish_payment_status(uid_c.clone(), invoice_id_c.clone(), token_c.clone()).await {
+                                if status == "paid" {
                                     let current_val = *db_trigger.read();
                                     db_trigger.set(current_val + 1);
+                                    
+                                    // Set to 120 to show completed progress and Betalning Godkänd! in UI
+                                    swish_polling_seconds.set(120);
+                                    
+                                    // Pause to let the user see the success state
+                                    crate::utils::sleep_ms(1500).await;
+                                    show_swish_modal.set(None);
+                                    break;
+                                } else if status == "failed" || status == "declined" || status == "cancelled" {
+                                    show_swish_modal.set(None);
+                                    break;
                                 }
-                                show_swish_modal.set(None);
                             }
                         }
                     });
@@ -287,7 +300,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
     let swish_url = swish_session_opt.as_ref().map(|s| s.swish_url.clone()).unwrap_or_default();
     
     let elapsed_sec = *swish_polling_seconds.read();
-    let progress_percent = (elapsed_sec as f64 / 4.0 * 100.0) as i64;
+    let progress_percent = ((elapsed_sec as f64 / 120.0) * 100.0).min(100.0) as i64;
     let current_inv_id = invoice.as_ref().map(|i| i.id.clone()).unwrap_or_default();
 
     rsx! {
@@ -1030,7 +1043,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                     }
                     div { class: "w-full space-y-2 pt-1",
                         div { class: "flex items-center justify-center gap-2 text-xs font-semibold text-primary",
-                            if elapsed_sec < 4 {
+                            if elapsed_sec < 120 {
                                 div { class: "w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" }
                                 span { "Väntar på BankID-signering..." }
                             } else {

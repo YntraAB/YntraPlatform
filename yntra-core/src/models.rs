@@ -645,6 +645,9 @@ pub struct MoveInvoice {
     pub tax_authority_amount: f64,
     pub status: String,
     pub currency: String,
+    pub actual_hours: Option<f64>,
+    pub additional_charges: Option<f64>,
+    pub adjustment_notes: Option<String>,
 }
 
 #[derive(

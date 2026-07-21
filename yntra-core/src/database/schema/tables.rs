@@ -363,6 +363,9 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             status TEXT NOT NULL,
             updated_at INTEGER NOT NULL DEFAULT 0,
             sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            actual_hours REAL,
+            additional_charges REAL,
+            adjustment_notes TEXT,
             FOREIGN KEY(quote_id) REFERENCES move_quotes(id)
         );
 
