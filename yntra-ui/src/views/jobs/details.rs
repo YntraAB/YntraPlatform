@@ -7,9 +7,14 @@ use yntra_core::{
     save_job_signature, get_job_signature,
 };
 
-fn trigger_download(content: &str, file_name: &str) {
+fn trigger_download(toast: &dioxus_primitives::toast::Toasts, locale: &str, content: &str, file_name: &str) {
     #[cfg(target_arch = "wasm32")]
     {
+        toast.info(
+            t("school-toast-download-started", locale),
+            dioxus_primitives::toast::ToastOptions::new().description(t("school-toast-browser-download-desc", locale))
+        );
+
         let base64_str = crate::views::school::academics::utils::base64_encode(content.as_bytes());
         let js_code = format!(
             r#"
@@ -36,18 +41,21 @@ fn trigger_download(content: &str, file_name: &str) {
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let home_dir = std::env::var("USERPROFILE")
-            .or_else(|_| std::env::var("HOME"))
-            .unwrap_or_else(|_| ".".to_string());
-        let paths = vec![
-            format!("{}/Desktop", home_dir),
-            format!("{}/Downloads", home_dir),
-            home_dir.clone(),
-        ];
-        for path in paths {
-            let file_path = std::path::PathBuf::from(&path).join(file_name);
-            if std::fs::write(&file_path, content).is_ok() {
-                break;
+        let file_path = rfd::FileDialog::new()
+            .set_file_name(file_name)
+            .save_file();
+        if let Some(path) = file_path {
+            if std::fs::write(&path, content).is_ok() {
+                let desc = format!("{} {}", t("school-toast-saved-to", locale), path.display());
+                toast.success(
+                    t("school-toast-export-success", locale),
+                    dioxus_primitives::toast::ToastOptions::new().description(desc)
+                );
+            } else {
+                toast.error(
+                    t("school-toast-export-failed", locale),
+                    dioxus_primitives::toast::ToastOptions::new().description(t("school-toast-export-failed-desc", locale))
+                );
             }
         }
     }
@@ -68,6 +76,7 @@ pub struct JobDetailsProps {
 #[component]
 pub fn JobDetails(props: JobDetailsProps) -> Element {
     let job = props.job;
+    let toast = dioxus_primitives::toast::use_toast();
     let active_user_id = props.active_user_id;
     let uid_for_save = active_user_id.clone();
     let uid_for_calc = active_user_id.clone();
@@ -188,82 +197,31 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
     // Form inputs for signature
     let mut signer_name = use_signal(String::new);
 
-    // Initialize signature pad drawing listeners
-    let jid_c = job.id.clone();
-    use_effect(move || {
-        let _ = db_trig_val;
-        let _jid = jid_c.clone();
-        let script = r#"
-            (function() {
-                const canvas = document.getElementById('signature-pad');
-                if (!canvas) return;
-
-                let drawing = false;
-                let lastX = 0;
-                let lastY = 0;
-
-                function getPos(e) {
-                    const rect = canvas.getBoundingClientRect();
-                    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-                    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-                    return {
-                        x: clientX - rect.left,
-                        y: clientY - rect.top
-                    };
-                }
-
-                function startDraw(e) {
-                    drawing = true;
-                    const pos = getPos(e);
-                    lastX = pos.x;
-                    lastY = pos.y;
-                    
-                    const ctx = canvas.getContext('2d');
-                    ctx.beginPath();
-                    ctx.moveTo(lastX, lastY);
-                    if (e.cancelable) e.preventDefault();
-                }
-
-                function draw(e) {
-                    if (!drawing) return;
-                    const pos = getPos(e);
-                    const ctx = canvas.getContext('2d');
-                    ctx.lineTo(pos.x, pos.y);
-                    ctx.stroke();
-                    lastX = pos.x;
-                    lastY = pos.y;
-                    if (e.cancelable) e.preventDefault();
-                }
-
-                function stopDraw() {
-                    drawing = false;
-                }
-
-                // Clone to clear any old event listeners
-                const clone = canvas.cloneNode(true);
-                canvas.replaceWith(clone);
-
-                const ctx = clone.getContext('2d');
-                ctx.strokeStyle = '#0f172a';
-                ctx.lineWidth = 3;
-                ctx.lineCap = 'round';
-                ctx.lineJoin = 'round';
-
-                clone.addEventListener('mousedown', startDraw);
-                clone.addEventListener('mousemove', draw);
-                clone.addEventListener('mouseup', stopDraw);
-                clone.addEventListener('mouseleave', stopDraw);
-
-                clone.addEventListener('touchstart', startDraw, { passive: false });
-                clone.addEventListener('touchmove', draw, { passive: false });
-                clone.addEventListener('touchend', stopDraw);
-            })();
-        "#;
-        let _ = dioxus::document::eval(script);
-    });
+    // The signature pad event listeners are managed inside the SignatureCanvas subcomponent
+    // to prevent canvas resets during parent re-renders.
 
     let mut selected_crew_user_id = use_signal(|| "999".to_string());
     let mut new_crew_role = use_signal(|| "Bärare".to_string());
+
+    let mut show_override_form = use_signal(|| false);
+    let mut manual_override_input = use_signal(|| {
+        quote.as_ref().and_then(|q| q.manual_price_override).map(|v| v.to_string()).unwrap_or_default()
+    });
+    let mut discount_input = use_signal(|| {
+        quote.as_ref().and_then(|q| q.price_discount).map(|v| v.to_string()).unwrap_or_default()
+    });
+    use_effect({
+        let quote = quote.clone();
+        move || {
+            if let Some(ref q) = quote {
+                manual_override_input.set(q.manual_price_override.map(|v| v.to_string()).unwrap_or_default());
+                discount_input.set(q.price_discount.map(|v| v.to_string()).unwrap_or_default());
+            } else {
+                manual_override_input.set("".to_string());
+                discount_input.set("".to_string());
+            }
+        }
+    });
 
     let mut new_stop_address = use_signal(String::new);
     let uid_for_dir = active_user_id.clone();
@@ -298,7 +256,29 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
         .get("moving_hourly_rate")
         .and_then(|v| v.as_f64())
         .unwrap_or(1200.0);
-    let hours = quote.as_ref().map(|q| q.base_price as f64 / hourly_rate).unwrap_or(0.0);
+    let surcharge_piano = settings_json.get("surcharge_piano").and_then(|v| v.as_f64()).unwrap_or(1500.0);
+    let surcharge_safe = settings_json.get("surcharge_safe").and_then(|v| v.as_f64()).unwrap_or(2000.0);
+    let surcharge_jacuzzi = settings_json.get("surcharge_jacuzzi").and_then(|v| v.as_f64()).unwrap_or(2500.0);
+    let surcharge_fragile = settings_json.get("surcharge_fragile").and_then(|v| v.as_f64()).unwrap_or(500.0);
+    let specialty_surcharge: f64 = inventories.iter().map(|item| {
+        let name_lower = item.item_name.to_lowercase();
+        let item_fee = if name_lower.contains("piano") || name_lower.contains("flygel") {
+            surcharge_piano
+        } else if name_lower.contains("safe") || name_lower.contains("kassaskåp") {
+            surcharge_safe
+        } else if name_lower.contains("jacuzzi") || name_lower.contains("badkar") || name_lower.contains("spa") {
+            surcharge_jacuzzi
+        } else if name_lower.contains("konst") || name_lower.contains("tavla") || name_lower.contains("painting") || name_lower.contains("fragile") {
+            surcharge_fragile
+        } else {
+            0.0
+        };
+        item_fee * item.quantity as f64
+    }).sum();
+    let hours = quote.as_ref().map(|q| {
+        let labor_base = (q.base_price as f64 - specialty_surcharge).max(0.0);
+        labor_base / hourly_rate
+    }).unwrap_or(0.0);
     let todos_enabled = modules_active_val
         .get("todos")
         .and_then(|v| v.as_bool())
@@ -1327,11 +1307,83 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                      div { class: "text-[10px] text-muted-foreground font-semibold", "Material" }
                                      div { class: "text-xs font-bold text-foreground mt-0.5", "{q.packing_supplies_fee} kr" }
                                  }
-                            }
-                            div { class: "flex items-center justify-between text-xs font-bold text-foreground px-1",
-                                span { "Totalt Offerterat Pris:" }
-                                span { class: "text-sm text-primary font-extrabold", "{q.total_price} kr" }
-                            }
+                             }
+                             if let Some(over) = q.manual_price_override {
+                                 div { class: "flex items-center justify-between text-[11px] text-muted-foreground px-1",
+                                     span { "Manuell priskorrigering:" }
+                                     span { class: "font-semibold text-foreground", "{over} kr" }
+                                 }
+                             }
+                             if let Some(disc) = q.price_discount {
+                                 if disc > 0.0 {
+                                     div { class: "flex items-center justify-between text-[11px] text-muted-foreground px-1",
+                                         span { "Rabatt:" }
+                                         span { class: "font-semibold text-rose-500", "-{disc} kr" }
+                                     }
+                                 }
+                             }
+                             div { class: "flex items-center justify-between text-xs font-bold text-foreground px-1 border-t border-border/10 pt-1.5 mt-1",
+                                 span { "Totalt Offerterat Pris:" }
+                                 span { class: "text-sm text-primary font-extrabold", "{q.total_price} kr" }
+                             }
+                             if is_staff {
+                                 div { class: "border-t border-border/10 pt-2.5 flex flex-col gap-2",
+                                     button {
+                                         class: "text-[11px] font-bold text-primary hover:underline cursor-pointer bg-transparent border-0 self-start p-0 flex items-center gap-1",
+                                         onclick: move |_| {
+                                             let current = *show_override_form.read();
+                                             show_override_form.set(!current);
+                                         },
+                                         components::LucideIcon { name: if *show_override_form.read() { "chevron-up" } else { "chevron-down" }, size: "12" }
+                                         "Ange manuell priskorrigering / rabatt"
+                                     }
+                                     if *show_override_form.read() {
+                                         div { class: "grid grid-cols-2 gap-3 p-3 rounded bg-secondary/10 border border-border/10",
+                                             div { class: "flex flex-col gap-1",
+                                                 label { class: "text-[10px] font-semibold text-muted-foreground", "Manuell totalt pris (kr)" }
+                                                 input {
+                                                     r#type: "text",
+                                                     placeholder: "T.ex. 5000",
+                                                     value: "{manual_override_input}",
+                                                     oninput: move |e| manual_override_input.set(e.value().clone()),
+                                                     class: "px-2 py-1 text-xs border border-border bg-background rounded text-foreground w-full",
+                                                 }
+                                             }
+                                             div { class: "flex flex-col gap-1",
+                                                 label { class: "text-[10px] font-semibold text-muted-foreground", "Rabatt (kr)" }
+                                                 input {
+                                                     r#type: "text",
+                                                     placeholder: "T.ex. 500",
+                                                     value: "{discount_input}",
+                                                     oninput: move |e| discount_input.set(e.value().clone()),
+                                                     class: "px-2 py-1 text-xs border border-border bg-background rounded text-foreground w-full",
+                                                 }
+                                             }
+                                             button {
+                                                 class: "col-span-2 py-1.5 bg-primary hover:opacity-90 rounded text-xs font-bold text-primary-foreground border-0 cursor-pointer flex items-center justify-center gap-1 mt-1",
+                                                 onclick: {
+                                                     let j_id = job.id.clone();
+                                                     let uid = active_user_id.clone();
+                                                     let mut db_trig = props.db_trigger;
+                                                     move |_| {
+                                                         let j_id = j_id.clone();
+                                                         let uid = uid.clone();
+                                                         let override_val = manual_override_input.read().parse::<f64>().ok();
+                                                         let discount_val = discount_input.read().parse::<f64>().ok();
+                                                         spawn(async move {
+                                                             let _ = yntra_core::update_move_quote_price_adjustments(uid, j_id, override_val, discount_val).await;
+                                                             let current = *db_trig.read();
+                                                             db_trig.set(current + 1);
+                                                         });
+                                                     }
+                                                 },
+                                                 components::LucideIcon { name: "check-circle", size: "12" }
+                                                 "Spara priskorrigering"
+                                             }
+                                         }
+                                     }
+                                 }
+                             }
                             if has_specialty_item {
                                 div { class: "text-[10px] text-amber-600 dark:text-amber-500 font-bold bg-amber-500/10 border border-amber-500/20 px-2.5 py-1.5 rounded-lg mt-1 text-center flex items-center justify-center gap-1",
                                     components::LucideIcon { name: "shield-alert", size: "12" }
@@ -1371,14 +1423,18 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                                 onclick: {
                                                     let inv_id = inv.id.clone();
                                                     let uid = active_user_id.clone();
+                                                    let toast_c = toast.clone();
+                                                    let region_c = region.clone();
                                                     move |_| {
                                                         let inv_id = inv_id.clone();
                                                         let uid = uid.clone();
+                                                        let toast_c = toast_c.clone();
+                                                        let region_c = region_c.clone();
                                                         spawn(async move {
                                                             match yntra_core::export_skatteverket_claims(uid, vec![inv_id.clone()], "xml".to_string()).await {
                                                                 Ok(xml_content) => {
                                                                     let file_name = format!("Skatteverket_RUT_{}.xml", inv_id);
-                                                                    trigger_download(&xml_content, &file_name);
+                                                                    trigger_download(&toast_c, &region_c, &xml_content, &file_name);
                                                                 }
                                                                 Err(_) => {}
                                                             }
@@ -1393,14 +1449,18 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                                 onclick: {
                                                     let inv_id = inv.id.clone();
                                                     let uid = active_user_id.clone();
+                                                    let toast_c = toast.clone();
+                                                    let region_c = region.clone();
                                                     move |_| {
                                                         let inv_id = inv_id.clone();
                                                         let uid = uid.clone();
+                                                        let toast_c = toast_c.clone();
+                                                        let region_c = region_c.clone();
                                                         spawn(async move {
                                                             match yntra_core::export_skatteverket_claims(uid, vec![inv_id.clone()], "csv".to_string()).await {
                                                                 Ok(csv_content) => {
                                                                     let file_name = format!("Skatteverket_RUT_{}.csv", inv_id);
-                                                                    trigger_download(&csv_content, &file_name);
+                                                                    trigger_download(&toast_c, &region_c, &csv_content, &file_name);
                                                                 }
                                                                 Err(_) => {}
                                                             }
@@ -1479,11 +1539,8 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                         }
                         div { class: "space-y-1.5",
                             label { class: "text-[11px] font-bold text-muted-foreground uppercase tracking-wider block", "Rita signatur" }
-                            canvas {
-                                id: "signature-pad",
-                                width: "400",
-                                height: "150",
-                                class: "border border-border bg-white rounded-lg cursor-crosshair w-full h-[150px] shadow-sm select-none touch-none",
+                            SignatureCanvas {
+                                job_id: job.id.clone()
                             }
                             div { class: "flex justify-end",
                                 button {
@@ -1686,6 +1743,90 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                     }
                 }
             }
+        }
+    }
+}
+
+#[derive(Props, Clone, PartialEq)]
+pub struct SignatureCanvasProps {
+    pub job_id: String,
+}
+
+#[component]
+pub fn SignatureCanvas(props: SignatureCanvasProps) -> Element {
+    use_effect(move || {
+        let script = r#"
+            (function() {
+                const canvas = document.getElementById('signature-pad');
+                if (!canvas) return;
+
+                let drawing = false;
+                let lastX = 0;
+                let lastY = 0;
+
+                function getPos(e) {
+                    const rect = canvas.getBoundingClientRect();
+                    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                    return {
+                        x: clientX - rect.left,
+                        y: clientY - rect.top
+                    };
+                }
+
+                function startDraw(e) {
+                    drawing = true;
+                    const pos = getPos(e);
+                    lastX = pos.x;
+                    lastY = pos.y;
+                    
+                    const ctx = canvas.getContext('2d');
+                    ctx.beginPath();
+                    ctx.moveTo(lastX, lastY);
+                    if (e.cancelable) e.preventDefault();
+                }
+
+                function draw(e) {
+                    if (!drawing) return;
+                    const pos = getPos(e);
+                    const ctx = canvas.getContext('2d');
+                    ctx.lineTo(pos.x, pos.y);
+                    ctx.stroke();
+                    lastX = pos.x;
+                    lastY = pos.y;
+                    if (e.cancelable) e.preventDefault();
+                }
+
+                // Clone to clear any old event listeners
+                const clone = canvas.cloneNode(true);
+                canvas.replaceWith(clone);
+
+                const ctx = clone.getContext('2d');
+                const isDark = document.documentElement.classList.contains('dark') || document.body.classList.contains('dark') || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                ctx.strokeStyle = isDark ? '#f8fafc' : '#0f172a';
+                ctx.lineWidth = 3;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+
+                clone.addEventListener('mousedown', startDraw);
+                clone.addEventListener('mousemove', draw);
+                clone.addEventListener('mouseup', function() { drawing = false; });
+                clone.addEventListener('mouseleave', function() { drawing = false; });
+
+                clone.addEventListener('touchstart', startDraw, { passive: false });
+                clone.addEventListener('touchmove', draw, { passive: false });
+                clone.addEventListener('touchend', function() { drawing = false; });
+            })();
+        "#;
+        let _ = dioxus::document::eval(script);
+    });
+
+    rsx! {
+        canvas {
+            id: "signature-pad",
+            width: "400",
+            height: "150",
+            class: "border border-border bg-background rounded-lg cursor-crosshair w-full h-[150px] shadow-sm select-none touch-none",
         }
     }
 }
