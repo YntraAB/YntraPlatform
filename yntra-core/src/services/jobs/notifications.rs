@@ -75,6 +75,21 @@ async fn send_external_notification_inner(
                 ),
             )
         },
+        "crew_departed_pickup" => {
+            let mins = custom_minutes.unwrap_or(20);
+            (
+                "Ditt flytteam är på väg till er!".to_string(),
+                format!(
+                    "Hej {},\n\nDitt flytteam har avgått och är nu på väg till upphämtningsadressen. Beräknad ankomst om ca {} minuter.\nFölj lastbilen i realtid: https://track.yntra.se/g/\n\nMed vänliga hälsningar,\nYntra Fleet Team",
+                    customer_name.as_deref().unwrap_or("Kund"),
+                    mins
+                ),
+                format!(
+                    "Hej! Ditt flytteam har avgått och anländer om ca {} minuter. Följ lastbilen live här: https://track.yntra.se/g/ Mvh Yntra Fleet",
+                    mins
+                ),
+            )
+        },
         "job_completion" => (
             "Tack för att du valde oss!".to_string(),
             format!(
@@ -300,4 +315,69 @@ pub async fn get_customer_live_tracking_portal(
         live_tracking_url: tracking_url,
         last_updated_at: now_ms,
     })
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+pub async fn send_dispatch_departure_eta_sms(
+    requester_user_id: String,
+    job_ticket_id: String,
+    customer_id: String,
+) -> Result<bool, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let ws_id: String = conn
+        .query_row(
+            "SELECT workspace_id FROM job_tickets WHERE id = ?1",
+            crate::params![&job_ticket_id],
+            |r| r.get(0),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Job ticket not found".to_string()))?;
+
+    if auth.workspace_id != ws_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let tracking_portal = get_customer_live_tracking_portal(job_ticket_id.clone()).await?;
+
+    send_external_notification_inner(
+        requester_user_id,
+        ws_id,
+        customer_id,
+        "crew_departed_pickup".to_string(),
+        Some(tracking_portal.estimated_arrival_mins as u32),
+    ).await
+}
+
+#[cfg(test)]
+mod departure_eta_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_automated_sms_live_driver_eta_alerts_workflow() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-eta-test', 'ETA WS', '[\"moving_company\"]', '{\"twilio_sid\":\"AC123\",\"twilio_token\":\"tok123\",\"twilio_from_number\":\"+46700000000\"}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, phone, full_name, role) VALUES ('u-eta-staff', 'ws-eta-test', 'staff@fleet.io', '+46701112233', 'Staff Member', 'admin')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, phone, full_name, role) VALUES ('u-eta-cust', 'ws-eta-test', 'cust@fleet.io', '+46709998877', 'Customer Alice', 'client')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO vehicles (id, workspace_id, name, license_plate, capacity_m3, status, latitude, longitude) VALUES ('v-eta-1', 'ws-eta-test', 'Truck 1', 'ABC-123', 25.0, 'active', 59.3293, 18.0686)", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, scheduled_date, checklist_json, created_at, updated_at, sync_status, assigned_user_id, assigned_vehicle_id) VALUES ('job-eta-1', 'ws-eta-test', 'Job ETA', 'Desc', 'Loc', 'normal', 'in_transit', 0, 0, 1, 1, '2026-08-01', '[]', 1700000000000, 1700000000000, 'synced', 'u-eta-staff', 'v-eta-1')", ()).await.unwrap();
+
+        // 1. Get Live Tracking Portal
+        let portal = get_customer_live_tracking_portal("job-eta-1".to_string()).await.unwrap();
+        assert_eq!(portal.driver_name, "Staff Member");
+        assert_eq!(portal.vehicle_license_plate.unwrap(), "ABC-123");
+        assert!(portal.live_tracking_url.contains("job-eta-1"));
+
+        // 2. Dispatch Departure Automated SMS Alert
+        let sent = send_dispatch_departure_eta_sms("u-eta-staff".to_string(), "job-eta-1".to_string(), "u-eta-cust".to_string()).await.unwrap();
+        assert!(sent);
+
+        conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-eta-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM vehicles WHERE workspace_id = 'ws-eta-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-eta-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-eta-test'", ()).await.unwrap();
+    }
 }
