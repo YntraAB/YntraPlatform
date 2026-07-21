@@ -694,3 +694,144 @@ pub async fn verify_commercial_route_restrictions(
         restriction_details: details,
     })
 }
+
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+pub async fn calculate_multi_segment_move_route(
+    workspace_id: String,
+    origin_address: String,
+    waypoints: Vec<String>,
+    destination_address: String,
+) -> Result<crate::MultiSegmentRouteSummary, YntraError> {
+    let mut stops_seq = Vec::new();
+    let org_clean = origin_address.trim().to_string();
+    if !org_clean.is_empty() {
+        stops_seq.push(org_clean);
+    }
+    for wp in waypoints {
+        let wp_clean = wp.trim().to_string();
+        if !wp_clean.is_empty() {
+            stops_seq.push(wp_clean);
+        }
+    }
+    let dest_clean = destination_address.trim().to_string();
+    if !dest_clean.is_empty() {
+        stops_seq.push(dest_clean);
+    }
+
+    if stops_seq.len() < 2 {
+        return Ok(crate::MultiSegmentRouteSummary {
+            total_distance_km: 0.0,
+            total_duration_minutes: 0.0,
+            total_segments: 0,
+            segments: Vec::new(),
+            storage_in_transit_stops: 0,
+        });
+    }
+
+    let mut segments = Vec::new();
+    let mut total_dist = 0.0;
+    let mut total_duration = 0.0;
+    let mut sit_count = 0;
+
+    for i in 0..(stops_seq.len() - 1) {
+        let start = &stops_seq[i];
+        let end = &stops_seq[i + 1];
+
+        let c1 = geocode(&workspace_id, start).await;
+        let c2 = geocode(&workspace_id, end).await;
+        let dist = haversine_distance(c1.0, c1.1, c2.0, c2.1);
+        let road_dist = (dist * 1.28).max(0.5);
+        let duration_mins = (road_dist / 45.0 * 60.0).round();
+
+        let seg_lower = end.to_lowercase();
+        let is_sit = seg_lower.contains("lager") || seg_lower.contains("storage") || seg_lower.contains("depå") || seg_lower.contains("förvaring") || seg_lower.contains("magasin") || seg_lower.contains("sit");
+        if is_sit {
+            sit_count += 1;
+        }
+
+        let seg_type = if is_sit {
+            "storage_in_transit".to_string()
+        } else if i == 0 {
+            "pickup".to_string()
+        } else if i == stops_seq.len() - 2 {
+            "dropoff".to_string()
+        } else {
+            "intermediate_waypoint".to_string()
+        };
+
+        total_dist += road_dist;
+        total_duration += duration_mins;
+
+        segments.push(crate::RouteSegment {
+            segment_index: (i + 1) as i32,
+            start_address: start.clone(),
+            end_address: end.clone(),
+            distance_km: (road_dist * 10.0).round() / 10.0,
+            estimated_duration_minutes: duration_mins,
+            segment_type: seg_type,
+        });
+    }
+
+    Ok(crate::MultiSegmentRouteSummary {
+        total_distance_km: (total_dist * 10.0).round() / 10.0,
+        total_duration_minutes: total_duration,
+        total_segments: segments.len() as i32,
+        segments,
+        storage_in_transit_stops: sit_count,
+    })
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+pub async fn get_job_multi_segment_route(
+    requester_user_id: String,
+    job_id: String,
+) -> Result<crate::MultiSegmentRouteSummary, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let (workspace_id, origin_address, destination_address, location_address, route_stops_json): (String, Option<String>, Option<String>, String, Option<String>) = conn
+        .query_row(
+            "SELECT workspace_id, origin_address, destination_address, location_address, route_stops_json FROM job_tickets WHERE id = ?1",
+            crate::params![&job_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
+
+    if auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let origin = origin_address.unwrap_or_default();
+    let dest = destination_address.unwrap_or(location_address);
+    let stops_str = route_stops_json.unwrap_or_else(|| "[]".to_string());
+    let stops: Vec<String> = serde_json::from_str(&stops_str).unwrap_or_default();
+
+    calculate_multi_segment_move_route(workspace_id, origin, stops, dest).await
+}
+
+#[cfg(test)]
+mod multi_segment_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_multi_segment_move_routing_workflow() {
+        let waypoints = vec![
+            "Shurgard Self Storage, Stockholm".to_string(),
+            "Centralgatan 15, Uppsala".to_string(),
+        ];
+        let res = calculate_multi_segment_move_route(
+            "ws_test".to_string(),
+            "Kungsgatan 1, Stockholm".to_string(),
+            waypoints,
+            "Stora Torget 5, Uppsala".to_string(),
+        ).await.unwrap();
+
+        assert_eq!(res.total_segments, 3);
+        assert_eq!(res.storage_in_transit_stops, 1);
+        assert!(res.total_distance_km > 0.0);
+        assert_eq!(res.segments[0].segment_type, "storage_in_transit");
+        assert_eq!(res.segments[1].segment_type, "intermediate_waypoint");
+        assert_eq!(res.segments[2].segment_type, "dropoff");
+    }
+}

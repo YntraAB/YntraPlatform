@@ -458,3 +458,152 @@ pub async fn register_gps_ping_from_webhook(
     }
 }
 
+#[uniffi::export]
+pub async fn get_vehicle_commercial_routing_profile(
+    requester_user_id: String,
+    vehicle_id: String,
+) -> Result<crate::CommercialRouteRestrictions, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let (ws_id, capacity_m3): (String, f64) = conn
+        .query_row(
+            "SELECT workspace_id, capacity_m3 FROM vehicles WHERE id = ?1",
+            crate::params![&vehicle_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Vehicle not found".to_string()))?;
+
+    if auth.workspace_id != ws_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let estimated_height = if capacity_m3 > 35.0 { 3.9 } else if capacity_m3 > 15.0 { 3.4 } else { 2.6 };
+    let estimated_weight = if capacity_m3 > 35.0 { 16.0 } else if capacity_m3 > 15.0 { 7.5 } else { 3.5 };
+
+    let mut details = Vec::new();
+    let low_bridge_warning = estimated_height >= 3.8;
+    let weight_limit_warning = estimated_weight >= 3.5;
+
+    if low_bridge_warning {
+        details.push(format!("Vehicle height ({:.1}m) requires commercial truck navigation route planning.", estimated_height));
+    }
+    if weight_limit_warning {
+        details.push(format!("Vehicle weight ({:.1}t) requires residential weight restriction checks.", estimated_weight));
+    }
+
+    Ok(crate::CommercialRouteRestrictions {
+        low_bridge_warning,
+        environmental_zone_warning: false,
+        weight_limit_warning,
+        parking_permit_required: capacity_m3 > 20.0,
+        restriction_details: details,
+    })
+}
+
+#[uniffi::export]
+pub async fn evaluate_vehicle_route_clearance(
+    requester_user_id: String,
+    vehicle_id: String,
+    origin_address: String,
+    destination_address: String,
+) -> Result<crate::CommercialRouteRestrictions, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let (ws_id, capacity_m3): (String, f64) = conn
+        .query_row(
+            "SELECT workspace_id, capacity_m3 FROM vehicles WHERE id = ?1",
+            crate::params![&vehicle_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Vehicle not found".to_string()))?;
+
+    if auth.workspace_id != ws_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let estimated_height = if capacity_m3 > 35.0 { 3.9 } else if capacity_m3 > 15.0 { 3.4 } else { 2.6 };
+    let estimated_weight = if capacity_m3 > 35.0 { 16.0 } else if capacity_m3 > 15.0 { 7.5 } else { 3.5 };
+    let emission_class = if capacity_m3 > 35.0 { "Euro 6 Heavy Diesel" } else { "Euro 6 Clean" };
+
+    let combined = format!("{} {}", origin_address, destination_address).to_lowercase();
+
+    let mut details = Vec::new();
+    let mut low_bridge_warning = false;
+    let mut weight_limit_warning = false;
+    let mut environmental_zone_warning = false;
+
+    if estimated_height >= 3.8 {
+        low_bridge_warning = true;
+        details.push(format!("Low bridge risk: Heavy truck height {:.1}m exceeds 3.8m standard urban clearance.", estimated_height));
+    }
+
+    if estimated_weight >= 3.5 {
+        weight_limit_warning = true;
+        details.push(format!("Weight limit warning: {:.1}t vehicle exceeds 3.5t residential zone limit.", estimated_weight));
+    }
+
+    let env_cities = ["stockholm", "göteborg", "gothenburg", "malmö", "malmo", "berlin", "london", "paris", "hamburg"];
+    if env_cities.iter().any(|c| combined.contains(c)) {
+        environmental_zone_warning = true;
+        details.push(format!("Low Emission Zone (LEZ) warning: Target city enforces Euro 6 / Green badge regulations. Vehicle class: '{}'.", emission_class));
+    }
+
+    let parking_permit_required = capacity_m3 > 20.0;
+    if parking_permit_required {
+        details.push("Commercial loading zone parking permit recommended for target addresses.".to_string());
+    }
+
+    Ok(crate::CommercialRouteRestrictions {
+        low_bridge_warning,
+        environmental_zone_warning,
+        weight_limit_warning,
+        parking_permit_required,
+        restriction_details: details,
+    })
+}
+
+#[cfg(test)]
+mod commercial_routing_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_commercial_truck_navigation_clearance_rules() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-nav-rules', 'Nav Rules WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-nav-staff', 'ws-nav-rules', 'staff-nav@fleet.io', 'admin')", ()).await.unwrap();
+
+        let v_heavy = create_vehicle("u-nav-staff".to_string(), "Heavy Rig".to_string(), "RIG-001".to_string(), 45.0, None).await.unwrap();
+        let v_small = create_vehicle("u-nav-staff".to_string(), "Small Van".to_string(), "VAN-002".to_string(), 10.0, None).await.unwrap();
+
+        let profile_heavy = get_vehicle_commercial_routing_profile("u-nav-staff".to_string(), v_heavy.id.clone()).await.unwrap();
+        assert!(profile_heavy.low_bridge_warning);
+        assert!(profile_heavy.weight_limit_warning);
+        assert!(profile_heavy.parking_permit_required);
+
+        let profile_small = get_vehicle_commercial_routing_profile("u-nav-staff".to_string(), v_small.id.clone()).await.unwrap();
+        assert!(!profile_small.low_bridge_warning);
+
+        let eval_heavy = evaluate_vehicle_route_clearance(
+            "u-nav-staff".to_string(),
+            v_heavy.id.clone(),
+            "Hamngatan 1, Stockholm".to_string(),
+            "Sveavägen 100, Stockholm".to_string(),
+        ).await.unwrap();
+
+        assert!(eval_heavy.low_bridge_warning);
+        assert!(eval_heavy.weight_limit_warning);
+        assert!(eval_heavy.environmental_zone_warning);
+        assert!(!eval_heavy.restriction_details.is_empty());
+
+        conn.execute("DELETE FROM vehicles WHERE workspace_id = 'ws-nav-rules'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE id = 'u-nav-staff'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-nav-rules'", ()).await.unwrap();
+    }
+}
+
