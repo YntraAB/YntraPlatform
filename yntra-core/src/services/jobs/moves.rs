@@ -490,11 +490,44 @@ pub async fn create_move_inventory_item(
 }
 
 #[uniffi::export]
+pub fn convert_m3_to_cu_ft(m3: f64) -> f64 {
+    (m3 * 35.3146667 * 100.0).round() / 100.0
+}
+
+#[uniffi::export]
+pub fn convert_cu_ft_to_m3(cu_ft: f64) -> f64 {
+    (cu_ft / 35.3146667 * 100.0).round() / 100.0
+}
+
+#[uniffi::export]
+pub fn convert_kg_to_lbs(kg: f64) -> f64 {
+    (kg * 2.20462262 * 10.0).round() / 10.0
+}
+
+#[uniffi::export]
+pub fn convert_lbs_to_kg(lbs: f64) -> f64 {
+    (lbs / 2.20462262 * 10.0).round() / 10.0
+}
+
+#[uniffi::export]
+pub fn calculate_volume_from_dimensions_cm(length_cm: f64, width_cm: f64, height_cm: f64) -> f64 {
+    let m3 = (length_cm / 100.0) * (width_cm / 100.0) * (height_cm / 100.0);
+    (m3 * 1000.0).round() / 1000.0
+}
+
+#[uniffi::export]
+pub fn calculate_volume_from_dimensions_inches(length_in: f64, width_in: f64, height_in: f64) -> f64 {
+    let cu_in = length_in * width_in * height_in;
+    let cu_ft = cu_in / 1728.0;
+    (cu_ft * 100.0).round() / 100.0
+}
+
+#[uniffi::export]
 pub async fn get_move_inventory_summary(
     requester_user_id: String,
     job_ticket_id: String,
 ) -> Result<MoveInventorySummary, YntraError> {
-    let items = get_move_inventory(requester_user_id, job_ticket_id).await?;
+    let items = get_move_inventory(requester_user_id, job_ticket_id.clone()).await?;
 
     let mut total_vol = 0.0;
     let mut total_weight = 0.0;
@@ -508,7 +541,8 @@ pub async fn get_move_inventory_summary(
     }
 
     // Buffer of +20% for truck volume loading efficiency
-    let recommended_truck = (total_vol * 1.2 * 10.0).round() / 10.0;
+    let recommended_truck_m3 = (total_vol * 1.2 * 10.0).round() / 10.0;
+    let recommended_truck_cu_ft = convert_m3_to_cu_ft(recommended_truck_m3);
 
     // Determine crew recommendation
     let recommended_crew = if total_vol > 35.0 || total_weight > 800.0 {
@@ -519,12 +553,71 @@ pub async fn get_move_inventory_summary(
         2
     };
 
+    let total_vol_m3_rounded = (total_vol * 100.0).round() / 100.0;
+    let total_vol_cu_ft_rounded = convert_m3_to_cu_ft(total_vol);
+    let total_weight_kg_rounded = (total_weight * 10.0).round() / 10.0;
+    let total_weight_lbs_rounded = convert_kg_to_lbs(total_weight);
+
+    // Optional Vehicle Capacity Check if assigned to job
+    let mut truck_capacity_exceeded = false;
+    let mut truck_capacity_warning = None;
+
+    if let Ok(conn) = database::acquire_connection().await {
+        if let Ok(assigned_vehicle_id) = conn
+            .query_row(
+                "SELECT assigned_vehicle_id FROM job_tickets WHERE id = ?1",
+                crate::params![&job_ticket_id],
+                |r| r.get::<Option<String>>(0),
+            )
+            .await
+        {
+            if let Some(v_id) = assigned_vehicle_id {
+                if let Ok((capacity_m3, max_payload_kg)) = conn
+                    .query_row(
+                        "SELECT cargo_capacity_m3, max_payload_kg FROM vehicles WHERE id = ?1",
+                        crate::params![&v_id],
+                        |r| Ok((r.get::<Option<f64>>(0)?, r.get::<Option<f64>>(1)?)),
+                    )
+                    .await
+                {
+                    if let Some(cap) = capacity_m3 {
+                        if total_vol > cap {
+                            truck_capacity_exceeded = true;
+                            truck_capacity_warning = Some(format!(
+                                "Inventory volume ({:.1} m³) exceeds assigned vehicle capacity ({:.1} m³)",
+                                total_vol, cap
+                            ));
+                        }
+                    }
+                    if let Some(payload) = max_payload_kg {
+                        if total_weight > payload {
+                            truck_capacity_exceeded = true;
+                            let msg = format!(
+                                "Inventory weight ({:.1} kg / {:.0} lbs) exceeds vehicle max payload limit ({:.1} kg)",
+                                total_weight, total_weight_lbs_rounded, payload
+                            );
+                            truck_capacity_warning = match truck_capacity_warning {
+                                Some(prev) => Some(format!("{}; {}", prev, msg)),
+                                None => Some(msg),
+                            };
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Ok(MoveInventorySummary {
-        total_volume_m3: (total_vol * 100.0).round() / 100.0,
-        total_weight_kg: (total_weight * 10.0).round() / 10.0,
+        total_volume_m3: total_vol_m3_rounded,
+        total_weight_kg: total_weight_kg_rounded,
+        total_volume_cu_ft: total_vol_cu_ft_rounded,
+        total_weight_lbs: total_weight_lbs_rounded,
         total_item_count: total_count,
-        recommended_truck_m3: recommended_truck,
+        recommended_truck_m3,
+        recommended_truck_cu_ft,
         recommended_crew_size: recommended_crew,
+        truck_capacity_exceeded,
+        truck_capacity_warning,
     })
 }
 
@@ -1584,5 +1677,27 @@ mod furniture_inventory_tests {
         conn.execute("DELETE FROM job_tickets WHERE id = 'job-bc-1'", ()).await.unwrap();
         conn.execute("DELETE FROM users WHERE id = 'u-bc-staff'", ()).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id = 'ws-bc-test'", ()).await.unwrap();
+    }
+
+    #[test]
+    fn test_unit_conversions_and_custom_dimensions() {
+        // Test unit conversions
+        let cu_ft = convert_m3_to_cu_ft(1.0);
+        assert_eq!(cu_ft, 35.31);
+        let m3 = convert_cu_ft_to_m3(35.3146667);
+        assert_eq!(m3, 1.0);
+
+        let lbs = convert_kg_to_lbs(100.0);
+        assert_eq!(lbs, 220.5);
+        let kg = convert_lbs_to_kg(220.462262);
+        assert_eq!(kg, 100.0);
+
+        // Test custom dimension calculations (cm)
+        let vol_m3 = calculate_volume_from_dimensions_cm(200.0, 100.0, 90.0);
+        assert_eq!(vol_m3, 1.8);
+
+        // Test custom dimension calculations (inches)
+        let vol_cu_ft = calculate_volume_from_dimensions_inches(48.0, 24.0, 36.0);
+        assert_eq!(vol_cu_ft, 24.0);
     }
 }
