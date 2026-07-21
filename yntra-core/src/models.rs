@@ -537,6 +537,26 @@ pub struct MoveQuote {
     PartialEq,
 )]
 #[rkyv(compare(PartialEq), derive(Debug))]
+pub struct CommercialRouteRestrictions {
+    pub low_bridge_warning: bool,
+    pub environmental_zone_warning: bool,
+    pub weight_limit_warning: bool,
+    pub parking_permit_required: bool,
+    pub restriction_details: Vec<String>,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
 pub struct JobPackagingItem {
     pub id: String,
     pub workspace_id: String,
@@ -549,6 +569,266 @@ pub struct JobPackagingItem {
     pub created_at: i64,
     pub updated_at: i64,
     pub sync_status: String,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct DamageInspection {
+    pub id: String,
+    pub workspace_id: String,
+    pub job_ticket_id: String,
+    pub item_inventory_id: Option<String>,
+    pub item_name: String,
+    pub damage_type: String,
+    pub severity: String,
+    pub annotations: Option<String>,
+    pub photo_url: Option<String>,
+    pub timestamp_ms: i64,
+    pub inspector_user_id: String,
+    pub client_acknowledged: bool,
+    pub client_signature_svg: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub sync_status: String,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct DriverComplianceStatus {
+    pub is_compliant: bool,
+    pub license_class: String,
+    pub required_license_class: String,
+    pub total_driving_hours_today: f64,
+    pub max_allowed_daily_hours: f64,
+    pub rest_period_compliant: bool,
+    pub compliance_warnings: Vec<String>,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct OfflineMediaPointer {
+    pub hash_pointer: String,
+    pub media_type: String,
+    pub original_size_bytes: i64,
+    pub compressed_size_bytes: i64,
+    pub compression_ratio_percent: f64,
+    pub mime_type: String,
+    pub upload_status: String,
+    pub created_at: i64,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct OnSitePaymentResult {
+    pub success: bool,
+    pub transaction_id: String,
+    pub payment_method: String,
+    pub amount_collected: f64,
+    pub receipt_url: Option<String>,
+    pub message: String,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct ErpSyncResult {
+    pub success: bool,
+    pub invoice_id: String,
+    pub erp_provider: String,
+    pub erp_invoice_number: String,
+    pub ledger_account: String,
+    pub synced_at: i64,
+    pub message: String,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct ErpSyncOverview {
+    pub id: String,
+    pub invoice_id: String,
+    pub erp_provider: String,
+    pub erp_invoice_number: String,
+    pub status: String,
+    pub ledger_account: String,
+    pub synced_at: i64,
+    pub error_message: Option<String>,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct DamagedItemClaim {
+    pub id: String,
+    pub workspace_id: String,
+    pub job_ticket_id: String,
+    pub item_name: String,
+    pub description: String,
+    pub claimed_amount: f64,
+    pub approved_amount: Option<f64>,
+    pub repair_quote_amount: Option<f64>,
+    pub insurance_reference: Option<String>,
+    pub photo_urls_json: String,
+    pub status: String,
+    pub settlement_notes: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct ClaimPayoutResult {
+    pub success: bool,
+    pub claim_id: String,
+    pub payout_amount: f64,
+    pub insurance_reference: String,
+    pub new_status: String,
+    pub message: String,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct CustomerLiveTrackingPortal {
+    pub job_ticket_id: String,
+    pub driver_name: String,
+    pub driver_phone: Option<String>,
+    pub vehicle_license_plate: Option<String>,
+    pub current_lat: f64,
+    pub current_lon: f64,
+    pub estimated_arrival_mins: i32,
+    pub route_status: String,
+    pub live_tracking_url: String,
+    pub last_updated_at: i64,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct QuoteDepositApprovalResult {
+    pub success: bool,
+    pub quote_id: String,
+    pub deposit_amount: f64,
+    pub remaining_balance: f64,
+    pub payment_session_url: Option<String>,
+    pub quote_status: String,
+    pub message: String,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct SettingDefinition {
+    pub key: String,
+    pub label: String,
+    pub category: String,
+    pub value_type: String,
+    pub default_value: String,
+    pub tooltip: String,
 }
 
 #[derive(
@@ -784,6 +1064,12 @@ pub struct MoveSignature {
     pub signature_data_base64: String,
     pub signed_at: i64,
     pub sync_status: String,
+    pub ip_address: Option<String>,
+    pub geolocation: Option<String>,
+    pub device_fingerprint: Option<String>,
+    pub terms_version: Option<String>,
+    pub terms_hash: Option<String>,
+    pub signature_hash: Option<String>,
 }
 
 #[derive(

@@ -97,6 +97,18 @@ pub mod rusqlite {
         }
     }
 
+    impl ToLibsqlValue for Vec<u8> {
+        fn to_value(&self) -> libsql::Value {
+            libsql::Value::Blob(self.clone())
+        }
+    }
+
+    impl ToLibsqlValue for [u8] {
+        fn to_value(&self) -> libsql::Value {
+            libsql::Value::Blob(self.to_vec())
+        }
+    }
+
     impl<T: ToLibsqlValue> ToLibsqlValue for Option<T> {
         fn to_value(&self) -> libsql::Value {
             match self {
@@ -183,6 +195,18 @@ pub mod rusqlite {
     impl ToWasmValue for bool {
         fn to_value(&self) -> serde_json::Value {
             serde_json::Value::Bool(*self)
+        }
+    }
+
+    impl ToWasmValue for Vec<u8> {
+        fn to_value(&self) -> serde_json::Value {
+            serde_json::Value::Array(self.iter().map(|b| serde_json::Value::Number(serde_json::value::Number::from(*b))).collect())
+        }
+    }
+
+    impl ToWasmValue for [u8] {
+        fn to_value(&self) -> serde_json::Value {
+            serde_json::Value::Array(self.iter().map(|b| serde_json::Value::Number(serde_json::value::Number::from(*b))).collect())
         }
     }
 

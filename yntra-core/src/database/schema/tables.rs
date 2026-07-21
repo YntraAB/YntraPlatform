@@ -386,6 +386,40 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             FOREIGN KEY(job_ticket_id) REFERENCES job_tickets(id)
         );
 
+        CREATE TABLE IF NOT EXISTS damage_inspections (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL DEFAULT 'workspace-1',
+            job_ticket_id TEXT NOT NULL,
+            item_inventory_id TEXT,
+            item_name TEXT NOT NULL,
+            damage_type TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            annotations TEXT,
+            photo_url TEXT,
+            timestamp_ms INTEGER NOT NULL,
+            inspector_user_id TEXT NOT NULL,
+            client_acknowledged INTEGER DEFAULT 0,
+            client_signature_svg TEXT,
+            created_at INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(job_ticket_id) REFERENCES job_tickets(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS offline_media_blobs (
+            hash TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL DEFAULT 'workspace-1',
+            job_ticket_id TEXT NOT NULL,
+            media_type TEXT NOT NULL,
+            compressed_blob BLOB NOT NULL,
+            original_size_bytes INTEGER NOT NULL,
+            compressed_size_bytes INTEGER NOT NULL,
+            mime_type TEXT NOT NULL,
+            upload_status TEXT DEFAULT 'queued_offline',
+            created_at INTEGER NOT NULL DEFAULT 0,
+            synced_at INTEGER
+        );
+
         CREATE TABLE IF NOT EXISTS invitations (
             code TEXT PRIMARY KEY,
             workspace_id TEXT NOT NULL,

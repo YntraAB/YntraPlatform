@@ -266,18 +266,15 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
     let surcharge_jacuzzi = settings_json.get("surcharge_jacuzzi").and_then(|v| v.as_f64()).unwrap_or(2500.0);
     let surcharge_fragile = settings_json.get("surcharge_fragile").and_then(|v| v.as_f64()).unwrap_or(500.0);
     let specialty_surcharge: f64 = inventories.iter().map(|item| {
-        let name_lower = item.item_name.to_lowercase();
-        let item_fee = if name_lower.contains("piano") || name_lower.contains("flygel") {
-            surcharge_piano
-        } else if name_lower.contains("safe") || name_lower.contains("kassaskåp") {
-            surcharge_safe
-        } else if name_lower.contains("jacuzzi") || name_lower.contains("badkar") || name_lower.contains("spa") {
-            surcharge_jacuzzi
-        } else if name_lower.contains("konst") || name_lower.contains("tavla") || name_lower.contains("painting") || name_lower.contains("fragile") {
-            surcharge_fragile
-        } else {
-            0.0
-        };
+        let item_fee = yntra_core::calculate_item_specialty_surcharge(
+            item.item_category.clone(),
+            item.item_name.clone(),
+            item.handling_notes.clone(),
+            surcharge_piano,
+            surcharge_safe,
+            surcharge_jacuzzi,
+            surcharge_fragile,
+        );
         item_fee * item.quantity as f64
     }).sum();
     let hours = quote.as_ref().map(|q| {
@@ -306,18 +303,15 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
     let report_placeholder = t("jobs-report-placeholder", &region);
 
     let has_specialty_item = inventories.iter().any(|item| {
-        let name_lower = item.item_name.to_lowercase();
-        name_lower.contains("piano")
-            || name_lower.contains("flygel")
-            || name_lower.contains("safe")
-            || name_lower.contains("kassaskåp")
-            || name_lower.contains("jacuzzi")
-            || name_lower.contains("badkar")
-            || name_lower.contains("spa")
-            || name_lower.contains("konst")
-            || name_lower.contains("tavla")
-            || name_lower.contains("painting")
-            || name_lower.contains("fragile")
+        yntra_core::calculate_item_specialty_surcharge(
+            item.item_category.clone(),
+            item.item_name.clone(),
+            item.handling_notes.clone(),
+            surcharge_piano,
+            surcharge_safe,
+            surcharge_jacuzzi,
+            surcharge_fragile,
+        ) > 0.0
     });
 
     let priority_color = match job_priority.as_str() {

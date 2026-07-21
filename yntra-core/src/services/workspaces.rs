@@ -484,6 +484,203 @@ pub async fn update_workspace_block_settings(
     Ok(())
 }
 
+#[uniffi::export]
+pub fn get_workspace_settings_definitions() -> Vec<crate::models::SettingDefinition> {
+    vec![
+        // 1. Staircase Multipliers
+        crate::models::SettingDefinition {
+            key: "mult_spiral_staircase".to_string(),
+            label: "Spiral Staircase Multiplier / Spiraltrapp-multiplikator".to_string(),
+            category: "Staircase & Architectural Access".to_string(),
+            value_type: "multiplier".to_string(),
+            default_value: "1.5".to_string(),
+            tooltip: "Multiplies standard floor carrying fees for spiral staircases due to tight turning radius and increased physical exertion. Example: 1.5x increases 300 kr/floor to 450 kr/floor. Set to 1.0 for 0% surcharge.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "mult_narrow_staircase".to_string(),
+            label: "Narrow Staircase Multiplier / Trång trapp-multiplikator".to_string(),
+            category: "Staircase & Architectural Access".to_string(),
+            value_type: "multiplier".to_string(),
+            default_value: "1.3".to_string(),
+            tooltip: "Applies to narrow stairwells (< 1.1m width) requiring careful tilt maneuver. Set to 1.25 or 1.0 if your firm waives narrow staircase fees.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "mult_outdoor_staircase".to_string(),
+            label: "Outdoor Staircase Multiplier / Utomhustrapp-multiplikator".to_string(),
+            category: "Staircase & Architectural Access".to_string(),
+            value_type: "multiplier".to_string(),
+            default_value: "1.2".to_string(),
+            tooltip: "Surcharge multiplier for exposed outdoor stone/metal staircases subject to weather or steep slope.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "moving_stairs_surcharge_per_floor".to_string(),
+            label: "Per-Floor Stair Surcharge / Trappavgift per våning".to_string(),
+            category: "Staircase & Architectural Access".to_string(),
+            value_type: "currency".to_string(),
+            default_value: "300.0".to_string(),
+            tooltip: "Base cost in SEK added per floor when no working elevator is available. Multiplied by staircase type multiplier if applicable.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "surcharge_small_elevator".to_string(),
+            label: "Small Elevator Constraint Fee / Trång hiss-tillägg".to_string(),
+            category: "Staircase & Architectural Access".to_string(),
+            value_type: "currency".to_string(),
+            default_value: "500.0".to_string(),
+            tooltip: "Flat surcharge when elevator dimensions (< 4-person capacity) force movers to carry bulky furniture via stairs instead.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "surcharge_long_carry_per_meter".to_string(),
+            label: "Long Carry Fee per Meter / Långbäring per meter".to_string(),
+            category: "Staircase & Architectural Access".to_string(),
+            value_type: "currency".to_string(),
+            default_value: "40.0".to_string(),
+            tooltip: "Surcharge per meter for carrying distance exceeding 20m from parking spot to building entrance. Set to 0.0 for free long carries.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "surcharge_no_parking_zone".to_string(),
+            label: "No Parking / Permit Fee / Parkeringstillståndstillägg".to_string(),
+            category: "Staircase & Architectural Access".to_string(),
+            value_type: "currency".to_string(),
+            default_value: "400.0".to_string(),
+            tooltip: "Administrative fee for securing municipal parking permits or hazard risk allowance in strict loading zones.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "surcharge_shuttle_truck_needed".to_string(),
+            label: "Shuttle Van Fee / Omlastningsbil (Shuttle)".to_string(),
+            category: "Staircase & Architectural Access".to_string(),
+            value_type: "currency".to_string(),
+            default_value: "1800.0".to_string(),
+            tooltip: "Fee charged when large 18t truck cannot access location (e.g. Gamla Stan archways), requiring secondary shuttle van transfer.".to_string(),
+        },
+
+        // 2. Temporal & Shift Multipliers
+        crate::models::SettingDefinition {
+            key: "moving_weekend_multiplier".to_string(),
+            label: "Weekend Multiplier / Helgmultiplikator".to_string(),
+            category: "Temporal & Shift Multipliers".to_string(),
+            value_type: "multiplier".to_string(),
+            default_value: "1.25".to_string(),
+            tooltip: "Labor rate multiplier applied for Saturday/Sunday relocations. Set to 1.0 if your moving firm charges flat weekend rates.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "moving_peak_season_multiplier".to_string(),
+            label: "Peak Season / Month-End Surge Rate / Månadsskiftes-multiplikator".to_string(),
+            category: "Temporal & Shift Multipliers".to_string(),
+            value_type: "multiplier".to_string(),
+            default_value: "1.15".to_string(),
+            tooltip: "Surge multiplier applied during high-demand month-end date windows (25th to 3rd of each month).".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "moving_overtime_multiplier".to_string(),
+            label: "After-Hours Overtime Rate / Övertids-multiplikator".to_string(),
+            category: "Temporal & Shift Multipliers".to_string(),
+            value_type: "multiplier".to_string(),
+            default_value: "1.5".to_string(),
+            tooltip: "Overtime rate multiplier applied to evening shifts starting after 18:00 or exceeding 8 daily hours.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "moving_holiday_multiplier".to_string(),
+            label: "Public Holiday Rate / Röd dag-multiplikator".to_string(),
+            category: "Temporal & Shift Multipliers".to_string(),
+            value_type: "multiplier".to_string(),
+            default_value: "2.0".to_string(),
+            tooltip: "Rate multiplier for official national holidays / red days (*röda dagar*).".to_string(),
+        },
+
+        // 3. Specialty Item Surcharges
+        crate::models::SettingDefinition {
+            key: "surcharge_piano".to_string(),
+            label: "Piano / Flygel Heavy Lifting Fee".to_string(),
+            category: "Specialty Item Surcharges".to_string(),
+            value_type: "currency".to_string(),
+            default_value: "1500.0".to_string(),
+            tooltip: "Flat surcharge for upright pianos, grand pianos (*flygel*), organs, or heavy musical instruments.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "surcharge_safe".to_string(),
+            label: "Safe / Kassaskåp Heavy Vault Fee".to_string(),
+            category: "Specialty Item Surcharges".to_string(),
+            value_type: "currency".to_string(),
+            default_value: "2000.0".to_string(),
+            tooltip: "Flat surcharge for gun safes, fireproof vaults (*kassaskåp*), or heavy machinery > 150 kg.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "surcharge_jacuzzi".to_string(),
+            label: "Jacuzzi / Spabad / Sauna Fee".to_string(),
+            category: "Specialty Item Surcharges".to_string(),
+            value_type: "currency".to_string(),
+            default_value: "2500.0".to_string(),
+            tooltip: "Flat surcharge for hot tubs, jacuzzis, outdoor spas (*spabad*), or saunas.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "surcharge_fragile".to_string(),
+            label: "Fine Art / Fragile Care Fee / Konsthanteringstillägg".to_string(),
+            category: "Specialty Item Surcharges".to_string(),
+            value_type: "currency".to_string(),
+            default_value: "500.0".to_string(),
+            tooltip: "Handling fee for delicate paintings, sculptures, marble tops, or crystal chandeliers requiring custom crating.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "surcharge_server_rack".to_string(),
+            label: "B2B Server Rack / IT Equipment Fee".to_string(),
+            category: "Specialty Item Surcharges".to_string(),
+            value_type: "currency".to_string(),
+            default_value: "3000.0".to_string(),
+            tooltip: "B2B commercial fee for moving heavy IT server racks, battery UPS banks, or sensitive data center gear.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "surcharge_fitness_equipment".to_string(),
+            label: "Heavy Fitness Equipment Fee / Träningsredskapstilägg".to_string(),
+            category: "Specialty Item Surcharges".to_string(),
+            value_type: "currency".to_string(),
+            default_value: "800.0".to_string(),
+            tooltip: "Surcharge for heavy treadmills (*löpband*), rowing machines, or commercial gym multi-stations.".to_string(),
+        },
+
+        // 4. Billing, Tariffs & Deposit Gates
+        crate::models::SettingDefinition {
+            key: "moving_pricing_model".to_string(),
+            label: "Core Pricing Model / Prissättningsmodell".to_string(),
+            category: "Billing & Deposit Gates".to_string(),
+            value_type: "select".to_string(),
+            default_value: "volume".to_string(),
+            tooltip: "Choose between 'volume' (fixed rate per m³) or 'hourly' (crew size x hourly labor rate + vehicle fee).".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "moving_hourly_rate_per_mover".to_string(),
+            label: "Hourly Rate per Mover / Timpris per flyttkarl".to_string(),
+            category: "Billing & Deposit Gates".to_string(),
+            value_type: "currency".to_string(),
+            default_value: "400.0".to_string(),
+            tooltip: "Hourly rate charged per active mover on duty.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "moving_hourly_rate_vehicle".to_string(),
+            label: "Hourly Vehicle Fee / Timpris per flyttbil".to_string(),
+            category: "Billing & Deposit Gates".to_string(),
+            value_type: "currency".to_string(),
+            default_value: "400.0".to_string(),
+            tooltip: "Hourly rate charged for the moving truck/van.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "moving_minimum_hours".to_string(),
+            label: "Minimum Billable Hours / Minimidebitering (timmar)".to_string(),
+            category: "Billing & Deposit Gates".to_string(),
+            value_type: "number".to_string(),
+            default_value: "3.0".to_string(),
+            tooltip: "Minimum billable hours threshold (e.g. 3.0 hours minimum) applied to hourly moving jobs.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "moving_deposit_percent".to_string(),
+            label: "Non-Refundable Deposit % / Handpenning (%)".to_string(),
+            category: "Billing & Deposit Gates".to_string(),
+            value_type: "percentage".to_string(),
+            default_value: "20.0".to_string(),
+            tooltip: "Percentage of quote total required as a non-refundable deposit upon customer quote acceptance.".to_string(),
+        },
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -527,5 +724,14 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+
+    #[test]
+    fn test_workspace_settings_definitions() {
+        let defs = get_workspace_settings_definitions();
+        assert!(!defs.is_empty());
+        assert!(defs.iter().any(|d| d.key == "mult_narrow_staircase" && !d.tooltip.is_empty()));
+        assert!(defs.iter().any(|d| d.key == "moving_weekend_multiplier" && !d.tooltip.is_empty()));
+        assert!(defs.iter().any(|d| d.key == "surcharge_piano" && !d.tooltip.is_empty()));
     }
 }
