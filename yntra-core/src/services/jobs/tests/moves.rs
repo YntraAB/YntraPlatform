@@ -379,3 +379,76 @@ async fn test_packaging_inventory_system() {
     conn.execute("DELETE FROM users WHERE workspace_id = 'ws-pack-test'", ()).await.unwrap();
     conn.execute("DELETE FROM workspaces WHERE id = 'ws-pack-test'", ()).await.unwrap();
 }
+
+#[tokio::test]
+async fn test_basement_carrying_surcharges() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-basement-test', 'Basement Test WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-base-staff', 'ws-basement-test', 'staff@base.io', 'admin')", ()).await.unwrap();
+
+    // Create a job ticket: -2 floor (basement 2), no elevator at origin, destination floor -1 (basement 1) no elevator
+    let job = create_job_ticket(
+        "u-base-staff".to_string(),
+        "ws-basement-test".to_string(),
+        "Basement Move".to_string(),
+        "Testing basement carrying".to_string(),
+        "Basement Origin".to_string(),
+        "medium".to_string(),
+        None,
+        "2026-08-10".to_string(),
+        "[]".to_string(),
+        Some("Basement Origin".to_string()),
+        Some("Basement Dest".to_string()),
+        -2,     // origin floor
+        -1,     // destination floor
+        false,  // origin elevator
+        false,  // destination elevator
+        false,
+        false,
+    )
+    .await
+    .unwrap();
+
+    // Add Sofa (Furniture) - Qty 1, Vol 2.0
+    create_move_inventory_item(
+        "u-base-staff".to_string(),
+        job.id.clone(),
+        "Furniture".to_string(),
+        "Sofa".to_string(),
+        1,
+        2.0,
+        None,
+    )
+    .await
+    .unwrap();
+
+    // Calculate Quote
+    calculate_and_save_move_quote("u-base-staff".to_string(), job.id.clone())
+        .await
+        .unwrap();
+
+    let quote_opt = get_move_quote("u-base-staff".to_string(), job.id.clone())
+        .await
+        .unwrap();
+    assert!(quote_opt.is_some());
+    let q = quote_opt.unwrap();
+    
+    // Calculations verification:
+    // Volume = 2.0 m3
+    // Base Price = 2.0 * 500 = 1000 SEK
+    // Distance Fee = 800 SEK
+    // Stairs Surcharge = |-2| + |-1| = 3 floors * 300 SEK = 900 SEK
+    // Packing supplies fee = 2.0 * 100 = 200 SEK
+    // Total = 1000 + 800 + 900 + 200 = 2900 SEK
+    assert_eq!(q.stairs_surcharge, 900);
+    assert_eq!(q.total_price, 2900);
+
+    // Cleanup
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-basement-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-basement-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-basement-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-basement-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-basement-test'", ()).await.unwrap();
+}

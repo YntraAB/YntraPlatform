@@ -88,7 +88,7 @@ pub async fn get_move_quote(
     }
 
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, accepted_at, updated_at, sync_status FROM move_quotes WHERE job_ticket_id = ?1 LIMIT 1",
+        "SELECT id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, accepted_at, updated_at, sync_status, manual_price_override, price_discount FROM move_quotes WHERE job_ticket_id = ?1 LIMIT 1",
     ).await?;
 
     let mut rows = stmt.query(crate::params![job_ticket_id]).await?;
@@ -106,6 +106,8 @@ pub async fn get_move_quote(
             accepted_at: row.get(9)?,
             updated_at: row.get(10)?,
             sync_status: row.get(11)?,
+            manual_price_override: row.get(12)?,
+            price_discount: row.get(13)?,
         }))
     } else {
         Ok(None)
@@ -436,13 +438,13 @@ pub async fn calculate_and_save_move_quote(
 
     // Flat distance rate + tolls
     let distance_fee = distance_fee_flat as i64 + toll_fees as i64;
-    // Stairs surcharge (stairs_surcharge_per_floor per floor if no elevator)
+    // Stairs surcharge (stairs_surcharge_per_floor per floor if no elevator, including basements)
     let mut stairs_surcharge = 0;
-    if !origin_has_elevator && origin_floor > 0 {
-        stairs_surcharge += (origin_floor as i64) * (stairs_surcharge_per_floor as i64);
+    if !origin_has_elevator && origin_floor != 0 {
+        stairs_surcharge += (origin_floor.abs() as i64) * (stairs_surcharge_per_floor as i64);
     }
-    if !destination_has_elevator && destination_floor > 0 {
-        stairs_surcharge += (destination_floor as i64) * (stairs_surcharge_per_floor as i64);
+    if !destination_has_elevator && destination_floor != 0 {
+        stairs_surcharge += (destination_floor.abs() as i64) * (stairs_surcharge_per_floor as i64);
     }
     // Add long carry surcharge to labor stairs surcharge for RUT tax deductibility eligibility
     if long_carry_meters > 0 {
@@ -462,23 +464,36 @@ pub async fn calculate_and_save_move_quote(
     } else {
         (total_volume * packing_supplies_fee_per_m3) as i64
     };
-    let total_price = base_price + distance_fee + stairs_surcharge + packing_supplies_fee;
-
     let now_ms = chrono::Utc::now().timestamp_millis();
     
     // Check if quote exists to keep its status, default to "sent"
     let mut quote_stmt = conn.prepare(
-        "SELECT id, status FROM move_quotes WHERE job_ticket_id = ?1 LIMIT 1",
+        "SELECT id, status, manual_price_override, price_discount FROM move_quotes WHERE job_ticket_id = ?1 LIMIT 1",
     ).await?;
     let mut q_rows = quote_stmt.query(crate::params![&job_ticket_id]).await?;
-    let (quote_id, quote_status) = if let Some(row) = q_rows.next().await? {
-        (row.get::<String>(0)?, row.get::<String>(1)?)
+    let (quote_id, quote_status, existing_override, existing_discount) = if let Some(row) = q_rows.next().await? {
+        (
+            row.get::<String>(0)?,
+            row.get::<String>(1)?,
+            row.get::<Option<f64>>(2)?,
+            row.get::<Option<f64>>(3)?,
+        )
     } else {
-        (uuid::Uuid::new_v4().to_string(), "sent".to_string())
+        (uuid::Uuid::new_v4().to_string(), "sent".to_string(), None, None)
     };
 
+    let calculated_total = base_price + distance_fee + stairs_surcharge + packing_supplies_fee;
+    let mut total_price = if let Some(override_val) = existing_override {
+        override_val as i64
+    } else {
+        calculated_total
+    };
+    if let Some(discount) = existing_discount {
+        total_price = (total_price - discount as i64).max(0);
+    }
+
     conn.execute(
-        "INSERT OR REPLACE INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'pending')",
+        "INSERT OR REPLACE INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at, sync_status, manual_price_override, price_discount) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'pending', ?11, ?12)",
         crate::params![
             quote_id,
             job_ws,
@@ -489,7 +504,9 @@ pub async fn calculate_and_save_move_quote(
             packing_supplies_fee as f64,
             total_price as f64,
             quote_status,
-            now_ms
+            now_ms,
+            existing_override,
+            existing_discount
         ],
     ).await?;
 
@@ -705,4 +722,74 @@ pub async fn get_job_packaging_items(
     }
 
     Ok(items)
+}
+
+#[uniffi::export]
+pub async fn update_move_quote_price_adjustments(
+    requester_user_id: String,
+    job_ticket_id: String,
+    manual_price_override: Option<f64>,
+    price_discount: Option<f64>,
+) -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" {
+        return Err(YntraError::AuthError(
+            "Access denied: insufficient permissions".to_string(),
+        ));
+    }
+
+    // Verify workspace scoping
+    let (job_ws,): (String,) = conn
+        .query_row(
+            "SELECT workspace_id FROM job_tickets WHERE id = ?1",
+            crate::params![&job_ticket_id],
+            |r| Ok((r.get(0)?,)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
+
+    if auth.workspace_id != job_ws {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    // Check if quote exists
+    let mut quote_stmt = conn.prepare(
+        "SELECT id FROM move_quotes WHERE job_ticket_id = ?1 LIMIT 1",
+    ).await?;
+    let mut q_rows = quote_stmt.query(crate::params![&job_ticket_id]).await?;
+    let has_quote = q_rows.next().await?.is_some();
+
+    if has_quote {
+        conn.execute(
+            "UPDATE move_quotes SET manual_price_override = ?1, price_discount = ?2, sync_status = 'pending', updated_at = ?3 WHERE job_ticket_id = ?4",
+            crate::params![
+                manual_price_override,
+                price_discount,
+                chrono::Utc::now().timestamp_millis(),
+                job_ticket_id
+            ],
+        ).await?;
+    } else {
+        let quote_id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at, sync_status, manual_price_override, price_discount) VALUES (?1, ?2, ?3, 0.0, 0.0, 0.0, 0.0, 0.0, 'sent', ?4, 'pending', ?5, ?6)",
+            crate::params![
+                quote_id,
+                job_ws,
+                job_ticket_id,
+                chrono::Utc::now().timestamp_millis(),
+                manual_price_override,
+                price_discount
+            ],
+        ).await?;
+    }
+
+    // Recalculate quote to save new total price
+    calculate_and_save_move_quote(requester_user_id, job_ticket_id).await?;
+
+    Ok(())
 }
