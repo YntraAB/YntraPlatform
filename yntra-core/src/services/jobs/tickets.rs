@@ -33,7 +33,7 @@ pub async fn get_job_tickets(requester_user_id: String) -> Result<Vec<JobTicket>
     }
 
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed, assigned_vehicle_id, route_stops_json FROM job_tickets WHERE workspace_id = ?1",
+        "SELECT id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed, assigned_vehicle_id, route_stops_json, long_carry_meters, toll_fees FROM job_tickets WHERE workspace_id = ?1",
     ).await?;
 
     let list = stmt
@@ -63,6 +63,8 @@ pub async fn get_job_tickets(requester_user_id: String) -> Result<Vec<JobTicket>
                 destination_parking_permit_needed: row.get::<bool>(21)?,
                 assigned_vehicle_id: row.get::<Option<String>>(22)?,
                 route_stops_json: row.get::<Option<String>>(23)?,
+                long_carry_meters: row.get::<i64>(24)? as i32,
+                toll_fees: row.get::<f64>(25)?,
             })
         })
         .await?;
@@ -126,6 +128,8 @@ pub async fn create_job_ticket(
         destination_parking_permit_needed,
         assigned_vehicle_id: None,
         route_stops_json: Some("[]".to_string()),
+        long_carry_meters: 0,
+        toll_fees: 0.0,
     };
 
     let conn = database::acquire_connection().await?;
@@ -144,7 +148,7 @@ pub async fn create_job_ticket(
     }
 
     conn.execute(
-        "INSERT INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed, assigned_vehicle_id, route_stops_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+        "INSERT INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed, assigned_vehicle_id, route_stops_json, long_carry_meters, toll_fees) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, 0, 0.0)",
         crate::params![
             job.id,
             job.workspace_id,
@@ -173,6 +177,63 @@ pub async fn create_job_ticket(
         ],
     ).await?;
     Ok(job)
+}
+
+#[uniffi::export]
+pub async fn update_job_moving_surcharges(
+    requester_user_id: String,
+    job_id: String,
+    long_carry_meters: i32,
+    toll_fees: f64,
+) -> Result<(), YntraError> {
+    let now_ms = crate::infra::time::get_current_time_ms();
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let job_ws: String = conn
+        .query_row(
+            "SELECT workspace_id FROM job_tickets WHERE id = ?1",
+            crate::params![&job_id],
+            |r| r.get(0),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
+
+    if auth.workspace_id != job_ws {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" {
+        return Err(YntraError::AuthError(
+            "Access denied: insufficient permissions".to_string(),
+        ));
+    }
+
+    conn.execute(
+        "UPDATE job_tickets SET long_carry_meters = ?1, toll_fees = ?2, updated_at = ?3 WHERE id = ?4",
+        crate::params![long_carry_meters, toll_fees, now_ms, &job_id],
+    ).await?;
+
+    // If quote exists, re-calculate it to reflect the new surcharges immediately
+    let quote_exists: bool = conn
+        .query_row(
+            "SELECT count(*) FROM move_quotes WHERE job_ticket_id = ?1",
+            crate::params![&job_id],
+            |r| r.get::<i64>(0),
+        )
+        .await
+        .unwrap_or(0) > 0;
+
+    if quote_exists {
+        // Run quote recalculation
+        drop(conn);
+        crate::services::jobs::moves::calculate_and_save_move_quote(requester_user_id, job_id).await?;
+    }
+
+    notify_observers();
+    Ok(())
 }
 
 #[uniffi::export]
@@ -212,8 +273,27 @@ pub async fn update_job_status(
 
     conn.execute(
         "UPDATE job_tickets SET status = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
-        crate::params![status, now_ms, job_id],
+        crate::params![&status, now_ms, job_id],
     ).await?;
+
+    if status == "in_progress" {
+        let customer_id = conn.query_row(
+            "SELECT id FROM users WHERE workspace_id = ?1 AND role = 'client' LIMIT 1",
+            crate::params![&job_ws],
+            |r| r.get::<String>(0),
+        )
+        .await
+        .unwrap_or_else(|_| "client-1".to_string());
+
+        let _ = crate::services::jobs::notifications::send_external_notification(
+            requester_user_id.clone(),
+            job_ws,
+            customer_id,
+            "arrival_reminder".to_string(),
+            None,
+        ).await;
+    }
+
     Ok(())
 }
 
@@ -334,6 +414,23 @@ pub async fn submit_job_completion(
         "UPDATE job_tickets SET checklist_json = ?1, completion_report = ?2, status = 'completed', updated_at = ?3, sync_status = 'pending' WHERE id = ?4",
         crate::params![checklist_json, completion_report, now_ms, job_id],
     ).await?;
+
+    let customer_id = conn.query_row(
+        "SELECT id FROM users WHERE workspace_id = ?1 AND role = 'client' LIMIT 1",
+        crate::params![&job_ws],
+        |r| r.get::<String>(0),
+    )
+    .await
+    .unwrap_or_else(|_| "client-1".to_string());
+
+    let _ = crate::services::jobs::notifications::send_external_notification(
+        requester_user_id.clone(),
+        job_ws,
+        customer_id,
+        "job_completion".to_string(),
+        None,
+    ).await;
+
     Ok(())
 }
 
@@ -399,7 +496,7 @@ async fn optimize_job_route_inner(
     // Load the job ticket
     let job: JobTicket = conn
         .query_row(
-            "SELECT id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed, assigned_vehicle_id, route_stops_json FROM job_tickets WHERE id = ?1",
+            "SELECT id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed, assigned_vehicle_id, route_stops_json, long_carry_meters, toll_fees FROM job_tickets WHERE id = ?1",
             crate::params![&job_id],
             |row| {
                 Ok(JobTicket {
@@ -427,6 +524,8 @@ async fn optimize_job_route_inner(
                     destination_parking_permit_needed: row.get::<bool>(21)?,
                     assigned_vehicle_id: row.get::<Option<String>>(22)?,
                     route_stops_json: row.get::<Option<String>>(23)?,
+                    long_carry_meters: row.get::<i64>(24)? as i32,
+                    toll_fees: row.get::<f64>(25)?,
                 })
             },
         )
@@ -458,7 +557,7 @@ async fn optimize_job_route_inner(
         return Ok(Vec::new());
     }
 
-    let optimized_stops = super::routing::optimize_route(&origin, &destination, &stops).await;
+    let optimized_stops = super::routing::optimize_route(&auth.workspace_id, &origin, &destination, &stops).await;
 
     let optimized_json = serde_json::to_string(&optimized_stops)
         .map_err(|e| YntraError::SerializationError(e.to_string()))?;

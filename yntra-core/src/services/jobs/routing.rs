@@ -29,14 +29,39 @@ pub fn mock_geocode(address: &str) -> (f64, f64) {
     (lat, lng)
 }
 
-pub async fn geocode(address: &str) -> (f64, f64) {
+pub async fn geocode(workspace_id: &str, address: &str) -> (f64, f64) {
     if address.trim().is_empty() {
         return (0.0, 0.0);
     }
-    let url = format!(
-        "https://nominatim.openstreetmap.org/search?q={}&format=json&limit=1",
-        urlencode(address)
-    );
+
+    // 1. Fetch workspace settings
+    let settings_str: String = if let Ok(conn) = database::acquire_connection().await {
+        conn.query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![workspace_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or_else(|_| "{}".to_string())
+    } else {
+        "{}".to_string()
+    };
+    let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
+
+    let provider = settings_json
+        .get("geocoder_provider")
+        .and_then(|v| v.as_str())
+        .unwrap_or("nominatim");
+
+    let api_key = settings_json
+        .get("geocoder_api_key")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let custom_url = settings_json
+        .get("geocoder_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
 
     #[cfg(not(target_arch = "wasm32"))]
     let client_res = reqwest::Client::builder()
@@ -49,19 +74,163 @@ pub async fn geocode(address: &str) -> (f64, f64) {
         .user_agent("YntraPlatform/1.0 (contact@yntra.se)")
         .build();
 
-    if let Ok(client) = client_res {
-        if let Ok(resp) = client.get(&url).send().await {
-            #[derive(serde::Deserialize)]
-            struct GeocodeResponse {
-                lat: String,
-                lon: String,
+    let client = match client_res {
+        Ok(c) => c,
+        Err(_) => return mock_geocode(address),
+    };
+
+    match provider {
+        "google" => {
+            let key = if api_key.is_empty() {
+                #[cfg(not(target_arch = "wasm32"))]
+                { std::env::var("GOOGLE_MAPS_API_KEY").unwrap_or_default() }
+                #[cfg(target_arch = "wasm32")]
+                { "".to_string() }
+            } else {
+                api_key.to_string()
+            };
+
+            if key.is_empty() {
+                return mock_geocode(address);
             }
-            if let Ok(results) = resp.json::<Vec<GeocodeResponse>>().await {
-                if let Some(first) = results.first() {
-                    let lat_parsed = first.lat.parse::<f64>();
-                    let lon_parsed = first.lon.parse::<f64>();
-                    if let (Ok(lat), Ok(lon)) = (lat_parsed, lon_parsed) {
-                        return (lat, lon);
+
+            let url = format!(
+                "https://maps.googleapis.com/maps/api/geocode/json?address={}&key={}",
+                urlencode(address),
+                key
+            );
+
+            if let Ok(resp) = client.get(&url).send().await {
+                #[derive(serde::Deserialize)]
+                struct GoogleLocation {
+                    lat: f64,
+                    lng: f64,
+                }
+                #[derive(serde::Deserialize)]
+                struct GoogleGeometry {
+                    location: GoogleLocation,
+                }
+                #[derive(serde::Deserialize)]
+                struct GoogleResult {
+                    geometry: GoogleGeometry,
+                }
+                #[derive(serde::Deserialize)]
+                struct GoogleResponse {
+                    results: Vec<GoogleResult>,
+                }
+
+                if let Ok(results_res) = resp.json::<GoogleResponse>().await {
+                    if let Some(first) = results_res.results.first() {
+                        return (first.geometry.location.lat, first.geometry.location.lng);
+                    }
+                }
+            }
+        }
+        "mapbox" => {
+            let token = if api_key.is_empty() {
+                #[cfg(not(target_arch = "wasm32"))]
+                { std::env::var("MAPBOX_ACCESS_TOKEN").unwrap_or_default() }
+                #[cfg(target_arch = "wasm32")]
+                { "".to_string() }
+            } else {
+                api_key.to_string()
+            };
+
+            if token.is_empty() {
+                return mock_geocode(address);
+            }
+
+            let url = format!(
+                "https://api.mapbox.com/geocoding/v5/mapbox.places/{}.json?access_token={}&limit=1",
+                urlencode(address),
+                token
+            );
+
+            if let Ok(resp) = client.get(&url).send().await {
+                #[derive(serde::Deserialize)]
+                struct GeoJsonGeometry {
+                    coordinates: Vec<f64>,
+                }
+                #[derive(serde::Deserialize)]
+                struct GeoJsonFeature {
+                    geometry: GeoJsonGeometry,
+                }
+                #[derive(serde::Deserialize)]
+                struct GeoJsonFeatureCollection {
+                    features: Vec<GeoJsonFeature>,
+                }
+
+                if let Ok(collection) = resp.json::<GeoJsonFeatureCollection>().await {
+                    if let Some(first) = collection.features.first() {
+                        if first.geometry.coordinates.len() >= 2 {
+                            return (first.geometry.coordinates[1], first.geometry.coordinates[0]);
+                        }
+                    }
+                }
+            }
+        }
+        "photon" => {
+            let base_url = if custom_url.is_empty() {
+                "http://localhost:2322"
+            } else {
+                custom_url
+            };
+
+            let url = format!(
+                "{}/api?q={}&limit=1",
+                base_url.trim_end_matches('/'),
+                urlencode(address)
+            );
+
+            if let Ok(resp) = client.get(&url).send().await {
+                #[derive(serde::Deserialize)]
+                struct GeoJsonGeometry {
+                    coordinates: Vec<f64>,
+                }
+                #[derive(serde::Deserialize)]
+                struct GeoJsonFeature {
+                    geometry: GeoJsonGeometry,
+                }
+                #[derive(serde::Deserialize)]
+                struct GeoJsonFeatureCollection {
+                    features: Vec<GeoJsonFeature>,
+                }
+
+                if let Ok(collection) = resp.json::<GeoJsonFeatureCollection>().await {
+                    if let Some(first) = collection.features.first() {
+                        if first.geometry.coordinates.len() >= 2 {
+                            return (first.geometry.coordinates[1], first.geometry.coordinates[0]);
+                        }
+                    }
+                }
+            }
+        }
+        _ => {
+            let base_url = if custom_url.is_empty() {
+                "https://nominatim.openstreetmap.org"
+            } else {
+                custom_url
+            };
+
+            let url = format!(
+                "{}/search?q={}&format=json&limit=1",
+                base_url.trim_end_matches('/'),
+                urlencode(address)
+            );
+
+            if let Ok(resp) = client.get(&url).send().await {
+                #[derive(serde::Deserialize)]
+                struct NominatimResponse {
+                    lat: String,
+                    lon: String,
+                }
+                if let Ok(results) = resp.json::<Vec<NominatimResponse>>().await {
+                    if let Some(first) = results.first() {
+                        let lat_parsed = first.lat.parse::<f64>();
+                        let lon_parsed = first.lon.parse::<f64>();
+                        if let (Ok(lat), Ok(lon)) = (lat_parsed, lon_parsed) {
+                            return (lat, lon);
+                        }
                     }
                 }
             }
@@ -72,6 +241,7 @@ pub async fn geocode(address: &str) -> (f64, f64) {
 }
 
 pub async fn optimize_route(
+    workspace_id: &str,
     origin: &str,
     _destination: &str,
     intermediate_stops: &[String],
@@ -80,10 +250,10 @@ pub async fn optimize_route(
         return Vec::new();
     }
 
-    let origin_coords = geocode(origin).await;
+    let origin_coords = geocode(workspace_id, origin).await;
     let mut unvisited = Vec::new();
     for s in intermediate_stops {
-        let coords = geocode(s).await;
+        let coords = geocode(workspace_id, s).await;
         unvisited.push((coords, s.clone()));
     }
 
@@ -124,7 +294,7 @@ pub async fn get_directions_url(
 
     let job: JobTicket = conn
         .query_row(
-            "SELECT id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed, assigned_vehicle_id, route_stops_json FROM job_tickets WHERE id = ?1",
+            "SELECT id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed, assigned_vehicle_id, route_stops_json, long_carry_meters, toll_fees FROM job_tickets WHERE id = ?1",
             crate::params![&job_id],
             |row| {
                 Ok(JobTicket {
@@ -152,6 +322,8 @@ pub async fn get_directions_url(
                     destination_parking_permit_needed: row.get::<bool>(21)?,
                     assigned_vehicle_id: row.get::<Option<String>>(22)?,
                     route_stops_json: row.get::<Option<String>>(23)?,
+                    long_carry_meters: row.get::<i64>(24)? as i32,
+                    toll_fees: row.get::<f64>(25)?,
                 })
             },
         )
