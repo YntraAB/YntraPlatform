@@ -62,38 +62,39 @@ pub async fn generate_move_invoice(
         .unwrap_or("SE")
         .to_uppercase();
 
-    let currency = match target_region.as_str() {
-        "US" => "USD".to_string(),
-        "DE" => "EUR".to_string(),
-        _ => "SEK".to_string(),
-    };
+    let currency = settings_json
+        .get("currency")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| match target_region.as_str() {
+            "US" => "USD".to_string(),
+            "DE" => "EUR".to_string(),
+            _ => "SEK".to_string(),
+        });
 
     let subtotal = total_price;
-    let (rut_deduction, tax_authority_amount, customer_amount) = match target_region.as_str() {
-        "US" => {
-            let tax_rate = settings_json
-                .get("sales_tax_rate")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.08); // 8% sales tax
-            let tax = subtotal * tax_rate;
-            (0.0, tax, subtotal + tax)
-        }
-        "DE" => {
-            let vat_rate = settings_json
-                .get("vat_rate")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.19); // 19% VAT
-            let vat = subtotal * vat_rate;
-            (0.0, vat, subtotal + vat)
-        }
-        _ => {
-            let rut = if use_rut {
-                0.5 * (base_price + stairs_surcharge)
+    
+    let dynamic_tax_rate = settings_json
+        .get("tax_rate")
+        .and_then(|v| v.as_f64())
+        .unwrap_or_else(|| {
+            if target_region == "US" {
+                settings_json.get("sales_tax_rate").and_then(|v| v.as_f64()).unwrap_or(0.08)
+            } else if target_region == "DE" {
+                settings_json.get("vat_rate").and_then(|v| v.as_f64()).unwrap_or(0.19)
             } else {
                 0.0
-            };
-            (rut, rut, subtotal - rut)
-        }
+            }
+        });
+
+    let is_rut_active = (target_region == "SE" || settings_json.get("use_rut_deduction").and_then(|v| v.as_bool()).unwrap_or(false)) && use_rut;
+
+    let (rut_deduction, tax_authority_amount, customer_amount) = if is_rut_active {
+        let rut = 0.5 * (base_price + stairs_surcharge);
+        (rut, rut, subtotal - rut)
+    } else {
+        let tax = subtotal * dynamic_tax_rate;
+        (0.0, tax, subtotal + tax)
     };
 
     let now = chrono::Utc::now();
@@ -142,6 +143,14 @@ pub async fn generate_move_invoice(
         ]
     ).await?;
 
+    let _ = crate::services::jobs::notifications::send_external_notification(
+        requester_user_id.clone(),
+        ws_id,
+        customer_id,
+        "invoice_created".to_string(),
+        None,
+    ).await;
+
     notify_observers();
     Ok(invoice)
 }
@@ -179,11 +188,15 @@ pub async fn get_move_invoice(
             .unwrap_or("SE")
             .to_uppercase();
 
-        let currency = match target_region.as_str() {
-            "US" => "USD".to_string(),
-            "DE" => "EUR".to_string(),
-            _ => "SEK".to_string(),
-        };
+        let currency = settings_json
+            .get("currency")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| match target_region.as_str() {
+                "US" => "USD".to_string(),
+                "DE" => "EUR".to_string(),
+                _ => "SEK".to_string(),
+            });
 
         Ok(Some(crate::models::MoveInvoice {
             id: row.get::<String>(0)?,
@@ -212,22 +225,32 @@ pub async fn pay_move_invoice(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    let mut stmt = conn.prepare("SELECT workspace_id FROM move_invoices WHERE id = ?1").await?;
+    let mut stmt = conn.prepare("SELECT workspace_id, customer_id FROM move_invoices WHERE id = ?1").await?;
     let mut rows = stmt.query(crate::params![&invoice_id]).await?;
-    if let Some(row) = rows.next().await? {
-        let ws_id = row.get::<String>(0)?;
-        if auth.workspace_id != ws_id {
+    let (ws_id, customer_id) = if let Some(row) = rows.next().await? {
+        let ws = row.get::<String>(0)?;
+        let cust = row.get::<String>(1)?;
+        if auth.workspace_id != ws {
             return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
         }
+        (ws, cust)
     } else {
         return Err(YntraError::NotFoundError("Invoice not found".to_string()));
-    }
+    };
 
     let now_ms = chrono::Utc::now().timestamp_millis();
     conn.execute(
         "UPDATE move_invoices SET status = 'paid', updated_at = ?1, sync_status = 'pending' WHERE id = ?2",
         crate::params![now_ms, invoice_id],
     ).await?;
+
+    let _ = crate::services::jobs::notifications::send_external_notification(
+        requester_user_id.clone(),
+        ws_id,
+        customer_id,
+        "invoice_paid".to_string(),
+        None,
+    ).await;
 
     notify_observers();
     Ok(())
@@ -664,11 +687,15 @@ pub async fn initiate_stripe_payment(
         .unwrap_or("SE")
         .to_uppercase();
 
-    let currency = match target_region.as_str() {
-        "US" => "USD".to_string(),
-        "DE" => "EUR".to_string(),
-        _ => "SEK".to_string(),
-    };
+    let currency = settings_json
+        .get("currency")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| match target_region.as_str() {
+            "US" => "USD".to_string(),
+            "DE" => "EUR".to_string(),
+            _ => "SEK".to_string(),
+        });
 
     let client = create_http_client()?;
     let gateway_url = get_config_val("stripe_gateway_url", "STRIPE_GATEWAY_URL", &settings_json).await
@@ -790,11 +817,15 @@ pub async fn initiate_adyen_payment(
         .unwrap_or("SE")
         .to_uppercase();
 
-    let currency = match target_region.as_str() {
-        "US" => "USD".to_string(),
-        "DE" => "EUR".to_string(),
-        _ => "SEK".to_string(),
-    };
+    let currency = settings_json
+        .get("currency")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| match target_region.as_str() {
+            "US" => "USD".to_string(),
+            "DE" => "EUR".to_string(),
+            _ => "SEK".to_string(),
+        });
 
     let client = create_http_client()?;
     let gateway_url = get_config_val("adyen_gateway_url", "ADYEN_GATEWAY_URL", &settings_json).await
@@ -975,37 +1006,42 @@ async fn submit_skatteverket_claim_direct_inner(
         .await
         .unwrap_or_else(|_| "{}".to_string());
     let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
-    let has_cert = settings_json.get("skatteverket_corporate_cert").is_some();
-    
-    let (status, reference_number, message) = if has_cert {
-        let client = create_http_client()?;
-        let skatteverket_url = settings_json
-            .get("skatteverket_api_url")
-            .and_then(|v| v.as_str())
-            .unwrap_or("https://test.skatteverket.se/service/rotrut/v6");
-            
-        let res = client.post(skatteverket_url)
-            .header("Content-Type", "application/xml")
-            .body(xml_payload)
-            .send()
-            .await;
-            
-        match res {
-            Ok(resp) if resp.status().is_success() => {
-                let ref_num = format!("SV-REAL-{}", uuid::Uuid::new_v4().simple());
-                ("accepted".to_string(), ref_num, "Successfully transmitted to Skatteverket. Processing approved.".to_string())
-            }
-            Ok(resp) => {
-                let err_txt = resp.text().await.unwrap_or_default();
-                ("rejected".to_string(), "".to_string(), format!("Skatteverket rejected request: {}", err_txt))
-            }
-            Err(e) => {
-                ("failed".to_string(), "".to_string(), format!("Skatteverket connection failed: {}", e))
-            }
+    let has_cert = settings_json
+        .get("skatteverket_corporate_cert")
+        .and_then(|v| v.as_str())
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
+
+    if !has_cert {
+        return Err(YntraError::ValidationError(
+            "Missing Skatteverket corporate certificate (skatteverket_corporate_cert) in workspace settings.".to_string()
+        ));
+    }
+
+    let client = create_http_client()?;
+    let skatteverket_url = settings_json
+        .get("skatteverket_api_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("https://test.skatteverket.se/service/rotrut/v6");
+        
+    let res = client.post(skatteverket_url)
+        .header("Content-Type", "application/xml")
+        .body(xml_payload)
+        .send()
+        .await;
+        
+    let (status, reference_number, message) = match res {
+        Ok(resp) if resp.status().is_success() => {
+            let ref_num = format!("SV-REAL-{}", uuid::Uuid::new_v4().simple());
+            ("accepted".to_string(), ref_num, "Successfully transmitted to Skatteverket. Processing approved.".to_string())
         }
-    } else {
-        let ref_num = format!("SV-MOCK-{}", uuid::Uuid::new_v4().simple());
-        ("accepted".to_string(), ref_num, "Test Mode: Webhook payload compiled and signed. Simulation accepted.".to_string())
+        Ok(resp) => {
+            let err_txt = resp.text().await.unwrap_or_default();
+            ("rejected".to_string(), "".to_string(), format!("Skatteverket rejected request: {}", err_txt))
+        }
+        Err(e) => {
+            ("failed".to_string(), "".to_string(), format!("Skatteverket connection failed: {}", e))
+        }
     };
     
     if status == "accepted" {

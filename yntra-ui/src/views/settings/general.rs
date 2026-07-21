@@ -153,6 +153,55 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
             .and_then(|v| v.as_f64())
             .unwrap_or(100.0)
     });
+    let mut geocoder_provider = use_signal(|| {
+        settings_val
+            .get("geocoder_provider")
+            .and_then(|v| v.as_str())
+            .unwrap_or("nominatim")
+            .to_string()
+    });
+    let mut geocoder_api_key = use_signal(|| {
+        settings_val
+            .get("geocoder_api_key")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    });
+    let mut geocoder_url = use_signal(|| {
+        settings_val
+            .get("geocoder_url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    });
+    let mut skatteverket_api_url = use_signal(|| {
+        settings_val
+            .get("skatteverket_api_url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("https://test.skatteverket.se/service/rotrut/v6")
+            .to_string()
+    });
+    let mut skatteverket_corporate_cert = use_signal(|| {
+        settings_val
+            .get("skatteverket_corporate_cert")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    });
+    let mut company_org_number = use_signal(|| {
+        settings_val
+            .get("company_org_number")
+            .and_then(|v| v.as_str())
+            .unwrap_or("556123-4567")
+            .to_string()
+    });
+    let mut gps_webhook_token = use_signal(|| {
+        settings_val
+            .get("gps_webhook_token")
+            .and_then(|v| v.as_str())
+            .unwrap_or("secret-token-123")
+            .to_string()
+    });
 
     let state = use_context::<crate::state::AppState>();
     // Helper functions that clone required values to avoid borrow checker errors
@@ -197,6 +246,13 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
             settings_map["moving_distance_fee_flat"] = serde_json::json!(*distance_fee.read());
             settings_map["moving_stairs_surcharge_per_floor"] = serde_json::json!(*stairs_surcharge.read());
             settings_map["moving_packing_supplies_fee_per_m3"] = serde_json::json!(*packing_fee.read());
+            settings_map["geocoder_provider"] = serde_json::json!((*geocoder_provider.read()).clone());
+            settings_map["geocoder_api_key"] = serde_json::json!((*geocoder_api_key.read()).clone());
+            settings_map["geocoder_url"] = serde_json::json!((*geocoder_url.read()).clone());
+            settings_map["skatteverket_api_url"] = serde_json::json!((*skatteverket_api_url.read()).clone());
+            settings_map["skatteverket_corporate_cert"] = serde_json::json!((*skatteverket_corporate_cert.read()).clone());
+            settings_map["company_org_number"] = serde_json::json!((*company_org_number.read()).clone());
+            settings_map["gps_webhook_token"] = serde_json::json!((*gps_webhook_token.read()).clone());
 
             let settings_str = serde_json::to_string(&settings_map).unwrap_or_default();
             let ws_id = workspace_id.clone();
@@ -632,6 +688,236 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
                                         let mut save = save_settings.clone();
                                         move |_| save()
                                     }
+                                }
+                            }
+                        }
+                    }
+
+                    components::Card { class: "flex h-full flex-col overflow-hidden border-2 border-border/50 bg-card/40 shadow-sm backdrop-blur-md",
+                        components::CardHeader { class: "pb-4",
+                            div { class: "flex items-center gap-3",
+                                div { class: "rounded-xl bg-primary/10 p-2.5 text-primary shadow-inner",
+                                    components::LucideIcon { name: "map-pin", class: "h-5 w-5" }
+                                }
+                                div {
+                                    components::CardTitle { class: "text-lg font-bold tracking-tight",
+                                        "Geocoding Settings"
+                                    }
+                                    components::CardDescription { class: "text-xs",
+                                        "Configure multi-provider geocoding endpoints for route planning."
+                                    }
+                                }
+                            }
+                        }
+                        components::CardContent { class: "grid flex-1 grid-cols-1 gap-4",
+                            div { class: "space-y-2",
+                                label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
+                                    "Geocoder Provider"
+                                }
+                                crate::components::Select {
+                                    trigger_class: "h-11 rounded-xl border-border/40 bg-background/40",
+                                    value: geocoder_provider.read().to_string(),
+                                    onchange: {
+                                        let save_settings = save_settings.clone();
+                                        move |val: String| {
+                                            let mut save_settings = save_settings.clone();
+                                            geocoder_provider.set(val.clone());
+                                            save_settings();
+                                        }
+                                    },
+                                    options: vec![
+                                        ("nominatim".to_string(), "Nominatim (OpenStreetMap)".to_string()),
+                                        ("google".to_string(), "Google Maps Geocoding".to_string()),
+                                        ("mapbox".to_string(), "Mapbox Geocoding".to_string()),
+                                        ("photon".to_string(), "Photon (Local-first / Self-hosted)".to_string()),
+                                    ],
+                                }
+                            }
+                            
+                            if *geocoder_provider.read() == "google" || *geocoder_provider.read() == "mapbox" {
+                                div { class: "space-y-2",
+                                    label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
+                                        if *geocoder_provider.read() == "google" { "Google Maps API Key" } else { "Mapbox Access Token" }
+                                    }
+                                    crate::components::Input {
+                                        class: "h-11 rounded-xl border-border/40 bg-background/40",
+                                        r#type: "text".to_string(),
+                                        value: geocoder_api_key.read().to_string(),
+                                        oninput: move |e: FormEvent| {
+                                            geocoder_api_key.set(e.value());
+                                        },
+                                        onblur: {
+                                            let mut save = save_settings.clone();
+                                            move |_| save()
+                                        }
+                                    }
+                                }
+                            }
+
+                            if *geocoder_provider.read() == "photon" || *geocoder_provider.read() == "nominatim" {
+                                div { class: "space-y-2",
+                                    label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
+                                        "Custom Geocoder API Base URL (Optional)"
+                                    }
+                                    crate::components::Input {
+                                        class: "h-11 rounded-xl border-border/40 bg-background/40",
+                                        r#type: "text".to_string(),
+                                        value: geocoder_url.read().to_string(),
+                                        placeholder: if *geocoder_provider.read() == "photon" { "http://localhost:2322" } else { "https://nominatim.openstreetmap.org" },
+                                        oninput: move |e: FormEvent| {
+                                            geocoder_url.set(e.value());
+                                        },
+                                        onblur: {
+                                            let mut save = save_settings.clone();
+                                            move |_| save()
+                                        }
+                                    }
+                                }
+                            }
+
+                            if *geocoder_provider.read() == "nominatim" {
+                                div { class: "rounded-xl border border-warning/20 bg-warning/5 p-3 text-xs text-warning-foreground/90 flex gap-2 items-start",
+                                    components::LucideIcon { name: "alert-triangle", class: "h-4 w-4 shrink-0 mt-0.5" }
+                                    span {
+                                        "Warning: Nominatim (OpenStreetMap) has strict rate limits. For commercial scale, configure Google, Mapbox, or run Photon locally."
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    components::Card { class: "flex h-full flex-col overflow-hidden border-2 border-border/50 bg-card/40 shadow-sm backdrop-blur-md",
+                        components::CardHeader { class: "pb-4",
+                            div { class: "flex items-center gap-3",
+                                div { class: "rounded-xl bg-primary/10 p-2.5 text-primary shadow-inner",
+                                    components::LucideIcon { name: "shield", class: "h-5 w-5" }
+                                }
+                                div {
+                                    components::CardTitle { class: "text-lg font-bold tracking-tight",
+                                        "Skatteverket Integration"
+                                    }
+                                    components::CardDescription { class: "text-xs",
+                                        "Configure credentials for direct RUT-avdrag tax authority submissions."
+                                    }
+                                }
+                            }
+                        }
+                        components::CardContent { class: "grid flex-1 grid-cols-1 gap-4",
+                            div { class: "space-y-2",
+                                label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
+                                    "Company Org Number (Organisationsnummer)"
+                                }
+                                crate::components::Input {
+                                    class: "h-11 rounded-xl border-border/40 bg-background/40",
+                                    r#type: "text".to_string(),
+                                    value: company_org_number.read().to_string(),
+                                    placeholder: "556123-4567",
+                                    oninput: move |e: FormEvent| {
+                                        company_org_number.set(e.value());
+                                    },
+                                    onblur: {
+                                        let mut save = save_settings.clone();
+                                        move |_| save()
+                                    }
+                                }
+                            }
+                            
+                            div { class: "space-y-2",
+                                label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
+                                    "Skatteverket API Endpoint URL"
+                                }
+                                crate::components::Input {
+                                    class: "h-11 rounded-xl border-border/40 bg-background/40",
+                                    r#type: "text".to_string(),
+                                    value: skatteverket_api_url.read().to_string(),
+                                    placeholder: "https://test.skatteverket.se/service/rotrut/v6",
+                                    oninput: move |e: FormEvent| {
+                                        skatteverket_api_url.set(e.value());
+                                    },
+                                    onblur: {
+                                        let mut save = save_settings.clone();
+                                        move |_| save()
+                                    }
+                                }
+                            }
+
+                            div { class: "space-y-2",
+                                label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
+                                    "Corporate TLS Certificate (.p12 / Base64 Content)"
+                                }
+                                textarea {
+                                    class: "w-full text-xs p-3 rounded-xl border border-border/40 bg-background/40 text-foreground placeholder-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20",
+                                    rows: 3,
+                                    value: skatteverket_corporate_cert.read().to_string(),
+                                    placeholder: "Paste Base64 encoded corporate PKCS12 certificate...",
+                                    oninput: move |e: FormEvent| {
+                                        skatteverket_corporate_cert.set(e.value());
+                                    },
+                                    onblur: {
+                                        let mut save = save_settings.clone();
+                                        move |_| save()
+                                    }
+                                }
+                            }
+
+                            if skatteverket_corporate_cert.read().trim().is_empty() {
+                                div { class: "rounded-xl border border-red-500/20 bg-red-500/5 p-3 text-xs text-red-500 flex gap-2 items-start",
+                                    components::LucideIcon { name: "alert-octagon", class: "h-4 w-4 shrink-0 mt-0.5" }
+                                    span {
+                                        "Warning: Corporate certificate is missing. Direct API submissions to Skatteverket will fail."
+                                    }
+                                }
+                            } else {
+                                div { class: "rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs text-emerald-600 flex gap-2 items-start",
+                                    components::LucideIcon { name: "shield-check", class: "h-4 w-4 shrink-0 mt-0.5" }
+                                    span {
+                                        "Active: Corporate certificate is configured. Direct API submissions enabled."
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    components::Card { class: "flex h-full flex-col overflow-hidden border-2 border-border/50 bg-card/40 shadow-sm backdrop-blur-md",
+                        components::CardHeader { class: "pb-4",
+                            div { class: "flex items-center gap-3",
+                                div { class: "rounded-xl bg-primary/10 p-2.5 text-primary shadow-inner",
+                                    components::LucideIcon { name: "map-pin", class: "h-5 w-5" }
+                                }
+                                div {
+                                    components::CardTitle { class: "text-lg font-bold tracking-tight",
+                                        "GPS Telemetry Hook"
+                                    }
+                                    components::CardDescription { class: "text-xs",
+                                        "Configure authentication tokens for physical IoT trackers and mobile apps."
+                                    }
+                                }
+                            }
+                        }
+                        components::CardContent { class: "grid flex-1 grid-cols-1 gap-4",
+                            div { class: "space-y-2",
+                                label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
+                                    "GPS Webhook Token"
+                                }
+                                crate::components::Input {
+                                    class: "h-11 rounded-xl border-border/40 bg-background/40",
+                                    r#type: "text".to_string(),
+                                    value: gps_webhook_token.read().to_string(),
+                                    placeholder: "Enter authorization token...",
+                                    oninput: move |e: FormEvent| {
+                                        gps_webhook_token.set(e.value());
+                                    },
+                                    onblur: {
+                                        let mut save = save_settings.clone();
+                                        move |_| save()
+                                    }
+                                }
+                            }
+                            
+                            div { class: "p-2.5 rounded-lg bg-background/50 border border-border/20 space-y-1 text-[10px] text-left",
+                                div { class: "flex justify-between items-center gap-2",
+                                    span { class: "text-muted-foreground", "Webhook Ingest Endpoint:" }
+                                    span { class: "font-mono font-bold text-foreground break-all select-all", "https://api.yntra.se/v1/vehicles/gps-webhook" }
                                 }
                             }
                         }

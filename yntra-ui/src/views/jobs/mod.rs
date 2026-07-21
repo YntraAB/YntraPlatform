@@ -54,6 +54,8 @@ fn trigger_download(content: &str, file_name: &str) {
 }
 
 mod details;
+mod dispatch;
+mod public_widget;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub struct ChecklistItem {
@@ -81,6 +83,11 @@ pub fn JobsView(props: JobsViewProps) -> Element {
     let mut db_trigger = props.db_trigger;
     let state = use_context::<crate::state::AppState>();
     let workspace_opt = state.workspace.read().clone();
+    let workspace_id = if let Some(ref ws) = workspace_opt {
+        ws.id.clone()
+    } else {
+        "workspace-1".to_string()
+    };
     let settings_json: serde_json::Value = if let Some(ref ws) = workspace_opt {
         serde_json::from_str(&ws.settings).unwrap_or_default()
     } else {
@@ -90,6 +97,12 @@ pub fn JobsView(props: JobsViewProps) -> Element {
         .get("show_rut_deduction")
         .and_then(|v| v.as_bool())
         .unwrap_or_else(|| region == "SE");
+
+    let has_skatteverket_cert = settings_json
+        .get("skatteverket_corporate_cert")
+        .and_then(|v| v.as_str())
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
 
     // Fetch jobs from the FFI service
     let jobs_resource = use_resource(move || {
@@ -300,6 +313,18 @@ pub fn JobsView(props: JobsViewProps) -> Element {
     tabs_list.push(components::tabs::TabItem {
         value: "fleet".to_string(),
         label: "Fordonsflotta".to_string(),
+        icon: None,
+    });
+
+    tabs_list.push(components::tabs::TabItem {
+        value: "dispatch".to_string(),
+        label: "Resursplanering".to_string(),
+        icon: None,
+    });
+
+    tabs_list.push(components::tabs::TabItem {
+        value: "booking_widget".to_string(),
+        label: "Embeddbar Bokning".to_string(),
         icon: None,
     });
 
@@ -1030,6 +1055,18 @@ pub fn JobsView(props: JobsViewProps) -> Element {
                         }
                     }
                 }
+            } else if *active_status_state.read() == "dispatch" {
+                dispatch::DispatchBoard {
+                    active_user_id: props.active_user_id.read().clone(),
+                    region: region.clone(),
+                    db_trigger: db_trigger,
+                    vehicles: vehicles.clone(),
+                    jobs: jobs.clone(),
+                }
+            } else if *active_status_state.read() == "booking_widget" {
+                public_widget::PublicBookingPreview {
+                    workspace_id: workspace_id.clone(),
+                }
             } else {
                 div {
                     style: "display: flex; gap: 1.5rem; align-items: start; width: 100%; flex-wrap: wrap; box-sizing: border-box;",
@@ -1251,6 +1288,15 @@ pub fn JobsView(props: JobsViewProps) -> Element {
                                         div { class: "flex justify-between",
                                             span { class: "text-muted-foreground", "Totalt belopp att ansöka:" }
                                             span { class: "font-bold text-emerald-500", "{selected_amount_sum} kr" }
+                                        }
+                                    }
+                                    
+                                    if !has_skatteverket_cert {
+                                        div { class: "rounded-xl border border-red-500/20 bg-red-500/5 p-3 text-xs text-red-500 flex gap-2 items-start",
+                                            components::LucideIcon { name: "alert-octagon", class: "h-4 w-4 shrink-0 mt-0.5" }
+                                            span {
+                                                "Error: Skatteverket corporate certificate is missing in Workspace Settings. Submissions will fail."
+                                            }
                                         }
                                     }
                                     
