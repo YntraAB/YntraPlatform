@@ -494,7 +494,77 @@ pub struct MoveInventoryItem {
     pub handling_notes: Option<String>,
     pub updated_at: i64,
     pub sync_status: String,
+    pub room_name: Option<String>,
+    pub estimated_weight_kg: f64,
+    pub preset_id: Option<String>,
+    pub barcode_tag: Option<String>,
+    pub scan_status: String,
+    pub last_scanned_at: Option<i64>,
+    pub last_scanned_by: Option<String>,
 }
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct InventoryScanManifest {
+    pub job_ticket_id: String,
+    pub total_items: i32,
+    pub packed_count: i32,
+    pub loaded_count: i32,
+    pub unloaded_count: i32,
+    pub missing_count: i32,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct FurniturePreset {
+    pub id: String,
+    pub category: String,
+    pub name: String,
+    pub default_volume_m3: f64,
+    pub default_weight_kg: f64,
+    pub default_handling_notes: Option<String>,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct MoveInventorySummary {
+    pub total_volume_m3: f64,
+    pub total_weight_kg: f64,
+    pub total_item_count: i32,
+    pub recommended_truck_m3: f64,
+    pub recommended_crew_size: i32,
+}
+
 
 #[derive(
     uniffi::Record,
@@ -1483,6 +1553,143 @@ pub struct SkatteverketSubmitResult {
     pub total_amount: f64,
     pub status: String,
     pub message: String,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct RouteSegment {
+    pub segment_index: i32,
+    pub start_address: String,
+    pub end_address: String,
+    pub distance_km: f64,
+    pub estimated_duration_minutes: f64,
+    pub segment_type: String,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct MultiSegmentRouteSummary {
+    pub total_distance_km: f64,
+    pub total_duration_minutes: f64,
+    pub total_segments: i32,
+    pub segments: Vec<RouteSegment>,
+    pub storage_in_transit_stops: i32,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct CrewDispatchRequirement {
+    pub is_matched: bool,
+    pub required_crew_count: i32,
+    pub assigned_crew_count: i32,
+    pub required_license_class: String,
+    pub required_equipment: Vec<String>,
+    pub missing_equipment: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct MobilePosTerminalSession {
+    pub session_id: String,
+    pub invoice_id: String,
+    pub connection_token: String,
+    pub payment_intent_id: String,
+    pub reader_id: Option<String>,
+    pub amount: f64,
+    pub currency: String,
+    pub provider: String,
+    pub status: String,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct AccountingLedgerSummary {
+    pub total_accounts_receivable: f64,
+    pub total_revenue_ytd: f64,
+    pub total_rut_tax_claims_pending: f64,
+    pub total_payroll_liabilities: f64,
+    pub primary_erp_provider: String,
+    pub last_sync_timestamp: i64,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct BillOfLading {
+    pub bol_number: String,
+    pub job_ticket_id: String,
+    pub carrier_name: String,
+    pub shipper_name: String,
+    pub origin_address: String,
+    pub destination_address: String,
+    pub valuation_option: String,
+    pub valuation_declared_amount: f64,
+    pub valuation_deductible: f64,
+    pub valuation_premium: f64,
+    pub total_estimated_weight_lbs: f64,
+    pub legal_terms: String,
+    pub customer_signature_hash: Option<String>,
+    pub created_at: i64,
 }
 
 
