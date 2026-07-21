@@ -79,8 +79,26 @@ pub async fn initiate_adyen_payment(
             .map_err(|e| YntraError::NetworkError(e.to_string()))?;
         Ok(session)
     } else if let Some(key) = api_key {
-        let url = "https://checkout-test.adyen.com/v70/sessions";
-        let res = client.post(url)
+        let api_base_url = get_config_val("api_base_url", "API_BASE_URL", &settings_json).await
+            .unwrap_or_else(|| "https://api.yntra.se".to_string());
+        let api_base_url = api_base_url.trim_end_matches('/');
+
+        let url = if let Some(custom_url) = get_config_val("adyen_checkout_url", "ADYEN_CHECKOUT_URL", &settings_json).await {
+            custom_url
+        } else {
+            let adyen_env = get_config_val("adyen_environment", "ADYEN_ENVIRONMENT", &settings_json).await
+                .unwrap_or_else(|| "test".to_string());
+            if adyen_env.to_lowercase() == "live" || adyen_env.to_lowercase() == "production" {
+                if let Some(prefix) = get_config_val("adyen_live_prefix", "ADYEN_LIVE_PREFIX", &settings_json).await {
+                    format!("https://{}-checkout-live.adyenpayments.com/checkout/v70/sessions", prefix)
+                } else {
+                    return Err(YntraError::ValidationError("Adyen live prefix (ADYEN_LIVE_PREFIX) is required for live environment payments.".to_string()));
+                }
+            } else {
+                "https://checkout-test.adyen.com/v70/sessions".to_string()
+            }
+        };
+        let res = client.post(&url)
             .header("x-API-key", key)
             .json(&serde_json::json!({
                 "amount": {
@@ -89,7 +107,7 @@ pub async fn initiate_adyen_payment(
                 },
                 "reference": invoice_id,
                 "merchantAccount": merchant_account,
-                "returnUrl": "https://api.yntra.se/v1/billing/adyen/callback",
+                "returnUrl": format!("{}/v1/billing/adyen/callback", api_base_url),
             }))
             .send()
             .await
