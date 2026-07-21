@@ -508,7 +508,7 @@ pub async fn get_directions_url(
         Some(org) => {
             if stops.is_empty() {
                 format!(
-                    "https://www.google.com/maps/dir/?api=1&origin={}&destination={}",
+                    "https://www.google.com/maps/dir/?api=1&origin={}&destination={}&travelmode=truck&dirflg=t",
                     urlencode(&org),
                     urlencode(&dest)
                 )
@@ -519,7 +519,7 @@ pub async fn get_directions_url(
                     .collect::<Vec<String>>()
                     .join("%7C");
                 format!(
-                    "https://www.google.com/maps/dir/?api=1&origin={}&destination={}&waypoints={}",
+                    "https://www.google.com/maps/dir/?api=1&origin={}&destination={}&waypoints={}&travelmode=truck&dirflg=t",
                     urlencode(&org),
                     urlencode(&dest),
                     waypoints_str
@@ -529,7 +529,7 @@ pub async fn get_directions_url(
         None => {
             if stops.is_empty() {
                 format!(
-                    "https://www.google.com/maps/dir/?api=1&destination={}",
+                    "https://www.google.com/maps/dir/?api=1&destination={}&travelmode=truck&dirflg=t",
                     urlencode(&dest)
                 )
             } else {
@@ -539,7 +539,7 @@ pub async fn get_directions_url(
                     .collect::<Vec<String>>()
                     .join("%7C");
                 format!(
-                    "https://www.google.com/maps/dir/?api=1&destination={}&waypoints={}",
+                    "https://www.google.com/maps/dir/?api=1&destination={}&waypoints={}&travelmode=truck&dirflg=t",
                     urlencode(&dest),
                     waypoints_str
                 )
@@ -548,4 +548,149 @@ pub async fn get_directions_url(
     };
 
     Ok(url)
+}
+
+#[uniffi::export]
+pub async fn get_commercial_truck_directions_url(
+    requester_user_id: String,
+    job_id: String,
+    vehicle_height_m: Option<f64>,
+    vehicle_weight_tons: Option<f64>,
+    navigation_provider: Option<String>,
+) -> Result<String, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let (workspace_id, origin_address, destination_address, location_address, route_stops_json): (String, Option<String>, Option<String>, String, Option<String>) = conn
+        .query_row(
+            "SELECT workspace_id, origin_address, destination_address, location_address, route_stops_json FROM job_tickets WHERE id = ?1",
+            crate::params![&job_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
+
+    if auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let origin = origin_address.filter(|s| !s.trim().is_empty());
+    let dest = destination_address.filter(|s| !s.trim().is_empty()).unwrap_or(location_address);
+
+    let stops_str = route_stops_json.unwrap_or_else(|| "[]".to_string());
+    let stops: Vec<String> = serde_json::from_str(&stops_str).unwrap_or_default();
+
+    let provider = navigation_provider.unwrap_or_else(|| "google_truck".to_string());
+
+    let height = vehicle_height_m.unwrap_or(3.8);
+    let weight = vehicle_weight_tons.unwrap_or(12.0);
+
+    let url = match provider.as_str() {
+        "here_truck" => {
+            format!(
+                "https://wego.here.com/directions/truck/{}/{}?height={}&weight={}",
+                origin.as_deref().map(urlencode).unwrap_or_default(),
+                urlencode(&dest),
+                height,
+                weight
+            )
+        }
+        "tomtom_truck" => {
+            format!(
+                "https://mydrive.tomtom.com/goroute?origin={}&destination={}&vehicleType=truck&height={}",
+                origin.as_deref().map(urlencode).unwrap_or_default(),
+                urlencode(&dest),
+                height
+            )
+        }
+        _ => {
+            let waypoints_part = if stops.is_empty() {
+                "".to_string()
+            } else {
+                format!("&waypoints={}", stops.iter().map(|s| urlencode(s)).collect::<Vec<_>>().join("%7C"))
+            };
+
+            let origin_part = origin.as_deref().map(|org| format!("&origin={}", urlencode(org))).unwrap_or_default();
+
+            format!(
+                "https://www.google.com/maps/dir/?api=1{}&destination={}{}&travelmode=truck&dirflg=t",
+                origin_part,
+                urlencode(&dest),
+                waypoints_part
+            )
+        }
+    };
+
+    Ok(url)
+}
+
+#[uniffi::export]
+pub async fn verify_commercial_route_restrictions(
+    requester_user_id: String,
+    job_id: String,
+    vehicle_height_m: f64,
+    vehicle_weight_tons: f64,
+    emission_class: String,
+) -> Result<crate::CommercialRouteRestrictions, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let (workspace_id, origin_address, destination_address, location_address, origin_permit, dest_permit): (String, Option<String>, Option<String>, String, bool, bool) = conn
+        .query_row(
+            "SELECT workspace_id, origin_address, destination_address, location_address, origin_parking_permit_needed, destination_parking_permit_needed FROM job_tickets WHERE id = ?1",
+            crate::params![&job_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get::<bool>(4)?, r.get::<bool>(5)?)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
+
+    if auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let combined_addresses = format!(
+        "{} {} {}",
+        origin_address.unwrap_or_default(),
+        destination_address.unwrap_or_default(),
+        location_address
+    ).to_lowercase();
+
+    let mut details = Vec::new();
+    let mut low_bridge_warning = false;
+    let mut environmental_zone_warning = false;
+    let mut weight_limit_warning = false;
+    let parking_permit_required = origin_permit || dest_permit;
+
+    // 1. Height clearance check (< 3.8m standard clearance)
+    if vehicle_height_m >= 3.8 {
+        low_bridge_warning = true;
+        details.push(format!("Low bridge height clearance risk: vehicle height {:.1}m exceeds 3.8m limit.", vehicle_height_m));
+    }
+
+    // 2. Weight limit check (> 3.5 tons residential roads)
+    if vehicle_weight_tons >= 3.5 {
+        weight_limit_warning = true;
+        details.push(format!("Heavy vehicle weight limit risk: {:.1}t vehicle exceeds 3.5t residential zone limit.", vehicle_weight_tons));
+    }
+
+    // 3. Environmental Zone (Miljözon / LEZ) check for major cities
+    let env_zone_cities = ["stockholm", "göteborg", "gothenburg", "malmö", "malmo", "berlin", "london", "paris", "munich", "hamburg"];
+    let is_env_zone_city = env_zone_cities.iter().any(|city| combined_addresses.contains(city));
+
+    if is_env_zone_city && (emission_class.to_lowercase().contains("euro 4") || emission_class.to_lowercase().contains("euro 5") || emission_class.to_lowercase().contains("diesel")) {
+        environmental_zone_warning = true;
+        details.push(format!("Environmental Zone (Miljözon) warning: Emission class '{}' requires Class 1/2 permit in target city zone.", emission_class));
+    }
+
+    if parking_permit_required {
+        details.push("Commercial truck parking permit required for loading/unloading at target address.".to_string());
+    }
+
+    Ok(crate::CommercialRouteRestrictions {
+        low_bridge_warning,
+        environmental_zone_warning,
+        weight_limit_warning,
+        parking_permit_required,
+        restriction_details: details,
+    })
 }

@@ -246,9 +246,25 @@ mod tests {
         assert_eq!(v_b.latitude, Some(57.7089));
         assert_eq!(v_b.longitude, Some(11.9746));
 
-        // Test case C: Invalid Webhook Token (should fail with AuthError)
-        let payload_c = r#"{"deviceId": "IMEI-HW-999", "lat": 59.3293, "lon": 18.0686}"#;
-        let err_c = register_gps_ping_from_webhook("ws-hw-gps".to_string(), "wrong-token".to_string(), payload_c.to_string()).await;
+        // Test case C: Samsara Payload (data array wrapper with nested gps object)
+        let payload_samsara = r#"{"data": [{"vehicleId": "IMEI-HW-999", "gps": {"latitude": 55.6050, "longitude": 13.0038}}]}"#;
+        register_gps_ping_from_webhook("ws-hw-gps".to_string(), "secret-token-123".to_string(), payload_samsara.to_string()).await.unwrap();
+        let list_s = get_vehicles("u-hw-gps-staff".to_string()).await.unwrap();
+        let v_s = list_s.iter().find(|item| item.id == v.id).unwrap();
+        assert_eq!(v_s.latitude, Some(55.6050));
+        assert_eq!(v_s.longitude, Some(13.0038));
+
+        // Test case D: ABAX Payload (equipmentId with position object)
+        let payload_abax = r#"{"equipmentId": "IMEI-HW-999", "position": {"lat": 60.1699, "lon": 24.9384}}"#;
+        register_gps_ping_from_webhook("ws-hw-gps".to_string(), "secret-token-123".to_string(), payload_abax.to_string()).await.unwrap();
+        let list_ab = get_vehicles("u-hw-gps-staff".to_string()).await.unwrap();
+        let v_ab = list_ab.iter().find(|item| item.id == v.id).unwrap();
+        assert_eq!(v_ab.latitude, Some(60.1699));
+        assert_eq!(v_ab.longitude, Some(24.9384));
+
+        // Test case E: Invalid Webhook Token (should fail with AuthError)
+        let payload_err = r#"{"deviceId": "IMEI-HW-999", "lat": 59.3293, "lon": 18.0686}"#;
+        let err_c = register_gps_ping_from_webhook("ws-hw-gps".to_string(), "wrong-token".to_string(), payload_err.to_string()).await;
         assert!(matches!(err_c, Err(YntraError::AuthError(_))));
 
         // Test case D: Non-existent Device ID (should fail with NotFoundError)
@@ -382,22 +398,44 @@ pub async fn register_gps_ping_from_webhook(
     
     let parsed: serde_json::Value = serde_json::from_str(&payload_json)
         .map_err(|e| YntraError::ValidationError(format!("Invalid JSON payload: {}", e)))?;
+    
+    // Support root array or data array wrappers (e.g. Samsara, Teltonika, Fleet Complete)
+    let item = if let Some(arr) = parsed.as_array() {
+        arr.first().cloned().unwrap_or(parsed.clone())
+    } else if let Some(data_arr) = parsed.get("data").and_then(|d| d.as_array()) {
+        data_arr.first().cloned().unwrap_or(parsed.clone())
+    } else {
+        parsed.clone()
+    };
         
-    let device_id = parsed.get("deviceId")
-        .or_else(|| parsed.get("device_id"))
-        .or_else(|| parsed.get("imei"))
-        .or_else(|| parsed.get("id"))
+    // Multi-provider Device ID extraction (Samsara, Teltonika, ABAX, Fleet Complete, Traccar)
+    let device_id = item.get("deviceId")
+        .or_else(|| item.get("device_id"))
+        .or_else(|| item.get("imei"))
+        .or_else(|| item.get("id"))
+        .or_else(|| item.get("serial"))
+        .or_else(|| item.get("serialNumber"))
+        .or_else(|| item.get("equipmentId"))
+        .or_else(|| item.get("assetId"))
+        .or_else(|| item.get("vehicleId"))
+        .or_else(|| item.get("vehicle_id"))
         .and_then(|v| v.as_str().map(|s| s.to_string()).or_else(|| v.as_i64().map(|i| i.to_string())))
         .ok_or_else(|| YntraError::ValidationError("Missing device identification".to_string()))?;
         
-    let latitude = parsed.get("lat")
-        .or_else(|| parsed.get("latitude"))
+    // Multi-provider Coordinate extraction (Direct or nested under 'gps', 'location', or 'position')
+    let location_obj = item.get("gps")
+        .or_else(|| item.get("location"))
+        .or_else(|| item.get("position"))
+        .unwrap_or(&item);
+
+    let latitude = location_obj.get("lat")
+        .or_else(|| location_obj.get("latitude"))
         .and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok())))
         .ok_or_else(|| YntraError::ValidationError("Missing or invalid latitude".to_string()))?;
         
-    let longitude = parsed.get("lon")
-        .or_else(|| parsed.get("lng"))
-        .or_else(|| parsed.get("longitude"))
+    let longitude = location_obj.get("lon")
+        .or_else(|| location_obj.get("lng"))
+        .or_else(|| location_obj.get("longitude"))
         .and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok())))
         .ok_or_else(|| YntraError::ValidationError("Missing or invalid longitude".to_string()))?;
         

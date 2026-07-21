@@ -36,7 +36,7 @@ async fn test_gps_routing_urls() {
 
     // Verify routing URL with both origin and destination
     let url1 = get_directions_url("u-gps-staff".to_string(), job1.id.clone()).await.unwrap();
-    assert_eq!(url1, "https://www.google.com/maps/dir/?api=1&origin=Origin%20St%201&destination=Dest%20St%205");
+    assert_eq!(url1, "https://www.google.com/maps/dir/?api=1&origin=Origin%20St%201&destination=Dest%20St%205&travelmode=truck&dirflg=t");
 
     // 2. Create job ticket with destination only (relying on fallback to location_address)
     let job2 = create_job_ticket(
@@ -62,7 +62,7 @@ async fn test_gps_routing_urls() {
     .unwrap();
 
     let url2 = get_directions_url("u-gps-staff".to_string(), job2.id.clone()).await.unwrap();
-    assert_eq!(url2, "https://www.google.com/maps/dir/?api=1&destination=Location%20St%2020");
+    assert_eq!(url2, "https://www.google.com/maps/dir/?api=1&destination=Location%20St%2020&travelmode=truck&dirflg=t");
 
     // Cleanup
     conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-gps-test'", ()).await.unwrap();
@@ -220,4 +220,63 @@ async fn test_geocoding_provider_selection() {
     assert!(coords.1 != 0.0);
 
     conn.execute("DELETE FROM workspaces WHERE id = 'ws-geo-test'", ()).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_commercial_truck_routing_and_restrictions() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    use crate::services::jobs::{get_commercial_truck_directions_url, verify_commercial_route_restrictions};
+
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-truck-test', 'Truck Test WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-truck-staff', 'ws-truck-test', 'staff@truck.io', 'admin')", ()).await.unwrap();
+
+    let job = create_job_ticket(
+        "u-truck-staff".to_string(),
+        "ws-truck-test".to_string(),
+        "Heavy Transport Stockholm".to_string(),
+        "Office relocation".to_string(),
+        "Vasagatan 10, Stockholm".to_string(),
+        "high".to_string(),
+        None,
+        "2026-08-20".to_string(),
+        "[]".to_string(),
+        Some("Kungsgatan 2, Stockholm".to_string()),
+        Some("Vasagatan 10, Stockholm".to_string()),
+        0, 0, true, true, true, true,
+    ).await.unwrap();
+
+    // 1. Verify commercial heavy truck directions URL
+    let truck_url = get_commercial_truck_directions_url(
+        "u-truck-staff".to_string(),
+        job.id.clone(),
+        Some(4.1),
+        Some(18.0),
+        Some("google_truck".to_string()),
+    ).await.unwrap();
+
+    assert!(truck_url.contains("travelmode=truck"));
+    assert!(truck_url.contains("dirflg=t"));
+    assert!(truck_url.contains("origin=Kungsgatan%202%2C%20Stockholm"));
+    assert!(truck_url.contains("destination=Vasagatan%2010%2C%20Stockholm"));
+
+    // 2. Verify commercial route restriction checks
+    let restrictions = verify_commercial_route_restrictions(
+        "u-truck-staff".to_string(),
+        job.id.clone(),
+        4.1,   // 4.1m height (> 3.8m limit) -> low bridge warning
+        18.0,  // 18.0t weight (> 3.5t limit) -> weight limit warning
+        "Euro 4 Diesel".to_string(), // Euro 4 Diesel in Stockholm -> environmental zone warning
+    ).await.unwrap();
+
+    assert!(restrictions.low_bridge_warning);
+    assert!(restrictions.environmental_zone_warning);
+    assert!(restrictions.weight_limit_warning);
+    assert!(restrictions.parking_permit_required);
+    assert!(restrictions.restriction_details.len() >= 4);
+
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-truck-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-truck-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-truck-test'", ()).await.unwrap();
 }
