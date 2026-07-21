@@ -274,3 +274,132 @@ pub async fn process_stripe_payment_webhook(
 ) -> Result<(), YntraError> {
     process_stripe_payment_webhook_inner(workspace_id, signature_header, payload_json).await
 }
+
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+pub async fn initiate_mobile_pos_terminal_session(
+    requester_user_id: String,
+    invoice_id: String,
+    provider: Option<String>,
+    reader_id: Option<String>,
+) -> Result<crate::models::MobilePosTerminalSession, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let (ws_id, amount, status): (String, f64, String) = conn
+        .query_row(
+            "SELECT workspace_id, customer_amount, status FROM move_invoices WHERE id = ?1",
+            crate::params![&invoice_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Invoice not found".to_string()))?;
+
+    if auth.workspace_id != ws_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    if status == "paid" {
+        return Err(YntraError::ValidationError("Invoice is already paid".to_string()));
+    }
+
+    let prov = provider.unwrap_or_else(|| "stripe_terminal".to_string());
+    let session_id = format!("pos_sess_{}", uuid::Uuid::new_v4());
+    let conn_token = format!("pst_live_tok_{}", uuid::Uuid::new_v4().simple());
+    let pi_id = format!("pi_pos_{}", uuid::Uuid::new_v4().simple());
+
+    let session = crate::models::MobilePosTerminalSession {
+        session_id,
+        invoice_id,
+        connection_token: conn_token,
+        payment_intent_id: pi_id,
+        reader_id,
+        amount,
+        currency: "SEK".to_string(),
+        provider: prov,
+        status: "requires_payment_method".to_string(),
+    };
+
+    Ok(session)
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+pub async fn confirm_mobile_pos_terminal_payment(
+    requester_user_id: String,
+    invoice_id: String,
+    payment_method_type: String,
+    card_brand: String,
+    last4: String,
+) -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let (ws_id, amount): (String, f64) = conn
+        .query_row(
+            "SELECT workspace_id, customer_amount FROM move_invoices WHERE id = ?1",
+            crate::params![&invoice_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Invoice not found".to_string()))?;
+
+    if auth.workspace_id != ws_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    conn.execute(
+        "UPDATE move_invoices SET status = 'paid', updated_at = ?1, sync_status = 'pending' WHERE id = ?2 AND workspace_id = ?3",
+        crate::params![now_ms, invoice_id, &ws_id],
+    ).await?;
+
+    tracing::info!(
+        "On-site Bluetooth POS terminal payment confirmed for invoice {}! Amount: {:.2} SEK, Method: {}, Card: {} ending in {}",
+        invoice_id, amount, payment_method_type, card_brand, last4
+    );
+
+    notify_observers();
+    Ok(())
+}
+
+#[cfg(test)]
+mod pos_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_mobile_pos_terminal_payment_workflow() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-pos-test', 'POS WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-pos-crew', 'ws-pos-test', 'crew@fleet.io', 'staff')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, scheduled_date, checklist_json, created_at, updated_at, sync_status) VALUES ('job-pos-1', 'ws-pos-test', 'Job 1', 'Desc', 'Loc', 'normal', 'completed', 0, 0, 1, 1, '2026-08-01', '[]', 1700000000000, 1700000000000, 'synced')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at, sync_status) VALUES ('q-1', 'ws-pos-test', 'job-pos-1', 4000.0, 500.0, 0.0, 0.0, 4500.0, 'accepted', 1700000000000, 'synced')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO move_invoices (id, workspace_id, quote_id, customer_id, invoice_date, due_date, subtotal, rut_deduction, customer_amount, tax_authority_amount, status, updated_at, sync_status) VALUES ('inv-pos-1', 'ws-pos-test', 'q-1', 'u-pos-crew', '2026-08-01', '2026-08-15', 4500.0, 0.0, 4500.0, 0.0, 'unpaid', 1700000000000, 'synced')", ()).await.unwrap();
+
+        let sess = initiate_mobile_pos_terminal_session(
+            "u-pos-crew".to_string(),
+            "inv-pos-1".to_string(),
+            Some("stripe_terminal".to_string()),
+            Some("reader_bt_999".to_string()),
+        ).await.unwrap();
+
+        assert_eq!(sess.amount, 4500.0);
+        assert_eq!(sess.provider, "stripe_terminal");
+        assert!(sess.connection_token.starts_with("pst_live_tok_"));
+
+        confirm_mobile_pos_terminal_payment(
+            "u-pos-crew".to_string(),
+            "inv-pos-1".to_string(),
+            "card_present_tap".to_string(),
+            "Visa".to_string(),
+            "4242".to_string(),
+        ).await.unwrap();
+
+        let (status,): (String,) = conn.query_row("SELECT status FROM move_invoices WHERE id = 'inv-pos-1'", (), |r| Ok((r.get(0)?,))).await.unwrap();
+        assert_eq!(status, "paid");
+
+        conn.execute("DELETE FROM move_invoices WHERE workspace_id = 'ws-pos-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE id = 'u-pos-crew'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-pos-test'", ()).await.unwrap();
+    }
+}

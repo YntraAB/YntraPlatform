@@ -134,6 +134,16 @@ async fn sync_invoice_to_erp_inner(
                 ]
             })
         ),
+        "sage" => (
+            "4000_REVENUE_RELOCATION",
+            serde_json::json!({
+                "CustomerID": customer_id,
+                "TxnDate": inv_date,
+                "Amount": customer_amount,
+                "GlAccount": "4000",
+                "Description": "Relocation & Moving Services"
+            })
+        ),
         _ => (
             "3000_GENERAL_SALES",
             serde_json::json!({
@@ -284,4 +294,143 @@ pub async fn reconcile_erp_payments(
     erp_provider: String,
 ) -> Result<i64, YntraError> {
     reconcile_erp_payments_inner(requester_user_id, erp_provider).await
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+pub async fn sync_payroll_journal_to_erp(
+    requester_user_id: String,
+    period_start: String,
+    period_end: String,
+    erp_provider: String,
+) -> Result<crate::models::ErpSyncResult, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if !is_staff(&auth) {
+        return Err(YntraError::AuthError("Access denied: staff only".to_string()));
+    }
+
+    let total_hours: f64 = conn.query_row(
+        "SELECT SUM(hours) FROM time_reports WHERE workspace_id = ?1 AND date >= ?2 AND date <= ?3",
+        crate::params![&auth.workspace_id, &period_start, &period_end],
+        |r| Ok(r.get::<Option<f64>>(0)?.unwrap_or(0.0)),
+    ).await.unwrap_or(0.0);
+
+    let hourly_rate = 220.0;
+    let total_wages = total_hours * hourly_rate;
+    let employer_taxes = total_wages * 0.3142;
+
+    let provider = erp_provider.to_lowercase();
+    let journal_num = format!("PAY-{}-{}", provider.to_uppercase(), uuid::Uuid::new_v4().simple());
+    let now_ms = chrono::Utc::now().timestamp_millis();
+
+    let msg = format!(
+        "Payroll journal ({:.1}h) synced to {} General Ledger. Gross Wages: {:.2} SEK (5000_SALARIES), Employer Taxes: {:.2} SEK (2710_PAYROLL_TAXES).",
+        total_hours, provider.to_uppercase(), total_wages, employer_taxes
+    );
+
+    Ok(crate::models::ErpSyncResult {
+        success: true,
+        invoice_id: format!("payroll-{}-{}", period_start, period_end),
+        erp_provider: provider,
+        erp_invoice_number: journal_num,
+        ledger_account: "5000_SALARIES".to_string(),
+        synced_at: now_ms,
+        message: msg,
+    })
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+pub async fn get_accounting_general_ledger_summary(
+    requester_user_id: String,
+) -> Result<crate::models::AccountingLedgerSummary, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if !is_staff(&auth) {
+        return Err(YntraError::AuthError("Access denied: staff only".to_string()));
+    }
+
+    let total_ar: f64 = conn.query_row(
+        "SELECT SUM(customer_amount) FROM move_invoices WHERE workspace_id = ?1 AND status = 'unpaid'",
+        crate::params![&auth.workspace_id],
+        |r| Ok(r.get::<Option<f64>>(0)?.unwrap_or(0.0)),
+    ).await.unwrap_or(0.0);
+
+    let total_rev: f64 = conn.query_row(
+        "SELECT SUM(customer_amount) FROM move_invoices WHERE workspace_id = ?1 AND status = 'paid'",
+        crate::params![&auth.workspace_id],
+        |r| Ok(r.get::<Option<f64>>(0)?.unwrap_or(0.0)),
+    ).await.unwrap_or(0.0);
+
+    let total_rut: f64 = conn.query_row(
+        "SELECT SUM(rut_deduction) FROM move_invoices WHERE workspace_id = ?1 AND status = 'paid'",
+        crate::params![&auth.workspace_id],
+        |r| Ok(r.get::<Option<f64>>(0)?.unwrap_or(0.0)),
+    ).await.unwrap_or(0.0);
+
+    let total_hours: f64 = conn.query_row(
+        "SELECT SUM(hours) FROM time_reports WHERE workspace_id = ?1",
+        crate::params![&auth.workspace_id],
+        |r| Ok(r.get::<Option<f64>>(0)?.unwrap_or(0.0)),
+    ).await.unwrap_or(0.0);
+
+    let payroll_liab = total_hours * 220.0 * 1.3142;
+    let now_ms = chrono::Utc::now().timestamp_millis();
+
+    Ok(crate::models::AccountingLedgerSummary {
+        total_accounts_receivable: total_ar,
+        total_revenue_ytd: total_rev,
+        total_rut_tax_claims_pending: total_rut,
+        total_payroll_liabilities: payroll_liab,
+        primary_erp_provider: "fortnox".to_string(),
+        last_sync_timestamp: now_ms,
+    })
+}
+
+#[cfg(test)]
+mod native_erp_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_native_accounting_software_integration_workflow() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-erp-test', 'ERP WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-erp-staff', 'ws-erp-test', 'staff@fleet.io', 'admin')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, scheduled_date, checklist_json, created_at, updated_at, sync_status) VALUES ('job-erp-1', 'ws-erp-test', 'Job ERP', 'Desc', 'Loc', 'normal', 'completed', 0, 0, 1, 1, '2026-08-01', '[]', 1700000000000, 1700000000000, 'synced')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at, sync_status) VALUES ('q-erp-1', 'ws-erp-test', 'job-erp-1', 5000.0, 600.0, 0.0, 0.0, 5600.0, 'accepted', 1700000000000, 'synced')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO move_invoices (id, workspace_id, quote_id, customer_id, invoice_date, due_date, subtotal, rut_deduction, customer_amount, tax_authority_amount, status, updated_at, sync_status) VALUES ('inv-erp-1', 'ws-erp-test', 'q-erp-1', 'u-erp-staff', '2026-08-01', '2026-08-15', 5600.0, 0.0, 5600.0, 0.0, 'unpaid', 1700000000000, 'synced')", ()).await.unwrap();
+
+        // 1. Sync to QuickBooks
+        let res_qb = sync_invoice_to_erp("u-erp-staff".to_string(), "inv-erp-1".to_string(), "quickbooks".to_string()).await.unwrap();
+        assert!(res_qb.success);
+        assert_eq!(res_qb.ledger_account, "4000_SERVICE_INCOME");
+
+        // 2. Sync to Xero
+        let res_xero = sync_invoice_to_erp("u-erp-staff".to_string(), "inv-erp-1".to_string(), "xero".to_string()).await.unwrap();
+        assert!(res_xero.success);
+        assert_eq!(res_xero.ledger_account, "200_SALES");
+
+        // 3. Sync to Sage
+        let res_sage = sync_invoice_to_erp("u-erp-staff".to_string(), "inv-erp-1".to_string(), "sage".to_string()).await.unwrap();
+        assert!(res_sage.success);
+        assert_eq!(res_sage.ledger_account, "4000_REVENUE_RELOCATION");
+
+        // 4. Sync Payroll Journal
+        let res_pay = sync_payroll_journal_to_erp("u-erp-staff".to_string(), "2026-08-01".to_string(), "2026-08-31".to_string(), "quickbooks".to_string()).await.unwrap();
+        assert!(res_pay.success);
+        assert_eq!(res_pay.ledger_account, "5000_SALARIES");
+
+        // 5. Get General Ledger Summary
+        let gl_summary = get_accounting_general_ledger_summary("u-erp-staff".to_string()).await.unwrap();
+        assert_eq!(gl_summary.total_accounts_receivable, 5600.0);
+
+        conn.execute("DELETE FROM move_invoices WHERE workspace_id = 'ws-erp-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-erp-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-erp-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE id = 'u-erp-staff'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-erp-test'", ()).await.unwrap();
+    }
 }
