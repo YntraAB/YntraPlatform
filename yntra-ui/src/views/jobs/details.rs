@@ -95,6 +95,11 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
     let mut edit_long_carry = use_signal(|| job.long_carry_meters);
     let mut edit_toll_fees = use_signal(|| job.toll_fees);
 
+    let mut show_adjust_invoice = use_signal(|| false);
+    let mut actual_hours_input = use_signal(|| String::new());
+    let mut additional_charges_input = use_signal(|| String::new());
+    let mut adjustment_notes_input = use_signal(|| String::new());
+
     let mut show_add_pack_form = use_signal(|| false);
     let mut new_pack_preset = use_signal(|| "Flyttkartong".to_string());
     let mut new_pack_name = use_signal(|| "Flyttkartong".to_string());
@@ -1414,6 +1419,142 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                         span {
                                             class: if inv.status == "paid" { "text-emerald-500 font-bold" } else { "text-amber-500 font-bold" },
                                             if inv.status == "paid" { "Betald" } else { "Obetald" }
+                                        }
+                                    }
+                                    if let Some(hrs) = inv.actual_hours {
+                                        div { class: "flex items-center justify-between text-[11px] text-muted-foreground",
+                                            span { "Arbetade timmar:" }
+                                            span { class: "font-semibold text-foreground", "{hrs} h" }
+                                        }
+                                    }
+                                    if let Some(charges) = inv.additional_charges {
+                                        div { class: "flex items-center justify-between text-[11px] text-muted-foreground",
+                                            span { "Extra tillägg:" }
+                                            span { class: "font-semibold text-foreground", "{charges} kr" }
+                                        }
+                                    }
+                                    if let Some(ref notes) = inv.adjustment_notes {
+                                        if !notes.is_empty() {
+                                            div { class: "text-[10px] text-muted-foreground italic border-t border-border/10 pt-1 mt-1",
+                                                "Anteckning: {notes}"
+                                            }
+                                        }
+                                    }
+                                    if is_staff {
+                                        div { class: "pt-2 border-t border-border/10 space-y-2",
+                                            button {
+                                                class: "w-full py-1 bg-secondary/80 hover:bg-secondary rounded text-[10px] font-bold text-secondary-foreground border border-border/20 cursor-pointer flex items-center justify-center gap-1 transition-all",
+                                                onclick: {
+                                                    let hrs_opt = inv.actual_hours;
+                                                    let charges_opt = inv.additional_charges;
+                                                    let notes_opt = inv.adjustment_notes.clone();
+                                                    move |_| {
+                                                        if actual_hours_input.read().is_empty() {
+                                                            if let Some(hrs) = hrs_opt {
+                                                                actual_hours_input.set(hrs.to_string());
+                                                            }
+                                                        }
+                                                        if additional_charges_input.read().is_empty() {
+                                                            if let Some(charges) = charges_opt {
+                                                                additional_charges_input.set(charges.to_string());
+                                                            }
+                                                        }
+                                                        if adjustment_notes_input.read().is_empty() {
+                                                            if let Some(ref notes) = notes_opt {
+                                                                adjustment_notes_input.set(notes.clone());
+                                                            }
+                                                        }
+                                                        let curr = *show_adjust_invoice.read();
+                                                        show_adjust_invoice.set(!curr);
+                                                    }
+                                                },
+                                                components::LucideIcon { name: "edit-3", size: "10" }
+                                                if *show_adjust_invoice.read() { "Dölj fakturajustering" } else { "Justera faktura (faktiska timmar/tillägg)" }
+                                            }
+                                            if *show_adjust_invoice.read() {
+                                                div { class: "p-2.5 rounded bg-background border border-border/30 space-y-2 text-left",
+                                                    div { class: "text-[11px] font-bold text-foreground flex items-center gap-1",
+                                                        components::LucideIcon { name: "sliders", size: "12" }
+                                                        "Justering för faktiskt utfall"
+                                                    }
+                                                    div { class: "grid grid-cols-2 gap-2",
+                                                        div { class: "flex flex-col gap-1",
+                                                            label { class: "text-[10px] font-semibold text-muted-foreground", "Arbetade timmar (h)" }
+                                                            input {
+                                                                r#type: "number",
+                                                                step: "0.5",
+                                                                placeholder: "T.ex. 4.5",
+                                                                value: "{actual_hours_input}",
+                                                                oninput: move |e| actual_hours_input.set(e.value().clone()),
+                                                                class: "px-2 py-1 text-xs border border-border bg-background rounded text-foreground w-full",
+                                                            }
+                                                        }
+                                                        div { class: "flex flex-col gap-1",
+                                                            label { class: "text-[10px] font-semibold text-muted-foreground", "Extra tillägg (kr)" }
+                                                            input {
+                                                                r#type: "number",
+                                                                step: "10",
+                                                                placeholder: "T.ex. 250",
+                                                                value: "{additional_charges_input}",
+                                                                oninput: move |e| additional_charges_input.set(e.value().clone()),
+                                                                class: "px-2 py-1 text-xs border border-border bg-background rounded text-foreground w-full",
+                                                            }
+                                                        }
+                                                    }
+                                                    div { class: "flex flex-col gap-1",
+                                                        label { class: "text-[10px] font-semibold text-muted-foreground", "Anteckning om justeringen" }
+                                                        input {
+                                                            r#type: "text",
+                                                            placeholder: "T.ex. Extra timme pga tunga trappor...",
+                                                            value: "{adjustment_notes_input}",
+                                                            oninput: move |e| adjustment_notes_input.set(e.value().clone()),
+                                                            class: "px-2 py-1 text-xs border border-border bg-background rounded text-foreground w-full",
+                                                        }
+                                                    }
+                                                    button {
+                                                        class: "w-full py-1.5 bg-primary hover:opacity-90 rounded text-xs font-bold text-primary-foreground border-0 cursor-pointer flex items-center justify-center gap-1 mt-1 transition-all",
+                                                        onclick: {
+                                                            let inv_id = inv.id.clone();
+                                                            let uid = active_user_id.clone();
+                                                            let mut db_trig = props.db_trigger;
+                                                            let toast_c = toast.clone();
+                                                            move |_| {
+                                                                let inv_id = inv_id.clone();
+                                                                let uid = uid.clone();
+                                                                let toast_c = toast_c.clone();
+                                                                let hrs_val = actual_hours_input.read().parse::<f64>().ok();
+                                                                let charges_val = additional_charges_input.read().parse::<f64>().ok();
+                                                                let notes_val = if adjustment_notes_input.read().trim().is_empty() {
+                                                                    None
+                                                                } else {
+                                                                    Some(adjustment_notes_input.read().trim().to_string())
+                                                                };
+                                                                spawn(async move {
+                                                                    match yntra_core::adjust_invoice_for_actuals(uid, inv_id, hrs_val, charges_val, notes_val).await {
+                                                                        Ok(_) => {
+                                                                            let current = *db_trig.read();
+                                                                            db_trig.set(current + 1);
+                                                                            show_adjust_invoice.set(false);
+                                                                            toast_c.success(
+                                                                                "Faktura omberäknad".to_string(),
+                                                                                dioxus_primitives::toast::ToastOptions::new().description("Fakturan har uppdaterats med faktiskt utfall.")
+                                                                            );
+                                                                        }
+                                                                        Err(e) => {
+                                                                            toast_c.error(
+                                                                                "Justering misslyckades".to_string(),
+                                                                                dioxus_primitives::toast::ToastOptions::new().description(e.to_string())
+                                                                            );
+                                                                        }
+                                                                    }
+                                                                });
+                                                            }
+                                                        },
+                                                        components::LucideIcon { name: "check-circle", size: "12" }
+                                                        "Spara & beräkna om faktura"
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                     if show_rut && inv.status == "paid" && inv.rut_deduction > 0.0 && is_staff {
