@@ -215,11 +215,59 @@ async fn ensure_bol_schema(conn: &database::DbConnection) -> Result<(), YntraErr
             total_estimated_weight_lbs REAL NOT NULL,
             legal_terms TEXT NOT NULL,
             customer_signature_hash TEXT,
-            created_at INTEGER NOT NULL
+            created_at INTEGER NOT NULL,
+            origin_signature_hash TEXT,
+            destination_signature_hash TEXT,
+            signed_origin_at INTEGER,
+            signed_destination_at INTEGER,
+            document_tamper_hash TEXT,
+            inventory_manifest_json TEXT,
+            carrier_dot_number TEXT
         )",
         (),
     ).await?;
+
+    let _ = conn.execute("ALTER TABLE bill_of_ladings ADD COLUMN origin_signature_hash TEXT", ()).await;
+    let _ = conn.execute("ALTER TABLE bill_of_ladings ADD COLUMN destination_signature_hash TEXT", ()).await;
+    let _ = conn.execute("ALTER TABLE bill_of_ladings ADD COLUMN signed_origin_at INTEGER", ()).await;
+    let _ = conn.execute("ALTER TABLE bill_of_ladings ADD COLUMN signed_destination_at INTEGER", ()).await;
+    let _ = conn.execute("ALTER TABLE bill_of_ladings ADD COLUMN document_tamper_hash TEXT", ()).await;
+    let _ = conn.execute("ALTER TABLE bill_of_ladings ADD COLUMN inventory_manifest_json TEXT", ()).await;
+    let _ = conn.execute("ALTER TABLE bill_of_ladings ADD COLUMN carrier_dot_number TEXT", ()).await;
     Ok(())
+}
+
+pub fn calculate_bol_tamper_hash(
+    bol_number: &str,
+    job_ticket_id: &str,
+    shipper_name: &str,
+    origin_address: &str,
+    destination_address: &str,
+    valuation_option: &str,
+    valuation_declared_amount: f64,
+    total_estimated_weight_lbs: f64,
+    inventory_manifest_json: &str,
+    origin_signature_hash: Option<&str>,
+    destination_signature_hash: Option<&str>,
+) -> String {
+    let mut hasher = Sha256::new();
+    let payload = format!(
+        "{}:{}:{}:{}:{}:{}:{:.2}:{:.2}:{}:{}:{}",
+        bol_number,
+        job_ticket_id,
+        shipper_name,
+        origin_address,
+        destination_address,
+        valuation_option,
+        valuation_declared_amount,
+        total_estimated_weight_lbs,
+        inventory_manifest_json,
+        origin_signature_hash.unwrap_or("none"),
+        destination_signature_hash.unwrap_or("none")
+    );
+    hasher.update(payload.as_bytes());
+    let hash_bytes = hasher.finalize();
+    hash_bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
 #[uniffi::export]
@@ -235,11 +283,11 @@ pub async fn generate_bill_of_lading(
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     ensure_bol_schema(&conn).await?;
 
-    let (ws_id, title, origin_addr): (String, String, String) = conn
+    let (ws_id, title, loc_addr, orig_opt, dest_opt): (String, String, String, Option<String>, Option<String>) = conn
         .query_row(
-            "SELECT workspace_id, title, location_address FROM job_tickets WHERE id = ?1",
+            "SELECT workspace_id, title, location_address, origin_address, destination_address FROM job_tickets WHERE id = ?1",
             crate::params![&job_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
         )
         .await
         .map_err(|_| YntraError::NotFoundError("Job ticket not found".to_string()))?;
@@ -248,6 +296,20 @@ pub async fn generate_bill_of_lading(
         return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
     }
 
+    let settings_str: String = conn
+        .query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![&ws_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or_else(|_| "{}".to_string());
+    let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
+    let carrier_dot = settings_json.get("usdot_number").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+    let origin_address = orig_opt.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| loc_addr.clone());
+    let destination_address = dest_opt.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| loc_addr.clone());
+
     let val_opt = valuation_option.to_lowercase();
     let (val_code, val_premium) = if val_opt == "full_value_protection" || val_opt == "full" {
         ("full_value_protection".to_string(), (declared_value * 0.01).max(50.0))
@@ -255,10 +317,43 @@ pub async fn generate_bill_of_lading(
         ("released_value_060".to_string(), 0.0)
     };
 
-    let est_weight_lbs = 3300.0;
+    let est_weight_lbs = match crate::services::jobs::moves::get_move_inventory_summary(requester_user_id.clone(), job_id.clone()).await {
+        Ok(summary) if summary.total_weight_lbs > 0.0 => summary.total_weight_lbs,
+        _ => 0.0,
+    };
+
+    let manifest_json = match crate::services::jobs::moves::get_inventory_scan_manifest(requester_user_id.clone(), job_id.clone()).await {
+        Ok(m) => serde_json::to_string(&m).unwrap_or_else(|_| "{}".to_string()),
+        Err(_) => "{}".to_string(),
+    };
+
+    ensure_signature_audit_schema(&conn).await?;
+    let customer_signature_hash: Option<String> = conn
+        .query_row(
+            "SELECT signature_hash FROM move_signatures WHERE job_ticket_id = ?1 ORDER BY signed_at DESC LIMIT 1",
+            crate::params![&job_id],
+            |r| r.get(0),
+        )
+        .await
+        .ok();
+
     let bol_num = format!("BOL-US-{}", Uuid::new_v4().simple());
     let legal_terms = get_regional_legal_terms("US").to_string();
     let now_ms = crate::infra::time::get_current_time_ms();
+
+    let tamper_hash = calculate_bol_tamper_hash(
+        &bol_num,
+        &job_id,
+        &title,
+        &origin_address,
+        &destination_address,
+        &val_code,
+        declared_value,
+        est_weight_lbs,
+        &manifest_json,
+        customer_signature_hash.as_deref(),
+        None,
+    );
 
     conn.execute(
         "DELETE FROM bill_of_ladings WHERE job_ticket_id = ?1",
@@ -266,44 +361,156 @@ pub async fn generate_bill_of_lading(
     ).await?;
 
     conn.execute(
-        "INSERT INTO bill_of_ladings (bol_number, workspace_id, job_ticket_id, carrier_name, shipper_name, origin_address, destination_address, valuation_option, valuation_declared_amount, valuation_deductible, valuation_premium, total_estimated_weight_lbs, legal_terms, customer_signature_hash, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+        "INSERT INTO bill_of_ladings (bol_number, workspace_id, job_ticket_id, carrier_name, shipper_name, origin_address, destination_address, valuation_option, valuation_declared_amount, valuation_deductible, valuation_premium, total_estimated_weight_lbs, legal_terms, customer_signature_hash, created_at, origin_signature_hash, destination_signature_hash, signed_origin_at, signed_destination_at, document_tamper_hash, inventory_manifest_json, carrier_dot_number) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
         crate::params![
             &bol_num,
             &ws_id,
             &job_id,
             &carrier_name,
             &title,
-            &origin_addr,
-            &origin_addr,
+            &origin_address,
+            &destination_address,
             &val_code,
             declared_value,
             deductible,
             val_premium,
             est_weight_lbs,
             &legal_terms,
-            Option::<String>::None,
+            &customer_signature_hash,
             now_ms,
+            &customer_signature_hash,
+            Option::<String>::None,
+            if customer_signature_hash.is_some() { Some(now_ms) } else { None },
+            Option::<i64>::None,
+            &tamper_hash,
+            &manifest_json,
+            &carrier_dot,
         ],
     ).await?;
+
+    let _ = crate::services::audit::log_action_with_conn(
+        &conn,
+        requester_user_id,
+        None,
+        format!("bol_generated_{}", bol_num),
+    ).await;
 
     notify_observers();
 
     Ok(crate::models::BillOfLading {
         bol_number: bol_num,
+        workspace_id: ws_id,
         job_ticket_id: job_id,
         carrier_name,
         shipper_name: title,
-        origin_address: origin_addr.clone(),
-        destination_address: origin_addr,
+        origin_address,
+        destination_address,
         valuation_option: val_code,
         valuation_declared_amount: declared_value,
         valuation_deductible: deductible,
         valuation_premium: val_premium,
         total_estimated_weight_lbs: est_weight_lbs,
         legal_terms,
-        customer_signature_hash: None,
+        customer_signature_hash: customer_signature_hash.clone(),
         created_at: now_ms,
+        origin_signature_hash: customer_signature_hash,
+        destination_signature_hash: None,
+        signed_origin_at: Some(now_ms),
+        signed_destination_at: None,
+        document_tamper_hash: tamper_hash,
+        inventory_manifest_json: manifest_json,
+        carrier_dot_number: carrier_dot,
     })
+}
+
+#[uniffi::export]
+pub async fn sign_bill_of_lading_phase(
+    requester_user_id: String,
+    job_id: String,
+    phase: String,
+    signer_name: String,
+    signature_data_base64: String,
+) -> Result<crate::models::BillOfLading, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    ensure_bol_schema(&conn).await?;
+
+    let existing = get_bill_of_lading(job_id.clone()).await?
+        .ok_or_else(|| YntraError::NotFoundError("Bill of lading does not exist yet".to_string()))?;
+
+    if auth.workspace_id != existing.workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let now_ms = crate::infra::time::get_current_time_ms();
+    save_job_signature_with_audit_trail(
+        requester_user_id.clone(),
+        job_id.clone(),
+        signer_name,
+        signature_data_base64,
+        Some("127.0.0.1".to_string()),
+        None,
+        Some("YntraPlatform/PhaseSigner".to_string()),
+        Some(existing.legal_terms.clone()),
+    ).await?;
+
+    let sig = get_job_signature(requester_user_id.clone(), job_id.clone()).await?
+        .ok_or_else(|| YntraError::ValidationError("Failed to retrieve signature after save".to_string()))?;
+
+    let is_dest = phase.to_lowercase().contains("dest") || phase.to_lowercase().contains("deliver");
+    let (origin_sig, origin_at, dest_sig, dest_at): (Option<String>, Option<i64>, Option<String>, Option<i64>) = if is_dest {
+        (
+            existing.origin_signature_hash.clone(),
+            existing.signed_origin_at,
+            sig.signature_hash.clone(),
+            Some(now_ms),
+        )
+    } else {
+        (
+            sig.signature_hash.clone(),
+            Some(now_ms),
+            existing.destination_signature_hash.clone(),
+            existing.signed_destination_at,
+        )
+    };
+
+    let tamper_hash = calculate_bol_tamper_hash(
+        &existing.bol_number,
+        &existing.job_ticket_id,
+        &existing.shipper_name,
+        &existing.origin_address,
+        &existing.destination_address,
+        &existing.valuation_option,
+        existing.valuation_declared_amount,
+        existing.total_estimated_weight_lbs,
+        &existing.inventory_manifest_json,
+        origin_sig.as_deref(),
+        dest_sig.as_deref(),
+    );
+
+    conn.execute(
+        "UPDATE bill_of_ladings SET origin_signature_hash = ?1, signed_origin_at = ?2, destination_signature_hash = ?3, signed_destination_at = ?4, customer_signature_hash = ?5, document_tamper_hash = ?6 WHERE job_ticket_id = ?7",
+        crate::params![
+            &origin_sig,
+            origin_at,
+            &dest_sig,
+            dest_at,
+            dest_sig.as_ref().or(origin_sig.as_ref()),
+            &tamper_hash,
+            &job_id,
+        ],
+    ).await?;
+
+    let _ = crate::services::audit::log_action_with_conn(
+        &conn,
+        requester_user_id,
+        None,
+        format!("bol_signed_phase_{}", phase),
+    ).await;
+
+    notify_observers();
+
+    get_bill_of_lading(job_id).await?.ok_or_else(|| YntraError::NotFoundError("Failed to reload BOL".to_string()))
 }
 
 #[uniffi::export]
@@ -314,23 +521,31 @@ pub async fn get_bill_of_lading(
     ensure_bol_schema(&conn).await?;
 
     let res = conn.query_row(
-        "SELECT bol_number, job_ticket_id, carrier_name, shipper_name, origin_address, destination_address, valuation_option, valuation_declared_amount, valuation_deductible, valuation_premium, total_estimated_weight_lbs, legal_terms, customer_signature_hash, created_at FROM bill_of_ladings WHERE job_ticket_id = ?1",
+        "SELECT bol_number, workspace_id, job_ticket_id, carrier_name, shipper_name, origin_address, destination_address, valuation_option, valuation_declared_amount, valuation_deductible, valuation_premium, total_estimated_weight_lbs, legal_terms, customer_signature_hash, created_at, origin_signature_hash, destination_signature_hash, signed_origin_at, signed_destination_at, document_tamper_hash, inventory_manifest_json, carrier_dot_number FROM bill_of_ladings WHERE job_ticket_id = ?1",
         crate::params![&job_id],
         |r| Ok(crate::models::BillOfLading {
             bol_number: r.get(0)?,
-            job_ticket_id: r.get(1)?,
-            carrier_name: r.get(2)?,
-            shipper_name: r.get(3)?,
-            origin_address: r.get(4)?,
-            destination_address: r.get(5)?,
-            valuation_option: r.get(6)?,
-            valuation_declared_amount: r.get(7)?,
-            valuation_deductible: r.get(8)?,
-            valuation_premium: r.get(9)?,
-            total_estimated_weight_lbs: r.get(10)?,
-            legal_terms: r.get(11)?,
-            customer_signature_hash: r.get(12)?,
-            created_at: r.get(13)?,
+            workspace_id: r.get(1)?,
+            job_ticket_id: r.get(2)?,
+            carrier_name: r.get(3)?,
+            shipper_name: r.get(4)?,
+            origin_address: r.get(5)?,
+            destination_address: r.get(6)?,
+            valuation_option: r.get(7)?,
+            valuation_declared_amount: r.get(8)?,
+            valuation_deductible: r.get(9)?,
+            valuation_premium: r.get(10)?,
+            total_estimated_weight_lbs: r.get(11)?,
+            legal_terms: r.get(12)?,
+            customer_signature_hash: r.get::<Option<String>>(13)?,
+            created_at: r.get(14)?,
+            origin_signature_hash: r.get::<Option<String>>(15)?,
+            destination_signature_hash: r.get::<Option<String>>(16)?,
+            signed_origin_at: r.get::<Option<i64>>(17)?,
+            signed_destination_at: r.get::<Option<i64>>(18)?,
+            document_tamper_hash: r.get::<Option<String>>(19)?.unwrap_or_default(),
+            inventory_manifest_json: r.get::<Option<String>>(20)?.unwrap_or_else(|| "{}".to_string()),
+            carrier_dot_number: r.get::<Option<String>>(21)?,
         }),
     ).await;
 
@@ -368,17 +583,48 @@ mod tests {
         assert_eq!(bol_rel.valuation_option, "released_value_060");
         assert_eq!(bol_rel.valuation_premium, 0.0);
         assert!(bol_rel.legal_terms.contains("Carmack"));
+        assert_eq!(bol_rel.origin_address, "123 Main St");
+        assert_eq!(bol_rel.destination_address, "123 Main St");
 
-        // 2. Full Value Protection
+        // 2. Save signature and generate full value protection BOL with signature linking
+        save_job_signature_with_audit_trail(
+            "u-bol-staff".to_string(),
+            "job-bol-1".to_string(),
+            "John Customer".to_string(),
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==".to_string(),
+            Some("192.168.1.100".to_string()),
+            None,
+            Some("MobileDevice".to_string()),
+            Some("US DOT FMCSA Carmack 2024".to_string()),
+        ).await.unwrap();
+
         let bol_full = generate_bill_of_lading("u-bol-staff".to_string(), "job-bol-1".to_string(), "North American Moving Corp".to_string(), "full_value_protection".to_string(), 25000.0, 250.0).await.unwrap();
         assert_eq!(bol_full.valuation_option, "full_value_protection");
         assert_eq!(bol_full.valuation_declared_amount, 25000.0);
         assert_eq!(bol_full.valuation_premium, 250.0); // 1% of 25000 = 250
+        assert!(bol_full.customer_signature_hash.is_some());
 
-        // 3. Fetch BOL
+        // 3. Phase-2 Destination Sign-off
+        let bol_dest = sign_bill_of_lading_phase(
+            "u-bol-staff".to_string(),
+            "job-bol-1".to_string(),
+            "destination".to_string(),
+            "Jane Customer".to_string(),
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==".to_string(),
+        ).await.unwrap();
+        assert!(bol_dest.origin_signature_hash.is_some());
+        assert!(bol_dest.destination_signature_hash.is_some());
+        assert!(bol_dest.signed_destination_at.is_some());
+        assert!(!bol_dest.document_tamper_hash.is_empty());
+
+        // 4. Fetch BOL
         let fetched = get_bill_of_lading("job-bol-1".to_string()).await.unwrap().unwrap();
         assert_eq!(fetched.valuation_option, "full_value_protection");
+        assert!(fetched.customer_signature_hash.is_some());
+        assert!(fetched.destination_signature_hash.is_some());
+        assert_eq!(fetched.document_tamper_hash, bol_dest.document_tamper_hash);
 
+        conn.execute("DELETE FROM move_signatures WHERE workspace_id = 'ws-bol-test'", ()).await.unwrap();
         conn.execute("DELETE FROM bill_of_ladings WHERE workspace_id = 'ws-bol-test'", ()).await.unwrap();
         conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-bol-test'", ()).await.unwrap();
         conn.execute("DELETE FROM users WHERE workspace_id = 'ws-bol-test'", ()).await.unwrap();
