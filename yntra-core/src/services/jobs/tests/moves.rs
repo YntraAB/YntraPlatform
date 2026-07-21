@@ -278,6 +278,14 @@ async fn test_specialty_item_surcharges() {
     assert_eq!(quote.base_price, 1650);
     assert_eq!(quote.total_price, 2600); // base (1650) + distance default (800) + packaging default (1.5 * 100 = 150) = 2600
 
+    // Direct unit test of calculate_item_specialty_surcharge matching synonyms, category, and notes
+    use crate::services::jobs::calculate_item_specialty_surcharge;
+    assert_eq!(calculate_item_specialty_surcharge("Möbler".into(), "Pianostol".into(), None, 1500.0, 2000.0, 2500.0, 500.0), 1500.0);
+    assert_eq!(calculate_item_specialty_surcharge("Övrigt".into(), "Gammalt Klaver".into(), None, 1500.0, 2000.0, 2500.0, 500.0), 1500.0);
+    assert_eq!(calculate_item_specialty_surcharge("Kontor".into(), "Skåp".into(), Some("Värdeskåp med kodlås / Tunglyft".into()), 1500.0, 2000.0, 2500.0, 500.0), 2000.0);
+    assert_eq!(calculate_item_specialty_surcharge("Utomhus".into(), "Badutrustning".into(), Some("Spabad för 4 pers".into()), 1500.0, 2000.0, 2500.0, 500.0), 2500.0);
+    assert_eq!(calculate_item_specialty_surcharge("Konst".into(), "Skulptur".into(), Some("Skör marmor".into()), 1500.0, 2000.0, 2500.0, 500.0), 500.0);
+
     // 5. Clean up
     conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-spec-test'", ()).await.unwrap();
     conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-spec-test'", ()).await.unwrap();
@@ -445,10 +453,109 @@ async fn test_basement_carrying_surcharges() {
     assert_eq!(q.stairs_surcharge, 900);
     assert_eq!(q.total_price, 2900);
 
+    // Verify custom admin staircase multipliers
+    use crate::services::jobs::moves::{calculate_access_and_stair_surcharge, calculate_access_and_stair_surcharge_with_multipliers};
+    // Default spiral staircase multiplier = 1.5 -> 2 floors * 300 kr * 1.5 = 900 kr
+    assert_eq!(calculate_access_and_stair_surcharge(2, 0, false, true, Some("spiral".to_string()), None, None, None, 0, false, 300.0, 40.0, 3500.0, 500.0), 900.0);
+
+    // Custom admin spiral multiplier = 1.0 (no added cost) -> 2 floors * 300 kr * 1.0 = 600 kr
+    assert_eq!(calculate_access_and_stair_surcharge_with_multipliers(2, 0, false, true, Some("spiral".to_string()), None, None, None, 0, false, 300.0, 40.0, 3500.0, 500.0, 1.0, 1.0, 1.0), 600.0);
+
+    // Custom admin narrow multiplier = 1.25 -> 2 floors * 300 kr * 1.25 = 750 kr
+    assert_eq!(calculate_access_and_stair_surcharge_with_multipliers(2, 0, false, true, Some("narrow".to_string()), None, None, None, 0, false, 300.0, 40.0, 3500.0, 500.0, 1.5, 1.25, 1.2), 750.0);
+
     // Cleanup
     conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-basement-test'", ()).await.unwrap();
     conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-basement-test'", ()).await.unwrap();
     conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-basement-test'", ()).await.unwrap();
     conn.execute("DELETE FROM users WHERE workspace_id = 'ws-basement-test'", ()).await.unwrap();
     conn.execute("DELETE FROM workspaces WHERE id = 'ws-basement-test'", ()).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_dynamic_pricing_models() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    // Setup workspace with weekend multiplier (1.25), peak season multiplier (1.15), long distance settings
+    conn.execute(
+        "INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-dyn-test', 'Dynamic WS', '[\"moving_company\"]', '{\"moving_pricing_model\":\"hourly\",\"moving_hourly_rate\":1000.0,\"moving_minimum_hours\":4.0,\"moving_weekend_multiplier\":1.25,\"moving_peak_season_multiplier\":1.15,\"estimated_distance_km\":100.0,\"moving_local_radius_km\":30.0,\"moving_per_km_rate\":15.0,\"moving_distance_fee_flat\":500.0}')",
+        ()
+    ).await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-dyn-staff', 'ws-dyn-test', 'staff@dyn.io', 'admin')", ()).await.unwrap();
+
+    // Create job ticket scheduled on Saturday Aug 29, 2026 (Both weekend and peak season end-of-month!)
+    // 2026-08-29 is Saturday (weekend = 1.25) AND day 29 >= 25 (peak = 1.15)
+    let job = create_job_ticket(
+        "u-dyn-staff".to_string(),
+        "ws-dyn-test".to_string(),
+        "Weekend Peak Intercity Move".to_string(),
+        "Testing dynamic pricing".to_string(),
+        "Stockholm".to_string(),
+        "high".to_string(),
+        None,
+        "2026-08-29".to_string(),
+        "[]".to_string(),
+        Some("Stockholm".to_string()),
+        Some("Uppsala".to_string()),
+        0, 0, true, true, false, false,
+    ).await.unwrap();
+
+    // Add minimal item (0.5 m3)
+    create_move_inventory_item(
+        "u-dyn-staff".to_string(),
+        job.id.clone(),
+        "Möbler".to_string(),
+        "Bord".to_string(),
+        1, 0.5, None,
+    ).await.unwrap();
+
+    calculate_and_save_move_quote("u-dyn-staff".to_string(), job.id.clone()).await.unwrap();
+
+    let q = get_move_quote("u-dyn-staff".to_string(), job.id.clone()).await.unwrap().unwrap();
+
+    // Minimum hours = 4.0 hours * 1000.0 SEK/h = 4000 SEK base labor
+    // Weekend (1.25) * Peak (1.15) = 1.4375 -> Base price = 4000 * 1.4375 = 5750 SEK
+    assert_eq!(q.base_price, 5750);
+
+    // Distance fee: Flat (500) + (100km - 30km) * 15 SEK/km (1050) = 1550 SEK
+    assert_eq!(q.distance_fee, 1550);
+
+    // Cleanup
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-dyn-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-dyn-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-dyn-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-dyn-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-dyn-test'", ()).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_building_access_and_staircase_surcharges() {
+    use crate::services::jobs::calculate_access_and_stair_surcharge;
+
+    // 1. Standard stairs (2 floors * 300 SEK = 600 SEK)
+    let s1 = calculate_access_and_stair_surcharge(
+        2, 0, false, true, None, None, None, None, 0, false, 300.0, 40.0, 3500.0, 500.0
+    );
+    assert_eq!(s1, 600.0);
+
+    // 2. Spiral staircase multiplier (2 floors * 300 SEK * 1.5x = 900 SEK)
+    let s2 = calculate_access_and_stair_surcharge(
+        2, 0, false, true, Some("spiral".into()), None, None, None, 0, false, 300.0, 40.0, 3500.0, 500.0
+    );
+    assert_eq!(s2, 900.0);
+
+    // 3. Small elevator constraint (elevator present but too small for furniture, so stairs surcharge applies + 500 SEK small elevator fee)
+    // 2 floors * 300 = 600 + 500 = 1100 SEK
+    let s3 = calculate_access_and_stair_surcharge(
+        2, 0, true, true, None, None, Some("small".into()), None, 0, false, 300.0, 40.0, 3500.0, 500.0
+    );
+    assert_eq!(s3, 1100.0);
+
+    // 4. External Crane / Hoist requirement (3500 SEK) + Long carry (50m * 40 SEK/m = 2000 SEK) -> 5500 SEK
+    let s4 = calculate_access_and_stair_surcharge(
+        0, 0, true, true, None, None, None, None, 50, true, 300.0, 40.0, 3500.0, 500.0
+    );
+    assert_eq!(s4, 5500.0);
 }

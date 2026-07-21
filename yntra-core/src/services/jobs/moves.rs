@@ -265,6 +265,219 @@ pub async fn delete_move_inventory_item(
 }
 
 #[uniffi::export]
+pub fn calculate_item_specialty_surcharge(
+    item_category: String,
+    item_name: String,
+    handling_notes: Option<String>,
+    surcharge_piano: f64,
+    surcharge_safe: f64,
+    surcharge_jacuzzi: f64,
+    surcharge_fragile: f64,
+) -> f64 {
+    let notes_str = handling_notes.as_deref().unwrap_or("");
+    let text = format!("{} {} {}", item_category, item_name, notes_str).to_lowercase();
+
+    // 1. Piano / Keyboard / Heavy Instruments
+    let piano_keywords = [
+        "piano", "flygel", "grand piano", "upright piano", "organ", "orgel",
+        "pianostol", "fortepiano", "cembalo", "harpsichord", "spinet", "spinetta",
+        "pianolyft", "klaver", "pianino"
+    ];
+    for kw in piano_keywords {
+        if text.contains(kw) {
+            return surcharge_piano;
+        }
+    }
+
+    // 2. Safe / Vault / Heavy Metallic / Machinery
+    let safe_keywords = [
+        "safe", "kassaskåp", "kassaskap", "värdeskåp", "vardeskap", "gun safe",
+        "vapenskåp", "vapenskap", "heavy safe", "fireproof safe", "skåp tungt",
+        "skap tungt", "tunglyft", "valv", "penning-skåp", "penningskåp", "server rack",
+        "racksling", "heavy machinery", "säkerhetsskåp", "sakerhetsskap"
+    ];
+    for kw in safe_keywords {
+        if text.contains(kw) {
+            return surcharge_safe;
+        }
+    }
+
+    // 3. Jacuzzi / Bath / Spa / Sauna
+    let jacuzzi_keywords = [
+        "jacuzzi", "badkar", "bathtub", "spa", "spabad", "hot tub", "hottub",
+        "whirlpool", "bastu", "sauna", "bubbelpool", "bubbelbad", "isbad", "massagebadkar"
+    ];
+    for kw in jacuzzi_keywords {
+        if text.contains(kw) {
+            return surcharge_jacuzzi;
+        }
+    }
+
+    // 4. Fragile / Fine Art / Glass / Mirrors / Antiques
+    let fragile_keywords = [
+        "konst", "tavla", "painting", "fragile", "skör", "skor", "bräcklig",
+        "bracklig", "glass", "glas", "mirror", "spegel", "kristall", "crystal",
+        "sculpture", "skulptur", "målning", "malning", "antikt", "antique",
+        "porslin", "porcelain", "akvarium", "aquarium", "ljuskrona", "chandelier",
+        "marmor", "marble", "stenskiva", "stone slab", "vitrinskåp", "vitrinskap"
+    ];
+    for kw in fragile_keywords {
+        if text.contains(kw) {
+            return surcharge_fragile;
+        }
+    }
+
+    0.0
+}
+
+#[uniffi::export]
+pub fn calculate_item_specialty_surcharge_extended(
+    item_category: String,
+    item_name: String,
+    handling_notes: Option<String>,
+    surcharge_piano: f64,
+    surcharge_safe: f64,
+    surcharge_jacuzzi: f64,
+    surcharge_fragile: f64,
+    surcharge_server_rack: f64,
+    surcharge_fitness_equipment: f64,
+    surcharge_marble_glass: f64,
+) -> f64 {
+    let notes_str = handling_notes.as_deref().unwrap_or("");
+    let text = format!("{} {} {}", item_category, item_name, notes_str).to_lowercase();
+
+    // 1. Server Rack / IT Server Equipment
+    if text.contains("server rack") || text.contains("racksling") || text.contains("ups batteri") || text.contains("serverstativ") {
+        return surcharge_server_rack;
+    }
+
+    // 2. Heavy Fitness Equipment
+    if text.contains("treadmill") || text.contains("löpband") || text.contains("lopband") || text.contains("roddmaskin") || text.contains("crosstrainer") || text.contains("gym") {
+        return surcharge_fitness_equipment;
+    }
+
+    // 3. Marble / Glass Tabletops
+    if text.contains("marmorbord") || text.contains("glasbord") || text.contains("glass table") || text.contains("marble table") || text.contains("stenskiva") {
+        return surcharge_marble_glass;
+    }
+
+    calculate_item_specialty_surcharge(
+        item_category,
+        item_name,
+        handling_notes,
+        surcharge_piano,
+        surcharge_safe,
+        surcharge_jacuzzi,
+        surcharge_fragile,
+    )
+}
+
+#[uniffi::export]
+pub fn calculate_access_and_stair_surcharge_with_multipliers(
+    origin_floor: i32,
+    destination_floor: i32,
+    origin_has_elevator: bool,
+    destination_has_elevator: bool,
+    origin_staircase_type: Option<String>,
+    destination_staircase_type: Option<String>,
+    origin_elevator_size: Option<String>,
+    destination_elevator_size: Option<String>,
+    long_carry_meters: i32,
+    requires_crane_hoist: bool,
+    stairs_surcharge_per_floor: f64,
+    surcharge_long_carry_per_meter: f64,
+    surcharge_crane_hoist: f64,
+    surcharge_small_elevator: f64,
+    mult_spiral: f64,
+    mult_narrow: f64,
+    mult_outdoor: f64,
+) -> f64 {
+    let get_stair_multiplier = |stype: Option<&str>| match stype.unwrap_or("standard").to_lowercase().as_str() {
+        "spiral" | "spiraltrappa" => mult_spiral,
+        "narrow" | "trång" | "trang" => mult_narrow,
+        "outdoor" | "utomhustrappa" => mult_outdoor,
+        _ => 1.0,
+    };
+
+    let origin_stair_mult = get_stair_multiplier(origin_staircase_type.as_deref());
+    let dest_stair_mult = get_stair_multiplier(destination_staircase_type.as_deref());
+
+    let mut stairs_surcharge: f64 = 0.0;
+
+    let is_small_elevator = |size: Option<&String>| {
+        size.map(|s| s.to_lowercase()) == Some("small".to_string())
+    };
+
+    // Origin stair surcharge
+    if (!origin_has_elevator || is_small_elevator(origin_elevator_size.as_ref())) && origin_floor != 0 {
+        let base_stair = (origin_floor.abs() as f64) * stairs_surcharge_per_floor;
+        stairs_surcharge += base_stair * origin_stair_mult;
+    }
+    if origin_has_elevator && is_small_elevator(origin_elevator_size.as_ref()) {
+        stairs_surcharge += surcharge_small_elevator;
+    }
+
+    // Destination stair surcharge
+    if (!destination_has_elevator || is_small_elevator(destination_elevator_size.as_ref())) && destination_floor != 0 {
+        let base_stair = (destination_floor.abs() as f64) * stairs_surcharge_per_floor;
+        stairs_surcharge += base_stair * dest_stair_mult;
+    }
+    if destination_has_elevator && is_small_elevator(destination_elevator_size.as_ref()) {
+        stairs_surcharge += surcharge_small_elevator;
+    }
+
+    // Long carry surcharge
+    if long_carry_meters > 0 {
+        stairs_surcharge += (long_carry_meters as f64) * surcharge_long_carry_per_meter;
+    }
+
+    // External crane / hoist requirement surcharge
+    if requires_crane_hoist {
+        stairs_surcharge += surcharge_crane_hoist;
+    }
+
+    stairs_surcharge
+}
+
+#[uniffi::export]
+pub fn calculate_access_and_stair_surcharge(
+    origin_floor: i32,
+    destination_floor: i32,
+    origin_has_elevator: bool,
+    destination_has_elevator: bool,
+    origin_staircase_type: Option<String>,
+    destination_staircase_type: Option<String>,
+    origin_elevator_size: Option<String>,
+    destination_elevator_size: Option<String>,
+    long_carry_meters: i32,
+    requires_crane_hoist: bool,
+    stairs_surcharge_per_floor: f64,
+    surcharge_long_carry_per_meter: f64,
+    surcharge_crane_hoist: f64,
+    surcharge_small_elevator: f64,
+) -> f64 {
+    calculate_access_and_stair_surcharge_with_multipliers(
+        origin_floor,
+        destination_floor,
+        origin_has_elevator,
+        destination_has_elevator,
+        origin_staircase_type,
+        destination_staircase_type,
+        origin_elevator_size,
+        destination_elevator_size,
+        long_carry_meters,
+        requires_crane_hoist,
+        stairs_surcharge_per_floor,
+        surcharge_long_carry_per_meter,
+        surcharge_crane_hoist,
+        surcharge_small_elevator,
+        1.5,
+        1.3,
+        1.2,
+    )
+}
+
+#[uniffi::export]
 pub async fn calculate_and_save_move_quote(
     requester_user_id: String,
     job_ticket_id: String,
@@ -274,10 +487,10 @@ pub async fn calculate_and_save_move_quote(
 
     // 1. Fetch Job Ticket details
     let mut stmt = conn.prepare(
-        "SELECT workspace_id, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, COALESCE(long_carry_meters, 0), COALESCE(toll_fees, 0.0) FROM job_tickets WHERE id = ?1",
+        "SELECT workspace_id, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, COALESCE(long_carry_meters, 0), COALESCE(toll_fees, 0.0), scheduled_date FROM job_tickets WHERE id = ?1",
     ).await?;
     let mut rows = stmt.query(crate::params![&job_ticket_id]).await?;
-    let (job_ws, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, long_carry_meters, toll_fees) = if let Some(row) = rows.next().await? {
+    let (job_ws, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, long_carry_meters, toll_fees, scheduled_date) = if let Some(row) = rows.next().await? {
         (
             row.get::<String>(0)?,
             row.get::<i64>(1)? as i32,
@@ -286,6 +499,7 @@ pub async fn calculate_and_save_move_quote(
             row.get::<bool>(4)?,
             row.get::<i64>(5)? as i32,
             row.get::<f64>(6)?,
+            row.get::<String>(7)?,
         )
     } else {
         return Err(YntraError::NotFoundError("Job not found".to_string()));
@@ -316,7 +530,7 @@ pub async fn calculate_and_save_move_quote(
 
     // 3. Fetch inventory items and calculate volume & specialty surcharges
     let mut inv_stmt = conn.prepare(
-        "SELECT quantity, estimated_volume_m3, item_name FROM move_inventory WHERE job_ticket_id = ?1",
+        "SELECT quantity, estimated_volume_m3, item_name, item_category, handling_notes FROM move_inventory WHERE job_ticket_id = ?1",
     ).await?;
     let mut inv_rows = inv_stmt.query(crate::params![&job_ticket_id]).await?;
     let mut total_volume = 0.0;
@@ -326,25 +540,30 @@ pub async fn calculate_and_save_move_quote(
     let surcharge_safe = settings_json.get("surcharge_safe").and_then(|v| v.as_f64()).unwrap_or(2000.0);
     let surcharge_jacuzzi = settings_json.get("surcharge_jacuzzi").and_then(|v| v.as_f64()).unwrap_or(2500.0);
     let surcharge_fragile = settings_json.get("surcharge_fragile").and_then(|v| v.as_f64()).unwrap_or(500.0);
+    let surcharge_server_rack = settings_json.get("surcharge_server_rack").and_then(|v| v.as_f64()).unwrap_or(3000.0);
+    let surcharge_fitness_equipment = settings_json.get("surcharge_fitness_equipment").and_then(|v| v.as_f64()).unwrap_or(800.0);
+    let surcharge_marble_glass = settings_json.get("surcharge_marble_glass").and_then(|v| v.as_f64()).unwrap_or(600.0);
 
     while let Some(row) = inv_rows.next().await? {
         let quantity: i64 = row.get(0)?;
         let vol: f64 = row.get(1)?;
         let item_name: String = row.get(2)?;
+        let item_category: String = row.get(3)?;
+        let handling_notes: Option<String> = row.get(4)?;
         total_volume += (quantity as f64) * vol;
 
-        let item_name_lower = item_name.to_lowercase();
-        let item_fee = if item_name_lower.contains("piano") || item_name_lower.contains("flygel") {
-            surcharge_piano
-        } else if item_name_lower.contains("safe") || item_name_lower.contains("kassaskåp") {
-            surcharge_safe
-        } else if item_name_lower.contains("jacuzzi") || item_name_lower.contains("badkar") || item_name_lower.contains("spa") {
-            surcharge_jacuzzi
-        } else if item_name_lower.contains("konst") || item_name_lower.contains("tavla") || item_name_lower.contains("painting") || item_name_lower.contains("fragile") {
-            surcharge_fragile
-        } else {
-            0.0
-        };
+        let item_fee = calculate_item_specialty_surcharge_extended(
+            item_category,
+            item_name,
+            handling_notes,
+            surcharge_piano,
+            surcharge_safe,
+            surcharge_jacuzzi,
+            surcharge_fragile,
+            surcharge_server_rack,
+            surcharge_fitness_equipment,
+            surcharge_marble_glass,
+        );
         specialty_surcharge += item_fee * (quantity as f64);
     }
 
@@ -365,6 +584,17 @@ pub async fn calculate_and_save_move_quote(
         .get("moving_packing_supplies_fee_per_m3")
         .and_then(|v| v.as_f64())
         .unwrap_or(100.0);
+
+    // Dynamic Multipliers & Tariffs
+    let distance_km = settings_json.get("estimated_distance_km").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let local_radius = settings_json.get("moving_local_radius_km").and_then(|v| v.as_f64()).unwrap_or(30.0);
+    let per_km_rate = settings_json.get("moving_per_km_rate").and_then(|v| v.as_f64()).unwrap_or(15.0);
+
+    let mut distance_fee = distance_fee_flat as i64;
+    if distance_km > local_radius {
+        distance_fee += ((distance_km - local_radius) * per_km_rate) as i64;
+    }
+    distance_fee += toll_fees as i64;
 
     // Base hourly/labor rate depending on configured pricing model
     let pricing_model = settings_json
@@ -421,12 +651,34 @@ pub async fn calculate_and_save_move_quote(
         let minimum_hours = settings_json
             .get("moving_minimum_hours")
             .and_then(|v| v.as_f64())
-            .unwrap_or(2.0);
+            .unwrap_or(3.0);
         let estimated_hours = (total_volume * hours_per_m3).max(minimum_hours);
         (estimated_hours * hourly_rate) as i64
     } else {
         (total_volume * base_rate_per_m3) as i64
     };
+
+    // Apply Weekend and Peak-Season / End-of-Month Multipliers
+    if let Ok(date) = chrono::NaiveDate::parse_from_str(&scheduled_date, "%Y-%m-%d") {
+        use chrono::Datelike;
+        let weekday = date.weekday();
+        let is_weekend = weekday == chrono::Weekday::Sat || weekday == chrono::Weekday::Sun;
+        let day_of_month = date.day();
+        let is_peak_season = day_of_month >= 25 || day_of_month <= 3;
+
+        let weekend_multiplier = if is_weekend {
+            settings_json.get("moving_weekend_multiplier").and_then(|v| v.as_f64()).unwrap_or(1.25)
+        } else {
+            1.0
+        };
+        let peak_multiplier = if is_peak_season {
+            settings_json.get("moving_peak_season_multiplier").and_then(|v| v.as_f64()).unwrap_or(1.15)
+        } else {
+            1.0
+        };
+
+        base_price = ((base_price as f64) * weekend_multiplier * peak_multiplier) as i64;
+    }
 
     // Add specialty/heavy item handling fees to base labor price
     base_price += specialty_surcharge as i64;
@@ -435,21 +687,44 @@ pub async fn calculate_and_save_move_quote(
         .get("surcharge_long_carry_per_meter")
         .and_then(|v| v.as_f64())
         .unwrap_or(40.0);
+    let surcharge_crane_hoist = settings_json
+        .get("surcharge_crane_hoist")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(3500.0);
+    let surcharge_small_elevator = settings_json
+        .get("surcharge_small_elevator")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(500.0);
 
-    // Flat distance rate + tolls
-    let distance_fee = distance_fee_flat as i64 + toll_fees as i64;
-    // Stairs surcharge (stairs_surcharge_per_floor per floor if no elevator, including basements)
-    let mut stairs_surcharge = 0;
-    if !origin_has_elevator && origin_floor != 0 {
-        stairs_surcharge += (origin_floor.abs() as i64) * (stairs_surcharge_per_floor as i64);
-    }
-    if !destination_has_elevator && destination_floor != 0 {
-        stairs_surcharge += (destination_floor.abs() as i64) * (stairs_surcharge_per_floor as i64);
-    }
-    // Add long carry surcharge to labor stairs surcharge for RUT tax deductibility eligibility
-    if long_carry_meters > 0 {
-        stairs_surcharge += (long_carry_meters as i64) * (surcharge_long_carry_per_meter as i64);
-    }
+    let origin_staircase_type = settings_json.get("origin_staircase_type").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let destination_staircase_type = settings_json.get("destination_staircase_type").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let origin_elevator_size = settings_json.get("origin_elevator_size").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let destination_elevator_size = settings_json.get("destination_elevator_size").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let requires_crane_hoist = settings_json.get("requires_crane_hoist").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    let mult_spiral = settings_json.get("mult_spiral_staircase").and_then(|v| v.as_f64()).unwrap_or(1.5);
+    let mult_narrow = settings_json.get("mult_narrow_staircase").and_then(|v| v.as_f64()).unwrap_or(1.3);
+    let mult_outdoor = settings_json.get("mult_outdoor_staircase").and_then(|v| v.as_f64()).unwrap_or(1.2);
+
+    let stairs_surcharge = calculate_access_and_stair_surcharge_with_multipliers(
+        origin_floor,
+        destination_floor,
+        origin_has_elevator,
+        destination_has_elevator,
+        origin_staircase_type,
+        destination_staircase_type,
+        origin_elevator_size,
+        destination_elevator_size,
+        long_carry_meters,
+        requires_crane_hoist,
+        stairs_surcharge_per_floor,
+        surcharge_long_carry_per_meter,
+        surcharge_crane_hoist,
+        surcharge_small_elevator,
+        mult_spiral,
+        mult_narrow,
+        mult_outdoor,
+    ) as i64;
     let actual_supplies_cost: f64 = conn
         .query_row(
             "SELECT COALESCE(SUM(quantity * price_per_unit), 0.0) FROM job_packaging_items WHERE job_ticket_id = ?1",
@@ -792,4 +1067,78 @@ pub async fn update_move_quote_price_adjustments(
     calculate_and_save_move_quote(requester_user_id, job_ticket_id).await?;
 
     Ok(())
+}
+
+#[uniffi::export]
+pub async fn accept_move_quote_with_deposit(
+    requester_user_id: String,
+    quote_id: String,
+    payment_method: String,
+) -> Result<crate::models::QuoteDepositApprovalResult, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let (ws_id, job_id, total_price, current_status): (String, String, f64, String) = conn
+        .query_row(
+            "SELECT workspace_id, job_ticket_id, total_price, status FROM move_quotes WHERE id = ?1",
+            crate::params![&quote_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Quote not found".to_string()))?;
+
+    if auth.workspace_id != ws_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    if current_status == "accepted" {
+        return Ok(crate::models::QuoteDepositApprovalResult {
+            success: true,
+            quote_id,
+            deposit_amount: 0.0,
+            remaining_balance: total_price,
+            payment_session_url: None,
+            quote_status: "accepted".to_string(),
+            message: "Quote was already accepted.".to_string(),
+        });
+    }
+
+    let settings_str: String = conn
+        .query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![&ws_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or_else(|_| "{}".to_string());
+    let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
+
+    let deposit_pct = settings_json.get("moving_deposit_percent").and_then(|v| v.as_f64()).unwrap_or(20.0);
+    let deposit_amount = (total_price * (deposit_pct / 100.0)).round().max(500.0);
+    let remaining_balance = (total_price - deposit_amount).max(0.0);
+    let now_ms = chrono::Utc::now().timestamp_millis();
+
+    conn.execute(
+        "UPDATE move_quotes SET status = 'accepted', updated_at = ?1 WHERE id = ?2 AND workspace_id = ?3",
+        crate::params![now_ms, &quote_id, &ws_id],
+    ).await?;
+
+    conn.execute(
+        "UPDATE job_tickets SET status = 'assigned', updated_at = ?1 WHERE id = ?2 AND workspace_id = ?3",
+        crate::params![now_ms, &job_id, &ws_id],
+    ).await?;
+
+    notify_observers();
+
+    let payment_url = format!("https://pay.yntra.se/deposit/{}?method={}", quote_id, payment_method.to_lowercase());
+
+    Ok(crate::models::QuoteDepositApprovalResult {
+        success: true,
+        quote_id,
+        deposit_amount,
+        remaining_balance,
+        payment_session_url: Some(payment_url),
+        quote_status: "accepted".to_string(),
+        message: format!("Quote approved! Non-refundable deposit of {:.2} SEK initiated via {}.", deposit_amount, payment_method),
+    })
 }
