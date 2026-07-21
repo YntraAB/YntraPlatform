@@ -1,7 +1,7 @@
 use crate::database;
 use crate::infra::observer::notify_observers;
 use crate::infra::errors::YntraError;
-use crate::{MoveInventoryItem, MoveQuote, JobPackagingItem};
+use crate::{MoveInventoryItem, MoveQuote, JobPackagingItem, FurniturePreset, MoveInventorySummary, InventoryScanManifest};
 
 #[uniffi::export]
 pub async fn get_move_inventory(
@@ -34,7 +34,7 @@ pub async fn get_move_inventory(
     }
 
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, handling_notes, updated_at, sync_status FROM move_inventory WHERE job_ticket_id = ?1",
+        "SELECT id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, handling_notes, updated_at, sync_status, room_name, estimated_weight_kg, preset_id, barcode_tag, scan_status, last_scanned_at, last_scanned_by FROM move_inventory WHERE job_ticket_id = ?1",
     ).await?;
 
     let list = stmt
@@ -50,6 +50,13 @@ pub async fn get_move_inventory(
                 handling_notes: row.get(7)?,
                 updated_at: row.get(8)?,
                 sync_status: row.get(9)?,
+                room_name: row.get(10)?,
+                estimated_weight_kg: row.get::<Option<f64>>(11)?.unwrap_or(0.0),
+                preset_id: row.get(12)?,
+                barcode_tag: row.get(13)?,
+                scan_status: row.get::<Option<String>>(14)?.unwrap_or_else(|| "unscanned".to_string()),
+                last_scanned_at: row.get(15)?,
+                last_scanned_by: row.get(16)?,
             })
         })
         .await?;
@@ -170,7 +177,144 @@ pub async fn accept_move_quote(
 }
 
 #[uniffi::export]
-pub async fn create_move_inventory_item(
+pub fn get_furniture_catalog() -> Vec<FurniturePreset> {
+    vec![
+        // Living Room
+        FurniturePreset {
+            id: "sofa-3p".to_string(),
+            category: "Living Room".to_string(),
+            name: "3-Seater Sofa".to_string(),
+            default_volume_m3: 1.8,
+            default_weight_kg: 75.0,
+            default_handling_notes: Some("Requires blanket wrap".to_string()),
+        },
+        FurniturePreset {
+            id: "armchair".to_string(),
+            category: "Living Room".to_string(),
+            name: "Armchair".to_string(),
+            default_volume_m3: 0.6,
+            default_weight_kg: 25.0,
+            default_handling_notes: None,
+        },
+        FurniturePreset {
+            id: "tv-unit".to_string(),
+            category: "Living Room".to_string(),
+            name: "TV Console / Stand".to_string(),
+            default_volume_m3: 0.8,
+            default_weight_kg: 35.0,
+            default_handling_notes: Some("Fragile glass/electronics".to_string()),
+        },
+        FurniturePreset {
+            id: "coffee-table".to_string(),
+            category: "Living Room".to_string(),
+            name: "Coffee Table".to_string(),
+            default_volume_m3: 0.4,
+            default_weight_kg: 18.0,
+            default_handling_notes: None,
+        },
+
+        // Bedroom
+        FurniturePreset {
+            id: "bed-king".to_string(),
+            category: "Bedroom".to_string(),
+            name: "King Bed & Mattress".to_string(),
+            default_volume_m3: 2.4,
+            default_weight_kg: 90.0,
+            default_handling_notes: Some("Needs frame disassembly".to_string()),
+        },
+        FurniturePreset {
+            id: "bed-single".to_string(),
+            category: "Bedroom".to_string(),
+            name: "Single Bed & Mattress".to_string(),
+            default_volume_m3: 1.2,
+            default_weight_kg: 45.0,
+            default_handling_notes: None,
+        },
+        FurniturePreset {
+            id: "wardrobe-3d".to_string(),
+            category: "Bedroom".to_string(),
+            name: "3-Door Wardrobe".to_string(),
+            default_volume_m3: 2.0,
+            default_weight_kg: 110.0,
+            default_handling_notes: Some("2-person lift, disassemble doors".to_string()),
+        },
+        FurniturePreset {
+            id: "dresser".to_string(),
+            category: "Bedroom".to_string(),
+            name: "Dresser / Chest of Drawers".to_string(),
+            default_volume_m3: 0.7,
+            default_weight_kg: 40.0,
+            default_handling_notes: None,
+        },
+
+        // Kitchen & Dining
+        FurniturePreset {
+            id: "fridge-double".to_string(),
+            category: "Kitchen".to_string(),
+            name: "Double Door Refrigerator".to_string(),
+            default_volume_m3: 1.5,
+            default_weight_kg: 95.0,
+            default_handling_notes: Some("Heavy appliance trolley required".to_string()),
+        },
+        FurniturePreset {
+            id: "washer".to_string(),
+            category: "Kitchen".to_string(),
+            name: "Washing Machine / Dryer".to_string(),
+            default_volume_m3: 0.6,
+            default_weight_kg: 70.0,
+            default_handling_notes: Some("Drain water before moving".to_string()),
+        },
+        FurniturePreset {
+            id: "dining-set".to_string(),
+            category: "Dining".to_string(),
+            name: "Dining Table & 4 Chairs".to_string(),
+            default_volume_m3: 1.8,
+            default_weight_kg: 65.0,
+            default_handling_notes: None,
+        },
+
+        // Office & Workspace
+        FurniturePreset {
+            id: "desk-office".to_string(),
+            category: "Office".to_string(),
+            name: "Work Desk & Ergonomic Chair".to_string(),
+            default_volume_m3: 1.0,
+            default_weight_kg: 40.0,
+            default_handling_notes: None,
+        },
+
+        // Boxes & Supplies
+        FurniturePreset {
+            id: "box-std".to_string(),
+            category: "Boxes".to_string(),
+            name: "Standard Moving Box (Medium)".to_string(),
+            default_volume_m3: 0.1,
+            default_weight_kg: 15.0,
+            default_handling_notes: None,
+        },
+        FurniturePreset {
+            id: "box-wardrobe".to_string(),
+            category: "Boxes".to_string(),
+            name: "Tall Wardrobe Box with Hanger".to_string(),
+            default_volume_m3: 0.4,
+            default_weight_kg: 12.0,
+            default_handling_notes: None,
+        },
+
+        // Garage / Outdoor
+        FurniturePreset {
+            id: "bicycle".to_string(),
+            category: "Outdoor & Garage".to_string(),
+            name: "Bicycle / E-bike".to_string(),
+            default_volume_m3: 0.5,
+            default_weight_kg: 18.0,
+            default_handling_notes: None,
+        },
+    ]
+}
+
+#[uniffi::export]
+pub async fn create_move_inventory_item_with_details(
     requester_user_id: String,
     job_ticket_id: String,
     item_category: String,
@@ -178,6 +322,9 @@ pub async fn create_move_inventory_item(
     quantity: i32,
     estimated_volume_m3: f64,
     handling_notes: Option<String>,
+    room_name: Option<String>,
+    estimated_weight_kg: Option<f64>,
+    preset_id: Option<String>,
 ) -> Result<(), YntraError> {
     let id = uuid::Uuid::new_v4().to_string();
     let now_ms = chrono::Utc::now().timestamp_millis();
@@ -207,8 +354,13 @@ pub async fn create_move_inventory_item(
         ));
     }
 
+    let weight = estimated_weight_kg.unwrap_or(0.0);
+    let job_short = if job_ticket_id.len() >= 6 { &job_ticket_id[..6] } else { &job_ticket_id };
+    let id_short = if id.len() >= 6 { &id[..6] } else { &id };
+    let barcode_tag = format!("YNT-{}-{}", job_short.to_uppercase(), id_short.to_uppercase());
+
     conn.execute(
-        "INSERT INTO move_inventory (id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, handling_notes, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending')",
+        "INSERT INTO move_inventory (id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, handling_notes, updated_at, sync_status, room_name, estimated_weight_kg, preset_id, barcode_tag, scan_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending', ?10, ?11, ?12, ?13, 'unscanned')",
         crate::params![
             id,
             job_ws,
@@ -218,12 +370,162 @@ pub async fn create_move_inventory_item(
             quantity as i64,
             estimated_volume_m3,
             handling_notes,
-            now_ms
+            now_ms,
+            room_name,
+            weight,
+            preset_id,
+            barcode_tag
         ],
     ).await?;
 
     notify_observers();
     Ok(())
+}
+
+#[uniffi::export]
+pub async fn scan_inventory_item_by_barcode(
+    requester_user_id: String,
+    job_ticket_id: String,
+    barcode_tag: String,
+    target_status: String,
+) -> Result<MoveInventoryItem, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" {
+        return Err(YntraError::AuthError("Access denied".to_string()));
+    }
+
+    let clean_barcode = barcode_tag.trim().to_uppercase();
+    let now_ms = chrono::Utc::now().timestamp_millis();
+
+    let mut stmt = conn.prepare(
+        "SELECT id FROM move_inventory WHERE job_ticket_id = ?1 AND (UPPER(barcode_tag) = ?2 OR UPPER(id) = ?2)"
+    ).await?;
+    let mut rows = stmt.query(crate::params![&job_ticket_id, &clean_barcode]).await?;
+
+    if let Some(row) = rows.next().await? {
+        let item_id: String = row.get(0)?;
+        let valid_status = match target_status.to_lowercase().as_str() {
+            "packed" => "packed",
+            "loaded" => "loaded",
+            "unloaded" => "unloaded",
+            "missing" => "missing",
+            _ => "packed",
+        };
+
+        conn.execute(
+            "UPDATE move_inventory SET scan_status = ?1, last_scanned_at = ?2, last_scanned_by = ?3, updated_at = ?2, sync_status = 'pending' WHERE id = ?4",
+            crate::params![valid_status, now_ms, auth.user_id, item_id]
+        ).await?;
+
+        notify_observers();
+
+        let items = get_move_inventory(requester_user_id, job_ticket_id).await?;
+        let updated = items.into_iter().find(|i| i.id == item_id).ok_or_else(|| YntraError::NotFoundError("Item not found after update".to_string()))?;
+        Ok(updated)
+    } else {
+        Err(YntraError::NotFoundError(format!("No item matching barcode '{}' found on this job", barcode_tag)))
+    }
+}
+
+#[uniffi::export]
+pub async fn get_inventory_scan_manifest(
+    requester_user_id: String,
+    job_ticket_id: String,
+) -> Result<InventoryScanManifest, YntraError> {
+    let items = get_move_inventory(requester_user_id, job_ticket_id.clone()).await?;
+
+    let mut total_items = 0;
+    let mut packed_count = 0;
+    let mut loaded_count = 0;
+    let mut unloaded_count = 0;
+    let mut missing_count = 0;
+
+    for item in items {
+        let q = item.quantity;
+        total_items += q;
+        match item.scan_status.as_str() {
+            "packed" => packed_count += q,
+            "loaded" => loaded_count += q,
+            "unloaded" => unloaded_count += q,
+            "missing" => missing_count += q,
+            _ => {}
+        }
+    }
+
+    Ok(InventoryScanManifest {
+        job_ticket_id,
+        total_items,
+        packed_count,
+        loaded_count,
+        unloaded_count,
+        missing_count,
+    })
+}
+
+#[uniffi::export]
+pub async fn create_move_inventory_item(
+    requester_user_id: String,
+    job_ticket_id: String,
+    item_category: String,
+    item_name: String,
+    quantity: i32,
+    estimated_volume_m3: f64,
+    handling_notes: Option<String>,
+) -> Result<(), YntraError> {
+    create_move_inventory_item_with_details(
+        requester_user_id,
+        job_ticket_id,
+        item_category,
+        item_name,
+        quantity,
+        estimated_volume_m3,
+        handling_notes,
+        None,
+        None,
+        None,
+    )
+    .await
+}
+
+#[uniffi::export]
+pub async fn get_move_inventory_summary(
+    requester_user_id: String,
+    job_ticket_id: String,
+) -> Result<MoveInventorySummary, YntraError> {
+    let items = get_move_inventory(requester_user_id, job_ticket_id).await?;
+
+    let mut total_vol = 0.0;
+    let mut total_weight = 0.0;
+    let mut total_count = 0;
+
+    for item in items {
+        let q = item.quantity as f64;
+        total_vol += item.estimated_volume_m3 * q;
+        total_weight += item.estimated_weight_kg * q;
+        total_count += item.quantity;
+    }
+
+    // Buffer of +20% for truck volume loading efficiency
+    let recommended_truck = (total_vol * 1.2 * 10.0).round() / 10.0;
+
+    // Determine crew recommendation
+    let recommended_crew = if total_vol > 35.0 || total_weight > 800.0 {
+        4
+    } else if total_vol > 15.0 || total_weight > 350.0 {
+        3
+    } else {
+        2
+    };
+
+    Ok(MoveInventorySummary {
+        total_volume_m3: (total_vol * 100.0).round() / 100.0,
+        total_weight_kg: (total_weight * 10.0).round() / 10.0,
+        total_item_count: total_count,
+        recommended_truck_m3: recommended_truck,
+        recommended_crew_size: recommended_crew,
+    })
 }
 
 #[uniffi::export]
@@ -1141,4 +1443,146 @@ pub async fn accept_move_quote_with_deposit(
         quote_status: "accepted".to_string(),
         message: format!("Quote approved! Non-refundable deposit of {:.2} SEK initiated via {}.", deposit_amount, payment_method),
     })
+}
+
+#[cfg(test)]
+mod furniture_inventory_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_furniture_catalog_and_inventory_summary() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        // 1. Verify furniture catalog preset items
+        let catalog = get_furniture_catalog();
+        assert!(!catalog.is_empty());
+        assert!(catalog.iter().any(|p| p.id == "sofa-3p" && p.default_volume_m3 == 1.8 && p.default_weight_kg == 75.0));
+        assert!(catalog.iter().any(|p| p.id == "bed-king" && p.category == "Bedroom"));
+
+        // Setup test workspace, user, and job ticket
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-inv-sum-test', 'Inv Sum WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-inv-staff', 'ws-inv-sum-test', 'staff@inv.io', 'admin')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, created_at, updated_at) VALUES ('job-inv-sum-1', 'ws-inv-sum-test', 'Move Inventory Test', 'Test Desc', 'Main St 1', 'medium', 'pending', '2026-07-21', '[]', '2026-07-21', 0)", ()).await.unwrap();
+
+        // 2. Add inventory items with room_name, weight, preset_id
+        create_move_inventory_item_with_details(
+            "u-inv-staff".to_string(),
+            "job-inv-sum-1".to_string(),
+            "Living Room".to_string(),
+            "3-Seater Sofa".to_string(),
+            1,
+            1.8,
+            Some("Blanket wrap".to_string()),
+            Some("Living Room".to_string()),
+            Some(75.0),
+            Some("sofa-3p".to_string()),
+        ).await.unwrap();
+
+        create_move_inventory_item_with_details(
+            "u-inv-staff".to_string(),
+            "job-inv-sum-1".to_string(),
+            "Bedroom".to_string(),
+            "King Bed & Mattress".to_string(),
+            1,
+            2.4,
+            None,
+            Some("Master Bedroom".to_string()),
+            Some(90.0),
+            Some("bed-king".to_string()),
+        ).await.unwrap();
+
+        create_move_inventory_item_with_details(
+            "u-inv-staff".to_string(),
+            "job-inv-sum-1".to_string(),
+            "Boxes".to_string(),
+            "Standard Moving Box".to_string(),
+            10,
+            0.1,
+            None,
+            Some("Living Room".to_string()),
+            Some(15.0),
+            Some("box-std".to_string()),
+        ).await.unwrap();
+
+        // 3. Verify get_move_inventory retrieves room_name and estimated_weight_kg
+        let items = get_move_inventory("u-inv-staff".to_string(), "job-inv-sum-1".to_string()).await.unwrap();
+        assert_eq!(items.len(), 3);
+        let sofa = items.iter().find(|i| i.item_name == "3-Seater Sofa").unwrap();
+        assert_eq!(sofa.room_name, Some("Living Room".to_string()));
+        assert_eq!(sofa.estimated_weight_kg, 75.0);
+        assert_eq!(sofa.preset_id, Some("sofa-3p".to_string()));
+
+        // 4. Verify get_move_inventory_summary calculations
+        let summary = get_move_inventory_summary("u-inv-staff".to_string(), "job-inv-sum-1".to_string()).await.unwrap();
+        // Total vol: 1.8 + 2.4 + (10 * 0.1) = 5.2 m3
+        assert_eq!(summary.total_volume_m3, 5.2);
+        // Total weight: 75 + 90 + (10 * 15) = 315 kg
+        assert_eq!(summary.total_weight_kg, 315.0);
+        // Total item count: 1 + 1 + 10 = 12
+        assert_eq!(summary.total_item_count, 12);
+        // Recommended truck (5.2 * 1.2 = 6.24 -> 6.2 m3)
+        assert_eq!(summary.recommended_truck_m3, 6.2);
+        // Recommended crew (volume <= 15 and weight <= 350 -> 2 movers)
+        assert_eq!(summary.recommended_crew_size, 2);
+
+        // Cleanup
+        conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = 'job-inv-sum-1'", ()).await.unwrap();
+        conn.execute("DELETE FROM job_tickets WHERE id = 'job-inv-sum-1'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE id = 'u-inv-staff'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-inv-sum-test'", ()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_barcode_scanning_workflow() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        // Setup test workspace, user, and job ticket
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-bc-test', 'Barcode WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-bc-staff', 'ws-bc-test', 'staff@bc.io', 'admin')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, created_at, updated_at) VALUES ('job-bc-1', 'ws-bc-test', 'Move Barcode Test', 'Test Desc', 'Main St 1', 'medium', 'pending', '2026-07-21', '[]', '2026-07-21', 0)", ()).await.unwrap();
+
+        // 1. Create inventory item (auto-generates barcode_tag starting with YNT-JOB-BC-)
+        create_move_inventory_item_with_details(
+            "u-bc-staff".to_string(),
+            "job-bc-1".to_string(),
+            "Möbler".to_string(),
+            "Designer Sofa".to_string(),
+            1,
+            2.0,
+            None,
+            Some("Living Room".to_string()),
+            Some(80.0),
+            None,
+        ).await.unwrap();
+
+        let items = get_move_inventory("u-bc-staff".to_string(), "job-bc-1".to_string()).await.unwrap();
+        assert_eq!(items.len(), 1);
+        let barcode = items[0].barcode_tag.clone().unwrap();
+        assert!(barcode.starts_with("YNT-"));
+        assert_eq!(items[0].scan_status, "unscanned");
+
+        // 2. Scan item -> transition to 'packed'
+        let item_packed = scan_inventory_item_by_barcode("u-bc-staff".to_string(), "job-bc-1".to_string(), barcode.clone(), "packed".to_string()).await.unwrap();
+        assert_eq!(item_packed.scan_status, "packed");
+        assert!(item_packed.last_scanned_at.is_some());
+        assert_eq!(item_packed.last_scanned_by, Some("u-bc-staff".to_string()));
+
+        // 3. Scan item -> transition to 'loaded'
+        let item_loaded = scan_inventory_item_by_barcode("u-bc-staff".to_string(), "job-bc-1".to_string(), barcode.clone(), "loaded".to_string()).await.unwrap();
+        assert_eq!(item_loaded.scan_status, "loaded");
+
+        // 4. Verify scan manifest report
+        let manifest = get_inventory_scan_manifest("u-bc-staff".to_string(), "job-bc-1".to_string()).await.unwrap();
+        assert_eq!(manifest.total_items, 1);
+        assert_eq!(manifest.loaded_count, 1);
+        assert_eq!(manifest.unloaded_count, 0);
+
+        // Cleanup
+        conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = 'job-bc-1'", ()).await.unwrap();
+        conn.execute("DELETE FROM job_tickets WHERE id = 'job-bc-1'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE id = 'u-bc-staff'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-bc-test'", ()).await.unwrap();
+    }
 }
