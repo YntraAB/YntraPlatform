@@ -277,6 +277,22 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
         );
         item_fee * item.quantity as f64
     }).sum();
+    let total_vol: f64 = inventories
+        .iter()
+        .map(|i| i.estimated_volume_m3 * i.quantity as f64)
+        .sum();
+    let total_weight: f64 = inventories
+        .iter()
+        .map(|i| i.estimated_weight_kg * i.quantity as f64)
+        .sum();
+    let recommended_crew_size = if total_vol > 35.0 || total_weight > 800.0 {
+        4
+    } else if total_vol > 15.0 || total_weight > 350.0 {
+        3
+    } else {
+        2
+    };
+
     let hours = quote.as_ref().map(|q| {
         let labor_base = (q.base_price as f64 - specialty_surcharge).max(0.0);
         labor_base / hourly_rate
@@ -1271,6 +1287,16 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
             {
                 let active_role = state.active_user_role.read().clone();
                 let is_staff = active_role != "client" && active_role != "anonymous";
+                let (is_weekend_date, is_peak_date) = if let Ok(date) = chrono::NaiveDate::parse_from_str(&job.scheduled_date, "%Y-%m-%d") {
+                    use chrono::Datelike;
+                    let wd = date.weekday();
+                    let is_we = wd == chrono::Weekday::Sat || wd == chrono::Weekday::Sun;
+                    let day = date.day();
+                    let is_pk = day >= 25 || day <= 3;
+                    (is_we, is_pk)
+                } else {
+                    (false, false)
+                };
                 rsx! {
                     div { class: "border-t border-border/40 pt-4 flex flex-col gap-3",
                         h3 { class: "text-sm font-extrabold flex items-center gap-1.5",
@@ -1286,46 +1312,83 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                         }
                         if let Some(ref q) = quote {
                             div { class: "p-4 rounded-lg border border-border/20 bg-secondary/5 grid grid-cols-2 sm:grid-cols-4 gap-4",
-                                  div {
-                                     if pricing_model == "hourly" {
-                                         div { class: "text-[10px] text-muted-foreground font-semibold", "Timpris ({hours:.1}h)" }
-                                     } else {
-                                         div { class: "text-[10px] text-muted-foreground font-semibold", "Baspris" }
+                                      div {
+                                         if pricing_model == "hourly" {
+                                             div { class: "text-[10px] text-muted-foreground font-semibold", "Timpris ({hours:.1}h • {recommended_crew_size}-man)" }
+                                         } else {
+                                             div { class: "text-[10px] text-muted-foreground font-semibold", "Baspris ({recommended_crew_size}-man)" }
+                                         }
+                                         div { class: "text-xs font-bold text-foreground mt-0.5", "{q.base_price} kr" }
+                                      }
+                                     div {
+                                         div { class: "text-[10px] text-muted-foreground font-semibold", "Distans" }
+                                         div { class: "text-xs font-bold text-foreground mt-0.5", "{q.distance_fee} kr" }
                                      }
-                                     div { class: "text-xs font-bold text-foreground mt-0.5", "{q.base_price} kr" }
-                                  }
-                                 div {
-                                     div { class: "text-[10px] text-muted-foreground font-semibold", "Distans" }
-                                     div { class: "text-xs font-bold text-foreground mt-0.5", "{q.distance_fee} kr" }
-                                 }
-                                 div {
-                                     div { class: "text-[10px] text-muted-foreground font-semibold", "Trappor" }
-                                     div { class: "text-xs font-bold text-foreground mt-0.5", "{q.stairs_surcharge} kr" }
-                                 }
-                                 div {
-                                     div { class: "text-[10px] text-muted-foreground font-semibold", "Material" }
-                                     div { class: "text-xs font-bold text-foreground mt-0.5", "{q.packing_supplies_fee} kr" }
-                                 }
-                             }
-                             if let Some(over) = q.manual_price_override {
-                                 div { class: "flex items-center justify-between text-[11px] text-muted-foreground px-1",
-                                     span { "Manuell priskorrigering:" }
-                                     span { class: "font-semibold text-foreground", "{over} kr" }
-                                 }
-                             }
-                             if let Some(disc) = q.price_discount {
-                                 if disc > 0.0 {
-                                     div { class: "flex items-center justify-between text-[11px] text-muted-foreground px-1",
-                                         span { "Rabatt:" }
-                                         span { class: "font-semibold text-rose-500", "-{disc} kr" }
+                                     div {
+                                         div { class: "text-[10px] text-muted-foreground font-semibold", "Trappor & Bärning" }
+                                         div { class: "text-xs font-bold text-foreground mt-0.5", "{q.stairs_surcharge} kr" }
+                                     }
+                                     div {
+                                         div { class: "text-[10px] text-muted-foreground font-semibold", "Material" }
+                                         div { class: "text-xs font-bold text-foreground mt-0.5", "{q.packing_supplies_fee} kr" }
                                      }
                                  }
-                             }
-                             div { class: "flex items-center justify-between text-xs font-bold text-foreground px-1 border-t border-border/10 pt-1.5 mt-1",
-                                 span { "Totalt Offerterat Pris:" }
-                                 span { class: "text-sm text-primary font-extrabold", "{q.total_price} kr" }
-                             }
-                             if is_staff {
+
+                                // Itemized Dynamic Surcharge & Surge Rules Panel
+                                div { class: "p-3 rounded-lg border border-primary/20 bg-primary/5 flex flex-col gap-2 my-1",
+                                    div { class: "text-[10px] font-extrabold text-primary uppercase tracking-wider flex items-center gap-1",
+                                        components::LucideIcon { name: "calculator", size: "12" }
+                                        "Dynamiska taxor & Tilläggsberäkning"
+                                    }
+                                    div { class: "grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs",
+                                        div { class: "p-2 rounded bg-background border border-border/30 flex flex-col justify-between",
+                                            span { class: "text-[10px] text-muted-foreground font-bold", "Bemannings- & Taxenivå" }
+                                            span { class: "font-extrabold text-foreground mt-1", "{recommended_crew_size}-Manna taxa (Multi-tier)" }
+                                        }
+                                        div { class: "p-2 rounded bg-background border border-border/30 flex flex-col justify-between",
+                                            span { class: "text-[10px] text-muted-foreground font-bold", "Bärlängdstillägg (>25m / 75ft)" }
+                                            if job.long_carry_meters > 0 {
+                                                span { class: "font-extrabold text-amber-600 mt-1", "{job.long_carry_meters} meter ({job.long_carry_meters * 40} kr)" }
+                                            } else {
+                                                span { class: "font-semibold text-muted-foreground mt-1", "Standard distans (0 kr)" }
+                                            }
+                                        }
+                                        div { class: "p-2 rounded bg-background border border-border/30 flex flex-col justify-between",
+                                            span { class: "text-[10px] text-muted-foreground font-bold", "Högsäsong & Helgtaxa" }
+                                            div { class: "flex items-center gap-1 mt-1 flex-wrap",
+                                                if is_weekend_date {
+                                                    span { class: "px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-600 text-[9px] font-extrabold", "Helg +25%" }
+                                                }
+                                                if is_peak_date {
+                                                    span { class: "px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-600 text-[9px] font-extrabold", "Månadsskifte +15%" }
+                                                }
+                                                if !is_weekend_date && !is_peak_date {
+                                                    span { class: "text-muted-foreground font-semibold text-[11px]", "Normal vardagstaxa" }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if let Some(over) = q.manual_price_override {
+                                    div { class: "flex items-center justify-between text-[11px] text-muted-foreground px-1",
+                                        span { "Manuell priskorrigering:" }
+                                        span { class: "font-semibold text-foreground", "{over} kr" }
+                                    }
+                                }
+                                if let Some(disc) = q.price_discount {
+                                    if disc > 0.0 {
+                                        div { class: "flex items-center justify-between text-[11px] text-muted-foreground px-1",
+                                            span { "Rabatt:" }
+                                            span { class: "font-semibold text-rose-500", "-{disc} kr" }
+                                        }
+                                    }
+                                }
+                                div { class: "flex items-center justify-between text-xs font-bold text-foreground px-1 border-t border-border/10 pt-1.5 mt-1",
+                                    span { "Totalt Offerterat Pris:" }
+                                    span { class: "text-sm text-primary font-extrabold", "{q.total_price} kr" }
+                                }
+                                if is_staff {
                                  div { class: "border-t border-border/10 pt-2.5 flex flex-col gap-2",
                                      button {
                                          class: "text-[11px] font-bold text-primary hover:underline cursor-pointer bg-transparent border-0 self-start p-0 flex items-center gap-1",

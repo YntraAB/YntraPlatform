@@ -28,15 +28,24 @@ pub use crew::add_crew_member;
 pub use crew::remove_crew_member;
 pub use crew::get_job_crew;
 pub use crew::validate_driver_tachograph_compliance;
+pub use crew::get_recommended_crew_dispatch_equipment;
+pub use crew::validate_crew_equipment_and_physical_matching;
 
 pub use signatures::save_job_signature;
 pub use signatures::save_job_signature_with_audit_trail;
 pub use signatures::get_job_signature;
+pub use signatures::generate_bill_of_lading;
+pub use signatures::get_bill_of_lading;
 
 pub use moves::get_move_inventory;
+pub use moves::get_furniture_catalog;
+pub use moves::get_move_inventory_summary;
 pub use moves::get_move_quote;
 pub use moves::accept_move_quote;
 pub use moves::create_move_inventory_item;
+pub use moves::create_move_inventory_item_with_details;
+pub use moves::scan_inventory_item_by_barcode;
+pub use moves::get_inventory_scan_manifest;
 pub use moves::delete_move_inventory_item;
 pub use moves::calculate_and_save_move_quote;
 pub use moves::calculate_item_specialty_surcharge;
@@ -67,9 +76,9 @@ pub use billing::process_onsite_mpos_card_payment;
 pub use billing::sync_invoice_to_erp;
 pub use billing::reconcile_erp_payments;
 
-pub use routing::{get_directions_url, get_commercial_truck_directions_url, verify_commercial_route_restrictions, geocode};
+pub use routing::{get_directions_url, get_commercial_truck_directions_url, verify_commercial_route_restrictions, geocode, calculate_multi_segment_move_route, get_job_multi_segment_route};
 
-pub use notifications::send_external_notification;
+pub use notifications::{send_external_notification, send_dispatch_departure_eta_sms, get_customer_live_tracking_portal};
 pub use public_lead::submit_public_booking_lead;
 
 pub use inspections::record_damage_inspection;
@@ -87,5 +96,4 @@ pub use claims::process_claim_payout;
 pub use claims::get_job_claims;
 
 pub use moves::accept_move_quote_with_deposit;
-pub use notifications::get_customer_live_tracking_portal;
 
