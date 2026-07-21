@@ -35,13 +35,13 @@ pub async fn assign_vehicle_to_job(
         ));
     }
 
-    // Verify vehicle belongs to workspace if assigned
+    // Verify vehicle belongs to workspace if assigned and check capacity constraints
     if let Some(ref vehicle_id) = assigned_vehicle_id {
-        let (vehicle_ws,): (String,) = conn
+        let (vehicle_ws, vehicle_name, capacity_m3): (String, String, f64) = conn
             .query_row(
-                "SELECT workspace_id FROM vehicles WHERE id = ?1",
+                "SELECT workspace_id, name, capacity_m3 FROM vehicles WHERE id = ?1",
                 crate::params![vehicle_id],
-                |r| Ok((r.get(0)?,)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .await
             .map_err(|_| YntraError::NotFoundError("Vehicle not found".to_string()))?;
@@ -50,6 +50,25 @@ pub async fn assign_vehicle_to_job(
             return Err(YntraError::AuthError(
                 "Access denied: vehicle belongs to a different workspace".to_string(),
             ));
+        }
+
+        // Calculate total volume of the job inventory
+        let mut inv_stmt = conn.prepare(
+            "SELECT quantity, estimated_volume_m3 FROM move_inventory WHERE job_ticket_id = ?1",
+        ).await?;
+        let mut inv_rows = inv_stmt.query(crate::params![&job_id]).await?;
+        let mut total_volume = 0.0;
+        while let Some(row) = inv_rows.next().await? {
+            let quantity: i64 = row.get(0)?;
+            let vol: f64 = row.get(1)?;
+            total_volume += (quantity as f64) * vol;
+        }
+
+        if total_volume > capacity_m3 {
+            return Err(YntraError::ValidationError(format!(
+                "Cannot assign vehicle {}: total cargo volume ({:.2} m³) exceeds vehicle capacity ({:.2} m³)",
+                vehicle_name, total_volume, capacity_m3
+            )));
         }
     }
 
@@ -114,6 +133,20 @@ pub async fn add_crew_member(
         crate::params![job_id, user_id, role],
     ).await?;
 
+    let quote_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM move_quotes WHERE job_ticket_id = ?1",
+            crate::params![&job_id],
+            |r| r.get::<i64>(0),
+        )
+        .await
+        .unwrap_or(0) > 0;
+
+    if quote_exists {
+        drop(conn);
+        let _ = crate::services::jobs::moves::calculate_and_save_move_quote(requester_user_id, job_id).await;
+    }
+
     notify_observers();
     Ok(())
 }
@@ -152,6 +185,20 @@ pub async fn remove_crew_member(
         "DELETE FROM job_crew WHERE job_ticket_id = ?1 AND user_id = ?2",
         crate::params![job_id, user_id],
     ).await?;
+
+    let quote_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM move_quotes WHERE job_ticket_id = ?1",
+            crate::params![&job_id],
+            |r| r.get::<i64>(0),
+        )
+        .await
+        .unwrap_or(0) > 0;
+
+    if quote_exists {
+        drop(conn);
+        let _ = crate::services::jobs::moves::calculate_and_save_move_quote(requester_user_id, job_id).await;
+    }
 
     notify_observers();
     Ok(())

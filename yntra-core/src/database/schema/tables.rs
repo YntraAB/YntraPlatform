@@ -313,6 +313,8 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             destination_parking_permit_needed INTEGER DEFAULT 0,
             assigned_vehicle_id TEXT,
             route_stops_json TEXT,
+            long_carry_meters INTEGER DEFAULT 0,
+            toll_fees REAL DEFAULT 0.0,
             FOREIGN KEY(assigned_user_id) REFERENCES users(id),
             FOREIGN KEY(assigned_vehicle_id) REFERENCES vehicles(id)
         );
@@ -362,6 +364,21 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             updated_at INTEGER NOT NULL DEFAULT 0,
             sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
             FOREIGN KEY(quote_id) REFERENCES move_quotes(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS job_packaging_items (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL DEFAULT 'workspace-1',
+            job_ticket_id TEXT NOT NULL,
+            item_name TEXT NOT NULL,
+            quantity INTEGER NOT NULL,
+            price_per_unit REAL NOT NULL,
+            is_leased INTEGER DEFAULT 0,
+            returned_quantity INTEGER DEFAULT 0,
+            created_at INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(job_ticket_id) REFERENCES job_tickets(id)
         );
 
         CREATE TABLE IF NOT EXISTS invitations (

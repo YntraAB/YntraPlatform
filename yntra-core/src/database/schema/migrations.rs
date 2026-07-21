@@ -975,6 +975,36 @@ pub async fn run_schema_migrations(
         .await?;
         version = 21;
     }
+    if version < 22 {
+        execute_migration_batch(
+            conn,
+            "ALTER TABLE job_tickets ADD COLUMN long_carry_meters INTEGER DEFAULT 0;
+             ALTER TABLE job_tickets ADD COLUMN toll_fees REAL DEFAULT 0.0;",
+        )
+        .await?;
+        version = 22;
+    }
+    if version < 23 {
+        execute_migration_batch(
+            conn,
+            "CREATE TABLE IF NOT EXISTS job_packaging_items (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL DEFAULT 'workspace-1',
+                job_ticket_id TEXT NOT NULL,
+                item_name TEXT NOT NULL,
+                quantity INTEGER NOT NULL,
+                price_per_unit REAL NOT NULL,
+                is_leased INTEGER DEFAULT 0,
+                returned_quantity INTEGER DEFAULT 0,
+                created_at INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL DEFAULT 0,
+                sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+                FOREIGN KEY(job_ticket_id) REFERENCES job_tickets(id)
+            );",
+        )
+        .await?;
+        version = 23;
+    }
     Ok(version)
 }
 
@@ -1004,7 +1034,7 @@ mod tests {
         conn.execute("PRAGMA user_version = 0", ()).await.unwrap();
 
         let migrated_version = run_schema_migrations(&conn, 0).await.unwrap();
-        assert_eq!(migrated_version, 21);
+        assert_eq!(migrated_version, 23);
 
         let has_oauth_sessions = conn.query_row(
             "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='oauth_auth_sessions'",

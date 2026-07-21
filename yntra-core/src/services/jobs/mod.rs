@@ -4,12 +4,15 @@ mod signatures;
 mod moves;
 mod billing;
 mod routing;
+mod notifications;
+mod public_lead;
 
 #[cfg(test)]
 mod tests;
 
 pub use tickets::get_job_tickets;
 pub use tickets::create_job_ticket;
+pub use tickets::update_job_moving_surcharges;
 pub use tickets::update_job_status;
 pub use tickets::schedule_job_ticket;
 pub use tickets::submit_job_completion;
@@ -31,6 +34,10 @@ pub use moves::accept_move_quote;
 pub use moves::create_move_inventory_item;
 pub use moves::delete_move_inventory_item;
 pub use moves::calculate_and_save_move_quote;
+pub use moves::add_job_packaging_item;
+pub use moves::remove_job_packaging_item;
+pub use moves::update_job_packaging_item_returned;
+pub use moves::get_job_packaging_items;
 
 pub use billing::generate_move_invoice;
 pub use billing::get_move_invoice;
@@ -44,4 +51,7 @@ pub use billing::initiate_bankid_skatteverket_session;
 pub use billing::submit_skatteverket_claim_direct;
 
 pub use routing::get_directions_url;
+
+pub use notifications::send_external_notification;
+pub use public_lead::submit_public_booking_lead;
 

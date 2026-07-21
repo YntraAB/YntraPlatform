@@ -79,6 +79,32 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
     let quote = props.quote;
 
     let state = use_context::<crate::state::AppState>();
+    let active_role = state.active_user_role.read().clone();
+    let is_staff = active_role != "client" && active_role != "anonymous";
+
+    let mut show_edit_surcharges = use_signal(|| false);
+    let mut edit_long_carry = use_signal(|| job.long_carry_meters);
+    let mut edit_toll_fees = use_signal(|| job.toll_fees);
+
+    let mut show_add_pack_form = use_signal(|| false);
+    let mut new_pack_preset = use_signal(|| "Flyttkartong".to_string());
+    let mut new_pack_name = use_signal(|| "Flyttkartong".to_string());
+    let mut new_pack_qty = use_signal(|| 10);
+    let mut new_pack_price = use_signal(|| 30.0);
+    let mut new_pack_leased = use_signal(|| true);
+
+    let uid_for_pack = active_user_id.clone();
+    let jid_for_pack = job.id.clone();
+    let db_trig_val = *props.db_trigger.read();
+    let packaging_res = use_resource(move || {
+        let _ = db_trig_val;
+        let uid = uid_for_pack.clone();
+        let jid = jid_for_pack.clone();
+        async move {
+            yntra_core::get_job_packaging_items(uid, jid).await.unwrap_or_default()
+        }
+    });
+
     let workspace_opt = state.workspace.read().clone();
     let settings_json: serde_json::Value = if let Some(ref ws) = workspace_opt {
         serde_json::from_str(&ws.settings).unwrap_or_default()
@@ -294,6 +320,21 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
     let checklist_header = t("jobs-checklist-header", &region);
     let report_placeholder = t("jobs-report-placeholder", &region);
 
+    let has_specialty_item = inventories.iter().any(|item| {
+        let name_lower = item.item_name.to_lowercase();
+        name_lower.contains("piano")
+            || name_lower.contains("flygel")
+            || name_lower.contains("safe")
+            || name_lower.contains("kassaskåp")
+            || name_lower.contains("jacuzzi")
+            || name_lower.contains("badkar")
+            || name_lower.contains("spa")
+            || name_lower.contains("konst")
+            || name_lower.contains("tavla")
+            || name_lower.contains("painting")
+            || name_lower.contains("fragile")
+    });
+
     let priority_color = match job_priority.as_str() {
         "critical" => "background: rgba(239, 68, 68, 0.15); color: hsl(0, 90.6%, 70.8%);",
         "high" => "background: rgba(245, 158, 11, 0.15); color: hsl(43.3, 96.4%, 56.3%);",
@@ -501,6 +542,31 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                 " • Parkeringstillstånd: "
                                 if job.destination_parking_permit_needed { "Krävs" } else { "Ej krav" }
                             }
+                        }
+                    }
+                }
+
+                // Carry & Tolls Info Panel
+                div { class: "mt-1 pt-2 border-t border-border/20 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-muted-foreground",
+                    div { class: "flex items-center gap-1",
+                        components::LucideIcon { name: "footprints", size: "12", class: "accent-text" }
+                        span { class: "font-semibold text-foreground", "Bärlängd:" }
+                        span { "{job.long_carry_meters} m" }
+                    }
+                    div { class: "flex items-center gap-1",
+                        components::LucideIcon { name: "coins", size: "12", class: "accent-text" }
+                        span { class: "font-semibold text-foreground", "Vägavgifter:" }
+                        span { "{job.toll_fees} kr" }
+                    }
+                    if is_staff {
+                        button {
+                            class: "ml-auto text-[10px] text-accent font-bold hover:underline bg-transparent border-0 cursor-pointer p-0",
+                            onclick: move |_| {
+                                edit_long_carry.set(job.long_carry_meters);
+                                edit_toll_fees.set(job.toll_fees);
+                                show_edit_surcharges.set(true);
+                            },
+                            "Ändra surcharges"
                         }
                     }
                 }
@@ -944,6 +1010,284 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                 }
             }
 
+            // Packaging supplies inventory section
+            {
+                let items = packaging_res.read().clone().unwrap_or_default();
+                let uid_for_add = active_user_id.clone();
+                let jid_for_add = job.id.clone();
+                
+                rsx! {
+                    div { class: "border-t border-border/40 pt-4 flex flex-col gap-3",
+                        h3 { class: "text-sm font-extrabold flex items-center gap-1.5",
+                            style: "margin: 0;",
+                            components::LucideIcon { name: "package", size: "16", class: "accent-text" }
+                            "Förpackningsmaterial & Materialinventarie"
+                        }
+                        
+                        if items.is_empty() {
+                            p { class: "text-xs text-muted-foreground italic my-1", "Inga förpackningsmaterial registrerade för detta flyttuppdrag." }
+                        } else {
+                            div { class: "grid grid-cols-1 gap-2 sm:grid-cols-2",
+                                for item in items.iter() {
+                                    {
+                                        let item_id = item.id.clone();
+                                        let item_name = item.item_name.clone();
+                                        let qty = item.quantity;
+                                        let price = item.price_per_unit;
+                                        let is_leased = item.is_leased;
+                                        let returned = item.returned_quantity;
+                                        let total_cost = price * qty as f64;
+                                        let uid = active_user_id.clone();
+                                        let jid = job.id.clone();
+                                        
+                                        rsx! {
+                                            div {
+                                                key: "{item_id}",
+                                                class: "flex flex-col gap-1.5 p-3 rounded-lg border border-border/20 bg-secondary/5",
+                                                div { class: "flex items-center justify-between",
+                                                    div {
+                                                        div { class: "text-xs font-bold text-foreground", "{item_name}" }
+                                                        div { class: "text-[10px] text-muted-foreground font-semibold flex items-center gap-1",
+                                                            if is_leased {
+                                                                span { class: "px-1 py-0.25 bg-amber-500/10 text-amber-500 rounded-[3px] text-[8px] font-extrabold uppercase", "Hyra" }
+                                                            } else {
+                                                                span { class: "px-1 py-0.25 bg-emerald-500/10 text-emerald-500 rounded-[3px] text-[8px] font-extrabold uppercase", "Köp" }
+                                                            }
+                                                            " {price} kr/st"
+                                                        }
+                                                    }
+                                                    div { class: "text-right",
+                                                        div { class: "text-xs font-extrabold text-primary", "{total_cost} kr" }
+                                                        div { class: "text-[10px] text-muted-foreground", "{qty} st" }
+                                                    }
+                                                }
+                                                
+                                                if is_leased {
+                                                    div { class: "flex items-center justify-between border-t border-border/10 pt-1.5 mt-1",
+                                                        div { class: "text-[10px] font-bold text-muted-foreground",
+                                                            "Återlämnat: {returned} av {qty}"
+                                                        }
+                                                        if is_staff && returned < qty {
+                                                            button {
+                                                                onclick: {
+                                                                    let i_id = item_id.clone();
+                                                                    let uid_capture = active_user_id.clone();
+                                                                    let mut db_trig = props.db_trigger;
+                                                                    move |_| {
+                                                                        let i_id = i_id.clone();
+                                                                        let uid_capture = uid_capture.clone();
+                                                                        let next_returned = returned + 1;
+                                                                        spawn(async move {
+                                                                            let _ = yntra_core::update_job_packaging_item_returned(
+                                                                                uid_capture,
+                                                                                i_id,
+                                                                                next_returned
+                                                                            ).await;
+                                                                            let current = *db_trig.read();
+                                                                            db_trig.set(current + 1);
+                                                                        });
+                                                                    }
+                                                                },
+                                                                class: "px-2 py-0.5 rounded bg-primary text-primary-foreground hover:opacity-90 border-0 cursor-pointer text-[9px] font-extrabold transition-all",
+                                                                "Markera återlämnad (+1)"
+                                                            }
+                                                        } else if returned >= qty {
+                                                            span { class: "text-[9px] font-bold text-emerald-500 flex items-center gap-0.5",
+                                                                components::LucideIcon { name: "check-circle", size: "10" }
+                                                                "Helt återlämnat"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                
+                                                if is_staff {
+                                                    div { class: "flex justify-end gap-1.5 border-t border-border/10 pt-1.5 mt-1",
+                                                        button {
+                                                            onclick: {
+                                                                let i_id = item_id.clone();
+                                                                let uid_capture = active_user_id.clone();
+                                                                let mut db_trig = props.db_trigger;
+                                                                move |_| {
+                                                                    let i_id = i_id.clone();
+                                                                    let uid_capture = uid_capture.clone();
+                                                                    spawn(async move {
+                                                                        let _ = yntra_core::remove_job_packaging_item(uid_capture, i_id).await;
+                                                                        let current = *db_trig.read();
+                                                                        db_trig.set(current + 1);
+                                                                    });
+                                                                }
+                                                             },
+                                                             class: "px-2 py-1 rounded text-red-500 hover:bg-red-500/10 border-0 bg-transparent cursor-pointer flex items-center justify-center gap-1 text-[9px] font-bold",
+                                                             components::LucideIcon { name: "trash-2", size: "10" }
+                                                             "Ta bort"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        if is_staff {
+                            div { class: "mt-2 border border-border/30 rounded-lg p-3 bg-secondary/5",
+                                if !*show_add_pack_form.read() {
+                                    button {
+                                        onclick: move |_| show_add_pack_form.set(true),
+                                        class: "w-full py-2 border border-dashed border-border hover:border-primary/50 rounded-lg text-xs font-bold text-muted-foreground hover:text-primary bg-transparent cursor-pointer flex items-center justify-center gap-1.5 transition-all",
+                                        components::LucideIcon { name: "plus", size: "14" }
+                                        "Lägg till material"
+                                    }
+                                } else {
+                                    div { class: "flex flex-col gap-2.5",
+                                        div { class: "flex justify-between items-center",
+                                            span { class: "text-[11px] font-bold text-muted-foreground uppercase", "Nytt förpackningsmaterial" }
+                                            button {
+                                                onclick: move |_| show_add_pack_form.set(false),
+                                                class: "text-[10px] text-muted-foreground hover:text-foreground border-0 bg-transparent cursor-pointer",
+                                                "Avbryt"
+                                            }
+                                        }
+                                        
+                                        div { class: "grid grid-cols-2 gap-2",
+                                            div { class: "col-span-2 sm:col-span-1",
+                                                label { class: "text-[10px] text-muted-foreground block mb-0.5", "Materialtyp (Preset)" }
+                                                select {
+                                                    value: "{new_pack_preset}",
+                                                    onchange: move |e: FormEvent| {
+                                                        let preset = e.value();
+                                                        new_pack_preset.set(preset.clone());
+                                                        match preset.as_str() {
+                                                            "Flyttkartong" => {
+                                                                new_pack_name.set("Flyttkartong".to_string());
+                                                                new_pack_price.set(30.0);
+                                                                new_pack_leased.set(true);
+                                                            }
+                                                            "Packtejp" => {
+                                                                new_pack_name.set("Packtejp".to_string());
+                                                                new_pack_price.set(50.0);
+                                                                new_pack_leased.set(false);
+                                                            }
+                                                            "Bubbelplast" => {
+                                                                new_pack_name.set("Bubbelplast".to_string());
+                                                                new_pack_price.set(90.0);
+                                                                new_pack_leased.set(false);
+                                                            }
+                                                            "Garderobskartong" => {
+                                                                new_pack_name.set("Garderobskartong".to_string());
+                                                                new_pack_price.set(120.0);
+                                                                new_pack_leased.set(true);
+                                                            }
+                                                            _ => {
+                                                                new_pack_name.set(String::new());
+                                                                new_pack_price.set(0.0);
+                                                                new_pack_leased.set(false);
+                                                            }
+                                                        }
+                                                    },
+                                                    class: "w-full text-xs p-1.5 rounded border border-border bg-background text-foreground focus:outline-none focus:border-primary",
+                                                    option { value: "Flyttkartong", "Flyttkartong (Hyra, 30 kr)" }
+                                                    option { value: "Packtejp", "Packtejp (Köp, 50 kr)" }
+                                                    option { value: "Bubbelplast", "Bubbelplast (Köp, 90 kr)" }
+                                                    option { value: "Garderobskartong", "Garderobskartong (Hyra, 120 kr)" }
+                                                    option { value: "Custom", "Annan (Ange själv...)" }
+                                                }
+                                            }
+                                            
+                                            div { class: "col-span-2 sm:col-span-1",
+                                                label { class: "text-[10px] text-muted-foreground block mb-0.5", "Namn" }
+                                                input {
+                                                    r#type: "text",
+                                                    placeholder: "t.ex. Packpapper",
+                                                    value: "{new_pack_name}",
+                                                    oninput: move |e: FormEvent| new_pack_name.set(e.value()),
+                                                    disabled: *new_pack_preset.read() != "Custom",
+                                                    class: "w-full text-xs p-1.5 rounded border border-border bg-background text-foreground focus:outline-none focus:border-primary disabled:opacity-60",
+                                                }
+                                            }
+                                        }
+                                        
+                                        div { class: "grid grid-cols-3 gap-2",
+                                            div {
+                                                label { class: "text-[10px] text-muted-foreground block mb-0.5", "Antal" }
+                                                input {
+                                                    r#type: "number",
+                                                    min: "1",
+                                                    value: "{new_pack_qty}",
+                                                    oninput: move |e: FormEvent| new_pack_qty.set(e.value().parse().unwrap_or(1)),
+                                                    class: "w-full text-xs p-1.5 rounded border border-border bg-background text-foreground focus:outline-none focus:border-primary",
+                                                }
+                                            }
+                                            div {
+                                                label { class: "text-[10px] text-muted-foreground block mb-0.5", "Pris per st" }
+                                                input {
+                                                    r#type: "number",
+                                                    min: "0",
+                                                    value: "{new_pack_price}",
+                                                    oninput: move |e: FormEvent| new_pack_price.set(e.value().parse().unwrap_or(0.0)),
+                                                    disabled: *new_pack_preset.read() != "Custom",
+                                                    class: "w-full text-xs p-1.5 rounded border border-border bg-background text-foreground focus:outline-none focus:border-primary disabled:opacity-60",
+                                                }
+                                            }
+                                            div {
+                                                label { class: "text-[10px] text-muted-foreground block mb-0.5", "Transaktionstyp" }
+                                                select {
+                                                    value: if *new_pack_leased.read() { "lease" } else { "sell" },
+                                                    onchange: move |e: FormEvent| new_pack_leased.set(e.value() == "lease"),
+                                                    disabled: *new_pack_preset.read() != "Custom",
+                                                    class: "w-full text-xs p-1.5 rounded border border-border bg-background text-foreground focus:outline-none focus:border-primary disabled:opacity-60",
+                                                    option { value: "lease", "Hyra" }
+                                                    option { value: "sell", "Köp" }
+                                                }
+                                            }
+                                        }
+                                        
+                                        button {
+                                            onclick: {
+                                                let j_id = jid_for_add.clone();
+                                                let uid = uid_for_add.clone();
+                                                let mut db_trig = props.db_trigger;
+                                                move |_| {
+                                                    let name = new_pack_name.read().trim().to_string();
+                                                    if name.is_empty() { return; }
+                                                    let qty = *new_pack_qty.read();
+                                                    let price = *new_pack_price.read();
+                                                    let leased = *new_pack_leased.read();
+                                                    
+                                                    let j_id = j_id.clone();
+                                                    let uid = uid.clone();
+                                                    
+                                                    // reset inputs
+                                                    new_pack_qty.set(10);
+                                                    show_add_pack_form.set(false);
+                                                    
+                                                    spawn(async move {
+                                                        let _ = yntra_core::add_job_packaging_item(
+                                                            uid,
+                                                            j_id,
+                                                            name,
+                                                            qty,
+                                                            price,
+                                                            leased
+                                                        ).await;
+                                                        let current = *db_trig.read();
+                                                        db_trig.set(current + 1);
+                                                    });
+                                                }
+                                            },
+                                            class: "w-full py-2 bg-primary hover:opacity-90 rounded-lg text-xs font-bold text-primary-foreground border-0 cursor-pointer flex items-center justify-center gap-1 transition-all",
+                                            components::LucideIcon { name: "check", size: "14" }
+                                            "Spara material"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Quote details card
             {
                 let active_role = state.active_user_role.read().clone();
@@ -987,6 +1331,12 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                             div { class: "flex items-center justify-between text-xs font-bold text-foreground px-1",
                                 span { "Totalt Offerterat Pris:" }
                                 span { class: "text-sm text-primary font-extrabold", "{q.total_price} kr" }
+                            }
+                            if has_specialty_item {
+                                div { class: "text-[10px] text-amber-600 dark:text-amber-500 font-bold bg-amber-500/10 border border-amber-500/20 px-2.5 py-1.5 rounded-lg mt-1 text-center flex items-center justify-center gap-1",
+                                    components::LucideIcon { name: "shield-alert", size: "12" }
+                                    "Baspriset inkluderar hanteringstillägg för tunga/känsliga föremål."
+                                }
                             }
                             if let Some(ref inv) = invoice {
                                 div { class: "mt-3 p-3 rounded bg-muted/20 border border-border/10 space-y-1.5",
@@ -1262,6 +1612,75 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                             style: "gap: 0.35rem; color: hsl(158.1, 64.4%, 51.6%);",
                                 components::LucideIcon { name: "check-circle", size: "18" }
                                 "{t(\"jobs-action-archived\", &region)}"
+                            }
+                        }
+                    }
+                }
+            }
+
+            if *show_edit_surcharges.read() {
+                div { class: "fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4",
+                    div { class: "bg-background border border-border rounded-xl p-6 max-w-sm w-full shadow-2xl flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-150",
+                        h3 { class: "text-base font-extrabold flex items-center gap-1.5 m-0 text-foreground",
+                            components::LucideIcon { name: "settings", size: "18", class: "accent-text" }
+                            "Ändra bärlängd & vägavgifter"
+                        }
+                        div { class: "flex flex-col gap-1.5",
+                            label { class: "text-[10px] font-bold text-muted-foreground uppercase", "Bärlängd (meter från lastbil till dörr)" }
+                            input {
+                                r#type: "number",
+                                value: "{edit_long_carry}",
+                                oninput: move |e: FormEvent| {
+                                    if let Ok(val) = e.value().parse::<i32>() {
+                                        edit_long_carry.set(val);
+                                    }
+                                },
+                                class: "w-full px-3 py-2 text-sm bg-muted/20 border border-border/80 rounded-lg text-foreground focus:outline-none focus:border-accent",
+                            }
+                        }
+                        div { class: "flex flex-col gap-1.5",
+                            label { class: "text-[10px] font-bold text-muted-foreground uppercase", "Väg- & broavgifter (kr)" }
+                            input {
+                                r#type: "number",
+                                value: "{edit_toll_fees}",
+                                oninput: move |e: FormEvent| {
+                                    if let Ok(val) = e.value().parse::<f64>() {
+                                        edit_toll_fees.set(val);
+                                    }
+                                },
+                                class: "w-full px-3 py-2 text-sm bg-muted/20 border border-border/80 rounded-lg text-foreground focus:outline-none focus:border-accent",
+                            }
+                        }
+                        div { class: "flex gap-2 justify-end mt-2 pt-2 border-t border-border/40",
+                            button {
+                                class: "px-3 py-2 bg-secondary text-secondary-foreground hover:opacity-90 rounded-lg text-xs font-bold border-0 cursor-pointer transition-all",
+                                onclick: move |_| {
+                                    show_edit_surcharges.set(false);
+                                },
+                                "Avbryt"
+                            }
+                            button {
+                                class: "px-4 py-2 bg-primary text-primary-foreground hover:opacity-90 rounded-lg text-xs font-bold border-0 cursor-pointer transition-all flex items-center gap-1.5",
+                                onclick: {
+                                    let uid = active_user_id.clone();
+                                    let jid = job.id.clone();
+                                    let mut db_trigger = props.db_trigger;
+                                    move |_| {
+                                        let uid = uid.clone();
+                                        let jid = jid.clone();
+                                        let carry = *edit_long_carry.read();
+                                        let tolls = *edit_toll_fees.read();
+                                        spawn(async move {
+                                            if yntra_core::update_job_moving_surcharges(uid, jid, carry, tolls).await.is_ok() {
+                                                show_edit_surcharges.set(false);
+                                                let current = *db_trigger.read();
+                                                db_trigger.set(current + 1);
+                                            }
+                                        });
+                                    }
+                                },
+                                components::LucideIcon { name: "save", size: "14" }
+                                "Spara"
                             }
                         }
                     }

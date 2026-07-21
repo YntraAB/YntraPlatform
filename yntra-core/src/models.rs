@@ -442,6 +442,8 @@ pub struct JobTicket {
     pub destination_parking_permit_needed: bool,
     pub assigned_vehicle_id: Option<String>,
     pub route_stops_json: Option<String>,
+    pub long_carry_meters: i32,
+    pub toll_fees: f64,
 }
 
 #[derive(
@@ -517,6 +519,32 @@ pub struct MoveQuote {
     pub total_price: i64,
     pub status: String,
     pub accepted_at: Option<i64>,
+    pub updated_at: i64,
+    pub sync_status: String,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct JobPackagingItem {
+    pub id: String,
+    pub workspace_id: String,
+    pub job_ticket_id: String,
+    pub item_name: String,
+    pub quantity: i32,
+    pub price_per_unit: f64,
+    pub is_leased: bool,
+    pub returned_quantity: i32,
+    pub created_at: i64,
     pub updated_at: i64,
     pub sync_status: String,
 }
