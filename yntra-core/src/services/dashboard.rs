@@ -233,6 +233,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_dashboard_overviews() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         let conn = crate::database::acquire_connection().await.unwrap();
 
         // Set up workspaces, users, courses, slot, books, invoices

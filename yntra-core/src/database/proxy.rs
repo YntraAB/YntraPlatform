@@ -1744,6 +1744,7 @@ mod tests {
 
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-moving-test', 'Moving WS', '[]', '{}')", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-admin-m', 'ws-moving-test', 'admin@moving.com', 'admin', ?1)", crate::params![&meta_admin]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('cust-1', 'ws-moving-test', 'cust@moving.com', 'client')", ()).await.unwrap();
 
         // Insert job tickets
         conn.execute("INSERT OR REPLACE INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, created_at, updated_at) VALUES ('job-1', 'ws-moving-test', 'Title 1', 'Desc 1', 'Addr 1', 'high', 'pending', '2026-07-21', '{}', '2026-07-21', 0)", ()).await.unwrap();
@@ -1786,12 +1787,15 @@ mod tests {
         assert_eq!(arr_signatures.as_array().unwrap().len(), 1);
 
         // Cleanup
-        conn.execute("DELETE FROM move_signatures WHERE workspace_id = 'ws-moving-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM move_invoices WHERE workspace_id = 'ws-moving-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-moving-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-moving-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-moving-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-moving-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-moving-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM move_signatures WHERE workspace_id = 'ws-moving-test'", ()).await.ok();
+        conn.execute("DELETE FROM move_invoices WHERE workspace_id = 'ws-moving-test'", ()).await.ok();
+        conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-moving-test'", ()).await.ok();
+        conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-moving-test'", ()).await.ok();
+        conn.execute("DELETE FROM job_packaging_items WHERE workspace_id = 'ws-moving-test'", ()).await.ok();
+        conn.execute("DELETE FROM job_crew WHERE job_ticket_id IN ('job-1', 'job-2')", ()).await.ok();
+        conn.execute("DELETE FROM time_reports WHERE workspace_id = 'ws-moving-test'", ()).await.ok();
+        conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-moving-test'", ()).await.ok();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-moving-test'", ()).await.ok();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-moving-test'", ()).await.ok();
     }
 }
