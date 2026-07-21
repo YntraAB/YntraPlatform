@@ -42,13 +42,17 @@ pub use moves::get_job_packaging_items;
 pub use billing::generate_move_invoice;
 pub use billing::get_move_invoice;
 pub use billing::pay_move_invoice;
+pub use billing::adjust_invoice_for_actuals;
 pub use billing::initiate_swish_payment;
+pub use billing::check_swish_payment_status;
 pub use billing::initiate_stripe_payment;
 pub use billing::initiate_adyen_payment;
 pub use billing::get_rut_invoices;
 pub use billing::export_skatteverket_claims;
 pub use billing::initiate_bankid_skatteverket_session;
 pub use billing::submit_skatteverket_claim_direct;
+pub use billing::process_swish_payment_webhook;
+pub use billing::process_stripe_payment_webhook;
 
 pub use routing::get_directions_url;
 

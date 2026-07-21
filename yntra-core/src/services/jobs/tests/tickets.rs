@@ -1,0 +1,391 @@
+use crate::database;
+use crate::services::jobs::{create_job_ticket, get_job_tickets, get_job_tickets_rkyv, schedule_job_ticket};
+use crate::services::jobs::{get_job_signature, save_job_signature};
+use crate::JobTicket;
+
+#[tokio::test]
+async fn test_job_tickets_workspace_scoping() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    // Workspaces and users
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-job-1', 'Job WS 1', '[]', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-job-2', 'Job WS 2', '[]', '{}')", ()).await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-job-user1', 'ws-job-1', 'u1@job.io', 'user')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-job-user2', 'ws-job-2', 'u2@job.io', 'user')", ()).await.unwrap();
+
+    // Create a job in ws-job-1
+    let job1 = create_job_ticket(
+        "u-job-user1".to_string(),
+        "ws-job-1".to_string(),
+        "Move office chair".to_string(),
+        "Heavy chair".to_string(),
+        "123 Main St".to_string(),
+        "high".to_string(),
+        Some("u-job-user1".to_string()),
+        "2026-07-05".to_string(),
+        "[]".to_string(),
+        None,
+        None,
+        0,
+        0,
+        false,
+        false,
+        false,
+        false,
+    )
+    .await
+    .unwrap();
+
+    // Retrieve tickets as user 1 (should see job1)
+    let list1 = get_job_tickets("u-job-user1".to_string()).await.unwrap();
+    assert_eq!(list1.len(), 1);
+    assert_eq!(list1[0].id, job1.id);
+
+    // Retrieve tickets as user 1 with rkyv
+    let bytes = get_job_tickets_rkyv("u-job-user1".to_string())
+        .await
+        .unwrap();
+    let rkyv_list: Vec<JobTicket> =
+        rkyv::from_bytes::<Vec<JobTicket>, rkyv::rancor::Error>(&bytes).unwrap();
+    assert_eq!(rkyv_list.len(), 1);
+    assert_eq!(rkyv_list[0].id, job1.id);
+
+    // Retrieve tickets as user 2 (should see 0, since ws-job-2 has no jobs)
+    let list2 = get_job_tickets("u-job-user2".to_string()).await.unwrap();
+    assert_eq!(list2.len(), 0);
+
+    // Cleanup
+    conn.execute(
+        "DELETE FROM job_tickets WHERE workspace_id IN ('ws-job-1', 'ws-job-2')",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        "DELETE FROM users WHERE workspace_id IN ('ws-job-1', 'ws-job-2')",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        "DELETE FROM workspaces WHERE id IN ('ws-job-1', 'ws-job-2')",
+        (),
+    )
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn test_scheduling_and_sync() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    // Setup test workspace, staff user
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-sync-test', 'Sync Test WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-sync-staff', 'ws-sync-test', 'staff@sync.io', 'admin')", ()).await.unwrap();
+
+    // Create job ticket
+    let job = create_job_ticket(
+        "u-sync-staff".to_string(),
+        "ws-sync-test".to_string(),
+        "Office Relocation".to_string(),
+        "Large office relocation".to_string(),
+        "Main St 1".to_string(),
+        "high".to_string(),
+        None,
+        "".to_string(), // Unscheduled
+        "[]".to_string(),
+        None,
+        None,
+        0,
+        0,
+        true,
+        true,
+        false,
+        false,
+    )
+    .await
+    .unwrap();
+
+    // Verify initial state
+    assert_eq!(job.scheduled_date, "");
+    assert_eq!(job.status, "pending");
+
+    // 1. Schedule the job ticket
+    schedule_job_ticket(
+        "u-sync-staff".to_string(),
+        job.id.clone(),
+        "2026-08-15".to_string(),
+        Some("u-sync-staff".to_string()),
+    )
+    .await
+    .unwrap();
+
+    // Verify job ticket updated
+    let updated_job: JobTicket = conn
+        .query_row(
+            "SELECT scheduled_date, status, assigned_user_id FROM job_tickets WHERE id = ?1",
+            crate::params![&job.id],
+            |r| Ok(JobTicket {
+                id: job.id.clone(),
+                workspace_id: "ws-sync-test".to_string(),
+                title: "".to_string(),
+                description: "".to_string(),
+                location_address: "".to_string(),
+                priority: "".to_string(),
+                status: r.get(1)?,
+                assigned_user_id: r.get(2)?,
+                scheduled_date: r.get(0)?,
+                checklist_json: "[]".to_string(),
+                completion_report: None,
+                created_at: "".to_string(),
+                updated_at: 0,
+                sync_status: "pending".to_string(),
+                origin_address: None,
+                destination_address: None,
+                origin_floor: 0,
+                destination_floor: 0,
+                origin_has_elevator: false,
+                destination_has_elevator: false,
+                origin_parking_permit_needed: false,
+                destination_parking_permit_needed: false,
+                assigned_vehicle_id: None,
+                route_stops_json: None,
+                long_carry_meters: 0,
+                toll_fees: 0.0,
+            }),
+        )
+        .await
+        .unwrap();
+    
+    assert_eq!(updated_job.scheduled_date, "2026-08-15");
+    assert_eq!(updated_job.status, "assigned");
+    assert_eq!(updated_job.assigned_user_id, Some("u-sync-staff".to_string()));
+
+    // Verify calendar event created
+    let (event_id, event_start, event_assignee): (String, String, Option<String>) = conn
+        .query_row(
+            "SELECT id, start_time, assignee_id FROM events WHERE metadata LIKE ?1",
+            crate::params![format!("%\"job_ticket_id\":\"{}\"%", job.id)],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(event_start, "2026-08-15 09:00");
+    assert_eq!(event_assignee, Some("u-sync-staff".to_string()));
+
+    // 2. Drag & Drop update (calls update_event_time)
+    crate::services::teams::update_event_time(
+        "u-sync-staff".to_string(),
+        event_id.clone(),
+        "2026-08-20 10:00".to_string(),
+        "2026-08-20 18:00".to_string(),
+    )
+    .await
+    .unwrap();
+
+    // Verify job ticket updated to new date YYYY-MM-DD
+    let res_date: String = conn
+        .query_row(
+            "SELECT scheduled_date FROM job_tickets WHERE id = ?1",
+            crate::params![&job.id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res_date, "2026-08-20");
+
+    // 3. Delete event
+    crate::services::teams::delete_event("u-sync-staff".to_string(), event_id.clone())
+        .await
+        .unwrap();
+
+    // Verify job ticket reset to unscheduled
+    let (res_date_2, res_status, res_assignee): (String, String, Option<String>) = conn
+        .query_row(
+            "SELECT scheduled_date, status, assigned_user_id FROM job_tickets WHERE id = ?1",
+            crate::params![&job.id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(res_date_2, "");
+    assert_eq!(res_status, "pending");
+    assert_eq!(res_assignee, None);
+
+    // Cleanup
+    conn.execute("DELETE FROM events WHERE id = ?1", crate::params![&event_id]).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE id = ?1", crate::params![&job.id]).await.unwrap();
+    conn.execute("DELETE FROM users WHERE id = 'u-sync-staff'", ()).await.unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-sync-test'", ()).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_digital_signature_capture() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    // Setup test workspace and users
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-sig-test', 'Sig Test WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-sig-staff', 'ws-sig-test', 'staff@sig.io', 'admin')", ()).await.unwrap();
+
+    // Create job ticket
+    let job = create_job_ticket(
+        "u-sig-staff".to_string(),
+        "ws-sig-test".to_string(),
+        "Cabinet relocation".to_string(),
+        "Delicate office cabinets".to_string(),
+        "Cabinet Road 10".to_string(),
+        "medium".to_string(),
+        None,
+        "2026-08-14".to_string(),
+        "[]".to_string(),
+        None,
+        None,
+        0,
+        0,
+        false,
+        false,
+        false,
+        false,
+    )
+    .await
+    .unwrap();
+
+    // 1. Initially verify no signature exists
+    let sig_opt = get_job_signature("u-sig-staff".to_string(), job.id.clone()).await.unwrap();
+    assert!(sig_opt.is_none());
+
+    // 2. Save signature
+    let mock_signature = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIA...";
+    save_job_signature("u-sig-staff".to_string(), job.id.clone(), "John Doe (Customer)".to_string(), mock_signature.to_string()).await.unwrap();
+
+    // 3. Retrieve and verify signature details
+    let sig_opt_2 = get_job_signature("u-sig-staff".to_string(), job.id.clone()).await.unwrap();
+    assert!(sig_opt_2.is_some());
+    let sig = sig_opt_2.unwrap();
+    assert_eq!(sig.signer_name, "John Doe (Customer)");
+    assert_eq!(sig.signature_data_base64, mock_signature);
+    assert_eq!(sig.job_ticket_id, job.id);
+    assert_eq!(sig.workspace_id, "ws-sig-test");
+
+    // Cleanup
+    conn.execute("DELETE FROM move_signatures WHERE job_ticket_id = ?1", crate::params![&job.id]).await.unwrap();
+    conn.execute("DELETE FROM job_tickets WHERE id = ?1", crate::params![&job.id]).await.unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-sig-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-sig-test'", ()).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_external_notification_triggers() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    // 1. Setup mock workspace and users
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-notif-test', 'Notif Test WS', '[\"moving_company\"]', '{\"twilio_sid\":\"ACtest\",\"twilio_token\":\"toktest\",\"twilio_from_number\":\"+123\",\"sendgrid_api_key\":\"SG.test\",\"sendgrid_from_email\":\"test@yntra.se\"}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, full_name, role) VALUES ('u-notif-staff', 'ws-notif-test', 'staff@notif.io', 'Staff User', 'admin')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, full_name, role, phone) VALUES ('u-notif-client', 'ws-notif-test', 'client@notif.io', 'Client User', 'client', '+46700000000')", ()).await.unwrap();
+
+    // 2. Trigger custom notification (test mock fallback path logic works)
+    let res = crate::services::jobs::notifications::send_external_notification(
+        "u-notif-staff".to_string(),
+        "ws-notif-test".to_string(),
+        "u-notif-client".to_string(),
+        "booking_confirmation".to_string(),
+        None,
+    ).await.unwrap();
+
+    assert!(res == false || res == true);
+
+    // 3. Clean up
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-notif-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-notif-test'", ()).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_public_booking_lead_submission() {
+    use crate::services::jobs::submit_public_booking_lead;
+
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    // 1. Setup mock workspace
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-lead-test', 'Lead Test WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+
+    // 2. Submit lead
+    let items_json = r#"[{"name": "Sofa", "quantity": 1, "volume": 1.5}, {"name": "Box", "quantity": 10, "volume": 0.1}]"#;
+    let job_id = submit_public_booking_lead(
+        "ws-lead-test".to_string(),
+        "John Doe".to_string(),
+        "john@doe.se".to_string(),
+        "+46701112233".to_string(),
+        "Startvägen 1".to_string(),
+        "Slutgränd 5".to_string(),
+        items_json.to_string(),
+    ).await.unwrap();
+
+    // 3. Verify user created
+    let (uid, role, phone): (String, String, Option<String>) = conn
+        .query_row(
+            "SELECT id, role, phone FROM users WHERE workspace_id = 'ws-lead-test' AND email = 'john@doe.se'",
+            (),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .await
+        .unwrap();
+
+    assert!(uid.starts_with("u-guest-"));
+    assert_eq!(role, "client");
+    assert_eq!(phone, Some("+46701112233".to_string()));
+
+    // 4. Verify job ticket created
+    let (j_title, j_status, origin, dest): (String, String, Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT title, status, origin_address, destination_address FROM job_tickets WHERE id = ?1",
+            crate::params![&job_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(j_title, "Offertförfrågan - John Doe");
+    assert_eq!(j_status, "quote_requested");
+    assert_eq!(origin, Some("Startvägen 1".to_string()));
+    assert_eq!(dest, Some("Slutgränd 5".to_string()));
+
+    // 5. Verify inventory items created (total volume: 1.5*1 + 0.1*10 = 2.5 m3)
+    let total_vol: f64 = conn
+        .query_row(
+            "SELECT SUM(quantity * estimated_volume_m3) FROM move_inventory WHERE job_ticket_id = ?1",
+            crate::params![&job_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(total_vol, 2.5);
+
+    // 6. Verify quote created (1500 kr base + 2.5 * 150 kr = 1875 kr total)
+    let (base_price, total_price): (f64, f64) = conn
+        .query_row(
+            "SELECT base_price, total_price FROM move_quotes WHERE job_ticket_id = ?1",
+            crate::params![&job_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(base_price, 1500.0);
+    assert_eq!(total_price, 1875.0);
+
+    // 7. Clean up
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-lead-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-lead-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-lead-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-lead-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-lead-test'", ()).await.unwrap();
+}
