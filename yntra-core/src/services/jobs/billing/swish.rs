@@ -70,6 +70,66 @@ pub async fn initiate_swish_payment(
                 }
             }
         }
+    } else {
+        let client_cert_pem = get_config_val("swish_client_cert_pem", "SWISH_CLIENT_CERT_PEM", &settings_json).await;
+        let client_key_pem = get_config_val("swish_client_key_pem", "SWISH_CLIENT_KEY_PEM", &settings_json).await;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let (Some(cert_pem), Some(key_pem)) = (client_cert_pem, client_key_pem) {
+                let use_sandbox = settings_json.get("swish_use_sandbox").and_then(|v| v.as_bool()).unwrap_or(false);
+                let swish_api_host = if use_sandbox {
+                    "https://mss.cpc.getswish.net"
+                } else {
+                    "https://cpc.getswish.net"
+                };
+
+                let instruction_id = uuid::Uuid::new_v4().to_string().to_uppercase();
+                let register_url = format!("{}/swish-cpcapi/api/v1/paymentrequests/{}", swish_api_host, instruction_id);
+
+                let mut pem_bytes = cert_pem.into_bytes();
+                pem_bytes.extend_from_slice(b"\n");
+                pem_bytes.extend_from_slice(key_pem.as_bytes());
+
+                if let Ok(identity) = reqwest::Identity::from_pem(&pem_bytes) {
+                    if let Ok(mtls_client) = reqwest::Client::builder()
+                        .timeout(std::time::Duration::from_secs(10))
+                        .identity(identity)
+                        .build()
+                    {
+                        let api_base_url = get_config_val("api_base_url", "API_BASE_URL", &settings_json).await
+                            .unwrap_or_else(|| "https://api.yntra.se".to_string());
+                        let api_base_url = api_base_url.trim_end_matches('/');
+                        let callback_url = format!("{}/v1/billing/swish/webhook", api_base_url);
+
+                        let req_payload = serde_json::json!({
+                            "payeePaymentReference": invoice_id,
+                            "callbackUrl": callback_url,
+                            "payeeAlias": payee,
+                            "amount": format!("{:.2}", amount),
+                            "currency": "SEK",
+                            "message": format!("Faktura {}", invoice_id),
+                        });
+
+                        let res = mtls_client.put(&register_url)
+                            .json(&req_payload)
+                            .send()
+                            .await;
+
+                        if let Ok(response) = res {
+                            if response.status().is_success() {
+                                if let Some(token_header) = response.headers().get("PaymentRequestToken") {
+                                    if let Ok(token_str) = token_header.to_str() {
+                                        token = token_str.to_string();
+                                        swish_url = format!("swish://paymentrequest?token={}", token);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // 4. Generate SVG QR Code base64 data by calling the Swish public QR API

@@ -82,10 +82,14 @@ pub async fn initiate_stripe_payment(
             .map_err(|e| YntraError::NetworkError(e.to_string()))?;
         Ok(session)
     } else if let Some(key) = secret_key {
+        let api_base_url = get_config_val("api_base_url", "API_BASE_URL", &settings_json).await
+            .unwrap_or_else(|| "https://api.yntra.se".to_string());
+        let api_base_url = api_base_url.trim_end_matches('/');
+
         let url = "https://api.stripe.com/v1/checkout/sessions";
         let params = [
-            ("success_url", "https://api.yntra.se/v1/billing/stripe/success".to_string()),
-            ("cancel_url", "https://api.yntra.se/v1/billing/stripe/cancel".to_string()),
+            ("success_url", format!("{}/v1/billing/stripe/success", api_base_url)),
+            ("cancel_url", format!("{}/v1/billing/stripe/cancel", api_base_url)),
             ("mode", "payment".to_string()),
             ("line_items[0][price_data][currency]", currency.to_lowercase()),
             ("line_items[0][price_data][product_data][name]", format!("Move Invoice {}", invoice_id)),
