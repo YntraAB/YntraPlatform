@@ -1,12 +1,44 @@
+pub fn verify_luhn_checksum(pnum_10_digits: &str) -> bool {
+    if pnum_10_digits.len() != 10 {
+        return false;
+    }
+    let mut sum = 0;
+    for (i, ch) in pnum_10_digits.chars().enumerate() {
+        let mut digit = match ch.to_digit(10) {
+            Some(d) => d as i32,
+            None => return false,
+        };
+        if i % 2 == 0 {
+            digit *= 2;
+            if digit > 9 {
+                digit -= 9;
+            }
+        }
+        sum += digit;
+    }
+    sum % 10 == 0
+}
+
 pub fn normalize_swedish_pnum(pnum: &str, current_year: i32) -> Option<String> {
     let clean = pnum.trim();
     let digits_only: String = clean.chars().filter(|c| c.is_ascii_digit()).collect();
+
+    let pnum_10 = if digits_only.len() == 12 {
+        &digits_only[2..12]
+    } else if digits_only.len() == 10 {
+        &digits_only[..10]
+    } else {
+        return None;
+    };
+
+    if !verify_luhn_checksum(pnum_10) {
+        return None;
+    }
+
     if digits_only.len() == 12 {
         return Some(digits_only);
     }
-    if digits_only.len() != 10 {
-        return None;
-    }
+
     let is_over_100 = clean.contains('+');
     let yy = digits_only[0..2].parse::<i32>().ok()?;
     let mm_dd_xxxx = &digits_only[2..10];
@@ -56,9 +88,9 @@ mod tests {
 
     #[test]
     fn test_personal_numbers_match_helper() {
-        assert!(personal_numbers_match("19900101-1234", "199001011234"));
-        assert!(personal_numbers_match("19900101-1234", "900101-1234"));
-        assert!(personal_numbers_match("9001011234", "19900101-1234"));
-        assert!(!personal_numbers_match("19900101-1234", "19900101-1235"));
+        assert!(personal_numbers_match("19811218-9876", "198112189876"));
+        assert!(personal_numbers_match("19811218-9876", "811218-9876"));
+        assert!(personal_numbers_match("8112189876", "19811218-9876"));
+        assert!(!personal_numbers_match("19811218-9876", "19811218-9877"));
     }
 }

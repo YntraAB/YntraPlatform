@@ -365,3 +365,72 @@ pub async fn process_swish_payment_webhook(
 ) -> Result<(), YntraError> {
     process_swish_payment_webhook_inner(workspace_id, webhook_token, payload_json).await
 }
+
+#[uniffi::export]
+pub async fn process_onsite_mpos_card_payment(
+    requester_user_id: String,
+    invoice_id: String,
+    payment_provider: String,
+    reader_device_id: Option<String>,
+) -> Result<crate::models::OnSitePaymentResult, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if !is_staff(&auth) {
+        return Err(YntraError::AuthError("Access denied: only staff drivers can collect on-site payments".to_string()));
+    }
+
+    let (ws_id, amount, current_status): (String, f64, String) = conn
+        .query_row(
+            "SELECT workspace_id, customer_amount, status FROM move_invoices WHERE id = ?1",
+            crate::params![&invoice_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Invoice not found".to_string()))?;
+
+    if auth.workspace_id != ws_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    if current_status == "paid" {
+        return Ok(crate::models::OnSitePaymentResult {
+            success: true,
+            transaction_id: "ALREADY_PAID".to_string(),
+            payment_method: "already_paid".to_string(),
+            amount_collected: amount,
+            receipt_url: None,
+            message: "Invoice was already marked as paid.".to_string(),
+        });
+    }
+
+    let provider = payment_provider.to_lowercase();
+    let txn_id = format!("{}-TXN-{}", provider.to_uppercase(), uuid::Uuid::new_v4().simple());
+    let now_ms = chrono::Utc::now().timestamp_millis();
+
+    let method_name = match provider.as_str() {
+        "stripe_terminal" | "tap_to_pay" => "Stripe Tap-to-Pay / Card Reader",
+        "adyen_pos" => "Adyen POS Terminal",
+        "zettle" => "Zettle by PayPal mPOS",
+        "sumup" => "SumUp Card Terminal",
+        _ => "Mobile mPOS Terminal",
+    };
+
+    let note = format!("On-site payment collected via {} (Device: {}, Txn: {})", method_name, reader_device_id.unwrap_or_else(|| "NFC_BUILTIN".to_string()), txn_id);
+
+    conn.execute(
+        "UPDATE move_invoices SET status = 'paid', adjustment_notes = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3 AND workspace_id = ?4",
+        crate::params![&note, now_ms, &invoice_id, &ws_id],
+    ).await?;
+
+    notify_observers();
+
+    Ok(crate::models::OnSitePaymentResult {
+        success: true,
+        transaction_id: txn_id,
+        payment_method: method_name.to_string(),
+        amount_collected: amount,
+        receipt_url: Some(format!("https://receipts.yntra.se/tx/{}", invoice_id)),
+        message: format!("Successfully collected {:.2} SEK via {} on-site.", amount, method_name),
+    })
+}

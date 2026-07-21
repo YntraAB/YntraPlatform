@@ -453,6 +453,14 @@ async fn submit_skatteverket_claim_direct_inner(
             ).await?;
         }
         notify_observers();
+    } else if status == "rejected" || status == "failed" {
+        for inv_id in &invoice_ids {
+            conn.execute(
+                "UPDATE move_invoices SET status = 'rut_rejected', adjustment_notes = ?1, sync_status = 'pending' WHERE id = ?2 AND workspace_id = ?3",
+                crate::params![&message, inv_id, &auth.workspace_id]
+            ).await?;
+        }
+        notify_observers();
     }
     
     Ok(crate::models::SkatteverketSubmitResult {

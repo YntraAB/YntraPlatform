@@ -11,7 +11,7 @@ pub async fn calculate_eligible_labor_cost(
     settings_json: &serde_json::Value,
 ) -> Result<f64, YntraError> {
     let mut inv_stmt = conn.prepare(
-        "SELECT quantity, estimated_volume_m3, item_name FROM move_inventory WHERE job_ticket_id = ?1",
+        "SELECT quantity, estimated_volume_m3, item_name, item_category, handling_notes FROM move_inventory WHERE job_ticket_id = ?1",
     ).await?;
     let mut inv_rows = inv_stmt.query(crate::params![job_ticket_id]).await?;
     let mut total_volume = 0.0;
@@ -26,20 +26,19 @@ pub async fn calculate_eligible_labor_cost(
         let quantity: i64 = row.get(0)?;
         let vol: f64 = row.get(1)?;
         let item_name: String = row.get(2)?;
+        let item_category: String = row.get(3)?;
+        let handling_notes: Option<String> = row.get(4)?;
         total_volume += (quantity as f64) * vol;
 
-        let item_name_lower = item_name.to_lowercase();
-        let item_fee = if item_name_lower.contains("piano") || item_name_lower.contains("flygel") {
-            surcharge_piano
-        } else if item_name_lower.contains("safe") || item_name_lower.contains("kassaskåp") {
-            surcharge_safe
-        } else if item_name_lower.contains("jacuzzi") || item_name_lower.contains("badkar") || item_name_lower.contains("spa") {
-            surcharge_jacuzzi
-        } else if item_name_lower.contains("konst") || item_name_lower.contains("tavla") || item_name_lower.contains("painting") || item_name_lower.contains("fragile") {
-            surcharge_fragile
-        } else {
-            0.0
-        };
+        let item_fee = crate::services::jobs::calculate_item_specialty_surcharge(
+            item_category,
+            item_name,
+            handling_notes,
+            surcharge_piano,
+            surcharge_safe,
+            surcharge_jacuzzi,
+            surcharge_fragile,
+        );
         specialty_surcharge += item_fee * (quantity as f64);
     }
 
