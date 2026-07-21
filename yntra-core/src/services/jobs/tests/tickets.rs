@@ -389,3 +389,81 @@ async fn test_public_booking_lead_submission() {
     conn.execute("DELETE FROM users WHERE workspace_id = 'ws-lead-test'", ()).await.unwrap();
     conn.execute("DELETE FROM workspaces WHERE id = 'ws-lead-test'", ()).await.unwrap();
 }
+
+#[tokio::test]
+async fn test_job_ticket_mover_visibility_scoping() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    // 1. Setup workspace & users
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-scope-test', 'Scope Test WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+    // Admin user (sees all)
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-scope-admin', 'ws-scope-test', 'admin@scope.io', 'admin')", ()).await.unwrap();
+    // Mover 1 (sees only assigned / crew jobs)
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-scope-mover1', 'ws-scope-test', 'm1@scope.io', 'mover')", ()).await.unwrap();
+    // Mover 2 (sees only assigned / crew jobs)
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-scope-mover2', 'ws-scope-test', 'm2@scope.io', 'mover')", ()).await.unwrap();
+
+    // 2. Create job 1 (assigned directly to Mover 1)
+    let job1 = create_job_ticket(
+        "u-scope-admin".to_string(),
+        "ws-scope-test".to_string(),
+        "Job 1 (Mover 1)".to_string(),
+        "Direct assign".to_string(),
+        "Addr 1".to_string(),
+        "medium".to_string(),
+        Some("u-scope-mover1".to_string()),
+        "2026-08-10".to_string(),
+        "[]".to_string(),
+        None, None, 0, 0, false, false, false, false,
+    ).await.unwrap();
+
+    // 3. Create job 2 (Mover 2 is added as crew)
+    let job2 = create_job_ticket(
+        "u-scope-admin".to_string(),
+        "ws-scope-test".to_string(),
+        "Job 2 (Mover 2 Crew)".to_string(),
+        "Crew assign".to_string(),
+        "Addr 2".to_string(),
+        "medium".to_string(),
+        None,
+        "2026-08-10".to_string(),
+        "[]".to_string(),
+        None, None, 0, 0, false, false, false, false,
+    ).await.unwrap();
+    conn.execute("INSERT INTO job_crew (job_ticket_id, user_id, role) VALUES (?1, 'u-scope-mover2', 'mover')", crate::params![&job2.id]).await.unwrap();
+
+    // 4. Create job 3 (Unassigned to any specific mover)
+    let _job3 = create_job_ticket(
+        "u-scope-admin".to_string(),
+        "ws-scope-test".to_string(),
+        "Job 3 (Unassigned)".to_string(),
+        "Unassigned".to_string(),
+        "Addr 3".to_string(),
+        "medium".to_string(),
+        None,
+        "2026-08-10".to_string(),
+        "[]".to_string(),
+        None, None, 0, 0, false, false, false, false,
+    ).await.unwrap();
+
+    // 5. Query tickets as Admin -> expects 3 jobs
+    let admin_list = get_job_tickets("u-scope-admin".to_string()).await.unwrap();
+    assert_eq!(admin_list.len(), 3);
+
+    // 6. Query tickets as Mover 1 -> expects only job1
+    let mover1_list = get_job_tickets("u-scope-mover1".to_string()).await.unwrap();
+    assert_eq!(mover1_list.len(), 1);
+    assert_eq!(mover1_list[0].id, job1.id);
+
+    // 7. Query tickets as Mover 2 -> expects only job2
+    let mover2_list = get_job_tickets("u-scope-mover2".to_string()).await.unwrap();
+    assert_eq!(mover2_list.len(), 1);
+    assert_eq!(mover2_list[0].id, job2.id);
+
+    // Cleanup
+    conn.execute("DELETE FROM job_crew WHERE job_ticket_id IN (?1, ?2)", crate::params![&job1.id, &job2.id]).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-scope-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-scope-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-scope-test'", ()).await.unwrap();
+}

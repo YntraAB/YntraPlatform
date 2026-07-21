@@ -33,11 +33,18 @@ pub async fn get_job_tickets(requester_user_id: String) -> Result<Vec<JobTicket>
     }
 
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed, assigned_vehicle_id, route_stops_json, long_carry_meters, toll_fees FROM job_tickets WHERE workspace_id = ?1",
+        "SELECT id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, sync_status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed, assigned_vehicle_id, route_stops_json, long_carry_meters, toll_fees 
+         FROM job_tickets 
+         WHERE workspace_id = ?1
+           AND (?2 = 1 OR assigned_user_id = ?3 OR EXISTS (
+               SELECT 1 FROM job_crew WHERE job_ticket_id = job_tickets.id AND user_id = ?3
+           ))",
     ).await?;
 
+    let is_staff_val = if is_staff(&auth) { 1i64 } else { 0i64 };
+
     let list = stmt
-        .query_map(crate::params![auth.workspace_id], |row| {
+        .query_map(crate::params![auth.workspace_id, is_staff_val, auth.user_id], |row| {
             Ok(JobTicket {
                 id: row.get(0)?,
                 workspace_id: row.get(1)?,
