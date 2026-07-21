@@ -1054,6 +1054,193 @@ impl RemoteSyncCoordinator {
                 }
                 list
             }
+            "job_tickets" => {
+                let mut stmt = if auth.role == "platform_admin" {
+                    conn.prepare("SELECT id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed, assigned_vehicle_id, route_stops_json, long_carry_meters, toll_fees FROM job_tickets").await?
+                } else {
+                    conn.prepare("SELECT id, workspace_id, title, description, location_address, priority, status, assigned_user_id, scheduled_date, checklist_json, completion_report, created_at, updated_at, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, origin_parking_permit_needed, destination_parking_permit_needed, assigned_vehicle_id, route_stops_json, long_carry_meters, toll_fees FROM job_tickets WHERE workspace_id = ?1").await?
+                };
+
+                let mut rows = if auth.role == "platform_admin" {
+                    stmt.query(()).await?
+                } else {
+                    stmt.query(crate::params![&auth.workspace_id]).await?
+                };
+
+                let mut list = Vec::new();
+                while let Some(row) = rows.next().await? {
+                    let assigned_user_id: Option<String> = row.get(7)?;
+                    let completion_report: Option<String> = row.get(10)?;
+                    let origin_address: Option<String> = row.get(13)?;
+                    let destination_address: Option<String> = row.get(14)?;
+                    let assigned_vehicle_id: Option<String> = row.get(21)?;
+                    let route_stops_json: Option<String> = row.get(22)?;
+                    
+                    let item = serde_json::json!({
+                        "id": row.get::<String>(0)?,
+                        "workspace_id": row.get::<String>(1)?,
+                        "title": row.get::<String>(2)?,
+                        "description": row.get::<String>(3)?,
+                        "location_address": row.get::<String>(4)?,
+                        "priority": row.get::<String>(5)?,
+                        "status": row.get::<String>(6)?,
+                        "assigned_user_id": assigned_user_id,
+                        "scheduled_date": row.get::<String>(8)?,
+                        "checklist_json": row.get::<String>(9)?,
+                        "completion_report": completion_report,
+                        "created_at": row.get::<String>(11)?,
+                        "updated_at": row.get::<i64>(12)?,
+                        "origin_address": origin_address,
+                        "destination_address": destination_address,
+                        "origin_floor": row.get::<i64>(15)?,
+                        "destination_floor": row.get::<i64>(16)?,
+                        "origin_has_elevator": row.get::<i64>(17)? != 0,
+                        "destination_has_elevator": row.get::<i64>(18)? != 0,
+                        "origin_parking_permit_needed": row.get::<i64>(19)? != 0,
+                        "destination_parking_permit_needed": row.get::<i64>(20)? != 0,
+                        "assigned_vehicle_id": assigned_vehicle_id,
+                        "route_stops_json": route_stops_json,
+                        "long_carry_meters": row.get::<i64>(23)?,
+                        "toll_fees": row.get::<f64>(24)?,
+                    });
+                    list.push(item);
+                }
+                list
+            }
+            "move_inventory" => {
+                let mut stmt = if auth.role == "platform_admin" {
+                    conn.prepare("SELECT id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, handling_notes, updated_at FROM move_inventory").await?
+                } else {
+                    conn.prepare("SELECT id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, handling_notes, updated_at FROM move_inventory WHERE workspace_id = ?1").await?
+                };
+
+                let mut rows = if auth.role == "platform_admin" {
+                    stmt.query(()).await?
+                } else {
+                    stmt.query(crate::params![&auth.workspace_id]).await?
+                };
+
+                let mut list = Vec::new();
+                while let Some(row) = rows.next().await? {
+                    let handling_notes: Option<String> = row.get(7)?;
+                    let item = serde_json::json!({
+                        "id": row.get::<String>(0)?,
+                        "workspace_id": row.get::<String>(1)?,
+                        "job_ticket_id": row.get::<String>(2)?,
+                        "item_category": row.get::<String>(3)?,
+                        "item_name": row.get::<String>(4)?,
+                        "quantity": row.get::<i64>(5)?,
+                        "estimated_volume_m3": row.get::<f64>(6)?,
+                        "handling_notes": handling_notes,
+                        "updated_at": row.get::<i64>(8)?,
+                    });
+                    list.push(item);
+                }
+                list
+            }
+            "move_quotes" => {
+                let mut stmt = if auth.role == "platform_admin" {
+                    conn.prepare("SELECT id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, accepted_at, updated_at, manual_price_override, price_discount FROM move_quotes").await?
+                } else {
+                    conn.prepare("SELECT id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, accepted_at, updated_at, manual_price_override, price_discount FROM move_quotes WHERE workspace_id = ?1").await?
+                };
+
+                let mut rows = if auth.role == "platform_admin" {
+                    stmt.query(()).await?
+                } else {
+                    stmt.query(crate::params![&auth.workspace_id]).await?
+                };
+
+                let mut list = Vec::new();
+                while let Some(row) = rows.next().await? {
+                    let accepted_at: Option<i64> = row.get(9)?;
+                    let manual_price_override: Option<f64> = row.get(11)?;
+                    let price_discount: Option<f64> = row.get(12)?;
+                    let item = serde_json::json!({
+                        "id": row.get::<String>(0)?,
+                        "workspace_id": row.get::<String>(1)?,
+                        "job_ticket_id": row.get::<String>(2)?,
+                        "base_price": row.get::<f64>(3)?,
+                        "distance_fee": row.get::<f64>(4)?,
+                        "stairs_surcharge": row.get::<f64>(5)?,
+                        "packing_supplies_fee": row.get::<f64>(6)?,
+                        "total_price": row.get::<f64>(7)?,
+                        "status": row.get::<String>(8)?,
+                        "accepted_at": accepted_at,
+                        "updated_at": row.get::<i64>(10)?,
+                        "manual_price_override": manual_price_override,
+                        "price_discount": price_discount,
+                    });
+                    list.push(item);
+                }
+                list
+            }
+            "move_invoices" => {
+                let mut stmt = if auth.role == "platform_admin" {
+                    conn.prepare("SELECT id, workspace_id, quote_id, customer_id, invoice_date, due_date, subtotal, rut_deduction, customer_amount, tax_authority_amount, status, updated_at, actual_hours, additional_charges, adjustment_notes FROM move_invoices").await?
+                } else {
+                    conn.prepare("SELECT id, workspace_id, quote_id, customer_id, invoice_date, due_date, subtotal, rut_deduction, customer_amount, tax_authority_amount, status, updated_at, actual_hours, additional_charges, adjustment_notes FROM move_invoices WHERE workspace_id = ?1").await?
+                };
+
+                let mut rows = if auth.role == "platform_admin" {
+                    stmt.query(()).await?
+                } else {
+                    stmt.query(crate::params![&auth.workspace_id]).await?
+                };
+
+                let mut list = Vec::new();
+                while let Some(row) = rows.next().await? {
+                    let actual_hours: Option<f64> = row.get(12)?;
+                    let additional_charges: Option<f64> = row.get(13)?;
+                    let adjustment_notes: Option<String> = row.get(14)?;
+                    let item = serde_json::json!({
+                        "id": row.get::<String>(0)?,
+                        "workspace_id": row.get::<String>(1)?,
+                        "quote_id": row.get::<String>(2)?,
+                        "customer_id": row.get::<String>(3)?,
+                        "invoice_date": row.get::<String>(4)?,
+                        "due_date": row.get::<String>(5)?,
+                        "subtotal": row.get::<f64>(6)?,
+                        "rut_deduction": row.get::<f64>(7)?,
+                        "customer_amount": row.get::<f64>(8)?,
+                        "tax_authority_amount": row.get::<f64>(9)?,
+                        "status": row.get::<String>(10)?,
+                        "updated_at": row.get::<i64>(11)?,
+                        "actual_hours": actual_hours,
+                        "additional_charges": additional_charges,
+                        "adjustment_notes": adjustment_notes,
+                    });
+                    list.push(item);
+                }
+                list
+            }
+            "move_signatures" => {
+                let mut stmt = if auth.role == "platform_admin" {
+                    conn.prepare("SELECT id, workspace_id, job_ticket_id, signer_name, signature_data_base64, signed_at FROM move_signatures").await?
+                } else {
+                    conn.prepare("SELECT id, workspace_id, job_ticket_id, signer_name, signature_data_base64, signed_at FROM move_signatures WHERE workspace_id = ?1").await?
+                };
+
+                let mut rows = if auth.role == "platform_admin" {
+                    stmt.query(()).await?
+                } else {
+                    stmt.query(crate::params![&auth.workspace_id]).await?
+                };
+
+                let mut list = Vec::new();
+                while let Some(row) = rows.next().await? {
+                    let item = serde_json::json!({
+                        "id": row.get::<String>(0)?,
+                        "workspace_id": row.get::<String>(1)?,
+                        "job_ticket_id": row.get::<String>(2)?,
+                        "signer_name": row.get::<String>(3)?,
+                        "signature_data_base64": row.get::<String>(4)?,
+                        "signed_at": row.get::<i64>(5)?,
+                    });
+                    list.push(item);
+                }
+                list
+            }
             _ => {
                 return Err(YntraError::DbError(format!(
                     "Sync partitioning is not supported for table '{}'",
@@ -1543,5 +1730,68 @@ mod tests {
         conn.execute("DELETE FROM student_profiles WHERE workspace_id = 'ws-skew-test'", ()).await.unwrap();
         conn.execute("DELETE FROM users WHERE workspace_id = 'ws-skew-test'", ()).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id = 'ws-skew-test'", ()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_remote_sync_coordinator_partitioning_moving() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let trust = ZkCryptoTrust::new();
+        let passkey_admin = "seed-partition-moving-admin".to_string();
+        let pk_admin = trust.derive_public_key(passkey_admin.clone()).unwrap();
+        let meta_admin = serde_json::json!({ "public_key": pk_admin }).to_string();
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-moving-test', 'Moving WS', '[]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-admin-m', 'ws-moving-test', 'admin@moving.com', 'admin', ?1)", crate::params![&meta_admin]).await.unwrap();
+
+        // Insert job tickets
+        conn.execute("INSERT OR REPLACE INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, created_at, updated_at) VALUES ('job-1', 'ws-moving-test', 'Title 1', 'Desc 1', 'Addr 1', 'high', 'pending', '2026-07-21', '{}', '2026-07-21', 0)", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, created_at, updated_at) VALUES ('job-2', 'ws-moving-test', 'Title 2', 'Desc 2', 'Addr 2', 'medium', 'pending', '2026-07-21', '{}', '2026-07-21', 0)", ()).await.unwrap();
+
+        // Insert move inventory
+        conn.execute("INSERT OR REPLACE INTO move_inventory (id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, updated_at) VALUES ('inv-1', 'ws-moving-test', 'job-1', 'Boxes', 'Small Box', 5, 0.5, 0)", ()).await.unwrap();
+
+        // Insert move quotes
+        conn.execute("INSERT OR REPLACE INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at) VALUES ('quote-1', 'ws-moving-test', 'job-1', 1000.0, 100.0, 50.0, 20.0, 1170.0, 'pending', 0)", ()).await.unwrap();
+
+        // Insert move invoices
+        conn.execute("INSERT OR REPLACE INTO move_invoices (id, workspace_id, quote_id, customer_id, invoice_date, due_date, subtotal, rut_deduction, customer_amount, tax_authority_amount, status, updated_at) VALUES ('invc-1', 'ws-moving-test', 'quote-1', 'cust-1', '2026-07-21', '2026-08-21', 1170.0, 0.0, 1170.0, 0.0, 'unpaid', 0)", ()).await.unwrap();
+
+        // Insert move signatures
+        conn.execute("INSERT OR REPLACE INTO move_signatures (id, workspace_id, job_ticket_id, signer_name, signature_data_base64, signed_at) VALUES ('sig-1', 'ws-moving-test', 'job-1', 'John Doe', 'base64-data', 0)", ()).await.unwrap();
+
+        let coordinator = RemoteSyncCoordinator::new();
+        let proof_admin = trust.generate_role_proof(passkey_admin.clone(), "u-admin-m".to_string(), "admin".to_string()).unwrap();
+
+        // Verify payload lengths
+        let payload_jobs = coordinator.generate_partitioned_sync_payload("u-admin-m".to_string(), "admin".to_string(), Some(proof_admin.clone()), "job_tickets".to_string()).await.unwrap();
+        let arr_jobs: serde_json::Value = serde_json::from_str(&payload_jobs).unwrap();
+        assert_eq!(arr_jobs.as_array().unwrap().len(), 2);
+
+        let payload_inv = coordinator.generate_partitioned_sync_payload("u-admin-m".to_string(), "admin".to_string(), Some(proof_admin.clone()), "move_inventory".to_string()).await.unwrap();
+        let arr_inv: serde_json::Value = serde_json::from_str(&payload_inv).unwrap();
+        assert_eq!(arr_inv.as_array().unwrap().len(), 1);
+
+        let payload_quotes = coordinator.generate_partitioned_sync_payload("u-admin-m".to_string(), "admin".to_string(), Some(proof_admin.clone()), "move_quotes".to_string()).await.unwrap();
+        let arr_quotes: serde_json::Value = serde_json::from_str(&payload_quotes).unwrap();
+        assert_eq!(arr_quotes.as_array().unwrap().len(), 1);
+
+        let payload_invoices = coordinator.generate_partitioned_sync_payload("u-admin-m".to_string(), "admin".to_string(), Some(proof_admin.clone()), "move_invoices".to_string()).await.unwrap();
+        let arr_invoices: serde_json::Value = serde_json::from_str(&payload_invoices).unwrap();
+        assert_eq!(arr_invoices.as_array().unwrap().len(), 1);
+
+        let payload_signatures = coordinator.generate_partitioned_sync_payload("u-admin-m".to_string(), "admin".to_string(), Some(proof_admin.clone()), "move_signatures".to_string()).await.unwrap();
+        let arr_signatures: serde_json::Value = serde_json::from_str(&payload_signatures).unwrap();
+        assert_eq!(arr_signatures.as_array().unwrap().len(), 1);
+
+        // Cleanup
+        conn.execute("DELETE FROM move_signatures WHERE workspace_id = 'ws-moving-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM move_invoices WHERE workspace_id = 'ws-moving-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-moving-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-moving-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-moving-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-moving-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-moving-test'", ()).await.unwrap();
     }
 }

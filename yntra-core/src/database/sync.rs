@@ -163,6 +163,11 @@ async fn sync_database_row_level(url: String, token: String) -> Result<(), Yntra
         "library_books",
         "library_lending_logs",
         "school_payments",
+        "job_tickets",
+        "move_quotes",
+        "move_inventory",
+        "move_invoices",
+        "move_signatures",
     ];
 
     // 3. UPLOAD PHASE

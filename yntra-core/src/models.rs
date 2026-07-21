@@ -521,6 +521,8 @@ pub struct MoveQuote {
     pub accepted_at: Option<i64>,
     pub updated_at: i64,
     pub sync_status: String,
+    pub manual_price_override: Option<f64>,
+    pub price_discount: Option<f64>,
 }
 
 #[derive(

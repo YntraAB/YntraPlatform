@@ -346,6 +346,8 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             accepted_at INTEGER,
             updated_at INTEGER NOT NULL DEFAULT 0,
             sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            manual_price_override REAL,
+            price_discount REAL DEFAULT 0.0,
             FOREIGN KEY(job_ticket_id) REFERENCES job_tickets(id)
         );
 
