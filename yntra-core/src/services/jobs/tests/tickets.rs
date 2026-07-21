@@ -1,6 +1,6 @@
 use crate::database;
 use crate::services::jobs::{create_job_ticket, get_job_tickets, get_job_tickets_rkyv, schedule_job_ticket};
-use crate::services::jobs::{get_job_signature, save_job_signature};
+use crate::services::jobs::{get_job_signature, save_job_signature_with_audit_trail};
 use crate::JobTicket;
 
 #[tokio::test]
@@ -260,11 +260,20 @@ async fn test_digital_signature_capture() {
     let sig_opt = get_job_signature("u-sig-staff".to_string(), job.id.clone()).await.unwrap();
     assert!(sig_opt.is_none());
 
-    // 2. Save signature
+    // 2. Save signature with legal audit trail and transport terms (Bohag 2020)
     let mock_signature = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIA...";
-    save_job_signature("u-sig-staff".to_string(), job.id.clone(), "John Doe (Customer)".to_string(), mock_signature.to_string()).await.unwrap();
+    save_job_signature_with_audit_trail(
+        "u-sig-staff".to_string(),
+        job.id.clone(),
+        "John Doe (Customer)".to_string(),
+        mock_signature.to_string(),
+        Some("192.168.1.100".to_string()),
+        Some("59.3293,18.0686".to_string()),
+        Some("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)".to_string()),
+        Some("Bohag 2020".to_string()),
+    ).await.unwrap();
 
-    // 3. Retrieve and verify signature details
+    // 3. Retrieve and verify signature details and legal audit trail
     let sig_opt_2 = get_job_signature("u-sig-staff".to_string(), job.id.clone()).await.unwrap();
     assert!(sig_opt_2.is_some());
     let sig = sig_opt_2.unwrap();
@@ -272,6 +281,11 @@ async fn test_digital_signature_capture() {
     assert_eq!(sig.signature_data_base64, mock_signature);
     assert_eq!(sig.job_ticket_id, job.id);
     assert_eq!(sig.workspace_id, "ws-sig-test");
+    assert_eq!(sig.ip_address, Some("192.168.1.100".to_string()));
+    assert_eq!(sig.geolocation, Some("59.3293,18.0686".to_string()));
+    assert_eq!(sig.terms_version, Some("Bohag 2020".to_string()));
+    assert!(sig.terms_hash.is_some());
+    assert!(sig.signature_hash.is_some());
 
     // Cleanup
     conn.execute("DELETE FROM move_signatures WHERE job_ticket_id = ?1", crate::params![&job.id]).await.unwrap();
@@ -476,4 +490,66 @@ async fn test_job_ticket_mover_visibility_scoping() {
     conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-scope-test'", ()).await.unwrap();
     conn.execute("DELETE FROM users WHERE workspace_id = 'ws-scope-test'", ()).await.unwrap();
     conn.execute("DELETE FROM workspaces WHERE id = 'ws-scope-test'", ()).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_customer_live_tracking_and_quote_deposit() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-track-test', 'Tracking WS', '[\"moving_company\"]', '{\"moving_deposit_percent\":25.0}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, full_name, role, phone) VALUES ('u-track-staff', 'ws-track-test', 'staff@track.io', 'Leader Lars', 'admin', '+46701112233')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, full_name, role) VALUES ('u-track-client', 'ws-track-test', 'client@track.io', 'Customer Carin', 'client')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO vehicles (id, workspace_id, name, license_plate, capacity_m3, status, latitude, longitude) VALUES ('v-track-1', 'ws-track-test', 'Truck 1', 'ABC-123', 25.0, 'available', 59.3293, 18.0686)", ()).await.unwrap();
+
+    let job = create_job_ticket(
+        "u-track-staff".to_string(),
+        "ws-track-test".to_string(),
+        "Live Tracked Relocation".to_string(),
+        "Customer portal tracking test".to_string(),
+        "Stockholm Central".to_string(),
+        "high".to_string(),
+        Some("u-track-client".to_string()),
+        "2026-11-15".to_string(),
+        "[]".to_string(),
+        None,
+        None,
+        0, 0, true, true, false, false,
+    )
+    .await
+    .unwrap();
+
+    // Assign vehicle to job
+    conn.execute("UPDATE job_tickets SET assigned_user_id = 'u-track-staff', assigned_vehicle_id = 'v-track-1' WHERE id = ?1", crate::params![&job.id]).await.unwrap();
+
+    // 1. Customer live GPS tracking portal
+    let portal = crate::services::jobs::notifications::get_customer_live_tracking_portal(job.id.clone()).await.unwrap();
+    assert_eq!(portal.driver_name, "Leader Lars");
+    assert_eq!(portal.driver_phone, Some("+46701112233".to_string()));
+    assert_eq!(portal.vehicle_license_plate, Some("ABC-123".to_string()));
+    assert_eq!(portal.current_lat, 59.3293);
+    assert_eq!(portal.current_lon, 18.0686);
+    assert!(portal.live_tracking_url.contains(&job.id));
+
+    // 2. Interactive quote approval with 25% deposit gate
+    let quote_id = "q-track-1".to_string();
+    conn.execute(
+        "INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at) VALUES (?1, 'ws-track-test', ?2, 10000.0, 0.0, 0.0, 0.0, 10000.0, 'sent', 0)",
+        crate::params![&quote_id, &job.id],
+    )
+    .await
+    .unwrap();
+
+    let deposit_res = crate::services::jobs::accept_move_quote_with_deposit("u-track-client".to_string(), quote_id.clone(), "swish".to_string()).await.unwrap();
+    assert!(deposit_res.success);
+    assert_eq!(deposit_res.deposit_amount, 2500.0); // 25% of 10,000
+    assert_eq!(deposit_res.remaining_balance, 7500.0);
+    assert!(deposit_res.payment_session_url.unwrap().contains("swish"));
+
+    // Cleanup
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-track-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-track-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM vehicles WHERE workspace_id = 'ws-track-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-track-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-track-test'", ()).await.unwrap();
 }

@@ -9,6 +9,16 @@ pub fn is_staff(auth: &crate::AuthContext) -> bool {
         || auth.role == "admin"
         || auth.role == "assistant"
         || auth.role == "workspace_admin"
+        || auth.role == "mover"
+        || auth.role == "driver"
+        || auth.role == "staff"
+}
+
+pub fn is_management_staff(auth: &crate::AuthContext) -> bool {
+    auth.role == "platform_admin"
+        || auth.role == "admin"
+        || auth.role == "assistant"
+        || auth.role == "workspace_admin"
 }
 
 fn validate_job_status(status: &str) -> Result<(), YntraError> {
@@ -26,7 +36,7 @@ pub async fn get_job_tickets(requester_user_id: String) -> Result<Vec<JobTicket>
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" {
+    if auth.role == "client" {
         return Err(YntraError::AuthError(
             "Access denied: insufficient permissions".to_string(),
         ));
@@ -41,7 +51,7 @@ pub async fn get_job_tickets(requester_user_id: String) -> Result<Vec<JobTicket>
            ))",
     ).await?;
 
-    let is_staff_val = if is_staff(&auth) { 1i64 } else { 0i64 };
+    let is_staff_val = if is_management_staff(&auth) { 1i64 } else { 0i64 };
 
     let list = stmt
         .query_map(crate::params![auth.workspace_id, is_staff_val, auth.user_id], |row| {
