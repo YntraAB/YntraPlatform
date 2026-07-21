@@ -151,6 +151,22 @@ pub async fn add_crew_member(
         ));
     }
 
+    // Validate driver license class (C/CE vs B) and EU Tachograph compliance if role is driver
+    let role_lower = role.to_lowercase();
+    if role_lower.contains("driver") || role_lower.contains("förare") || role_lower.contains("forare") {
+        let compliance = validate_driver_tachograph_compliance(
+            requester_user_id.clone(),
+            user_id.clone(),
+            job_id.clone(),
+        ).await?;
+
+        if !compliance.is_compliant {
+            return Err(YntraError::ValidationError(
+                compliance.compliance_warnings.join(" ")
+            ));
+        }
+    }
+
     conn.execute(
         "INSERT OR REPLACE INTO job_crew (job_ticket_id, user_id, role) VALUES (?1, ?2, ?3)",
         crate::params![job_id, user_id, role],
@@ -324,4 +340,109 @@ pub async fn get_job_crew(
         .await?;
 
     Ok(list)
+}
+
+#[uniffi::export]
+pub async fn validate_driver_tachograph_compliance(
+    requester_user_id: String,
+    driver_user_id: String,
+    job_id: String,
+) -> Result<crate::DriverComplianceStatus, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let (job_ws, assigned_vehicle_id, scheduled_date): (String, Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT workspace_id, assigned_vehicle_id, scheduled_date FROM job_tickets WHERE id = ?1",
+            crate::params![&job_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
+
+    if auth.workspace_id != job_ws {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let user_meta_str: Option<String> = conn
+        .query_row(
+            "SELECT metadata FROM users WHERE id = ?1",
+            crate::params![&driver_user_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or(None);
+
+    let user_license = user_meta_str
+        .as_deref()
+        .and_then(|m| serde_json::from_str::<serde_json::Value>(m).ok())
+        .and_then(|v| v.get("driver_license_class").and_then(|l| l.as_str()).map(|s| s.to_string()))
+        .unwrap_or_else(|| "B".to_string());
+
+    let (vehicle_capacity, vehicle_name) = if let Some(ref v_id) = assigned_vehicle_id {
+        conn.query_row(
+            "SELECT capacity_m3, name FROM vehicles WHERE id = ?1",
+            crate::params![v_id],
+            |r| Ok((r.get::<f64>(0)?, r.get::<String>(1)?)),
+        )
+        .await
+        .unwrap_or((0.0, "".to_string()))
+    } else {
+        (0.0, "".to_string())
+    };
+
+    let required_license_class = if vehicle_capacity > 20.0 {
+        "C/CE".to_string()
+    } else {
+        "B".to_string()
+    };
+
+    let mut warnings = Vec::new();
+    let license_upper = user_license.to_uppercase();
+    let has_c_license = license_upper.contains('C') || license_upper.contains("CE");
+
+    let mut is_compliant = true;
+
+    if vehicle_capacity > 20.0 && !has_c_license {
+        is_compliant = false;
+        warnings.push(format!(
+            "Driver license violation: User holds class '{}', but assigned vehicle '{}' ({:.1} m³) requires heavy truck license C/CE.",
+            user_license, vehicle_name, vehicle_capacity
+        ));
+    }
+
+    let date_str = scheduled_date.unwrap_or_default();
+    let same_day_jobs_count: i64 = if !date_str.trim().is_empty() {
+        conn.query_row(
+            "SELECT COUNT(*) FROM job_crew jc JOIN job_tickets jt ON jc.job_ticket_id = jt.id WHERE jc.user_id = ?1 AND jt.scheduled_date = ?2 AND jc.job_ticket_id != ?3",
+            crate::params![&driver_user_id, &date_str, &job_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or(0)
+    } else {
+        0
+    };
+
+    let total_hours = (same_day_jobs_count + 1) as f64 * 4.5;
+    let max_hours = 9.0;
+    let rest_compliant = total_hours <= max_hours;
+
+    if !rest_compliant {
+        is_compliant = false;
+        warnings.push(format!(
+            "EU Tachograph Regulation 561/2006 violation: Estimated driving time ({:.1}h) on {} exceeds 9.0h daily limit.",
+            total_hours, date_str
+        ));
+    }
+
+    Ok(crate::DriverComplianceStatus {
+        is_compliant,
+        license_class: user_license,
+        required_license_class,
+        total_driving_hours_today: total_hours,
+        max_allowed_daily_hours: max_hours,
+        rest_period_compliant: rest_compliant,
+        compliance_warnings: warnings,
+    })
 }

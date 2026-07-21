@@ -151,3 +151,57 @@ async fn test_vehicle_capacity_validation() {
     conn.execute("DELETE FROM users WHERE workspace_id = 'ws-cap-test'", ()).await.unwrap();
     conn.execute("DELETE FROM workspaces WHERE id = 'ws-cap-test'", ()).await.unwrap();
 }
+
+#[tokio::test]
+async fn test_driver_license_and_tachograph_compliance() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    use crate::services::jobs::validate_driver_tachograph_compliance;
+
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-comp-test', 'Comp Test WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-comp-admin', 'ws-comp-test', 'admin@comp.io', 'admin')", ()).await.unwrap();
+
+    // User A: Category B license only
+    let meta_b = serde_json::json!({ "driver_license_class": "B" }).to_string();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-driver-b', 'ws-comp-test', 'driverB@comp.io', 'mover', ?1)", crate::params![&meta_b]).await.unwrap();
+
+    // Heavy Truck: 25.0 m3 capacity (requires C/CE)
+    conn.execute(
+        "INSERT OR REPLACE INTO vehicles (id, workspace_id, name, license_plate, capacity_m3, status) VALUES ('v-heavy-1', 'ws-comp-test', 'Heavy Truck C', 'HEV-999', 25.0, 'active')",
+        ()
+    ).await.unwrap();
+
+    let job = create_job_ticket(
+        "u-comp-admin".to_string(),
+        "ws-comp-test".to_string(),
+        "Heavy Haul Move".to_string(),
+        "Relocating entire mansion".to_string(),
+        "Origin St 1".to_string(),
+        "high".to_string(),
+        None,
+        "2026-08-30".to_string(),
+        "[]".to_string(),
+        None, None, 0, 0, false, false, false, false,
+    ).await.unwrap();
+
+    assign_vehicle_to_job("u-comp-admin".to_string(), job.id.clone(), Some("v-heavy-1".to_string())).await.unwrap();
+
+    // 1. Attempt to add Category B driver to Heavy Truck job (should fail validation)
+    let add_res = add_crew_member("u-comp-admin".to_string(), job.id.clone(), "u-driver-b".to_string(), "driver".to_string()).await;
+    assert!(add_res.is_err());
+    let err_str = add_res.unwrap_err().to_string();
+    assert!(err_str.contains("Driver license violation"));
+
+    // 2. Direct compliance check
+    let compliance = validate_driver_tachograph_compliance("u-comp-admin".to_string(), "u-driver-b".to_string(), job.id.clone()).await.unwrap();
+    assert!(!compliance.is_compliant);
+    assert_eq!(compliance.license_class, "B");
+    assert_eq!(compliance.required_license_class, "C/CE");
+
+    // Cleanup
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-comp-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM vehicles WHERE workspace_id = 'ws-comp-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-comp-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-comp-test'", ()).await.unwrap();
+}
