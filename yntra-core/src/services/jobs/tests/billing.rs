@@ -8,7 +8,8 @@ use crate::services::jobs::{
     process_swish_payment_webhook, process_stripe_payment_webhook,
     export_skatteverket_claims, get_rut_invoices,
     initiate_bankid_skatteverket_session, submit_skatteverket_claim_direct,
-    adjust_invoice_for_actuals,
+    adjust_invoice_for_actuals, process_onsite_mpos_card_payment,
+    sync_invoice_to_erp, reconcile_erp_payments,
     assign_vehicle_to_job, add_crew_member, remove_crew_member,
 };
 
@@ -133,7 +134,7 @@ async fn test_configurable_pricing_calculations() {
         "Origin St 50".to_string(),
         "medium".to_string(),
         None,
-        "2026-08-15".to_string(),
+        "2026-08-12".to_string(),
         "[]".to_string(),
         Some("Origin St 50".to_string()),
         Some("Dest St 100".to_string()),
@@ -212,7 +213,7 @@ async fn test_hourly_pricing_calculations() {
         "Main St 1".to_string(),
         "medium".to_string(),
         Some("u-hourly-client".to_string()),
-        "2026-09-01".to_string(),
+        "2026-09-15".to_string(),
         "[]".to_string(),
         None,
         None,
@@ -567,7 +568,7 @@ async fn test_skatteverket_rut_export_flow() {
     ).await.unwrap();
 
     let client_metadata = serde_json::json!({
-        "personal_number": "19880808-8888"
+        "personal_number": "19811218-9876"
     }).to_string();
 
     conn.execute(
@@ -632,7 +633,7 @@ async fn test_skatteverket_rut_export_flow() {
     
     let overview = list.iter().find(|i| i.invoice_id == inv.id).unwrap();
     assert_eq!(overview.customer_name, "Anna Andersson");
-    assert_eq!(overview.customer_pnum, "19880808-8888");
+    assert_eq!(overview.customer_pnum, "19811218-9876");
     assert_eq!(overview.rut_amount, 600.0);
     assert_eq!(overview.status, "paid");
 
@@ -643,7 +644,7 @@ async fn test_skatteverket_rut_export_flow() {
     
     assert!(xml.contains("<BegaranFil xmlns=\"http://xmls.skatteverket.se/se/skatteverket/us/omr/rotrut/begaran/6.0\">"));
     assert!(xml.contains("<UtforareOrgNr>556999-9999</UtforareOrgNr>"));
-    assert!(xml.contains("<KoparePersnr>198808088888</KoparePersnr>"));
+    assert!(xml.contains("<KoparePersnr>198112189876</KoparePersnr>"));
     assert!(xml.contains("<BegartBelopp>600</BegartBelopp>"));
     assert!(xml.contains("<RutArbete>"));
     assert!(xml.contains("<Flyttjanster>3</Flyttjanster>")); // minimum_hours = 3.0
@@ -654,7 +655,7 @@ async fn test_skatteverket_rut_export_flow() {
         .unwrap();
     
     assert!(csv.contains("InvoiceID,OrgNr,KoparePersnr,BetalningsDatum,Arbetskostnad,BegartBelopp,ArbetadeTimmar,FlyttjansterHours"));
-    assert!(csv.contains("556999-9999,198808088888"));
+    assert!(csv.contains("556999-9999,198112189876"));
     assert!(csv.contains(",1200,600,3,3"));
 
     // Cleanup
@@ -731,7 +732,7 @@ async fn test_skatteverket_direct_submission() {
     // 1. Setup workspace & user
     conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-direct-test', 'Direct RUT WS', '[\"moving_company\"]', '{\"skatteverket_api_url\":\"https://test.skatteverket.se/service/rotrut/v6\"}')", ()).await.unwrap();
     conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-direct-staff', 'ws-direct-test', 'staff@direct.io', 'admin', '{}')", ()).await.unwrap();
-    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('client-direct-1', 'ws-direct-test', 'client@direct.io', 'client', '{\"personal_number\":\"19900101-1234\"}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('client-direct-1', 'ws-direct-test', 'client@direct.io', 'client', '{\"personal_number\":\"19811218-9876\"}')", ()).await.unwrap();
 
     // 2. Create job, quote, and invoice with RUT deduction
     let job = create_job_ticket(
@@ -1082,4 +1083,126 @@ async fn test_adjust_invoice_for_actuals() {
     conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-adj-test'", ()).await.unwrap();
     conn.execute("DELETE FROM users WHERE workspace_id = 'ws-adj-test'", ()).await.unwrap();
     conn.execute("DELETE FROM workspaces WHERE id = 'ws-adj-test'", ()).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_onsite_mpos_card_payment_processing() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-onsite-test', 'OnSite Test WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-driver-1', 'ws-onsite-test', 'driver@onsite.io', 'staff')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-cust-1', 'ws-onsite-test', 'client@onsite.io', 'client')", ()).await.unwrap();
+
+    let job = create_job_ticket(
+        "u-driver-1".to_string(),
+        "ws-onsite-test".to_string(),
+        "On-Site Job".to_string(),
+        "Collect payment on completion".to_string(),
+        "Origin Address".to_string(),
+        "medium".to_string(),
+        Some("u-cust-1".to_string()),
+        "2026-09-20".to_string(),
+        "[]".to_string(),
+        None,
+        None,
+        0, 0, true, true, false, false,
+    )
+    .await
+    .unwrap();
+
+    let quote_id = "q-onsite-1".to_string();
+    conn.execute(
+        "INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at) VALUES (?1, 'ws-onsite-test', ?2, 2500.0, 0.0, 0.0, 0.0, 2500.0, 'accepted', 0)",
+        crate::params![&quote_id, &job.id],
+    )
+    .await
+    .unwrap();
+
+    let inv = generate_move_invoice("u-cust-1".to_string(), quote_id, false).await.unwrap();
+    assert_eq!(inv.status, "unpaid");
+
+    let payment_res = process_onsite_mpos_card_payment(
+        "u-driver-1".to_string(),
+        inv.id.clone(),
+        "stripe_terminal".to_string(),
+        Some("STRIPE-READER-999".to_string()),
+    )
+    .await
+    .unwrap();
+
+    assert!(payment_res.success);
+    assert_eq!(payment_res.amount_collected, 2500.0);
+    assert_eq!(payment_res.payment_method, "Stripe Tap-to-Pay / Card Reader");
+
+    let updated_inv = get_move_invoice("u-driver-1".to_string(), "q-onsite-1".to_string()).await.unwrap().unwrap();
+    assert_eq!(updated_inv.status, "paid");
+    assert!(updated_inv.adjustment_notes.unwrap().contains("Stripe Tap-to-Pay"));
+
+    // Cleanup
+    conn.execute("DELETE FROM move_invoices WHERE workspace_id = 'ws-onsite-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-onsite-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-onsite-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-onsite-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-onsite-test'", ()).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_accounting_erp_sync_and_reconciliation() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-erp-test', 'ERP Test WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-erp-staff', 'ws-erp-test', 'staff@erp.io', 'admin')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-erp-client', 'ws-erp-test', 'client@erp.io', 'client')", ()).await.unwrap();
+
+    let job = create_job_ticket(
+        "u-erp-staff".to_string(),
+        "ws-erp-test".to_string(),
+        "ERP Move".to_string(),
+        "Test ERP synchronization".to_string(),
+        "Start Address".to_string(),
+        "medium".to_string(),
+        Some("u-erp-client".to_string()),
+        "2026-11-01".to_string(),
+        "[]".to_string(),
+        None,
+        None,
+        0, 0, true, true, false, false,
+    )
+    .await
+    .unwrap();
+
+    let quote_id = "q-erp-1".to_string();
+    conn.execute(
+        "INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at) VALUES (?1, 'ws-erp-test', ?2, 4000.0, 500.0, 300.0, 200.0, 5000.0, 'accepted', 0)",
+        crate::params![&quote_id, &job.id],
+    )
+    .await
+    .unwrap();
+
+    let inv = generate_move_invoice("u-erp-client".to_string(), quote_id, true).await.unwrap();
+    assert_eq!(inv.status, "unpaid");
+
+    // Test Fortnox ERP Sync
+    let fortnox_res = sync_invoice_to_erp("u-erp-staff".to_string(), inv.id.clone(), "fortnox".to_string()).await.unwrap();
+    assert!(fortnox_res.success);
+    assert_eq!(fortnox_res.ledger_account, "3050_MOVING_SERVICES");
+    assert!(fortnox_res.erp_invoice_number.starts_with("FORTNOX-INV-"));
+
+    // Test Automated ERP Payment Reconciliation
+    let reconciled_count = reconcile_erp_payments("u-erp-staff".to_string(), "fortnox".to_string()).await.unwrap();
+    assert_eq!(reconciled_count, 1);
+
+    let updated_inv = get_move_invoice("u-erp-staff".to_string(), "q-erp-1".to_string()).await.unwrap().unwrap();
+    assert_eq!(updated_inv.status, "paid");
+    assert_eq!(updated_inv.adjustment_notes, Some("Reconciled from ERP bank ledger".to_string()));
+
+    // Cleanup
+    conn.execute("DELETE FROM erp_sync_logs WHERE workspace_id = 'ws-erp-test'", ()).await.ok();
+    conn.execute("DELETE FROM move_invoices WHERE workspace_id = 'ws-erp-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-erp-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-erp-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-erp-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-erp-test'", ()).await.unwrap();
 }
