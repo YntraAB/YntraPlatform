@@ -330,6 +330,13 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             handling_notes TEXT,
             updated_at INTEGER NOT NULL DEFAULT 0,
             sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            room_name TEXT,
+            estimated_weight_kg REAL DEFAULT 0.0,
+            preset_id TEXT,
+            barcode_tag TEXT,
+            scan_status TEXT DEFAULT 'unscanned',
+            last_scanned_at INTEGER,
+            last_scanned_by TEXT,
             FOREIGN KEY(job_ticket_id) REFERENCES job_tickets(id)
         );
 
