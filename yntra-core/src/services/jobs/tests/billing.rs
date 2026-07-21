@@ -364,6 +364,75 @@ async fn test_check_swish_payment_status() {
 }
 
 #[tokio::test]
+async fn test_swish_unauthorized_client_access() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    // Setup workspace & users
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-swish-auth', 'Swish Auth WS', '[\"moving_company\"]', '{\"swish_payee_alias\":\"1234567890\",\"swish_use_sandbox\":true}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-swish-owner', 'ws-swish-auth', 'owner@swish.io', 'client')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-swish-attacker', 'ws-swish-auth', 'attacker@swish.io', 'client')", ()).await.unwrap();
+
+    // Create job and invoice for owner client
+    let job = create_job_ticket(
+        "u-swish-owner".to_string(),
+        "ws-swish-auth".to_string(),
+        "Owner Job".to_string(),
+        "Testing auth flow".to_string(),
+        "Addr".to_string(),
+        "medium".to_string(),
+        None,
+        "2026-08-01".to_string(),
+        "[]".to_string(),
+        None,
+        None,
+        0, 0, true, true, false, false,
+    )
+    .await
+    .unwrap();
+
+    conn.execute(
+        "INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status) VALUES ('quote-swish-auth-1', 'ws-swish-auth', ?1, 1000.0, 500.0, 0.0, 0.0, 1500.0, 'accepted')",
+        crate::params![&job.id]
+    ).await.unwrap();
+
+    let inv = generate_move_invoice("u-swish-owner".to_string(), "quote-swish-auth-1".to_string(), false).await.unwrap();
+
+    // 1. Attacker client attempts to initiate payment on owner's invoice -> should fail
+    let err_initiate = initiate_swish_payment("u-swish-attacker".to_string(), inv.id.clone()).await;
+    assert!(err_initiate.is_err());
+    if let Err(YntraError::AuthError(msg)) = err_initiate {
+        assert!(msg.contains("customer mismatch"));
+    } else {
+        panic!("Expected AuthError for unauthorized initiate_swish_payment");
+    }
+
+    // 2. Attacker client attempts to check status on owner's invoice -> should fail
+    let err_check = check_swish_payment_status("u-swish-attacker".to_string(), inv.id.clone(), "token-123".to_string()).await;
+    assert!(err_check.is_err());
+    if let Err(YntraError::AuthError(msg)) = err_check {
+        assert!(msg.contains("customer mismatch"));
+    } else {
+        panic!("Expected AuthError for unauthorized check_swish_payment_status");
+    }
+
+    // 3. Owner client initiates payment on own invoice -> should succeed
+    let session = initiate_swish_payment("u-swish-owner".to_string(), inv.id.clone()).await;
+    assert!(session.is_ok());
+
+    // 4. Owner client checks status on own invoice -> should succeed
+    let status = check_swish_payment_status("u-swish-owner".to_string(), inv.id.clone(), "token-123".to_string()).await;
+    assert!(status.is_ok());
+
+    // Cleanup
+    conn.execute("DELETE FROM move_invoices WHERE id = ?1", crate::params![&inv.id]).await.unwrap();
+    conn.execute("DELETE FROM move_quotes WHERE job_ticket_id = ?1", crate::params![&job.id]).await.unwrap();
+    conn.execute("DELETE FROM job_tickets WHERE id = ?1", crate::params![&job.id]).await.unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-swish-auth'", ()).await.unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-swish-auth'", ()).await.unwrap();
+}
+
+#[tokio::test]
 async fn test_webhook_and_rbac_flows() {
     let _lock = database::DB_TEST_LOCK.lock().unwrap();
     let conn = database::acquire_connection().await.unwrap();
@@ -505,6 +574,10 @@ async fn test_skatteverket_rut_export_flow() {
         "INSERT OR REPLACE INTO users (id, workspace_id, email, role, full_name, metadata) VALUES ('client-1', 'ws-rut-test', 'client@rut.se', 'client', 'Anna Andersson', ?1)",
         crate::params![&client_metadata]
     ).await.unwrap();
+    conn.execute(
+        "INSERT OR REPLACE INTO users (id, workspace_id, email, role, full_name) VALUES ('staff-1', 'ws-rut-test', 'staff@rut.se', 'admin', 'Staff Admin')",
+        ()
+    ).await.unwrap();
 
     // 2. Create job ticket, quote, and invoice
     let job = create_job_ticket(
@@ -548,8 +621,12 @@ async fn test_skatteverket_rut_export_flow() {
         .await
         .unwrap();
 
-    // 3. Query RUT invoices listing
-    let list = get_rut_invoices("client-1".to_string())
+    // Verify security: client role calls must be rejected
+    assert!(get_rut_invoices("client-1".to_string()).await.is_err());
+    assert!(export_skatteverket_claims("client-1".to_string(), vec![inv.id.clone()], "xml".to_string()).await.is_err());
+
+    // 3. Query RUT invoices listing as staff
+    let list = get_rut_invoices("staff-1".to_string())
         .await
         .unwrap();
     
@@ -559,8 +636,8 @@ async fn test_skatteverket_rut_export_flow() {
     assert_eq!(overview.rut_amount, 600.0);
     assert_eq!(overview.status, "paid");
 
-    // 4. Export XML
-    let xml = export_skatteverket_claims("client-1".to_string(), vec![inv.id.clone()], "xml".to_string())
+    // 4. Export XML as staff
+    let xml = export_skatteverket_claims("staff-1".to_string(), vec![inv.id.clone()], "xml".to_string())
         .await
         .unwrap();
     
@@ -571,8 +648,8 @@ async fn test_skatteverket_rut_export_flow() {
     assert!(xml.contains("<RutArbete>"));
     assert!(xml.contains("<Flyttjanster>3</Flyttjanster>")); // minimum_hours = 3.0
 
-    // 5. Export CSV
-    let csv = export_skatteverket_claims("client-1".to_string(), vec![inv.id.clone()], "csv".to_string())
+    // 5. Export CSV as staff
+    let csv = export_skatteverket_claims("staff-1".to_string(), vec![inv.id.clone()], "csv".to_string())
         .await
         .unwrap();
     
@@ -584,7 +661,7 @@ async fn test_skatteverket_rut_export_flow() {
     conn.execute("DELETE FROM move_invoices WHERE id = ?1", crate::params![&inv.id]).await.ok();
     conn.execute("DELETE FROM move_quotes WHERE job_ticket_id = ?1", crate::params![&job.id]).await.ok();
     conn.execute("DELETE FROM job_tickets WHERE id = ?1", crate::params![&job.id]).await.unwrap();
-    conn.execute("DELETE FROM users WHERE id = 'client-1'", ()).await.unwrap();
+    conn.execute("DELETE FROM users WHERE id IN ('client-1', 'staff-1')", ()).await.unwrap();
     conn.execute("DELETE FROM workspaces WHERE id = 'ws-rut-test'", ()).await.unwrap();
 }
 
@@ -942,8 +1019,9 @@ async fn test_adjust_invoice_for_actuals() {
         "company_country": "SE",
         "target_region": "SE",
         "moving_pricing_model": "hourly",
-        "moving_active_crew_size": 2.0,
+        "moving_default_crew_size": 2.0,
         "moving_hourly_rate_per_mover": 450.0,
+        "moving_hourly_rate_vehicle": 300.0,
         "use_rut_deduction": true,
     }).to_string();
 
@@ -985,16 +1063,16 @@ async fn test_adjust_invoice_for_actuals() {
         Some("Actual hours: 6. Disassembly surcharge added.".to_string()),
     ).await.unwrap();
 
-    assert_eq!(adjusted_inv.subtotal, 6500.0);
+    assert_eq!(adjusted_inv.subtotal, 8300.0);
     assert_eq!(adjusted_inv.rut_deduction, 2800.0);
-    assert_eq!(adjusted_inv.customer_amount, 3700.0);
+    assert_eq!(adjusted_inv.customer_amount, 5500.0);
     assert_eq!(adjusted_inv.actual_hours, Some(6.0));
     assert_eq!(adjusted_inv.additional_charges, Some(300.0));
     assert_eq!(adjusted_inv.adjustment_notes, Some("Actual hours: 6. Disassembly surcharge added.".to_string()));
 
     // Verify it persists in database by querying get_move_invoice
     let fetched_inv = get_move_invoice("u-adj-staff".to_string(), "q-adj-1".to_string()).await.unwrap().unwrap();
-    assert_eq!(fetched_inv.subtotal, 6500.0);
+    assert_eq!(fetched_inv.subtotal, 8300.0);
     assert_eq!(fetched_inv.rut_deduction, 2800.0);
     assert_eq!(fetched_inv.actual_hours, Some(6.0));
 

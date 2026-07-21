@@ -308,7 +308,7 @@ async fn test_external_notification_triggers() {
 
 #[tokio::test]
 async fn test_public_booking_lead_submission() {
-    use crate::services::jobs::submit_public_booking_lead;
+    use crate::services::jobs::{submit_public_booking_lead, update_job_status};
 
     let _lock = database::DB_TEST_LOCK.lock().unwrap();
     let conn = database::acquire_connection().await.unwrap();
@@ -368,6 +368,16 @@ async fn test_public_booking_lead_submission() {
         .unwrap();
 
     assert_eq!(total_vol, 2.5);
+
+    // 6. Verify AuthContext::authorize succeeds for the created guest user (role signature check)
+    let auth = crate::infra::auth::AuthContext::authorize(&conn, &uid).await;
+    assert!(auth.is_ok());
+
+    // 7. Verify status transition for quote_requested ticket
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('staff-lead-test', 'ws-lead-test', 'staff@lead.se', 'admin')", ()).await.unwrap();
+    crate::services::users::ensure_user_role_signature(&conn, "staff-lead-test", "admin", "ws-lead-test").await.unwrap();
+    let update_res = update_job_status("staff-lead-test".to_string(), job_id.clone(), "assigned".to_string()).await;
+    assert!(update_res.is_ok());
 
     // 6. Verify quote created (1500 kr base + 2.5 * 150 kr = 1875 kr total)
     let (base_price, total_price): (f64, f64) = conn

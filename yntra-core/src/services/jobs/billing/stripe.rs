@@ -4,6 +4,7 @@ use crate::infra::errors::YntraError;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use super::helpers::{get_config_val, create_http_client};
+use crate::services::jobs::tickets::is_staff;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -16,13 +17,17 @@ pub async fn initiate_stripe_payment(
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     // 1. Fetch Invoice
-    let mut stmt = conn.prepare("SELECT workspace_id, customer_amount FROM move_invoices WHERE id = ?1").await?;
+    let mut stmt = conn.prepare("SELECT workspace_id, customer_amount, customer_id FROM move_invoices WHERE id = ?1").await?;
     let mut rows = stmt.query(crate::params![&invoice_id]).await?;
     let (ws_id, amount) = if let Some(row) = rows.next().await? {
         let ws: String = row.get(0)?;
         let amt: f64 = row.get(1)?;
+        let cust: String = row.get(2)?;
         if auth.workspace_id != ws {
             return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        }
+        if !is_staff(&auth) && auth.user_id != cust {
+            return Err(YntraError::AuthError("Access denied: customer mismatch".to_string()));
         }
         (ws, amt)
     } else {

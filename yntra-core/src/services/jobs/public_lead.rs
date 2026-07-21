@@ -39,13 +39,17 @@ async fn submit_public_booking_lead_inner(
         .ok();
 
     let customer_id = match existing_uid {
-        Some(id) => id,
+        Some(id) => {
+            crate::services::users::ensure_user_role_signature(&conn, &id, "client", &workspace_id).await?;
+            id
+        }
         None => {
             let id = format!("u-guest-{}", uuid::Uuid::new_v4());
             conn.execute(
                 "INSERT INTO users (id, workspace_id, email, full_name, phone, role, preferences) VALUES (?1, ?2, ?3, ?4, ?5, 'client', '{}')",
                 crate::params![&id, &workspace_id, &customer_email, &customer_name, &customer_phone],
             ).await?;
+            crate::services::users::ensure_user_role_signature(&conn, &id, "client", &workspace_id).await?;
             id
         }
     };

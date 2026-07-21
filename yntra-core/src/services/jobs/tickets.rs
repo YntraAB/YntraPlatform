@@ -13,7 +13,7 @@ pub fn is_staff(auth: &crate::AuthContext) -> bool {
 
 fn validate_job_status(status: &str) -> Result<(), YntraError> {
     match status {
-        "pending" | "assigned" | "in_progress" | "completed" | "cancelled" => Ok(()),
+        "pending" | "quote_requested" | "assigned" | "in_progress" | "completed" | "cancelled" => Ok(()),
         _ => Err(YntraError::ValidationError(format!(
             "Invalid job ticket status: {}",
             status

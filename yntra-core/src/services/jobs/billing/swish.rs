@@ -2,6 +2,7 @@ use crate::database;
 use crate::infra::observer::notify_observers;
 use crate::infra::errors::YntraError;
 use super::helpers::{get_config_val, create_http_client, base64_encode};
+use crate::services::jobs::tickets::is_staff;
 
 #[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
 pub async fn initiate_swish_payment(
@@ -12,13 +13,17 @@ pub async fn initiate_swish_payment(
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     // 1. Fetch Invoice
-    let mut stmt = conn.prepare("SELECT workspace_id, customer_amount FROM move_invoices WHERE id = ?1").await?;
+    let mut stmt = conn.prepare("SELECT workspace_id, customer_amount, customer_id FROM move_invoices WHERE id = ?1").await?;
     let mut rows = stmt.query(crate::params![&invoice_id]).await?;
     let (ws_id, amount) = if let Some(row) = rows.next().await? {
         let ws: String = row.get(0)?;
         let amt: f64 = row.get(1)?;
+        let cust: String = row.get(2)?;
         if auth.workspace_id != ws {
             return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        }
+        if !is_staff(&auth) && auth.user_id != cust {
+            return Err(YntraError::AuthError("Access denied: customer mismatch".to_string()));
         }
         (ws, amt)
     } else {
@@ -197,17 +202,22 @@ async fn check_swish_payment_status_inner(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    let mut stmt = conn.prepare("SELECT workspace_id, status FROM move_invoices WHERE id = ?1").await?;
+    let mut stmt = conn.prepare("SELECT workspace_id, status, customer_id FROM move_invoices WHERE id = ?1").await?;
     let mut rows = stmt.query(crate::params![&invoice_id]).await?;
     let (ws_id, current_status) = if let Some(row) = rows.next().await? {
-        (row.get::<String>(0)?, row.get::<String>(1)?)
+        let ws: String = row.get(0)?;
+        let st: String = row.get(1)?;
+        let cust: String = row.get(2)?;
+        if auth.workspace_id != ws {
+            return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        }
+        if !is_staff(&auth) && auth.user_id != cust {
+            return Err(YntraError::AuthError("Access denied: customer mismatch".to_string()));
+        }
+        (ws, st)
     } else {
         return Err(YntraError::NotFoundError("Invoice not found".to_string()));
     };
-
-    if auth.workspace_id != ws_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
-    }
 
     if current_status == "paid" {
         return Ok("paid".to_string());

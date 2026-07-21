@@ -1,6 +1,7 @@
 use crate::database;
 use crate::infra::observer::notify_observers;
 use crate::infra::errors::YntraError;
+use crate::services::jobs::tickets::is_staff;
 use super::helpers::{create_http_client, get_config_val};
 use super::invoices::calculate_eligible_labor_cost;
 use chrono::Datelike;
@@ -11,6 +12,12 @@ pub async fn get_rut_invoices(
 ) -> Result<Vec<crate::models::RutInvoiceOverview>, YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if !is_staff(&auth) {
+        return Err(YntraError::AuthError(
+            "Access denied: only staff can access Skatteverket RUT invoices".to_string(),
+        ));
+    }
 
     let mut stmt = conn.prepare(
         "SELECT i.id, i.invoice_date, i.rut_deduction, i.customer_id, j.title, u.full_name, u.metadata, i.status
@@ -63,6 +70,12 @@ pub async fn export_skatteverket_claims(
 ) -> Result<String, YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if !is_staff(&auth) {
+        return Err(YntraError::AuthError(
+            "Access denied: only staff can export Skatteverket RUT claims".to_string(),
+        ));
+    }
 
     let settings_str: String = conn
         .query_row(
@@ -283,8 +296,10 @@ pub async fn initiate_bankid_skatteverket_session(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     
-    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" {
-        return Err(YntraError::AuthError("Access denied".to_string()));
+    if !is_staff(&auth) {
+        return Err(YntraError::AuthError(
+            "Access denied: only staff can initiate Skatteverket BankID sessions".to_string(),
+        ));
     }
 
     let settings_str: String = conn
@@ -346,8 +361,10 @@ async fn submit_skatteverket_claim_direct_inner(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     
-    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" {
-        return Err(YntraError::AuthError("Access denied".to_string()));
+    if !is_staff(&auth) {
+        return Err(YntraError::AuthError(
+            "Access denied: only staff can submit Skatteverket claims".to_string(),
+        ));
     }
     
     let bankid_status: String = conn.query_row(

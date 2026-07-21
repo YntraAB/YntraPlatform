@@ -294,8 +294,12 @@ pub async fn get_move_invoice(
     let mut rows = stmt.query(crate::params![&quote_id]).await?;
     if let Some(row) = rows.next().await? {
         let ws_id = row.get::<String>(1)?;
+        let cust_id = row.get::<String>(2)?;
         if auth.workspace_id != ws_id {
             return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        }
+        if !is_staff(&auth) && auth.user_id != cust_id {
+            return Err(YntraError::AuthError("Access denied: customer mismatch".to_string()));
         }
         
         let settings_str: String = conn
@@ -362,10 +366,10 @@ pub async fn pay_move_invoice(
             return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
         }
 
-        let is_staff = auth.role == "platform_admin"
-            || auth.role == "admin"
-            || auth.role == "assistant"
-            || auth.role == "workspace_admin";
+        let is_staff = is_staff(&auth);
+        if !is_staff && auth.user_id != cust {
+            return Err(YntraError::AuthError("Access denied: customer mismatch".to_string()));
+        }
 
         if !is_staff {
             let settings_str: String = conn
@@ -454,7 +458,7 @@ pub async fn adjust_invoice_for_actuals(
         "SELECT job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee FROM move_quotes WHERE id = ?1"
     ).await?;
     let mut quote_rows = quote_stmt.query(crate::params![&quote_id]).await?;
-    let (_job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee) = if let Some(row) = quote_rows.next().await? {
+    let (job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee) = if let Some(row) = quote_rows.next().await? {
         (
             row.get::<String>(0)?,
             row.get::<f64>(1)?,
@@ -503,19 +507,89 @@ pub async fn adjust_invoice_for_actuals(
 
     if pricing_model == "hourly" {
         if let Some(hrs) = actual_hours {
-            // Fetch crew size from active_crew_size or fall back to default
-            let crew_size = settings_json
-                .get("moving_active_crew_size")
+            let crew_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM job_crew WHERE job_ticket_id = ?1",
+                    crate::params![&job_ticket_id],
+                    |r| r.get(0),
+                )
+                .await
+                .unwrap_or(0);
+
+            let default_crew_size = settings_json
+                .get("moving_default_crew_size")
                 .and_then(|v| v.as_f64())
+                .or_else(|| settings_json.get("moving_active_crew_size").and_then(|v| v.as_f64()))
                 .unwrap_or(2.0);
-            let hourly_rate_mover = settings_json
+
+            let active_crew_size = if crew_count > 0 {
+                crew_count as f64
+            } else {
+                default_crew_size
+            };
+
+            let hourly_rate_per_mover = settings_json
                 .get("moving_hourly_rate_per_mover")
                 .and_then(|v| v.as_f64())
-                .unwrap_or(450.0);
-            
-            // Recalculate base price based on actual hours worked
-            adjusted_base_price = hrs * crew_size * hourly_rate_mover;
-            actual_labor_cost = adjusted_base_price;
+                .unwrap_or(400.0);
+
+            let hourly_rate_vehicle = settings_json
+                .get("moving_hourly_rate_vehicle")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(400.0);
+
+            let has_explicit_rates = settings_json.get("moving_hourly_rate_per_mover").is_some()
+                || settings_json.get("moving_hourly_rate_vehicle").is_some();
+
+            let hourly_rate = if has_explicit_rates {
+                active_crew_size * hourly_rate_per_mover + hourly_rate_vehicle
+            } else {
+                settings_json
+                    .get("moving_hourly_rate")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(1200.0)
+            };
+
+            let mut inv_stmt = conn.prepare(
+                "SELECT quantity, item_name FROM move_inventory WHERE job_ticket_id = ?1",
+            ).await?;
+            let mut inv_rows = inv_stmt.query(crate::params![&job_ticket_id]).await?;
+            let mut specialty_surcharge = 0.0;
+
+            let surcharge_piano = settings_json.get("surcharge_piano").and_then(|v| v.as_f64()).unwrap_or(1500.0);
+            let surcharge_safe = settings_json.get("surcharge_safe").and_then(|v| v.as_f64()).unwrap_or(2000.0);
+            let surcharge_jacuzzi = settings_json.get("surcharge_jacuzzi").and_then(|v| v.as_f64()).unwrap_or(2500.0);
+            let surcharge_fragile = settings_json.get("surcharge_fragile").and_then(|v| v.as_f64()).unwrap_or(500.0);
+
+            while let Some(row) = inv_rows.next().await? {
+                let quantity: i64 = row.get(0)?;
+                let item_name: String = row.get(1)?;
+
+                let item_name_lower = item_name.to_lowercase();
+                let item_fee = if item_name_lower.contains("piano") || item_name_lower.contains("flygel") {
+                    surcharge_piano
+                } else if item_name_lower.contains("safe") || item_name_lower.contains("kassaskåp") {
+                    surcharge_safe
+                } else if item_name_lower.contains("jacuzzi") || item_name_lower.contains("badkar") || item_name_lower.contains("spa") {
+                    surcharge_jacuzzi
+                } else if item_name_lower.contains("konst") || item_name_lower.contains("tavla") || item_name_lower.contains("painting") || item_name_lower.contains("fragile") {
+                    surcharge_fragile
+                } else {
+                    0.0
+                };
+                specialty_surcharge += item_fee * (quantity as f64);
+            }
+
+            adjusted_base_price = (hrs * hourly_rate) + specialty_surcharge;
+            actual_labor_cost = if has_explicit_rates {
+                (hrs * active_crew_size * hourly_rate_per_mover) + specialty_surcharge
+            } else {
+                let labor_ratio = settings_json
+                    .get("moving_labor_ratio_hourly")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.70);
+                (hrs * hourly_rate * labor_ratio) + specialty_surcharge
+            };
         }
     }
 
