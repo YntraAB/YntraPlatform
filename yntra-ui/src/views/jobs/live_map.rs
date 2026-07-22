@@ -175,39 +175,6 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
             .collect()
     };
 
-    let mut is_simulating = use_signal(|| false);
-
-    // GPS Real-time Telemetry Simulation Loop
-    use_effect(move || {
-        let sim_active = *is_simulating.read();
-        let uid = props.active_user_id.read().clone();
-        
-        if sim_active {
-            spawn(async move {
-                let mut tick = 0;
-                loop {
-                    if !*is_simulating.read() {
-                        break;
-                    }
-                    
-                    if let Ok(v_list) = yntra_core::get_vehicles(uid.clone()).await {
-                        for v in v_list {
-                            if v.status == "active" {
-                                let _ = yntra_core::simulate_vehicle_movement(uid.clone(), v.id, tick).await;
-                            }
-                        }
-                    }
-                    
-                    let current = *db_trigger.read();
-                    db_trigger.set(current + 1);
-                    
-                    tick += 1;
-                    crate::utils::sleep_ms(3000).await;
-                }
-            });
-        }
-    });
-
     // Reactive effect to update map markers dynamically
     let personnel_clone = personnel.clone();
     use_effect(move || {
@@ -619,38 +586,11 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
                 class: "bg-slate-900"
             }
 
-            // Floating Unified Top Command Header Bar (Glassmorphism Command Center)
+            // Floating Clean Top Control Bar
             div { 
-                style: "position: absolute; top: 16px; left: 16px; right: 16px; z-index: 1000; pointer-events: auto; background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(24px) saturate(200%); -webkit-backdrop-filter: blur(24px) saturate(200%); border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 24px; padding: 0.5rem 1rem; box-shadow: 0 20px 40px -10px rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;",
+                style: "position: absolute; top: 16px; left: 16px; right: 16px; z-index: 1000; pointer-events: auto; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 20px; padding: 0.5rem 0.85rem; box-shadow: 0 15px 35px -10px rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;",
                 
-                // Left Title & Live KPI Badges
-                div { class: "flex items-center gap-3",
-                    div { class: "rounded-xl bg-primary/20 p-2 text-primary border border-primary/30 flex items-center justify-center shrink-0",
-                        components::LucideIcon { name: "map-pin", class: "h-5 w-5 animate-pulse" }
-                    }
-                    div { class: "flex flex-col gap-0.5",
-                        div { class: "flex items-center gap-2",
-                            h1 { class: "text-sm font-black text-white m-0 tracking-wide", "Livekarta & Telemetri" }
-                            span { class: "text-[9px] font-extrabold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1",
-                                span { class: "w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" }
-                                "LIVE"
-                            }
-                        }
-                        div { class: "flex items-center gap-2 text-[10px] text-slate-400",
-                            span { class: "flex items-center gap-1 font-semibold text-emerald-400", 
-                                components::LucideIcon { name: "truck", size: "10" }
-                                "{vehicles.len()} Fordon" 
-                            }
-                            span { "•" }
-                            span { class: "flex items-center gap-1 font-semibold text-indigo-300", 
-                                components::LucideIcon { name: "users", size: "10" }
-                                "{personnel.len()} Personal" 
-                            }
-                        }
-                    }
-                }
-
-                // Center Real-Time Search & Filter Bar
+                // Real-Time Search Bar
                 div { class: "flex-1 max-w-sm relative min-w-[200px]",
                     input {
                         class: "w-full bg-white/10 border border-white/15 rounded-xl px-3 py-1.5 pl-8 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-primary focus:bg-white/15 transition-all shadow-inner",
@@ -663,7 +603,7 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
                     }
                 }
 
-                // Right Floating Interactive Mode Selector Pills & Recenter Action
+                // Interactive Mode Selector Pills & Recenter Action
                 div { class: "flex items-center gap-2",
                     div { class: "flex items-center gap-1 bg-white/5 border border-white/10 p-1 rounded-xl shadow-xs",
                         button {
@@ -674,19 +614,19 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
                         }
                         button {
                             onclick: move |_| tracking_mode.set("vehicles".to_string()),
-                            class: format!("px-3 py-1.5 rounded-xl text-xs font-bold transition-all border-0 cursor-pointer flex items-center gap-1.5 {}", if *tracking_mode.read() == "vehicles" { "bg-primary text-primary-foreground shadow-md" } else { "bg-transparent text-slate-400 hover:text-white" }),
+                            class: format!("px-3 py-1.5 rounded-lg text-xs font-bold transition-all border-0 cursor-pointer flex items-center gap-1.5 {}", if *tracking_mode.read() == "vehicles" { "bg-primary text-primary-foreground shadow-md" } else { "bg-transparent text-slate-400 hover:text-white" }),
                             components::LucideIcon { name: "truck", size: "12" }
                             "Fordonsflotta"
                         }
                         button {
                             onclick: move |_| tracking_mode.set("personnel".to_string()),
-                            class: format!("px-3 py-1.5 rounded-xl text-xs font-bold transition-all border-0 cursor-pointer flex items-center gap-1.5 {}", if *tracking_mode.read() == "personnel" { "bg-primary text-primary-foreground shadow-md" } else { "bg-transparent text-slate-400 hover:text-white" }),
+                            class: format!("px-3 py-1.5 rounded-lg text-xs font-bold transition-all border-0 cursor-pointer flex items-center gap-1.5 {}", if *tracking_mode.read() == "personnel" { "bg-primary text-primary-foreground shadow-md" } else { "bg-transparent text-slate-400 hover:text-white" }),
                             components::LucideIcon { name: "users", size: "12" }
                             "Fältpersonal"
                         }
                     }
 
-                    // Recenter / Reset Map Action Button
+                    // Recenter Map Action Button
                     button {
                         class: "p-2 rounded-xl bg-white/10 border border-white/15 text-slate-300 hover:text-white hover:bg-white/20 cursor-pointer transition-all flex items-center justify-center shadow-xs",
                         title: "Centrera karta",
@@ -701,16 +641,16 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
 
             // Left Telemetry Drawer Panel
             div { 
-                style: "position: absolute; top: 84px; left: 16px; bottom: 16px; z-index: 1000; width: 320px; display: flex; flex-direction: column; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 24px; box-shadow: 0 20px 50px -10px rgba(0,0,0,0.8); box-sizing: border-box; overflow: hidden; padding: 1.25rem;",
-                div { class: "flex items-center gap-2.5 pb-3 border-b border-white/10",
+                style: "position: absolute; top: 76px; left: 16px; bottom: 16px; z-index: 1000; width: 310px; display: flex; flex-direction: column; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; box-shadow: 0 20px 50px -10px rgba(0,0,0,0.8); box-sizing: border-box; overflow: hidden; padding: 1.1rem;",
+                div { class: "flex items-center gap-2.5 pb-2.5 border-b border-white/10",
                     div { class: "rounded-xl bg-primary/20 p-2 text-primary border border-primary/20",
-                        components::LucideIcon { name: if *tracking_mode.read() == "personnel" { "users" } else { "truck" }, class: "h-5 w-5 animate-pulse" }
+                        components::LucideIcon { name: if *tracking_mode.read() == "personnel" { "users" } else { "truck" }, class: "h-4 w-4" }
                     }
                     div {
-                        h4 { class: "text-sm font-bold text-white m-0", 
-                            if *tracking_mode.read() == "vehicles" { "Fordonsspårning" } else if *tracking_mode.read() == "personnel" { "Personalspårning" } else { "Entitetsspårning" } 
+                        h4 { class: "text-xs font-bold text-white m-0", 
+                            if *tracking_mode.read() == "vehicles" { "Fordonsspårning" } else if *tracking_mode.read() == "personnel" { "Personalspårning" } else { "Spårade Enheter" } 
                         }
-                        p { class: "text-[10px] text-slate-400 m-0", "Realtidstelemetri & GPS-koordinater" }
+                        p { class: "text-[9px] text-slate-400 m-0", "Aktiv telemetri & GPS-koordinater" }
                     }
                 }
 
@@ -728,7 +668,7 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
                                 div {
                                     class: "p-2.5 rounded-xl bg-white/5 border border-white/5 flex items-center gap-3 transition-all hover:bg-white/10 mb-1.5 shadow-xs",
                                     div {
-                                        class: format!("w-2.5 h-2.5 rounded-full flex-shrink-0 {}", if v.status == "active" { "bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse" } else { "bg-slate-500" })
+                                        class: format!("w-2.5 h-2.5 rounded-full flex-shrink-0 {}", if v.status == "active" { "bg-emerald-400 shadow-[0_0_8px_#34d399]" } else { "bg-slate-500" })
                                     }
                                     div { class: "flex-1 min-w-0",
                                         p { class: "text-xs font-bold text-white m-0 truncate", "{v.name}" }
@@ -778,38 +718,6 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
                                 }
                             }
                         }
-                    }
-                }
-            }
-
-            // Right Status Bar
-            div {
-                style: "position: absolute; top: 84px; right: 16px; z-index: 1000; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; box-shadow: 0 15px 35px -8px rgba(0,0,0,0.7); padding: 0.85rem 1.1rem; display: flex; flex-direction: column; gap: 0.5rem; max-width: 280px;",
-                div { class: "flex items-center gap-2.5",
-                    div { class: "rounded-lg bg-emerald-500/20 p-1.5 text-emerald-400 border border-emerald-500/30",
-                        components::LucideIcon { name: "rss", class: "h-4 w-4" }
-                    }
-                    div {
-                        h5 { class: "text-xs font-bold text-white m-0", "GPS Gateway & Telemetri" }
-                        p { class: "text-[9px] text-emerald-400 font-semibold m-0 flex items-center gap-1",
-                            span { class: "w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" }
-                            "Aktiv (Multi-Entitet Gateway)"
-                        }
-                    }
-                }
-                div { class: "border-t border-white/10 pt-2 text-[9px] text-slate-300 space-y-1 flex flex-col gap-1.5",
-                    p { class: "m-0", "Mottagare: " span { class: "font-mono text-white/80", "https://api.yntra.se/v1/gps/ping" } }
-                    p { class: "m-0 text-slate-400", "Spårar fordon & fältarbetare via GPS / App Pings." }
-                    button {
-                        class: format!("mt-1 py-1.5 px-3 rounded-lg text-[10px] font-bold border-0 cursor-pointer transition-all shadow flex items-center justify-center gap-1.5 {}",
-                            if *is_simulating.read() { "bg-rose-500/20 text-rose-300 border border-rose-500/30 hover:bg-rose-500/30" } else { "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30" }
-                        ),
-                        onclick: move |_| {
-                            let current = *is_simulating.read();
-                            is_simulating.set(!current);
-                        },
-                        components::LucideIcon { name: if *is_simulating.read() { "square" } else { "play" }, size: "10" }
-                        if *is_simulating.read() { "Stoppa GPS-simulering" } else { "Starta GPS-simulering" }
                     }
                 }
             }
