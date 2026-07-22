@@ -1,4 +1,5 @@
 use crate::components;
+use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::MoveVehicle;
 
@@ -20,6 +21,7 @@ pub fn FleetView(props: FleetViewProps) -> Element {
     let db_trig = *props.db_trigger.read();
     let mut db_trigger = props.db_trigger;
     let active_uid_c = props.active_user_id.read().clone();
+    let region = props.auth_region.read().clone();
 
     // Registration Modal State
     let mut show_register_modal = use_signal(|| false);
@@ -76,37 +78,37 @@ pub fn FleetView(props: FleetViewProps) -> Element {
             // Header with action button
             div { class: "flex items-center justify-between flex-wrap gap-4",
                 div { class: "flex flex-col gap-1",
-                    h1 { class: "text-2xl font-bold text-foreground", "Fordonsflotta" }
-                    p { class: "text-sm text-muted-foreground", "Realtidsöversikt, mätarställning och kapacitet för er transportflotta." }
+                    h1 { class: "text-2xl font-bold text-foreground", "{t(\"fleet-title\", &region)}" }
+                    p { class: "text-sm text-muted-foreground", "{t(\"fleet-subtitle\", &region)}" }
                 }
 
                 button {
                     onclick: move |_| show_register_modal.set(true),
                     class: "px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-all border-0 cursor-pointer shadow flex items-center gap-2",
                     components::LucideIcon { name: "plus", size: "16" }
-                    "Registrera nytt fordon"
+                    "{t(\"fleet-register-btn\", &region)}"
                 }
             }
 
             // Top Metrics Summary Bar
             div { class: "grid grid-cols-2 md:grid-cols-4 gap-4 w-full",
                 div { class: "p-4 rounded-2xl border border-border bg-sidebar shadow-xs flex flex-col gap-1",
-                    span { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider", "Totalt Antal Fordon" }
+                    span { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider", "{t(\"fleet-kpi-total-vehicles\", &region)}" }
                     div { class: "text-2xl font-black text-foreground", "{total_vehicles}" }
                 }
                 div { class: "p-4 rounded-2xl border border-border bg-sidebar shadow-xs flex flex-col gap-1",
-                    span { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider", "Sammanlagd Kapacitet" }
+                    span { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider", "{t(\"fleet-kpi-total-capacity\", &region)}" }
                     div { class: "text-2xl font-black text-primary", "{total_capacity:.1} m³" }
                 }
                 div { class: "p-4 rounded-2xl border border-border bg-sidebar shadow-xs flex flex-col gap-1",
-                    span { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider", "Aktiva i Trafik" }
+                    span { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider", "{t(\"fleet-kpi-active\", &region)}" }
                     div { class: "text-2xl font-black text-emerald-500 flex items-center gap-2",
                         "{active_count}"
                         span { class: "w-2 h-2 rounded-full bg-emerald-500 animate-pulse" }
                     }
                 }
                 div { class: "p-4 rounded-2xl border border-border bg-sidebar shadow-xs flex flex-col gap-1",
-                    span { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider", "Snittkapacitet" }
+                    span { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider", "{t(\"fleet-kpi-avg-capacity\", &region)}" }
                     div { class: "text-2xl font-black text-foreground", "{avg_capacity:.1} m³" }
                 }
             }
@@ -121,8 +123,8 @@ pub fn FleetView(props: FleetViewProps) -> Element {
                             components::LucideIcon { name: "truck", class: "h-5 w-5" }
                         }
                         div {
-                            components::CardTitle { class: "text-lg font-bold", "Registrerade Transportfordon" }
-                            components::CardDescription { class: "text-xs", "Aktuell status och teknisk specifikation per fordon." }
+                            components::CardTitle { class: "text-lg font-bold", "{t(\"fleet-registered-title\", &region)}" }
+                            components::CardDescription { class: "text-xs", "{t(\"fleet-registered-desc\", &region)}" }
                         }
                     }
 
@@ -131,7 +133,7 @@ pub fn FleetView(props: FleetViewProps) -> Element {
                         div { class: "relative flex-1 md:w-64",
                             input {
                                 class: "w-full rounded-xl border border-border bg-background px-3 py-1.5 pl-8 text-xs text-foreground focus:outline-none focus:border-primary transition-all",
-                                placeholder: "Sök fordon eller regnr...",
+                                placeholder: "{t(\"fleet-search-placeholder\", &region)}",
                                 value: "{search_query}",
                                 oninput: move |e| search_query.set(e.value())
                             }
@@ -144,12 +146,12 @@ pub fn FleetView(props: FleetViewProps) -> Element {
                             button {
                                 onclick: move |_| status_filter.set("all".to_string()),
                                 class: format!("px-2.5 py-1 rounded-lg text-[10px] font-bold border-0 cursor-pointer transition-all {}", if *status_filter.read() == "all" { "bg-primary text-primary-foreground" } else { "bg-transparent text-muted-foreground hover:text-foreground" }),
-                                "Alla"
+                                "{t(\"fleet-filter-all\", &region)}"
                             }
                             button {
                                 onclick: move |_| status_filter.set("active".to_string()),
                                 class: format!("px-2.5 py-1 rounded-lg text-[10px] font-bold border-0 cursor-pointer transition-all {}", if *status_filter.read() == "active" { "bg-primary text-primary-foreground" } else { "bg-transparent text-muted-foreground hover:text-foreground" }),
-                                "Aktiva"
+                                "{t(\"fleet-filter-active\", &region)}"
                             }
                         }
                     }
@@ -158,11 +160,14 @@ pub fn FleetView(props: FleetViewProps) -> Element {
                 components::CardContent {
                     class: "pt-4 flex flex-1 flex-col",
                     if filtered_vehicles.is_empty() {
-                        div { class: "flex flex-col items-center justify-center py-16 text-center text-muted-foreground border border-dashed rounded-xl border-border bg-secondary/10 my-4",
-                            components::LucideIcon { name: "truck", class: "h-10 w-10 opacity-20 mb-3" }
-                            p { class: "text-sm font-bold text-foreground m-0", "Inga fordon hittades." }
-                            p { class: "text-xs text-muted-foreground mt-1 max-w-xs m-0", 
-                                if vehicles.is_empty() { "Klicka på \"Registrera nytt fordon\" ovan för att lägga till er första flyttbil." } else { "Pröva att ändra er sökning eller filter inställning." }
+                        {
+                            let empty_desc = if vehicles.is_empty() { t("fleet-empty-desc-first", &region) } else { t("fleet-empty-desc-filter", &region) };
+                            rsx! {
+                                div { class: "flex flex-col items-center justify-center py-16 text-center text-muted-foreground border border-dashed rounded-xl border-border bg-secondary/10 my-4",
+                                    components::LucideIcon { name: "truck", class: "h-10 w-10 opacity-20 mb-3" }
+                                    p { class: "text-sm font-bold text-foreground m-0", "{t(\"fleet-empty-title\", &region)}" }
+                                    p { class: "text-xs text-muted-foreground mt-1 max-w-xs m-0", "{empty_desc}" }
+                                }
                             }
                         }
                     } else {
@@ -176,6 +181,7 @@ pub fn FleetView(props: FleetViewProps) -> Element {
                                     let v_status = vehicle.status.clone();
                                     let v_device = vehicle.gps_device_id.clone();
                                     let uid_del = active_uid_c.clone();
+                                    let is_active = v_status == "active";
 
                                     rsx! {
                                         div {
@@ -194,7 +200,7 @@ pub fn FleetView(props: FleetViewProps) -> Element {
                                                         }
                                                     }
                                                     div { class: "text-xs text-muted-foreground flex items-center gap-2 mt-1 flex-wrap",
-                                                        span { class: "font-semibold text-primary", "Kapacitet: {v_capacity} m³" }
+                                                        span { class: "font-semibold text-primary", "{t(\"fleet-capacity-label\", &region)} {v_capacity} m³" }
                                                         if let Some(ref device) = v_device {
                                                             span { class: "text-[10px] text-slate-400 font-mono flex items-center gap-1",
                                                                 components::LucideIcon { name: "rss", size: "10" }
@@ -208,10 +214,10 @@ pub fn FleetView(props: FleetViewProps) -> Element {
                                             div { class: "flex items-center gap-2 shrink-0 pl-2",
                                                 span {
                                                     class: format!("px-2.5 py-1 rounded-full text-[10px] font-extrabold tracking-wide flex items-center gap-1.5 {}",
-                                                        if v_status == "active" { "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20" } else { "bg-slate-500/10 text-slate-400 border border-slate-500/20" }
+                                                        if is_active { "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20" } else { "bg-slate-500/10 text-slate-400 border border-slate-500/20" }
                                                     ),
-                                                    span { class: format!("w-1.5 h-1.5 rounded-full {}", if v_status == "active" { "bg-emerald-500 animate-pulse" } else { "bg-slate-400" }) }
-                                                    if v_status == "active" { "Aktiv" } else { "Inaktiv" }
+                                                    span { class: format!("w-1.5 h-1.5 rounded-full {}", if is_active { "bg-emerald-500 animate-pulse" } else { "bg-slate-400" }) }
+                                                    if is_active { "{t(\"fleet-status-active\", &region)}" } else { "{t(\"fleet-status-inactive\", &region)}" }
                                                 }
 
                                                 button {
@@ -227,7 +233,7 @@ pub fn FleetView(props: FleetViewProps) -> Element {
                                                         });
                                                     },
                                                     class: "p-2 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 border-0 bg-transparent cursor-pointer transition-all flex items-center justify-center opacity-70 group-hover:opacity-100",
-                                                    title: "Ta bort fordon",
+                                                    title: "{t(\"fleet-delete-tooltip\", &region)}",
                                                     components::LucideIcon { name: "trash-2", size: "16" }
                                                 }
                                             }
@@ -256,8 +262,8 @@ pub fn FleetView(props: FleetViewProps) -> Element {
                                     components::LucideIcon { name: "truck", class: "h-5 w-5" }
                                 }
                                 div {
-                                    h3 { class: "text-base font-bold text-foreground m-0", "Registrera Nytt Fordon" }
-                                    p { class: "text-xs text-muted-foreground m-0 mt-0.5", "Fyll i fordonsuppgifter och GPS-enhet." }
+                                    h3 { class: "text-base font-bold text-foreground m-0", "{t(\"fleet-modal-title\", &region)}" }
+                                    p { class: "text-xs text-muted-foreground m-0 mt-0.5", "{t(\"fleet-modal-subtitle\", &region)}" }
                                 }
                             }
                             button {
@@ -269,20 +275,20 @@ pub fn FleetView(props: FleetViewProps) -> Element {
 
                         div { class: "space-y-4",
                             div {
-                                label { class: "text-xs font-bold text-foreground block mb-1", "Fordonsnamn / Modell *" }
+                                label { class: "text-xs font-bold text-foreground block mb-1", "{t(\"fleet-label-name\", &region)}" }
                                 input {
                                     r#type: "text",
-                                    placeholder: "t.ex. Volvo FL6, Ford Transit",
+                                    placeholder: "{t(\"fleet-placeholder-name\", &region)}",
                                     value: "{new_vehicle_name}",
                                     oninput: move |e| new_vehicle_name.set(e.value()),
                                     class: "w-full text-xs p-2.5 rounded-xl border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all",
                                 }
                             }
                             div {
-                                label { class: "text-xs font-bold text-foreground block mb-1", "Registreringsnummer *" }
+                                label { class: "text-xs font-bold text-foreground block mb-1", "{t(\"fleet-label-plate\", &region)}" }
                                 input {
                                     r#type: "text",
-                                    placeholder: "t.ex. ABC-123",
+                                    placeholder: "{t(\"fleet-placeholder-plate\", &region)}",
                                     value: "{new_vehicle_plate}",
                                     oninput: move |e| new_vehicle_plate.set(e.value()),
                                     class: "w-full text-xs p-2.5 rounded-xl border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all",
@@ -290,7 +296,7 @@ pub fn FleetView(props: FleetViewProps) -> Element {
                             }
                             div { class: "grid grid-cols-2 gap-3",
                                 div {
-                                    label { class: "text-xs font-bold text-foreground block mb-1", "Kapacitet (m³) *" }
+                                    label { class: "text-xs font-bold text-foreground block mb-1", "{t(\"fleet-label-capacity\", &region)}" }
                                     input {
                                         r#type: "number",
                                         step: "0.5",
@@ -301,10 +307,10 @@ pub fn FleetView(props: FleetViewProps) -> Element {
                                     }
                                 }
                                 div {
-                                    label { class: "text-xs font-bold text-foreground block mb-1", "GPS Tracker ID" }
+                                    label { class: "text-xs font-bold text-foreground block mb-1", "{t(\"fleet-label-gps\", &region)}" }
                                     input {
                                         r#type: "text",
-                                        placeholder: "Valfri IMEI / ID",
+                                        placeholder: "{t(\"fleet-placeholder-gps\", &region)}",
                                         value: "{new_vehicle_gps_id}",
                                         oninput: move |e| new_vehicle_gps_id.set(e.value()),
                                         class: "w-full text-xs p-2.5 rounded-xl border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all",
@@ -317,7 +323,7 @@ pub fn FleetView(props: FleetViewProps) -> Element {
                             button {
                                 class: "px-4 py-2 rounded-xl border border-border bg-background text-xs font-bold text-foreground hover:bg-muted cursor-pointer transition-all",
                                 onclick: move |_| show_register_modal.set(false),
-                                "Avbryt"
+                                "{t(\"fleet-cancel\", &region)}"
                             }
                             button {
                                 onclick: {
@@ -350,7 +356,7 @@ pub fn FleetView(props: FleetViewProps) -> Element {
                                 },
                                 class: "px-5 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-extrabold shadow hover:opacity-90 transition-all border-0 cursor-pointer flex items-center gap-1.5",
                                 components::LucideIcon { name: "check", size: "14" }
-                                "Spara & Registrera"
+                                "{t(\"fleet-save\", &region)}"
                             }
                         }
                     }
