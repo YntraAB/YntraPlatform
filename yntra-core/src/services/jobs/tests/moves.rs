@@ -559,3 +559,133 @@ async fn test_building_access_and_staircase_surcharges() {
     );
     assert_eq!(s4, 5500.0);
 }
+
+#[test]
+fn test_tariff_estimation_and_volume_conversions() {
+    use crate::services::jobs::{calculate_packing_materials_tariff_estimate, convert_volume_to_tariff_weight};
+
+    let supplies = calculate_packing_materials_tariff_estimate(10.0);
+    assert_eq!(supplies.total_volume_m3, 10.0);
+    assert_eq!(supplies.small_boxes_count, 35);
+    assert_eq!(supplies.large_boxes_count, 20);
+    assert_eq!(supplies.wardrobe_boxes_count, 4);
+    assert!(supplies.estimated_supplies_cost_sek > 0.0);
+
+    let res_weight = convert_volume_to_tariff_weight(10.0, false);
+    assert_eq!(res_weight.density_lbs_per_cu_ft, 7.0);
+    assert!(res_weight.calculated_weight_lbs > 2400.0);
+    assert_eq!(res_weight.requires_shuttle_truck, false);
+
+    let comm_weight = convert_volume_to_tariff_weight(50.0, true);
+    assert_eq!(comm_weight.density_lbs_per_cu_ft, 12.0);
+    assert_eq!(comm_weight.requires_shuttle_truck, true);
+}
+
+#[tokio::test]
+async fn test_warehouse_vault_sit_storage_workflow() {
+    use crate::services::jobs::{
+        assign_job_to_warehouse_vault, get_job_warehouse_vaults,
+        release_job_from_warehouse_vault, calculate_sit_recurring_billing_summary,
+    };
+
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-sit-test', 'SIT WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-sit-staff', 'ws-sit-test', 'staff@sit.se', 'admin')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, created_at, updated_at, sync_status) VALUES ('job-sit-1', 'ws-sit-test', 'Job SIT 1', 'Desc', 'Loc', 'normal', 'quote_requested', '2026-08-01', '[]', '2026-08-01', 1700000000000, 'synced')", ()).await.unwrap();
+
+    let vault = assign_job_to_warehouse_vault(
+        "u-sit-staff".to_string(),
+        "job-sit-1".to_string(),
+        "V-101".to_string(),
+        "Central Huvudlager #1".to_string(),
+        15.0,
+        2200.0,
+        "2026-08-01".to_string(),
+        None,
+    ).await.unwrap();
+
+    assert_eq!(vault.vault_number, "V-101");
+    assert_eq!(vault.status, "stored");
+
+    let vaults = get_job_warehouse_vaults("u-sit-staff".to_string(), "job-sit-1".to_string()).await.unwrap();
+    assert_eq!(vaults.len(), 1);
+    assert_eq!(vaults[0].vault_number, "V-101");
+
+    let summary = calculate_sit_recurring_billing_summary("u-sit-staff".to_string(), "job-sit-1".to_string()).await.unwrap();
+    assert_eq!(summary.vault_count, 1);
+    assert_eq!(summary.total_volume_m3, 15.0);
+    assert!(summary.accumulated_storage_fee_sek >= 2200.0);
+
+    release_job_from_warehouse_vault("u-sit-staff".to_string(), vault.id).await.unwrap();
+    let vaults_after = get_job_warehouse_vaults("u-sit-staff".to_string(), "job-sit-1".to_string()).await.unwrap();
+    assert_eq!(vaults_after[0].status, "released");
+
+    conn.execute("DELETE FROM warehouse_vaults WHERE workspace_id = 'ws-sit-test'", ()).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-sit-test'", ()).await.ok();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-sit-test'", ()).await.ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-sit-test'", ()).await.ok();
+}
+
+#[tokio::test]
+async fn test_tip_distribution_and_mover_payroll_split() {
+    use crate::services::jobs::{
+        create_job_ticket, distribute_job_customer_tip, get_job_tip_distribution,
+        calculate_mover_job_payroll_split,
+    };
+
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-pay-test', 'Pay WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-pay-staff', 'ws-pay-test', 'staff@pay.se', 'admin')", ()).await.unwrap();
+
+    let job = create_job_ticket(
+        "u-pay-staff".to_string(),
+        "ws-pay-test".to_string(),
+        "Job Pay 1".to_string(),
+        "Desc".to_string(),
+        "Loc".to_string(),
+        "normal".to_string(),
+        None,
+        "2026-08-01".to_string(),
+        "[]".to_string(),
+        None,
+        None,
+        0,
+        0,
+        false,
+        false,
+        false,
+        false,
+    ).await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-pay-driver', 'ws-pay-test', 'driver@pay.se', 'staff')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-pay-mover', 'ws-pay-test', 'mover@pay.se', 'staff')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO job_crew (job_ticket_id, user_id, role) VALUES (?1, 'u-pay-driver', 'driver')", crate::params![&job.id]).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO job_crew (job_ticket_id, user_id, role) VALUES (?1, 'u-pay-mover', 'mover')", crate::params![&job.id]).await.unwrap();
+
+    let tip = distribute_job_customer_tip("u-pay-staff".to_string(), job.id.clone(), 600.0).await.unwrap();
+    assert_eq!(tip.crew_count, 2);
+    assert_eq!(tip.tip_per_member_sek, 300.0);
+
+    let tip_opt = get_job_tip_distribution("u-pay-staff".to_string(), job.id.clone()).await.unwrap();
+    assert!(tip_opt.is_some());
+
+    let driver_pay = calculate_mover_job_payroll_split("u-pay-staff".to_string(), job.id.clone(), "u-pay-driver".to_string(), 2.5, 5.5, false).await.unwrap();
+    assert_eq!(driver_pay.driving_rate_sek_per_h, 230.0);
+    assert_eq!(driver_pay.tip_allocated_sek, 300.0);
+    assert_eq!(driver_pay.total_gross_payout_sek, 1892.5);
+
+    let mover_pay = calculate_mover_job_payroll_split("u-pay-staff".to_string(), job.id.clone(), "u-pay-mover".to_string(), 0.0, 10.0, true).await.unwrap();
+    assert_eq!(mover_pay.overtime_hours, 2.0);
+    assert_eq!(mover_pay.per_diem_allowance_sek, 290.0);
+    assert_eq!(mover_pay.total_gross_payout_sek, 2995.0);
+
+    conn.execute("DELETE FROM job_tips WHERE workspace_id = 'ws-pay-test'", ()).await.ok();
+    conn.execute("DELETE FROM job_crew WHERE job_ticket_id = ?1", crate::params![&job.id]).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-pay-test'", ()).await.ok();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-pay-test'", ()).await.ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-pay-test'", ()).await.ok();
+}

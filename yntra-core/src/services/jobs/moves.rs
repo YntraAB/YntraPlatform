@@ -94,6 +94,12 @@ pub async fn get_move_quote(
         ));
     }
 
+    if auth.role == "mover" || auth.role == "driver" {
+        return Err(YntraError::AuthError(
+            "Access denied: mover role cannot view financial quotes".to_string(),
+        ));
+    }
+
     let mut stmt = conn.prepare(
         "SELECT id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, accepted_at, updated_at, sync_status, manual_price_override, price_discount FROM move_quotes WHERE job_ticket_id = ?1 LIMIT 1",
     ).await?;
@@ -870,6 +876,69 @@ pub fn calculate_access_and_stair_surcharge(
         1.3,
         1.2,
     )
+}
+
+#[uniffi::export]
+pub fn calculate_packing_materials_tariff_estimate(
+    total_volume_m3: f64,
+) -> crate::PackingMaterialsTariffBreakdown {
+    let vol = total_volume_m3.max(0.0);
+    let small_boxes = (vol * 3.5).ceil() as i32;
+    let large_boxes = (vol * 2.0).ceil() as i32;
+    let wardrobe_boxes = (vol * 0.4).ceil() as i32;
+    let tape_rolls = (vol * 0.3).ceil().max(1.0) as i32;
+    let stretch_wrap_rolls = (vol * 0.25).ceil().max(1.0) as i32;
+    let mattress_bags = (vol * 0.15).ceil() as i32;
+
+    let supplies_cost = (small_boxes as f64 * 25.0)
+        + (large_boxes as f64 * 40.0)
+        + (wardrobe_boxes as f64 * 120.0)
+        + (tape_rolls as f64 * 35.0)
+        + (stretch_wrap_rolls as f64 * 150.0)
+        + (mattress_bags as f64 * 90.0);
+
+    crate::PackingMaterialsTariffBreakdown {
+        total_volume_m3: vol,
+        small_boxes_count: small_boxes,
+        large_boxes_count: large_boxes,
+        wardrobe_boxes_count: wardrobe_boxes,
+        tape_rolls_count: tape_rolls,
+        stretch_wrap_rolls_count: stretch_wrap_rolls,
+        mattress_bags_count: mattress_bags,
+        estimated_supplies_cost_sek: supplies_cost,
+    }
+}
+
+#[uniffi::export]
+pub fn convert_volume_to_tariff_weight(
+    total_volume_m3: f64,
+    is_commercial: bool,
+) -> crate::TariffWeightBreakdown {
+    let vol_m3 = total_volume_m3.max(0.0);
+    let cu_ft = vol_m3 * 35.3147;
+    let density_lbs = if is_commercial { 12.0 } else { 7.0 };
+    let weight_lbs = cu_ft * density_lbs;
+    let weight_kg = weight_lbs * 0.453592;
+
+    let classification = if is_commercial {
+        "Commercial Freight (12 lbs/cu.ft)".to_string()
+    } else {
+        "Household Residential (7 lbs/cu.ft)".to_string()
+    };
+
+    let requires_shuttle = vol_m3 > 45.0 || weight_lbs > 10000.0;
+    let recommended_payload = (weight_kg * 1.2).ceil();
+
+    crate::TariffWeightBreakdown {
+        total_volume_m3: vol_m3,
+        total_volume_cu_ft: cu_ft,
+        density_lbs_per_cu_ft: density_lbs,
+        calculated_weight_lbs: weight_lbs,
+        calculated_weight_kg: weight_kg,
+        move_type_classification: classification,
+        requires_shuttle_truck: requires_shuttle,
+        recommended_axle_payload_kg: recommended_payload,
+    }
 }
 
 #[uniffi::export]

@@ -243,3 +243,32 @@ pub struct AccountingLedgerSummary {
     pub primary_erp_provider: String,
     pub last_sync_timestamp: i64,
 }
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct FuelReceiptRecord {
+    pub id: String,
+    pub workspace_id: String,
+    pub vehicle_id: String,
+    pub driver_user_id: String,
+    pub liters: f64,
+    pub cost_sek: f64,
+    pub fuel_type: String,
+    pub odometer_km: i64,
+    pub receipt_image_url: Option<String>,
+    pub station_name: Option<String>,
+    pub purchase_date: String,
+    pub erp_sync_status: String,
+    pub erp_reference: Option<String>,
+    pub created_at: i64,
+}
