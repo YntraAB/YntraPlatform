@@ -1,6 +1,23 @@
 # Swedish Localization (Auto-generated from reference sv.json)
 
 assistance-active-medication-list = Medicinlista
+booking-widget-step1-title = 1. Vem flyttar?
+booking-widget-step2-title = 2. Vart flyttar du?
+booking-widget-step3-title = 3. Välj vad som ska flyttas
+booking-widget-step4-title = Tack för din förfrågan!
+booking-widget-volume-label = Volym
+booking-widget-capacity-sub = Beräknad lastkapacitet
+booking-widget-estimated-price = Estimerat pris (exkl. RUT)
+booking-widget-quick-add = Lägg till standardmöbler
+booking-widget-custom-item = Egen möbel (t.ex. Piano)
+booking-widget-add-btn = Lägg till
+booking-widget-selected-items = Dina valda möbler
+booking-widget-no-items = Inga artiklar tillagda än. Välj från listan ovan.
+booking-widget-next = Nästa
+booking-widget-back = Bakåt
+booking-widget-send = Skicka Förfrågan
+booking-widget-edit-name = Redigera namn
+booking-widget-edit-vol = Redigera m³
 assistance-care-level = Vårdnivå:
 assistance-daily-notes = Daganteckningar
 assistance-journal-no-notes = Inga anteckningar hittades
@@ -784,7 +801,12 @@ timereports-unassigned-team = Odelat team
 timereports-work-time = Arbetstid
 
 jobs-nav = Arbetsorder
-jobs-view-title = Arbetsorder & Jobb
+section-dispatch = Resursplanering
+section-live-map = Livekarta
+section-fleet = Fordonsflotta
+section-rut-exports = RUT-avdrag
+section-booking-widget = Boknings-widget
+jobs-view-title = Arbetsorder & Uppdrag
 jobs-view-subtitle = Hantera och slutför tilldelade arbetsorder och serviceärenden lokalt och offline.
 jobs-filter-all = Alla
 jobs-filter-assigned = Tilldelade

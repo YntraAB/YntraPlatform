@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 use crate::components;
+use crate::locales::t;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct WidgetItem {
@@ -9,8 +10,10 @@ pub struct WidgetItem {
 }
 
 #[component]
-pub fn PublicBookingWidget(workspace_id: String) -> Element {
+pub fn PublicBookingWidget(workspace_id: String, locale: Option<String>) -> Element {
     let ws_id = workspace_id.clone();
+    let loc = locale.unwrap_or_else(|| "sv".to_string());
+    
     let mut step = use_signal(|| 1);
     
     // Contact Info
@@ -41,7 +44,8 @@ pub fn PublicBookingWidget(workspace_id: String) -> Element {
     ];
 
     // Compute live values
-    let total_volume: f64 = selected_items.read().iter().map(|item| item.volume * item.quantity as f64).sum();
+    let items_list = selected_items.read().clone();
+    let total_volume: f64 = items_list.iter().map(|item| item.volume * item.quantity as f64).sum();
     // SEK estimation: 1500 kr base + 150 kr per m3
     let estimated_price = 1500.0 + (total_volume * 150.0);
 
@@ -68,7 +72,6 @@ pub fn PublicBookingWidget(workspace_id: String) -> Element {
         submit_error.set(None);
 
         spawn(async move {
-            // Formulate items JSON payload
             let items_json = serde_json::json!(
                 items_val.iter().map(|item| {
                     serde_json::json!({
@@ -104,10 +107,10 @@ pub fn PublicBookingWidget(workspace_id: String) -> Element {
 
     rsx! {
         div { class: "w-full max-w-lg mx-auto bg-background/80 backdrop-blur-md border border-border/60 rounded-2xl shadow-xl overflow-hidden flex flex-col items-stretch",
-            style: "min-height: 480px;",
+            style: "min-height: 520px;",
             
             // Header Indicator
-            div { class: "bg-gradient-to-r from-primary/10 to-accent/5 p-5 border-b border-border/40 flex justify-between items-center",
+            div { class: "bg-gradient-to-r from-primary/10 to-accent/5 p-4 border-b border-border/40 flex justify-between items-center",
                 div {
                     h3 { class: "text-sm font-extrabold text-foreground m-0", "Snabb Offert & Bokningsförfrågan" }
                     p { class: "text-[10px] text-muted-foreground mt-0.5 mb-0", "Få ett kostnadsfritt prisförslag direkt online." }
@@ -117,11 +120,30 @@ pub fn PublicBookingWidget(workspace_id: String) -> Element {
                 }
             }
 
+            // Sticky Live Volume & Price Estimate Banner (visible across steps 1..3)
+            if *step.read() < 4 {
+                div { class: "bg-primary/5 border-b border-border/30 px-4 py-2.5 flex justify-between items-center text-xs",
+                    div { class: "flex items-center gap-2",
+                        components::LucideIcon { name: "package", size: "14", class: "text-primary" }
+                        div {
+                            div { class: "font-extrabold text-foreground", 
+                                "{t(\"booking-widget-volume-label\", &loc)}: {total_volume:.1} m³" 
+                            }
+                            div { class: "text-[9px] text-muted-foreground", "{t(\"booking-widget-capacity-sub\", &loc)}" }
+                        }
+                    }
+                    div { class: "text-right",
+                        div { class: "font-black text-primary text-sm", "{estimated_price:.0} SEK" }
+                        div { class: "text-[9px] text-muted-foreground", "{t(\"booking-widget-estimated-price\", &loc)}" }
+                    }
+                }
+            }
+
             // Step Content
-            div { class: "p-6 flex-1 flex flex-col justify-between gap-6",
+            div { class: "p-5 flex-1 flex flex-col justify-between gap-5",
                 if *step.read() == 1 {
                     div { class: "space-y-4 flex-1",
-                        h4 { class: "text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1", "1. Vem flyttar?" }
+                        h4 { class: "text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1", "{t(\"booking-widget-step1-title\", &loc)}" }
                         
                         div { class: "space-y-3",
                             div { class: "flex flex-col gap-1",
@@ -157,7 +179,7 @@ pub fn PublicBookingWidget(workspace_id: String) -> Element {
                     }
                 } else if *step.read() == 2 {
                     div { class: "space-y-4 flex-1",
-                        h4 { class: "text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1", "2. Vart flyttar du?" }
+                        h4 { class: "text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1", "{t(\"booking-widget-step2-title\", &loc)}" }
                         
                         div { class: "space-y-3",
                             div { class: "flex flex-col gap-1",
@@ -181,25 +203,13 @@ pub fn PublicBookingWidget(workspace_id: String) -> Element {
                         }
                     }
                 } else if *step.read() == 3 {
-                    div { class: "flex flex-col gap-4 flex-1",
-                        h4 { class: "text-xs font-bold text-muted-foreground uppercase tracking-wider mb-0", "3. Välj vad som ska flyttas" }
-                        
-                        // Live Estimator Banner
-                        div { class: "bg-primary/5 border border-primary/20 rounded-xl p-3 flex justify-between items-center text-xs",
-                            div {
-                                div { class: "font-extrabold text-foreground", "Volym: {total_volume:.1} m³" }
-                                div { class: "text-[10px] text-muted-foreground", "Beräknad lastkapacitet" }
-                            }
-                            div { class: "text-right",
-                                div { class: "font-black text-primary text-sm", "{estimated_price:.0} SEK" }
-                                div { class: "text-[9px] text-muted-foreground", "Estimerat pris (exkl. RUT)" }
-                            }
-                        }
+                    div { class: "flex flex-col gap-3.5 flex-1",
+                        h4 { class: "text-xs font-bold text-muted-foreground uppercase tracking-wider mb-0", "{t(\"booking-widget-step3-title\", &loc)}" }
 
                         // Presets Quick Add list
                         div { class: "space-y-1.5",
-                            span { class: "text-[9px] font-bold text-muted-foreground uppercase tracking-wide", "Lägg till standardmöbler" }
-                            div { class: "flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-1",
+                            span { class: "text-[9px] font-bold text-muted-foreground uppercase tracking-wide", "{t(\"booking-widget-quick-add\", &loc)}" }
+                            div { class: "flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1",
                                 for (name_pr, vol_pr) in presets.into_iter() {
                                     button {
                                         key: "{name_pr}",
@@ -225,8 +235,8 @@ pub fn PublicBookingWidget(workspace_id: String) -> Element {
                             // Custom Item Entry Form
                             div { class: "flex items-center gap-1.5 pt-1",
                                 input {
-                                    class: "flex-1 rounded-md border border-border bg-background px-2 py-1 text-[11px] text-foreground focus:outline-none focus:border-primary",
-                                    placeholder: "Egen möbel (t.ex. Piano)",
+                                    class: "flex-1 rounded-md border border-border bg-background px-2.5 py-1 text-[11px] text-foreground focus:outline-none focus:border-primary",
+                                    placeholder: "{t(\"booking-widget-custom-item\", &loc)}",
                                     value: "{custom_item_name}",
                                     oninput: move |e| custom_item_name.set(e.value())
                                 }
@@ -255,55 +265,101 @@ pub fn PublicBookingWidget(workspace_id: String) -> Element {
                                         }
                                     },
                                     components::LucideIcon { name: "plus", size: "10" }
-                                    "Lägg till"
+                                    "{t(\"booking-widget-add-btn\", &loc)}"
                                 }
                             }
                         }
 
-                        // Selected Items list
-                        div { class: "flex-1 border border-border/40 bg-background/50 rounded-xl p-3 flex flex-col justify-stretch",
-                            span { class: "text-[9px] font-bold text-muted-foreground uppercase tracking-wide mb-1", "Dina valda möbler" }
+                        // Selected Items list with inline editing & removal
+                        div { class: "flex-1 border border-border/40 bg-background/50 rounded-xl p-3 flex flex-col justify-stretch min-h-[140px]",
+                            span { class: "text-[9px] font-bold text-muted-foreground uppercase tracking-wide mb-1", "{t(\"booking-widget-selected-items\", &loc)}" }
                             
-                            if selected_items.read().is_empty() {
-                                div { class: "flex-1 flex flex-col items-center justify-center text-center text-muted-foreground/60 py-6",
+                            if items_list.is_empty() {
+                                div { class: "flex-1 flex flex-col items-center justify-center text-center text-muted-foreground/60 py-4",
                                     components::LucideIcon { name: "box", class: "h-5 w-5 opacity-40 mb-1" }
-                                    p { class: "text-[10px] m-0 font-medium", "Inga artiklar tillagda än. Välj från listan ovan." }
+                                    p { class: "text-[10px] m-0 font-medium", "{t(\"booking-widget-no-items\", &loc)}" }
                                 }
                             } else {
-                                div { class: "flex-1 overflow-y-auto max-h-32 space-y-1.5 pr-1",
-                                    for (idx, item) in selected_items.read().iter().enumerate() {
+                                div { class: "flex-1 overflow-y-auto max-h-36 space-y-1.5 pr-1",
+                                    for (idx, item) in items_list.iter().enumerate() {
                                         div {
-                                            key: "{item.name}",
-                                            class: "flex justify-between items-center bg-background border border-border/20 p-1.5 rounded-lg text-xs",
-                                            span { class: "font-semibold text-foreground truncate max-w-40", "{item.name}" }
-                                            div { class: "flex items-center gap-2",
-                                                span { class: "text-[10px] text-muted-foreground", "{item.volume * item.quantity as f64:.2} m³" }
-                                                
-                                                // Quantity selector
-                                                div { class: "flex items-center border border-border rounded overflow-hidden bg-background",
-                                                    button {
-                                                        class: "p-0.5 border-0 hover:bg-muted text-foreground cursor-pointer flex items-center justify-center bg-transparent",
-                                                        onclick: move |_| {
+                                            key: "{idx}",
+                                            class: "flex justify-between items-center bg-background border border-border/30 p-2 rounded-lg text-xs gap-2 shadow-sm",
+                                            
+                                            // Inline editable item name & volume
+                                            div { class: "flex items-center gap-1.5 flex-1 min-w-0",
+                                                input {
+                                                    class: "text-xs font-semibold text-foreground bg-transparent border border-transparent hover:border-border/40 focus:border-primary focus:bg-background rounded px-1 py-0.5 truncate w-full transition-all",
+                                                    value: "{item.name}",
+                                                    oninput: move |e| {
+                                                        let new_name = e.value();
+                                                        let mut current = selected_items.read().clone();
+                                                        if idx < current.len() {
+                                                            current[idx].name = new_name;
+                                                            selected_items.set(current);
+                                                        }
+                                                    }
+                                                }
+                                                div { class: "flex items-center gap-1 shrink-0",
+                                                    input {
+                                                        r#type: "number",
+                                                        step: "0.1",
+                                                        class: "w-12 text-[10px] font-mono text-muted-foreground bg-transparent border border-transparent hover:border-border/40 focus:border-primary focus:bg-background rounded px-1 py-0.5 text-right transition-all",
+                                                        value: "{item.volume}",
+                                                        oninput: move |e| {
+                                                            let new_vol = e.value().parse().unwrap_or(0.5);
                                                             let mut current = selected_items.read().clone();
-                                                            if current[idx].quantity > 1 {
-                                                                current[idx].quantity -= 1;
-                                                            } else {
-                                                                current.remove(idx);
+                                                            if idx < current.len() {
+                                                                current[idx].volume = new_vol;
+                                                                selected_items.set(current);
                                                             }
-                                                            selected_items.set(current);
-                                                        },
-                                                        components::LucideIcon { name: "minus", size: "8" }
+                                                        }
                                                     }
-                                                    span { class: "px-1.5 text-[9px] font-bold text-foreground", "{item.quantity}" }
+                                                    span { class: "text-[9px] text-muted-foreground font-semibold", "m³" }
+                                                }
+                                            }
+
+                                            // Quantity Selector & Trash Action
+                                            div { class: "flex items-center gap-1.5 shrink-0",
+                                                div { class: "flex items-center border border-border rounded overflow-hidden bg-background shadow-xs",
                                                     button {
-                                                        class: "p-0.5 border-0 hover:bg-muted text-foreground cursor-pointer flex items-center justify-center bg-transparent",
+                                                        class: "p-1 border-0 hover:bg-muted text-foreground cursor-pointer flex items-center justify-center bg-transparent",
                                                         onclick: move |_| {
                                                             let mut current = selected_items.read().clone();
-                                                            current[idx].quantity += 1;
-                                                            selected_items.set(current);
+                                                            if idx < current.len() {
+                                                                if current[idx].quantity > 1 {
+                                                                    current[idx].quantity -= 1;
+                                                                } else {
+                                                                    current.remove(idx);
+                                                                }
+                                                                selected_items.set(current);
+                                                            }
                                                         },
-                                                        components::LucideIcon { name: "plus", size: "8" }
+                                                        components::LucideIcon { name: "minus", size: "9" }
                                                     }
+                                                    span { class: "px-2 text-[10px] font-bold text-foreground min-w-[16px] text-center", "{item.quantity}" }
+                                                    button {
+                                                        class: "p-1 border-0 hover:bg-muted text-foreground cursor-pointer flex items-center justify-center bg-transparent",
+                                                        onclick: move |_| {
+                                                            let mut current = selected_items.read().clone();
+                                                            if idx < current.len() {
+                                                                current[idx].quantity += 1;
+                                                                selected_items.set(current);
+                                                            }
+                                                        },
+                                                        components::LucideIcon { name: "plus", size: "9" }
+                                                    }
+                                                }
+                                                button {
+                                                    class: "p-1 border-0 hover:bg-rose-500/10 text-slate-400 hover:text-rose-500 rounded cursor-pointer transition-all flex items-center justify-center bg-transparent",
+                                                    onclick: move |_| {
+                                                        let mut current = selected_items.read().clone();
+                                                        if idx < current.len() {
+                                                            current.remove(idx);
+                                                            selected_items.set(current);
+                                                        }
+                                                    },
+                                                    components::LucideIcon { name: "trash-2", size: "12" }
                                                 }
                                             }
                                         }
@@ -319,7 +375,7 @@ pub fn PublicBookingWidget(workspace_id: String) -> Element {
                             components::LucideIcon { name: "check-circle", size: "28" }
                         }
                         div {
-                            h4 { class: "text-sm font-black text-foreground m-0", "Tack för din förfrågan!" }
+                            h4 { class: "text-sm font-black text-foreground m-0", "{t(\"booking-widget-step4-title\", &loc)}" }
                             p { class: "text-xs text-muted-foreground mt-1 max-w-sm mx-auto leading-relaxed", 
                                 "Vi har tagit emot dina uppgifter och skickat en bekräftelse till e-postadressen. Våra handläggare kommer att granska din förfrågan inom kort." 
                             }
@@ -349,7 +405,7 @@ pub fn PublicBookingWidget(workspace_id: String) -> Element {
                                     let current = *step.read();
                                     step.set(current - 1);
                                 },
-                                "Bakåt"
+                                "{t(\"booking-widget-back\", &loc)}"
                             }
                         } else {
                             div {}
@@ -362,14 +418,14 @@ pub fn PublicBookingWidget(workspace_id: String) -> Element {
                                     let current = *step.read();
                                     step.set(current + 1);
                                 },
-                                "Nästa"
+                                "{t(\"booking-widget-next\", &loc)}"
                             }
                         } else {
                             button {
                                 class: "px-6 py-2 rounded-lg bg-emerald-600 text-white hover:opacity-90 text-xs font-black border-0 cursor-pointer shadow transition-all disabled:opacity-50 disabled:cursor-not-allowed",
                                 disabled: submitting.read().clone(),
                                 onclick: handle_submit,
-                                if *submitting.read() { "Skickar..." } else { "Skicka Förfrågan" }
+                                if *submitting.read() { "Skickar..." } else { "{t(\"booking-widget-send\", &loc)}" }
                             }
                         }
                     }
@@ -399,9 +455,10 @@ pub fn PublicBookingWidget(workspace_id: String) -> Element {
 }
 
 #[component]
-pub fn PublicBookingPreview(workspace_id: String) -> Element {
+pub fn PublicBookingPreview(workspace_id: String, locale: Option<String>) -> Element {
     let ws_id = workspace_id.clone();
-    let mut show_snippet = use_signal(|| false);
+    let loc = locale.clone();
+    let mut view_tab = use_signal(|| "preview".to_string()); // "preview" or "embed"
 
     // Simple raw HTML embed snippet
     let iframe_code = format!(
@@ -412,32 +469,102 @@ pub fn PublicBookingPreview(workspace_id: String) -> Element {
     rsx! {
         div { class: "flex flex-col gap-6 w-full animate-in fade-in duration-300",
             
-            // Preview Panel Header
-            div { class: "flex justify-between items-center border-b border-border/40 pb-3",
+            // Preview Panel Header with View Mode Pills
+            div { class: "flex justify-between items-center border-b border-border/40 pb-3 flex-wrap gap-3",
                 div {
                     h3 { class: "text-sm font-extrabold m-0 text-foreground", "Embeddbar Lead-Widget" }
-                    p { class: "text-[10px] text-muted-foreground mt-1 mb-0", "Integrera bokningsformuläret på din hemsida för att ta emot förfrågningar automatiskt." }
+                    p { class: "text-[10px] text-muted-foreground mt-1 mb-0", "Integrera bokningsformuläret på er hemsida för att ta emot förfrågningar automatiskt." }
                 }
-                button {
-                    class: "rounded px-3 py-1.5 text-xs font-extrabold hover:bg-muted border border-border bg-background cursor-pointer text-foreground flex items-center gap-1.5 transition-all",
-                    onclick: move |_| {
-                        let current = *show_snippet.read();
-                        show_snippet.set(!current);
-                    },
-                    components::LucideIcon { name: "code", size: "14" }
-                    "Visa HTML-kod"
+
+                // View Mode Toggle Pills
+                div { class: "flex items-center gap-1 bg-sidebar border border-border p-1 rounded-2xl shadow-sm",
+                    button {
+                        onclick: move |_| view_tab.set("preview".to_string()),
+                        class: format!("px-3 py-1.5 rounded-xl text-xs font-bold transition-all border-0 cursor-pointer flex items-center gap-1.5 {}", if *view_tab.read() == "preview" { "bg-primary text-primary-foreground shadow" } else { "bg-transparent text-muted-foreground hover:text-foreground" }),
+                        components::LucideIcon { name: "play", size: "12" }
+                        "Förhandsgranskning"
+                    }
+                    button {
+                        onclick: move |_| view_tab.set("embed".to_string()),
+                        class: format!("px-3 py-1.5 rounded-xl text-xs font-bold transition-all border-0 cursor-pointer flex items-center gap-1.5 {}", if *view_tab.read() == "embed" { "bg-primary text-primary-foreground shadow" } else { "bg-transparent text-muted-foreground hover:text-foreground" }),
+                        components::LucideIcon { name: "code", size: "12" }
+                        "Embedd-kod & Inställningar"
+                    }
                 }
             }
 
-            // Embed snippet banner
-            if *show_snippet.read() {
-                div { class: "bg-muted border border-border/60 rounded-xl p-4 space-y-2 animate-in slide-in-from-top-4 duration-200",
-                    div { class: "flex justify-between items-center",
-                        span { class: "text-[10px] font-black text-muted-foreground uppercase tracking-wider", "Kopiera Iframe-kod" }
+            // Tab 1: Interactive Live Preview
+            if *view_tab.read() == "preview" {
+                div { class: "flex gap-6 items-stretch flex-wrap md:flex-nowrap animate-in fade-in duration-200",
+                    
+                    // Instructions Info Card
+                    div { class: "flex-1 min-w-[300px] border border-border bg-sidebar rounded-2xl p-6 flex flex-col justify-between shadow-sm",
+                        div { class: "space-y-4",
+                            h4 { class: "text-xs font-black text-foreground uppercase tracking-wider m-0", "Hur det fungerar" }
+                            
+                            div { class: "space-y-3 text-xs leading-relaxed text-muted-foreground",
+                                div { class: "flex gap-3 items-start",
+                                    div { class: "h-5 w-5 rounded-full bg-primary/10 border border-primary/20 text-primary font-bold flex items-center justify-center text-[10px] flex-shrink-0 mt-0.5", "1" }
+                                    div {
+                                        div { class: "font-bold text-foreground", "Embedda på din sajt" }
+                                        p { class: "text-[10px] mt-0.5 m-0", "Kopiera iframe-koden och klistra in på företagets hemsida." }
+                                    }
+                                }
+                                div { class: "flex gap-3 items-start",
+                                    div { class: "h-5 w-5 rounded-full bg-primary/10 border border-primary/20 text-primary font-bold flex items-center justify-center text-[10px] flex-shrink-0 mt-0.5", "2" }
+                                    div {
+                                        div { class: "font-bold text-foreground", "Kunden kalkylerar själv" }
+                                        p { class: "text-[10px] mt-0.5 m-0", "Besökaren matar in flyttartiklar och får ett direkt pris- och volymförslag i realtid." }
+                                    }
+                                }
+                                div { class: "flex gap-3 items-start",
+                                    div { class: "h-5 w-5 rounded-full bg-primary/10 border border-primary/20 text-primary font-bold flex items-center justify-center text-[10px] flex-shrink-0 mt-0.5", "3" }
+                                    div {
+                                        div { class: "font-bold text-foreground", "Automatiskt i planeringen" }
+                                        p { class: "text-[10px] mt-0.5 m-0", "När förfrågan skickas skapas ett jobb i databasen och uppdraget dyker upp i planeringen." }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Bottom info stats
+                        div { class: "border-t border-border/30 pt-4 mt-6 flex justify-around text-center text-xs",
+                            div {
+                                div { class: "font-black text-foreground text-sm", "2.5 m³" }
+                                div { class: "text-[9px] text-muted-foreground", "Snittvolym" }
+                            }
+                            div {
+                                div { class: "font-black text-foreground text-sm", "100%" }
+                                div { class: "text-[9px] text-muted-foreground", "Automatiskt" }
+                            }
+                            div {
+                                div { class: "font-black text-foreground text-sm", "5 Språk" }
+                                div { class: "text-[9px] text-muted-foreground", "Språkstöd" }
+                            }
+                        }
+                    }
+
+                    // Widget Preview frame
+                    div { class: "flex-1 min-w-[320px] flex justify-center items-center py-6 bg-gradient-to-br from-secondary/5 via-primary/5 to-accent/5 border border-border border-dashed rounded-2xl relative",
+                        PublicBookingWidget { workspace_id: ws_id, locale: loc }
+                    }
+                }
+            } else {
+                // Tab 2: Embed Code & Settings
+                div { class: "bg-sidebar border border-border rounded-2xl p-6 space-y-5 animate-in slide-in-from-bottom-2 duration-200 shadow-sm",
+                    div { class: "space-y-1",
+                        h4 { class: "text-sm font-black text-foreground m-0", "HTML Iframe Embed-kod" }
+                        p { class: "text-xs text-muted-foreground m-0", "Kopiera koden nedan och klistra in i er webbplatssida (WordPress, Webflow, Wix, Shopify eller anpassad HTML)." }
+                    }
+
+                    pre { class: "text-xs font-mono p-4 bg-background rounded-xl border border-border/60 overflow-x-auto whitespace-pre-wrap select-all text-foreground m-0 shadow-inner",
+                        "{iframe_code}"
+                    }
+
+                    div { class: "flex items-center gap-3 pt-2",
                         button {
-                            class: "text-[10px] font-bold text-primary hover:underline border-0 bg-transparent cursor-pointer",
+                            class: "px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 text-xs font-extrabold border-0 cursor-pointer transition-all shadow flex items-center gap-1.5",
                             onclick: move |_| {
-                                // In desktop/web environment copy to clipboard
                                 #[cfg(target_arch = "wasm32")]
                                 {
                                     if let Some(window) = web_sys::window() {
@@ -447,71 +574,47 @@ pub fn PublicBookingPreview(workspace_id: String) -> Element {
                                     }
                                 }
                             },
-                            "Kopiera till urklipp"
+                            components::LucideIcon { name: "save", size: "14" }
+                            "Kopiera Embedd-kod"
                         }
-                    }
-                    pre { class: "text-[10px] font-mono p-3 bg-background rounded-lg border border-border/40 overflow-x-auto whitespace-pre-wrap select-all text-foreground m-0",
-                        "{iframe_code}"
                     }
                 }
             }
+        }
+    }
+}
 
-            // Split View layout: Instructions + Widget
-            div { class: "flex gap-6 items-stretch flex-wrap md:flex-nowrap",
-                
-                // Instructions Info Card
-                div { class: "flex-1 min-w-[300px] border border-border bg-sidebar rounded-2xl p-6 flex flex-col justify-between shadow-sm",
-                    div { class: "space-y-4",
-                        h4 { class: "text-xs font-black text-foreground uppercase tracking-wider m-0", "Hur det fungerar" }
-                        
-                        div { class: "space-y-3 text-xs leading-relaxed text-muted-foreground",
-                            div { class: "flex gap-3 items-start",
-                                div { class: "h-5 w-5 rounded-full bg-primary/10 border border-primary/20 text-primary font-bold flex items-center justify-center text-[10px] flex-shrink-0 mt-0.5", "1" }
-                                div {
-                                    div { class: "font-bold text-foreground", "Embedda på din sajt" }
-                                    p { class: "text-[10px] mt-0.5 m-0", "Kopiera iframe-koden och klistra in på företagets hemsida." }
-                                }
-                            }
-                            div { class: "flex gap-3 items-start",
-                                div { class: "h-5 w-5 rounded-full bg-primary/10 border border-primary/20 text-primary font-bold flex items-center justify-center text-[10px] flex-shrink-0 mt-0.5", "2" }
-                                div {
-                                    div { class: "font-bold text-foreground", "Kunden kalkylerar själv" }
-                                    p { class: "text-[10px] mt-0.5 m-0", "Besökaren matar in flyttartiklar och får ett direkt pris- och volymförslag i realtid." }
-                                }
-                            }
-                            div { class: "flex gap-3 items-start",
-                                div { class: "h-5 w-5 rounded-full bg-primary/10 border border-primary/20 text-primary font-bold flex items-center justify-center text-[10px] flex-shrink-0 mt-0.5", "3" }
-                                div {
-                                    div { class: "font-bold text-foreground", "Automatiskt i planeringen" }
-                                    p { class: "text-[10px] mt-0.5 m-0", "När förfrågan skickas skapas ett konto för kunden, offerten hamnar i databasen och uppdraget dyker upp i planeringen." }
-                                }
-                            }
-                        }
-                    }
+#[derive(Props, Clone)]
+pub struct BookingWidgetViewProps {
+    pub active_user_id: Signal<String>,
+    pub auth_region: Signal<String>,
+    pub db_trigger: Signal<u32>,
+}
 
-                    // Bottom info stats
-                    div { class: "border-t border-border/30 pt-4 mt-6 flex justify-around text-center text-xs",
-                        div {
-                            div { class: "font-black text-foreground text-sm", "2.5 m³" }
-                            div { class: "text-[9px] text-muted-foreground", "Snittvolym" }
-                        }
-                        div {
-                            div { class: "font-black text-foreground text-sm", "100%" }
-                            div { class: "text-[9px] text-muted-foreground", "Automatiskt" }
-                        }
-                        div {
-                            div { class: "font-black text-foreground text-sm", "Svenska" }
-                            div { class: "text-[9px] text-muted-foreground", "Språkstöd" }
-                        }
-                    }
-                }
+impl PartialEq for BookingWidgetViewProps {
+    fn eq(&self, _other: &Self) -> bool {
+        false
+    }
+}
 
-                // Widget Preview frame
-                div { class: "flex-1 min-w-[320px] flex justify-center items-center py-6 bg-gradient-to-br from-secondary/5 via-primary/5 to-accent/5 border border-border border-dashed rounded-2xl relative",
-                    // Widget Mount
-                    PublicBookingWidget { workspace_id: ws_id }
-                }
+#[component]
+pub fn BookingWidgetView(props: BookingWidgetViewProps) -> Element {
+    let state = use_context::<crate::state::AppState>();
+    let region = props.auth_region.read().clone();
+    let workspace_opt = state.workspace.read().clone();
+    let workspace_id = if let Some(ref ws) = workspace_opt {
+        ws.id.clone()
+    } else {
+        "workspace-1".to_string()
+    };
+
+    rsx! {
+        div { class: "mx-auto w-full max-w-5xl p-6 flex flex-col gap-6",
+            div { class: "flex flex-col gap-1",
+                h1 { class: "text-2xl font-bold text-foreground", "Boknings-widget" }
+                p { class: "text-sm text-muted-foreground", "Generera och förhandsgranska embeddbar boknings-widget för er hemsida." }
             }
+            PublicBookingPreview { workspace_id: workspace_id, locale: Some(region) }
         }
     }
 }
