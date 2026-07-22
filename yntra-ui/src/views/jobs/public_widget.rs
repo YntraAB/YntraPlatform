@@ -54,6 +54,7 @@ pub fn PublicBookingWidget(workspace_id: String, locale: Option<String>) -> Elem
     let mut submit_error = use_signal(|| Option::<String>::None);
     let mut created_job_id = use_signal(|| Option::<String>::None);
 
+    let loc_submit = loc.clone();
     let handle_submit = move |_| {
         let name_val = name.read().clone();
         let email_val = email.read().clone();
@@ -64,7 +65,7 @@ pub fn PublicBookingWidget(workspace_id: String, locale: Option<String>) -> Elem
         let ws_id_c = ws_id.clone();
         
         if name_val.is_empty() || email_val.is_empty() || phone_val.is_empty() || origin_val.is_empty() || dest_val.is_empty() {
-            submit_error.set(Some(t("booking-widget-err-fill-fields", &loc)));
+            submit_error.set(Some(t("booking-widget-err-fill-fields", &loc_submit)));
             return;
         }
 
@@ -458,6 +459,7 @@ pub fn PublicBookingWidget(workspace_id: String, locale: Option<String>) -> Elem
 pub fn PublicBookingPreview(workspace_id: String, locale: Option<String>) -> Element {
     let ws_id = workspace_id.clone();
     let loc = locale.clone();
+    let loc_str = loc.clone().unwrap_or_else(|| "sv".to_string());
     let mut view_tab = use_signal(|| "preview".to_string()); // "preview" or "embed"
 
     // Simple raw HTML embed snippet
@@ -472,8 +474,8 @@ pub fn PublicBookingPreview(workspace_id: String, locale: Option<String>) -> Ele
             // Preview Panel Header with View Mode Pills
             div { class: "flex justify-between items-center border-b border-border/40 pb-3 flex-wrap gap-3",
                 div {
-                    h3 { class: "text-sm font-extrabold m-0 text-foreground", "Embeddbar Lead-Widget" }
-                    p { class: "text-[10px] text-muted-foreground mt-1 mb-0", "Integrera bokningsformuläret på er hemsida för att ta emot förfrågningar automatiskt." }
+                    h3 { class: "text-sm font-extrabold m-0 text-foreground", "{t(\"booking-widget-preview-header\", &loc_str)}" }
+                    p { class: "text-[10px] text-muted-foreground mt-1 mb-0", "{t(\"booking-widget-preview-desc\", &loc_str)}" }
                 }
 
                 // View Mode Toggle Pills
@@ -482,13 +484,13 @@ pub fn PublicBookingPreview(workspace_id: String, locale: Option<String>) -> Ele
                         onclick: move |_| view_tab.set("preview".to_string()),
                         class: format!("px-3 py-1.5 rounded-xl text-xs font-bold transition-all border-0 cursor-pointer flex items-center gap-1.5 {}", if *view_tab.read() == "preview" { "bg-primary text-primary-foreground shadow" } else { "bg-transparent text-muted-foreground hover:text-foreground" }),
                         components::LucideIcon { name: "play", size: "12" }
-                        "Förhandsgranskning"
+                        "{t(\"booking-widget-tab-preview\", &loc_str)}"
                     }
                     button {
                         onclick: move |_| view_tab.set("embed".to_string()),
                         class: format!("px-3 py-1.5 rounded-xl text-xs font-bold transition-all border-0 cursor-pointer flex items-center gap-1.5 {}", if *view_tab.read() == "embed" { "bg-primary text-primary-foreground shadow" } else { "bg-transparent text-muted-foreground hover:text-foreground" }),
                         components::LucideIcon { name: "code", size: "12" }
-                        "Embedd-kod & Inställningar"
+                        "{t(\"booking-widget-tab-embed\", &loc_str)}"
                     }
                 }
             }
@@ -500,28 +502,28 @@ pub fn PublicBookingPreview(workspace_id: String, locale: Option<String>) -> Ele
                     // Instructions Info Card
                     div { class: "flex-1 min-w-[300px] border border-border bg-sidebar rounded-2xl p-6 flex flex-col justify-between shadow-sm",
                         div { class: "space-y-4",
-                            h4 { class: "text-xs font-black text-foreground uppercase tracking-wider m-0", "Hur det fungerar" }
+                            h4 { class: "text-xs font-black text-foreground uppercase tracking-wider m-0", "{t(\"booking-widget-how-it-works\", &loc_str)}" }
                             
                             div { class: "space-y-3 text-xs leading-relaxed text-muted-foreground",
                                 div { class: "flex gap-3 items-start",
                                     div { class: "h-5 w-5 rounded-full bg-primary/10 border border-primary/20 text-primary font-bold flex items-center justify-center text-[10px] flex-shrink-0 mt-0.5", "1" }
                                     div {
-                                        div { class: "font-bold text-foreground", "Embedda på din sajt" }
-                                        p { class: "text-[10px] mt-0.5 m-0", "Kopiera iframe-koden och klistra in på företagets hemsida." }
+                                        div { class: "font-bold text-foreground", "{t(\"booking-widget-step1-embed-title\", &loc_str)}" }
+                                        p { class: "text-[10px] mt-0.5 m-0", "{t(\"booking-widget-step1-embed-desc\", &loc_str)}" }
                                     }
                                 }
                                 div { class: "flex gap-3 items-start",
                                     div { class: "h-5 w-5 rounded-full bg-primary/10 border border-primary/20 text-primary font-bold flex items-center justify-center text-[10px] flex-shrink-0 mt-0.5", "2" }
                                     div {
-                                        div { class: "font-bold text-foreground", "Kunden kalkylerar själv" }
-                                        p { class: "text-[10px] mt-0.5 m-0", "Besökaren matar in flyttartiklar och får ett direkt pris- och volymförslag i realtid." }
+                                        div { class: "font-bold text-foreground", "{t(\"booking-widget-step2-calc-title\", &loc_str)}" }
+                                        p { class: "text-[10px] mt-0.5 m-0", "{t(\"booking-widget-step2-calc-desc\", &loc_str)}" }
                                     }
                                 }
                                 div { class: "flex gap-3 items-start",
                                     div { class: "h-5 w-5 rounded-full bg-primary/10 border border-primary/20 text-primary font-bold flex items-center justify-center text-[10px] flex-shrink-0 mt-0.5", "3" }
                                     div {
-                                        div { class: "font-bold text-foreground", "Automatiskt i planeringen" }
-                                        p { class: "text-[10px] mt-0.5 m-0", "När förfrågan skickas skapas ett jobb i databasen och uppdraget dyker upp i planeringen." }
+                                        div { class: "font-bold text-foreground", "{t(\"booking-widget-step3-auto-title\", &loc_str)}" }
+                                        p { class: "text-[10px] mt-0.5 m-0", "{t(\"booking-widget-step3-auto-desc\", &loc_str)}" }
                                     }
                                 }
                             }
@@ -531,15 +533,15 @@ pub fn PublicBookingPreview(workspace_id: String, locale: Option<String>) -> Ele
                         div { class: "border-t border-border/30 pt-4 mt-6 flex justify-around text-center text-xs",
                             div {
                                 div { class: "font-black text-foreground text-sm", "2.5 m³" }
-                                div { class: "text-[9px] text-muted-foreground", "Snittvolym" }
+                                div { class: "text-[9px] text-muted-foreground", "{t(\"booking-widget-stat-avg-vol\", &loc_str)}" }
                             }
                             div {
                                 div { class: "font-black text-foreground text-sm", "100%" }
-                                div { class: "text-[9px] text-muted-foreground", "Automatiskt" }
+                                div { class: "text-[9px] text-muted-foreground", "{t(\"booking-widget-stat-auto\", &loc_str)}" }
                             }
                             div {
-                                div { class: "font-black text-foreground text-sm", "5 Språk" }
-                                div { class: "text-[9px] text-muted-foreground", "Språkstöd" }
+                                div { class: "font-black text-foreground text-sm", "{t(\"booking-widget-stat-5lang\", &loc_str)}" }
+                                div { class: "text-[9px] text-muted-foreground", "{t(\"booking-widget-stat-lang-support\", &loc_str)}" }
                             }
                         }
                     }
@@ -553,8 +555,8 @@ pub fn PublicBookingPreview(workspace_id: String, locale: Option<String>) -> Ele
                 // Tab 2: Embed Code & Settings
                 div { class: "bg-sidebar border border-border rounded-2xl p-6 space-y-5 animate-in slide-in-from-bottom-2 duration-200 shadow-sm",
                     div { class: "space-y-1",
-                        h4 { class: "text-sm font-black text-foreground m-0", "HTML Iframe Embed-kod" }
-                        p { class: "text-xs text-muted-foreground m-0", "Kopiera koden nedan och klistra in i er webbplatssida (WordPress, Webflow, Wix, Shopify eller anpassad HTML)." }
+                        h4 { class: "text-sm font-black text-foreground m-0", "{t(\"booking-widget-code-title\", &loc_str)}" }
+                        p { class: "text-xs text-muted-foreground m-0", "{t(\"booking-widget-code-desc\", &loc_str)}" }
                     }
 
                     pre { class: "text-xs font-mono p-4 bg-background rounded-xl border border-border/60 overflow-x-auto whitespace-pre-wrap select-all text-foreground m-0 shadow-inner",
@@ -575,7 +577,7 @@ pub fn PublicBookingPreview(workspace_id: String, locale: Option<String>) -> Ele
                                 }
                             },
                             components::LucideIcon { name: "save", size: "14" }
-                            "Kopiera Embedd-kod"
+                            "{t(\"booking-widget-copy-code-btn\", &loc_str)}"
                         }
                     }
                 }
@@ -611,8 +613,8 @@ pub fn BookingWidgetView(props: BookingWidgetViewProps) -> Element {
     rsx! {
         div { class: "mx-auto w-full max-w-5xl p-6 flex flex-col gap-6",
             div { class: "flex flex-col gap-1",
-                h1 { class: "text-2xl font-bold text-foreground", "Boknings-widget" }
-                p { class: "text-sm text-muted-foreground", "Generera och förhandsgranska embeddbar boknings-widget för er hemsida." }
+                h1 { class: "text-2xl font-bold text-foreground", "{t(\"booking-widget-admin-title\", &region)}" }
+                p { class: "text-sm text-muted-foreground", "{t(\"booking-widget-admin-subtitle\", &region)}" }
             }
             PublicBookingPreview { workspace_id: workspace_id, locale: Some(region) }
         }
