@@ -150,14 +150,20 @@ pub fn RutExportsView(props: RutExportsViewProps) -> Element {
         .map(|item| item.rut_amount)
         .sum();
 
+    let auth_method_label = if has_skatteverket_cert {
+        t("rut-modal-cert-auth", &region)
+    } else {
+        t("rut-modal-bankid-auth", &region)
+    };
+
     rsx! {
         div { class: "mx-auto w-full max-w-5xl p-6 flex flex-col gap-6 animate-in fade-in duration-300",
             
             // Header
             div { class: "flex items-center justify-between flex-wrap gap-4",
                 div { class: "flex flex-col gap-1",
-                    h1 { class: "text-2xl font-bold text-foreground", "RUT-avdrag & Skatteverket" }
-                    p { class: "text-sm text-muted-foreground", "Bulkhantering av RUT-avdrag, XML/CSV-export och e-legitimerad direktinsändning." }
+                    h1 { class: "text-2xl font-bold text-foreground", "{t(\"rut-title\", &region)}" }
+                    p { class: "text-sm text-muted-foreground", "{t(\"rut-subtitle\", &region)}" }
                 }
 
                 div { class: "flex items-center gap-2",
@@ -181,7 +187,7 @@ pub fn RutExportsView(props: RutExportsViewProps) -> Element {
                             }
                         },
                         components::LucideIcon { name: "download", size: "14" }
-                        "Exportera XML"
+                        "{t(\"rut-export-xml\", &region)}"
                     }
                     button {
                         class: "py-2 px-3 bg-sidebar border border-border text-foreground hover:bg-muted rounded-xl text-xs font-bold border-0 cursor-pointer flex items-center gap-1.5 transition-all shadow-xs disabled:opacity-50 disabled:cursor-not-allowed",
@@ -203,7 +209,7 @@ pub fn RutExportsView(props: RutExportsViewProps) -> Element {
                             }
                         },
                         components::LucideIcon { name: "file-text", size: "14" }
-                        "Exportera CSV"
+                        "{t(\"rut-export-csv\", &region)}"
                     }
                     button {
                         class: "py-2 px-4 bg-emerald-600 text-white hover:opacity-90 rounded-xl text-xs font-black border-0 cursor-pointer flex items-center gap-1.5 transition-all shadow disabled:opacity-50 disabled:cursor-not-allowed",
@@ -215,7 +221,7 @@ pub fn RutExportsView(props: RutExportsViewProps) -> Element {
                             show_skatteverket_modal.set(true);
                         },
                         components::LucideIcon { name: "send", size: "14" }
-                        "Skicka Direct till Skatteverket"
+                        "{t(\"rut-send-direct\", &region)}"
                     }
                 }
             }
@@ -223,19 +229,19 @@ pub fn RutExportsView(props: RutExportsViewProps) -> Element {
             // KPI Metrics Summary Bar
             div { class: "grid grid-cols-2 md:grid-cols-4 gap-4 w-full",
                 div { class: "p-4 rounded-2xl border border-border bg-sidebar shadow-xs flex flex-col gap-1",
-                    span { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider", "Totalt RUT-Belopp" }
+                    span { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider", "{t(\"rut-kpi-total\", &region)}" }
                     div { class: "text-2xl font-black text-foreground", "{total_rut_sum:.0} kr" }
                 }
                 div { class: "p-4 rounded-2xl border border-border bg-sidebar shadow-xs flex flex-col gap-1",
-                    span { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider", "Klara För Inskick" }
+                    span { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider", "{t(\"rut-kpi-ready\", &region)}" }
                     div { class: "text-2xl font-black text-emerald-500", "{ready_sum:.0} kr ({ready_items.len()} st)" }
                 }
                 div { class: "p-4 rounded-2xl border border-border bg-sidebar shadow-xs flex flex-col gap-1",
-                    span { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider", "Redan Inskickade" }
+                    span { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider", "{t(\"rut-kpi-submitted\", &region)}" }
                     div { class: "text-2xl font-black text-blue-500", "{submitted_count} st" }
                 }
                 div { class: "p-4 rounded-2xl border border-border bg-sidebar shadow-xs flex flex-col gap-1",
-                    span { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider", "Markerat Belopp" }
+                    span { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider", "{t(\"rut-kpi-selected\", &region)}" }
                     div { class: "text-2xl font-black text-primary", "{selected_sum:.0} kr ({selected_rut_invoices.read().len()} st)" }
                 }
             }
@@ -249,7 +255,7 @@ pub fn RutExportsView(props: RutExportsViewProps) -> Element {
                     div { class: "relative flex-1 max-w-md",
                         input {
                             class: "w-full rounded-xl border border-border bg-background px-3 py-1.5 pl-8 text-xs text-foreground focus:outline-none focus:border-primary transition-all",
-                            placeholder: "Sök på fakturanr, kund, personnr eller uppdrag...",
+                            placeholder: "{t(\"rut-search-placeholder\", &region)}",
                             value: "{search_query}",
                             oninput: move |e| search_query.set(e.value())
                         }
@@ -262,17 +268,17 @@ pub fn RutExportsView(props: RutExportsViewProps) -> Element {
                         button {
                             onclick: move |_| status_filter.set("all".to_string()),
                             class: format!("px-3 py-1 rounded-lg text-[10px] font-bold border-0 cursor-pointer transition-all {}", if *status_filter.read() == "all" { "bg-primary text-primary-foreground" } else { "bg-transparent text-muted-foreground hover:text-foreground" }),
-                            "Alla ({list.len()})"
+                            "{t(\"rut-filter-all\", &region)} ({list.len()})"
                         }
                         button {
                             onclick: move |_| status_filter.set("ready".to_string()),
                             class: format!("px-3 py-1 rounded-lg text-[10px] font-bold border-0 cursor-pointer transition-all {}", if *status_filter.read() == "ready" { "bg-primary text-primary-foreground" } else { "bg-transparent text-muted-foreground hover:text-foreground" }),
-                            "Klara för inskick ({ready_items.len()})"
+                            "{t(\"rut-filter-ready\", &region)} ({ready_items.len()})"
                         }
                         button {
                             onclick: move |_| status_filter.set("submitted".to_string()),
                             class: format!("px-3 py-1 rounded-lg text-[10px] font-bold border-0 cursor-pointer transition-all {}", if *status_filter.read() == "submitted" { "bg-primary text-primary-foreground" } else { "bg-transparent text-muted-foreground hover:text-foreground" }),
-                            "Inskickade ({submitted_count})"
+                            "{t(\"rut-filter-submitted\", &region)} ({submitted_count})"
                         }
                     }
                 }
@@ -283,8 +289,8 @@ pub fn RutExportsView(props: RutExportsViewProps) -> Element {
                     if filtered_list.is_empty() {
                         div { class: "flex flex-col items-center justify-center py-16 text-center text-muted-foreground",
                             components::LucideIcon { name: "inbox", class: "h-10 w-10 opacity-20 mb-2" }
-                            p { class: "text-sm font-bold text-foreground m-0", "Inga RUT-fakturor hittades." }
-                            p { class: "text-xs text-muted-foreground mt-0.5 m-0", "Pröva att ändra sökningen eller filtervalet ovan." }
+                            p { class: "text-sm font-bold text-foreground m-0", "{t(\"rut-no-invoices-title\", &region)}" }
+                            p { class: "text-xs text-muted-foreground mt-0.5 m-0", "{t(\"rut-no-invoices-subtitle\", &region)}" }
                         }
                     } else {
                         table { class: "w-full text-left text-xs border-collapse",
@@ -308,13 +314,13 @@ pub fn RutExportsView(props: RutExportsViewProps) -> Element {
                                             }
                                         }
                                     }
-                                    th { class: "p-3", "Faktura ID" }
-                                    th { class: "p-3", "Uppdrag" }
-                                    th { class: "p-3", "Kund" }
-                                    th { class: "p-3", "Personnummer" }
-                                    th { class: "p-3", "Betaldatum" }
-                                    th { class: "p-3 text-right", "RUT Belopp" }
-                                    th { class: "p-3 text-center", "Status" }
+                                    th { class: "p-3", "{t(\"rut-col-invoice-id\", &region)}" }
+                                    th { class: "p-3", "{t(\"rut-col-job-title\", &region)}" }
+                                    th { class: "p-3", "{t(\"rut-col-customer\", &region)}" }
+                                    th { class: "p-3", "{t(\"rut-col-personal-num\", &region)}" }
+                                    th { class: "p-3", "{t(\"rut-col-payment-date\", &region)}" }
+                                    th { class: "p-3 text-right", "{t(\"rut-col-rut-amount\", &region)}" }
+                                    th { class: "p-3 text-center", "{t(\"rut-col-status\", &region)}" }
                                 }
                             }
                             tbody {
@@ -348,13 +354,13 @@ pub fn RutExportsView(props: RutExportsViewProps) -> Element {
                                                 td { class: "p-3 text-right font-black text-emerald-500 text-sm", "{item.rut_amount:.0} kr" }
                                                 td { class: "p-3 text-center",
                                                     {
-                                                        let (badge_text, badge_style) = match item.status.as_str() {
-                                                            "claimed" | "submitted" => ("Inskickad", "bg-blue-500/10 text-blue-500 border border-blue-500/20"),
-                                                            _ => ("Klar för inskick", "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20"),
+                                                        let (badge_key, badge_style) = match item.status.as_str() {
+                                                            "claimed" | "submitted" => ("rut-status-submitted", "bg-blue-500/10 text-blue-500 border border-blue-500/20"),
+                                                            _ => ("rut-status-ready", "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20"),
                                                         };
                                                         rsx! {
                                                             span { class: "px-2 py-0.5 rounded-full text-[10px] font-extrabold {badge_style}",
-                                                                "{badge_text}"
+                                                                "{t(badge_key, &region)}"
                                                             }
                                                         }
                                                     }
@@ -385,8 +391,8 @@ pub fn RutExportsView(props: RutExportsViewProps) -> Element {
                                     components::LucideIcon { name: "send", class: "h-5 w-5" }
                                 }
                                 div {
-                                    h3 { class: "text-base font-bold text-foreground m-0", "Direkt-inskick till Skatteverket" }
-                                    p { class: "text-xs text-muted-foreground m-0", "REST API V3 Direct Gateway (BankID Signering)" }
+                                    h3 { class: "text-base font-bold text-foreground m-0", "{t(\"rut-modal-title\", &region)}" }
+                                    p { class: "text-xs text-muted-foreground m-0", "{t(\"rut-modal-subtitle\", &region)}" }
                                 }
                             }
                             button {
@@ -401,22 +407,22 @@ pub fn RutExportsView(props: RutExportsViewProps) -> Element {
                                 div { class: "inline-flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 mb-1",
                                     components::LucideIcon { name: "check-circle", class: "h-6 w-6" }
                                 }
-                                h4 { class: "text-sm font-bold text-foreground m-0", "Begäran Godkänd av Skatteverket!" }
-                                p { class: "text-xs text-muted-foreground max-w-xs mx-auto", "Ärendet har registrerats och kvitterats i Skatteverkets RUT-portal." }
+                                h4 { class: "text-sm font-bold text-foreground m-0", "{t(\"rut-modal-success-title\", &region)}" }
+                                p { class: "text-xs text-muted-foreground max-w-xs mx-auto", "{t(\"rut-modal-success-subtitle\", &region)}" }
                                 div { class: "bg-background/60 p-3.5 rounded-xl border border-border/40 text-left font-mono text-[11px] space-y-1.5 shadow-xs",
-                                    div { class: "flex justify-between", span { class: "text-muted-foreground", "Kvittens-ID:" } span { class: "font-bold text-foreground", "{res.reference_number}" } }
-                                    div { class: "flex justify-between", span { class: "text-muted-foreground", "Behandlade poster:" } span { class: "font-bold text-foreground", "{res.total_claims} st" } }
-                                    div { class: "flex justify-between", span { class: "text-muted-foreground", "Totalt utbetalt belopp:" } span { class: "font-bold text-emerald-500", "{res.total_amount:.0} kr" } }
+                                    div { class: "flex justify-between", span { class: "text-muted-foreground", "{t(\"rut-modal-receipt-id\", &region)}" } span { class: "font-bold text-foreground", "{res.reference_number}" } }
+                                    div { class: "flex justify-between", span { class: "text-muted-foreground", "{t(\"rut-modal-processed-claims\", &region)}" } span { class: "font-bold text-foreground", "{res.total_claims} st" } }
+                                    div { class: "flex justify-between", span { class: "text-muted-foreground", "{t(\"rut-modal-total-paid\", &region)}" } span { class: "font-bold text-emerald-500", "{res.total_amount:.0} kr" } }
                                 }
                                 button {
                                     onclick: move |_| show_skatteverket_modal.set(false),
                                     class: "w-full rounded-xl bg-primary py-2.5 text-xs font-bold text-primary-foreground border-0 cursor-pointer shadow hover:opacity-90 transition-all",
-                                    "Stäng Fönster"
+                                    "{t(\"rut-modal-close\", &region)}"
                                 }
                             }
                         } else if let Some(ref session) = *skatteverket_bankid_session.read() {
                             div { class: "space-y-4 text-center py-2",
-                                p { class: "text-xs text-muted-foreground m-0", "Öppna BankID-appen på er mobila enhet och signera begäran." }
+                                p { class: "text-xs text-muted-foreground m-0", "{t(\"rut-modal-bankid-instructions\", &region)}" }
                                 div { class: "flex justify-center py-2",
                                     img {
                                         src: "{session.qr_data}",
@@ -425,7 +431,7 @@ pub fn RutExportsView(props: RutExportsViewProps) -> Element {
                                 }
                                 div { class: "flex items-center justify-center gap-2 text-xs font-semibold text-emerald-500 animate-pulse",
                                     components::LucideIcon { name: "loader-2", class: "h-4 w-4 animate-spin" }
-                                    "Väntar på BankID-signering..."
+                                    "{t(\"rut-modal-waiting-bankid\", &region)}"
                                 }
                                 button {
                                     onclick: {
@@ -444,29 +450,29 @@ pub fn RutExportsView(props: RutExportsViewProps) -> Element {
                                         }
                                     },
                                     class: "w-full rounded-xl bg-emerald-600 py-2.5 text-xs font-bold text-white border-0 cursor-pointer shadow hover:opacity-90 transition-all",
-                                    "Bekräfta & Slutför Inskick"
+                                    "{t(\"rut-modal-confirm-submit\", &region)}"
                                 }
                             }
                         } else {
                             div { class: "space-y-4",
                                 div { class: "rounded-xl bg-muted/40 p-3.5 border border-border/40 space-y-2",
                                     div { class: "flex justify-between text-xs",
-                                        span { class: "text-muted-foreground", "Valda Fakturor för Inskick:" }
+                                        span { class: "text-muted-foreground", "{t(\"rut-modal-selected-invoices\", &region)}" }
                                         span { class: "font-bold text-foreground", "{selected_rut_invoices.read().len()} st" }
                                     }
                                     div { class: "flex justify-between text-xs",
-                                        span { class: "text-muted-foreground", "Totalt Ansökt RUT-Belopp:" }
+                                        span { class: "text-muted-foreground", "{t(\"rut-modal-total-claimed\", &region)}" }
                                         span { class: "font-bold text-emerald-500", "{selected_sum:.0} kr" }
                                     }
                                     div { class: "flex justify-between text-xs",
-                                        span { class: "text-muted-foreground", "Autentiseringsmetod:" }
-                                        span { class: "font-bold text-primary", if has_skatteverket_cert { "Företagscertifikat (.p12)" } else { "BankID E-Legitimation" } }
+                                        span { class: "text-muted-foreground", "{t(\"rut-modal-auth-method\", &region)}" }
+                                        span { class: "font-bold text-primary", "{auth_method_label}" }
                                     }
                                 }
 
                                 if !has_skatteverket_cert {
                                     div { class: "space-y-1.5",
-                                        label { class: "text-xs font-bold text-foreground block", "Firmatecknares Personnummer (YYMMDD-XXXX)" }
+                                        label { class: "text-xs font-bold text-foreground block", "{t(\"rut-modal-pnum-label\", &region)}" }
                                         input {
                                             r#type: "text",
                                             placeholder: "19850101-1234",
@@ -495,10 +501,10 @@ pub fn RutExportsView(props: RutExportsViewProps) -> Element {
                                     class: "w-full rounded-xl bg-emerald-600 py-3 text-xs font-bold text-white shadow-md hover:bg-emerald-700 transition-all border-0 cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50",
                                     if *skatteverket_loading.read() {
                                         components::LucideIcon { name: "loader-2", class: "h-4 w-4 animate-spin" }
-                                        span { "Ansluter Skatteverket Direct..." }
+                                        span { "{t(\"rut-modal-connecting\", &region)}" }
                                     } else {
                                         components::LucideIcon { name: "shield-check", class: "h-4 w-4" }
-                                        span { "Initiera BankID Signering" }
+                                        span { "{t(\"rut-modal-initiate-bankid\", &region)}" }
                                     }
                                 }
                             }
