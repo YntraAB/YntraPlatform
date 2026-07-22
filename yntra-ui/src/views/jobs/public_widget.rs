@@ -199,7 +199,7 @@ pub fn PublicBookingWidget(workspace_id: String) -> Element {
                         // Presets Quick Add list
                         div { class: "space-y-1.5",
                             span { class: "text-[9px] font-bold text-muted-foreground uppercase tracking-wide", "Lägg till standardmöbler" }
-                            div { class: "flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1",
+                            div { class: "flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-1",
                                 for (name_pr, vol_pr) in presets.into_iter() {
                                     button {
                                         key: "{name_pr}",
@@ -220,6 +220,42 @@ pub fn PublicBookingWidget(workspace_id: String) -> Element {
                                         components::LucideIcon { name: "plus", size: "10" }
                                         "{name_pr}"
                                     }
+                                }
+                            }
+                            // Custom Item Entry Form
+                            div { class: "flex items-center gap-1.5 pt-1",
+                                input {
+                                    class: "flex-1 rounded-md border border-border bg-background px-2 py-1 text-[11px] text-foreground focus:outline-none focus:border-primary",
+                                    placeholder: "Egen möbel (t.ex. Piano)",
+                                    value: "{custom_item_name}",
+                                    oninput: move |e| custom_item_name.set(e.value())
+                                }
+                                input {
+                                    r#type: "number",
+                                    step: "0.1",
+                                    class: "w-16 rounded-md border border-border bg-background px-2 py-1 text-[11px] text-foreground focus:outline-none focus:border-primary",
+                                    placeholder: "m³",
+                                    value: "{custom_item_vol}",
+                                    oninput: move |e| custom_item_vol.set(e.value().parse().unwrap_or(0.5))
+                                }
+                                button {
+                                    class: "px-2.5 py-1 rounded-md bg-primary text-primary-foreground text-[10px] font-bold cursor-pointer hover:opacity-90 border-0 flex items-center gap-1",
+                                    onclick: move |_| {
+                                        let name_val = custom_item_name.read().trim().to_string();
+                                        let vol_val = *custom_item_vol.read();
+                                        if !name_val.is_empty() {
+                                            let mut current = selected_items.read().clone();
+                                            current.push(WidgetItem {
+                                                name: name_val,
+                                                volume: vol_val,
+                                                quantity: 1,
+                                            });
+                                            selected_items.set(current);
+                                            custom_item_name.set(String::new());
+                                        }
+                                    },
+                                    components::LucideIcon { name: "plus", size: "10" }
+                                    "Lägg till"
                                 }
                             }
                         }

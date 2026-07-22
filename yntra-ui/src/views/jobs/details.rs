@@ -91,6 +91,16 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
     let active_role = state.active_user_role.read().clone();
     let is_staff = active_role != "client" && active_role != "anonymous";
 
+    let mut show_bol_modal = use_signal(|| false);
+    let mut show_condition_modal = use_signal(|| false);
+    let mut show_pos_modal = use_signal(|| false);
+    let mut show_sit_modal = use_signal(|| false);
+    let mut show_payroll_modal = use_signal(|| false);
+    let mut show_erp_modal = use_signal(|| false);
+    let mut show_live_tracking_modal = use_signal(|| false);
+    let mut show_field_crew_view = use_signal(|| false);
+    let mut show_eld_modal = use_signal(|| false);
+    let mut show_dispatch_alerts_modal = use_signal(|| false);
     let mut show_edit_surcharges = use_signal(|| false);
     let mut edit_long_carry = use_signal(|| job.long_carry_meters);
     let mut edit_toll_fees = use_signal(|| job.toll_fees);
@@ -361,6 +371,60 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                         class: "text-[11px] font-bold text-muted-foreground",
                         style: "background: rgba(107, 114, 128, 0.15); padding: 0.2rem 0.5rem; border-radius: 4px;",
                         "{job_status}"
+                    }
+                    button {
+                        class: "ml-auto px-3 py-1 text-xs font-semibold rounded bg-emerald-600/10 text-emerald-400 hover:bg-emerald-600/20 border border-emerald-500/30 cursor-pointer flex items-center gap-1.5 transition-colors",
+                        onclick: move |_| show_bol_modal.set(true),
+                        components::LucideIcon { name: "file-text", size: "14" }
+                        "Bill of Lading (BOL)"
+                    }
+                    button {
+                        class: "px-3 py-1 text-xs font-semibold rounded bg-amber-600/10 text-amber-400 hover:bg-amber-600/20 border border-amber-500/30 cursor-pointer flex items-center gap-1.5 transition-colors",
+                        onclick: move |_| show_condition_modal.set(true),
+                        components::LucideIcon { name: "clipboard-check", size: "14" }
+                        "Condition & Pre-Move Waiver"
+                    }
+                    button {
+                        class: "px-3 py-1 text-xs font-semibold rounded bg-blue-600/10 text-blue-400 hover:bg-blue-600/20 border border-blue-500/30 cursor-pointer flex items-center gap-1.5 transition-colors",
+                        onclick: move |_| show_sit_modal.set(true),
+                        components::LucideIcon { name: "warehouse", size: "14" }
+                        "SIT & Lagermagasin"
+                    }
+                    button {
+                        class: "px-3 py-1 text-xs font-semibold rounded bg-emerald-600/10 text-emerald-400 hover:bg-emerald-600/20 border border-emerald-500/30 cursor-pointer flex items-center gap-1.5 transition-colors",
+                        onclick: move |_| show_payroll_modal.set(true),
+                        components::LucideIcon { name: "coins", size: "14" }
+                        "Tips & Förarlön"
+                    }
+                    button {
+                        class: "px-3 py-1 text-xs font-semibold rounded bg-indigo-600/10 text-indigo-400 hover:bg-indigo-600/20 border border-indigo-500/30 cursor-pointer flex items-center gap-1.5 transition-colors",
+                        onclick: move |_| show_erp_modal.set(true),
+                        components::LucideIcon { name: "refresh-cw", size: "14" }
+                        "Bokföring & ERP"
+                    }
+                    button {
+                        class: "px-3 py-1 text-xs font-semibold rounded bg-sky-600/10 text-sky-400 hover:bg-sky-600/20 border border-sky-500/30 cursor-pointer flex items-center gap-1.5 transition-colors",
+                        onclick: move |_| show_live_tracking_modal.set(true),
+                        components::LucideIcon { name: "navigation", size: "14" }
+                        "Live GPS Spårning"
+                    }
+                    button {
+                        class: "px-3 py-1 text-xs font-bold rounded bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/50 cursor-pointer flex items-center gap-1.5 transition-colors shadow-sm",
+                        onclick: move |_| show_field_crew_view.set(true),
+                        components::LucideIcon { name: "smartphone", size: "14" }
+                        "Fältläge (Handske-UI 🧤)"
+                    }
+                    button {
+                        class: "px-3 py-1 text-xs font-semibold rounded bg-purple-600/10 text-purple-400 hover:bg-purple-600/20 border border-purple-500/30 cursor-pointer flex items-center gap-1.5 transition-colors",
+                        onclick: move |_| show_eld_modal.set(true),
+                        components::LucideIcon { name: "truck", size: "14" }
+                        "ELD & DOT Efterlevnad 🚚"
+                    }
+                    button {
+                        class: "px-3 py-1 text-xs font-semibold rounded bg-cyan-600/10 text-cyan-400 hover:bg-cyan-600/20 border border-cyan-500/30 cursor-pointer flex items-center gap-1.5 transition-colors",
+                        onclick: move |_| show_dispatch_alerts_modal.set(true),
+                        components::LucideIcon { name: "message-square", size: "14" }
+                        "Dispatch SMS & Omdömen 💬"
                     }
                 }
                 h2 { class: "m-0 font-extrabold",
@@ -1528,6 +1592,30 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                                 components::LucideIcon { name: "edit-3", size: "10" }
                                                 if *show_adjust_invoice.read() { "Dölj fakturajustering" } else { "Justera faktura (faktiska timmar/tillägg)" }
                                             }
+                                            button {
+                                                class: "px-2 py-1 text-[11px] font-bold rounded bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-600/20 cursor-pointer flex items-center gap-1 transition-colors",
+                                                onclick: {
+                                                    let active_uid = active_user_id.clone();
+                                                    let j_id = job.id.clone();
+                                                    move |_| {
+                                                        let uid = active_uid.clone();
+                                                        let jid = j_id.clone();
+                                                        spawn(async move {
+                                                            if let Ok(html) = yntra_core::generate_printable_invoice_html(uid, jid.clone()).await {
+                                                                super::printable_exporter::trigger_print_or_pdf_download(&toast, &html, &format!("invoice_{}.html", jid));
+                                                            }
+                                                        });
+                                                    }
+                                                },
+                                                components::LucideIcon { name: "printer", size: "11" }
+                                                "Print Invoice PDF"
+                                            }
+                                            button {
+                                                class: "px-2 py-1 text-[11px] font-bold rounded bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 cursor-pointer flex items-center gap-1 transition-colors",
+                                                onclick: move |_| show_pos_modal.set(true),
+                                                components::LucideIcon { name: "credit-card", size: "11" }
+                                                "On-Site Kortterminal / POS"
+                                            }
                                             if *show_adjust_invoice.read() {
                                                 div { class: "p-2.5 rounded bg-background border border-border/30 space-y-2 text-left",
                                                     div { class: "text-[11px] font-bold text-foreground flex items-center gap-1",
@@ -1939,6 +2027,105 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                             }
                         }
                     }
+                }
+            }
+
+            if *show_bol_modal.read() {
+                super::bol_modal::BillOfLadingModal {
+                    job_id: job.id.clone(),
+                    active_user_id: active_user_id.clone(),
+                    on_close: move |_| show_bol_modal.set(false),
+                }
+            }
+
+            if *show_condition_modal.read() {
+                super::condition_modal::InventoryConditionModal {
+                    job_id: job.id.clone(),
+                    active_user_id: active_user_id.clone(),
+                    inventories: inventories.clone(),
+                    on_close: move |_| show_condition_modal.set(false),
+                }
+            }
+
+            if *show_pos_modal.read() {
+                {
+                    let inv_opt = invoice_res.read().clone().flatten();
+                    let inv_id = inv_opt.as_ref().map(|i| i.id.clone()).unwrap_or_default();
+                    let amount = inv_opt.as_ref().map(|i| i.customer_amount).unwrap_or(0.0);
+                    rsx! {
+                        super::pos_modal::PosTerminalModal {
+                            active_user_id: active_user_id.clone(),
+                            invoice_id: inv_id,
+                            amount_sek: amount,
+                            db_trigger: props.db_trigger,
+                            on_close: move |_| show_pos_modal.set(false),
+                        }
+                    }
+                }
+            }
+
+            if *show_sit_modal.read() {
+                super::sit_modal::WarehouseSitModal {
+                    job_id: job.id.clone(),
+                    active_user_id: active_user_id.clone(),
+                    on_close: move |_| show_sit_modal.set(false),
+                }
+            }
+
+            if *show_payroll_modal.read() {
+                super::payroll_modal::CrewPayrollModal {
+                    job_id: job.id.clone(),
+                    active_user_id: active_user_id.clone(),
+                    on_close: move |_| show_payroll_modal.set(false),
+                }
+            }
+
+            if *show_erp_modal.read() {
+                {
+                    let erp_inv_id = invoice_res.read().clone().flatten().map(|i| i.id);
+                    rsx! {
+                        super::erp_modal::ErpSyncModal {
+                            job_id: job.id.clone(),
+                            invoice_id: erp_inv_id,
+                            active_user_id: active_user_id.clone(),
+                            on_close: move |_| show_erp_modal.set(false),
+                        }
+                    }
+                }
+            }
+
+            if *show_live_tracking_modal.read() {
+                super::live_tracking_modal::CustomerLiveTrackingModal {
+                    job_id: job.id.clone(),
+                    active_user_id: active_user_id.clone(),
+                    on_close: move |_| show_live_tracking_modal.set(false),
+                }
+            }
+
+            if *show_field_crew_view.read() {
+                super::field_crew_view::FieldCrewView {
+                    job_id: job.id.clone(),
+                    job: Some(job.clone()),
+                    active_user_id: active_user_id.clone(),
+                    on_close: move |_| show_field_crew_view.set(false),
+                    on_open_condition_modal: move |_| show_condition_modal.set(true),
+                    on_open_pos_modal: move |_| show_pos_modal.set(true),
+                }
+            }
+
+            if *show_eld_modal.read() {
+                super::eld_modal::EldDotComplianceModal {
+                    vehicle_id: job.assigned_vehicle_id.clone().unwrap_or_else(|| "vh-default".to_string()),
+                    on_close_handler: move |_| show_eld_modal.set(false),
+                }
+            }
+
+            if *show_dispatch_alerts_modal.read() {
+                super::dispatch_alerts_modal::DispatchAlertsModal {
+                    job_id: job.id.clone(),
+                    customer_id: job.assigned_user_id.clone(),
+                    active_user_id: active_user_id.clone(),
+                    on_close: move |_| show_dispatch_alerts_modal.set(false),
                 }
             }
         }

@@ -64,6 +64,17 @@ fn trigger_download(toast: &dioxus_primitives::toast::Toasts, locale: &str, cont
 mod details;
 mod dispatch;
 mod public_widget;
+pub mod bol_modal;
+pub mod condition_modal;
+pub mod printable_exporter;
+pub mod pos_modal;
+pub mod sit_modal;
+pub mod payroll_modal;
+pub mod erp_modal;
+pub mod live_tracking_modal;
+pub mod field_crew_view;
+pub mod eld_modal;
+pub mod dispatch_alerts_modal;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub struct ChecklistItem {
