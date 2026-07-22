@@ -1,6 +1,6 @@
 [
   {
-    "id": "role-flytt-ledare",
+    "id": "role-move-coordinator",
     "name": "Flyttledare (Arbetsledare)",
     "permissions": {
       "can_manage_schedule": true,
@@ -17,7 +17,7 @@
     }
   },
   {
-    "id": "role-flytt-chauffor",
+    "id": "role-move-driver",
     "name": "Flyttchaufför (Tungbärare)",
     "permissions": {
       "can_manage_schedule": false,
@@ -34,7 +34,7 @@
     }
   },
   {
-    "id": "role-flytt-arbetare",
+    "id": "role-move-mover",
     "name": "Flyttarbetare",
     "permissions": {
       "can_manage_schedule": false,
@@ -51,12 +51,12 @@
     }
   },
   {
-    "id": "role-flytt-koordinator",
+    "id": "role-move-admin",
     "name": "Kundtjänst & Flyttkoordinator",
     "permissions": {
       "can_manage_schedule": true,
       "can_manage_notes": true,
-      "can_approve_time_reports": false,
+      "can_approve_time_reports": true,
       "can_manage_jobs": true,
       "can_manage_quotes": true,
       "can_complete_jobs": true,

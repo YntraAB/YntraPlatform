@@ -5,20 +5,54 @@ use crate::JobTicket;
 use uuid::Uuid;
 
 pub fn is_staff(auth: &crate::AuthContext) -> bool {
-    auth.role == "platform_admin"
-        || auth.role == "admin"
-        || auth.role == "assistant"
-        || auth.role == "workspace_admin"
-        || auth.role == "mover"
-        || auth.role == "driver"
-        || auth.role == "staff"
+    if auth.is_admin {
+        return true;
+    }
+    let r = auth.role.to_lowercase();
+    r == "platform_admin"
+        || r == "admin"
+        || r == "assistant"
+        || r == "workspace_admin"
+        || r == "manager"
+        || r == "staff"
+        || r == "dispatch"
+        || r == "field_worker"
+        || r == "mover"
+        || r == "driver"
+        || r.starts_with("role-move-")
+        || r.starts_with("role-flytt-")
+        || r.starts_with("role-care-")
+        || r.starts_with("role-school-")
+}
+
+pub fn is_field_mover_or_driver(auth: &crate::AuthContext) -> bool {
+    let r = auth.role.to_lowercase();
+    r == "mover"
+        || r == "driver"
+        || r == "role-move-mover"
+        || r == "role-move-driver"
+        || r == "role-flytt-arbetare"
+        || r == "role-flytt-chauffor"
+        || r.contains("mover")
+        || r.contains("driver")
+        || r.contains("chauffor")
+        || r.contains("arbetare")
 }
 
 pub fn is_management_staff(auth: &crate::AuthContext) -> bool {
-    auth.role == "platform_admin"
-        || auth.role == "admin"
-        || auth.role == "assistant"
-        || auth.role == "workspace_admin"
+    if auth.is_admin {
+        return true;
+    }
+    let r = auth.role.to_lowercase();
+    r == "platform_admin"
+        || r == "admin"
+        || r == "assistant"
+        || r == "workspace_admin"
+        || r == "manager"
+        || r == "role-move-coordinator"
+        || r == "role-move-admin"
+        || r == "role-flytt-ledare"
+        || r == "role-flytt-koordinator"
 }
 
 fn validate_job_status(status: &str) -> Result<(), YntraError> {

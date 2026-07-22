@@ -56,7 +56,7 @@
     "permissions": {
       "can_manage_schedule": true,
       "can_manage_notes": true,
-      "can_approve_time_reports": false,
+      "can_approve_time_reports": true,
       "can_manage_jobs": true,
       "can_manage_quotes": true,
       "can_complete_jobs": true,

@@ -1586,3 +1586,108 @@ async fn test_ineligible_rut_deduction_skatteverket_compliance() {
     conn.execute("DELETE FROM workspaces WHERE id = 'ws-rut-skat-test'", ()).await.ok();
 }
 
+#[tokio::test]
+async fn test_non_deductible_equipment_clipping_with_zero_stairs() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    let settings = serde_json::json!({
+        "moving_base_rate_per_m3": 1000.0,
+        "surcharge_crane_hoist": 1500.0,
+        "requires_crane_hoist": true
+    }).to_string();
+
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-nonded-test', 'NonDed WS', '[\"moving_company\"]', ?1)", crate::params![settings]).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-nonded-staff', 'ws-nonded-test', 'staff@nonded.io', 'admin', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-nonded-client', 'ws-nonded-test', 'client@nonded.io', 'client', '{\"personal_number\":\"198112189876\"}')", ()).await.unwrap();
+
+    let job = create_job_ticket(
+        "u-nonded-staff".to_string(),
+        "ws-nonded-test".to_string(),
+        "Crane Move".to_string(),
+        "Desc".to_string(),
+        "Addr".to_string(),
+        "medium".to_string(),
+        Some("u-nonded-client".to_string()),
+        "2026-10-01".to_string(),
+        "[]".to_string(),
+        None,
+        None,
+        0, 0, false, false, false, false, // Ground floor, elevator = false -> 0 stair carrying surcharge
+    ).await.unwrap();
+
+    // Set 4 m3 volume -> base_price = 4000 SEK (of which 70% = 2800 SEK is eligible labor)
+    conn.execute("INSERT OR REPLACE INTO move_inventory (id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3) VALUES ('inv-nonded-1', 'ws-nonded-test', ?1, 'Möbler', 'Soffa', 1, 4.0)", crate::params![&job.id]).await.unwrap();
+
+    calculate_and_save_move_quote("u-nonded-staff".to_string(), job.id.clone()).await.unwrap();
+    let quote = get_move_quote("u-nonded-staff".to_string(), job.id.clone()).await.unwrap().unwrap();
+
+    let inv = generate_move_invoice("u-nonded-staff".to_string(), quote.id, true).await.unwrap();
+
+    // Eligible labor = 3220 SEK (70% of peak-season base labor 4600 SEK).
+    // Crane hoist surcharge (1500 SEK) is non-deductible under Skatteverket rules and strictly excluded from RUT.
+    // Total RUT-eligible labor = (3220 + 1500 - 1500) = 3220 SEK.
+    // Expected RUT deduction = 50% * 3220 = 1610 SEK.
+    assert_eq!(inv.rut_deduction, 1610.0);
+
+    // Cleanup
+    conn.execute("DELETE FROM move_invoices WHERE workspace_id = 'ws-nonded-test'", ()).await.ok();
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-nonded-test'", ()).await.ok();
+    conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-nonded-test'", ()).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-nonded-test'", ()).await.ok();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-nonded-test'", ()).await.ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-nonded-test'", ()).await.ok();
+}
+
+#[tokio::test]
+async fn test_annual_rut_used_with_hourly_pricing_model() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    let settings = serde_json::json!({
+        "moving_pricing_model": "hourly",
+        "moving_hourly_rate_per_mover": 400.0,
+        "moving_hourly_rate_vehicle": 400.0,
+        "moving_default_crew_size": 2.0
+    }).to_string();
+
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-rut-hr-test', 'RUT HR WS', '[\"moving_company\"]', ?1)", crate::params![settings]).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-rut-hr-staff', 'ws-rut-hr-test', 'staff@ruthr.io', 'admin', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-rut-hr-client', 'ws-rut-hr-test', 'client@ruthr.io', 'client', '{\"personal_number\":\"198112189876\"}')", ()).await.unwrap();
+
+    let job = create_job_ticket(
+        "u-rut-hr-staff".to_string(),
+        "ws-rut-hr-test".to_string(),
+        "Hourly Move".to_string(),
+        "Desc".to_string(),
+        "Addr".to_string(),
+        "medium".to_string(),
+        Some("u-rut-hr-client".to_string()),
+        "2026-10-01".to_string(),
+        "[]".to_string(),
+        None,
+        None,
+        0, 0, false, false, false, false,
+    ).await.unwrap();
+
+    // Accepted quote with 3000 SEK base price
+    // Under hourly model with 2 movers ($400/hr each = $800) + vehicle ($400/hr), mover ratio = 800 / 1200 = 66.6667%
+    // Eligible labor = 3000 * (800/1200) = 2000.0 SEK.
+    // Committed RUT = 50% * 2000.0 = 1000.0 SEK.
+    let quote_id = uuid::Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT OR REPLACE INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at) VALUES (?1, 'ws-rut-hr-test', ?2, 3000.0, 0.0, 0.0, 0.0, 3000.0, 'accepted', 123456)",
+        crate::params![&quote_id, &job.id],
+    ).await.unwrap();
+
+    let used_rut = crate::services::jobs::billing::calculate_customer_annual_rut_used(&conn, "ws-rut-hr-test", "u-rut-hr-client", "2026", None).await.unwrap();
+
+    assert_eq!(used_rut, 1000.0);
+
+    // Cleanup
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-rut-hr-test'", ()).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-rut-hr-test'", ()).await.ok();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-rut-hr-test'", ()).await.ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-rut-hr-test'", ()).await.ok();
+}
+

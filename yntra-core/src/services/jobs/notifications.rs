@@ -98,6 +98,14 @@ async fn send_external_notification_inner(
             ),
             "Hej! Din flytt är slutförd. Tack för att du valde oss! Lämna gärna ett omdöme i portalen. Mvh Yntra".to_string(),
         ),
+        "quote_revised" => (
+            "Ditt flytterbjudande har uppdaterats".to_string(),
+            format!(
+                "Hej {},\n\nEfter ändringar i din inventarielista har ditt priserbjudande uppdaterats. Vänligen granska och godkänn den nya offerten i kundportalen.\n\nMed vänliga hälsningar,\nYntra Platform Team",
+                customer_name.as_deref().unwrap_or("Kund")
+            ),
+            "Hej! Ditt priserbjudande har uppdaterats efter inventarieändringar. Granska & godkänn i portalen: https://portal.yntra.se Mvh Yntra".to_string(),
+        ),
         "en_route_alert" => {
             let mins = custom_minutes.unwrap_or(15);
             (
