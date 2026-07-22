@@ -64,7 +64,7 @@ pub fn PublicBookingWidget(workspace_id: String, locale: Option<String>) -> Elem
         let ws_id_c = ws_id.clone();
         
         if name_val.is_empty() || email_val.is_empty() || phone_val.is_empty() || origin_val.is_empty() || dest_val.is_empty() {
-            submit_error.set(Some("Vänligen fyll i alla obligatoriska fält.".to_string()));
+            submit_error.set(Some(t("booking-widget-err-fill-fields", &loc)));
             return;
         }
 
@@ -112,11 +112,11 @@ pub fn PublicBookingWidget(workspace_id: String, locale: Option<String>) -> Elem
             // Header Indicator
             div { class: "bg-gradient-to-r from-primary/10 to-accent/5 p-4 border-b border-border/40 flex justify-between items-center",
                 div {
-                    h3 { class: "text-sm font-extrabold text-foreground m-0", "Snabb Offert & Bokningsförfrågan" }
-                    p { class: "text-[10px] text-muted-foreground mt-0.5 mb-0", "Få ett kostnadsfritt prisförslag direkt online." }
+                    h3 { class: "text-sm font-extrabold text-foreground m-0", "{t(\"booking-widget-header-title\", &loc)}" }
+                    p { class: "text-[10px] text-muted-foreground mt-0.5 mb-0", "{t(\"booking-widget-header-desc\", &loc)}" }
                 }
                 span { class: "text-[10px] bg-primary/20 text-primary font-bold px-2 py-0.5 rounded-full border border-primary/20",
-                    "Steg {step} av 4"
+                    "{t(\"booking-widget-step-prefix\", &loc)} {step} {t(\"booking-widget-step-of\", &loc)} 4"
                 }
             }
 
@@ -147,29 +147,29 @@ pub fn PublicBookingWidget(workspace_id: String, locale: Option<String>) -> Elem
                         
                         div { class: "space-y-3",
                             div { class: "flex flex-col gap-1",
-                                label { class: "text-[10px] font-bold text-foreground", "Namn *" }
+                                label { class: "text-[10px] font-bold text-foreground", "{t(\"booking-widget-label-name\", &loc)}" }
                                 input {
                                     class: "w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all",
-                                    placeholder: "Förnamn Efternamn",
+                                    placeholder: "{t(\"booking-widget-placeholder-name\", &loc)}",
                                     value: "{name}",
                                     oninput: move |e| name.set(e.value())
                                 }
                             }
                             div { class: "flex flex-col gap-1",
-                                label { class: "text-[10px] font-bold text-foreground", "E-postadress *" }
+                                label { class: "text-[10px] font-bold text-foreground", "{t(\"booking-widget-label-email\", &loc)}" }
                                 input {
                                     class: "w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all",
-                                    placeholder: "namn@epost.se",
+                                    placeholder: "{t(\"booking-widget-placeholder-email\", &loc)}",
                                     r#type: "email",
                                     value: "{email}",
                                     oninput: move |e| email.set(e.value())
                                 }
                             }
                             div { class: "flex flex-col gap-1",
-                                label { class: "text-[10px] font-bold text-foreground", "Telefonnummer *" }
+                                label { class: "text-[10px] font-bold text-foreground", "{t(\"booking-widget-label-phone\", &loc)}" }
                                 input {
                                     class: "w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all",
-                                    placeholder: "070-123 45 67",
+                                    placeholder: "{t(\"booking-widget-placeholder-phone\", &loc)}",
                                     r#type: "tel",
                                     value: "{phone}",
                                     oninput: move |e| phone.set(e.value())
@@ -183,19 +183,19 @@ pub fn PublicBookingWidget(workspace_id: String, locale: Option<String>) -> Elem
                         
                         div { class: "space-y-3",
                             div { class: "flex flex-col gap-1",
-                                label { class: "text-[10px] font-bold text-foreground", "Från Adress (Nuvarande) *" }
+                                label { class: "text-[10px] font-bold text-foreground", "{t(\"booking-widget-label-origin\", &loc)}" }
                                 input {
                                     class: "w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all",
-                                    placeholder: "Gata 12, Stad",
+                                    placeholder: "{t(\"booking-widget-placeholder-origin\", &loc)}",
                                     value: "{origin}",
                                     oninput: move |e| origin.set(e.value())
                                 }
                             }
                             div { class: "flex flex-col gap-1",
-                                label { class: "text-[10px] font-bold text-foreground", "Till Adress (Nya) *" }
+                                label { class: "text-[10px] font-bold text-foreground", "{t(\"booking-widget-label-destination\", &loc)}" }
                                 input {
                                     class: "w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all",
-                                    placeholder: "Nya Vägen 45, Stad",
+                                    placeholder: "{t(\"booking-widget-placeholder-destination\", &loc)}",
                                     value: "{destination}",
                                     oninput: move |e| destination.set(e.value())
                                 }
@@ -377,12 +377,12 @@ pub fn PublicBookingWidget(workspace_id: String, locale: Option<String>) -> Elem
                         div {
                             h4 { class: "text-sm font-black text-foreground m-0", "{t(\"booking-widget-step4-title\", &loc)}" }
                             p { class: "text-xs text-muted-foreground mt-1 max-w-sm mx-auto leading-relaxed", 
-                                "Vi har tagit emot dina uppgifter och skickat en bekräftelse till e-postadressen. Våra handläggare kommer att granska din förfrågan inom kort." 
+                                "{t(\"booking-widget-step4-desc\", &loc)}" 
                             }
                         }
                         if let Some(ref j_id) = created_job_id.read().as_ref() {
                             div { class: "bg-muted p-2 rounded-lg font-mono text-[9px] text-muted-foreground font-semibold border border-border/40",
-                                "Referens-ID: {j_id}"
+                                "{t(\"booking-widget-ref-id\", &loc)}: {j_id}"
                             }
                         }
                     }
@@ -425,7 +425,7 @@ pub fn PublicBookingWidget(workspace_id: String, locale: Option<String>) -> Elem
                                 class: "px-6 py-2 rounded-lg bg-emerald-600 text-white hover:opacity-90 text-xs font-black border-0 cursor-pointer shadow transition-all disabled:opacity-50 disabled:cursor-not-allowed",
                                 disabled: submitting.read().clone(),
                                 onclick: handle_submit,
-                                if *submitting.read() { "Skickar..." } else { "{t(\"booking-widget-send\", &loc)}" }
+                                if *submitting.read() { "{t(\"booking-widget-sending\", &loc)}" } else { "{t(\"booking-widget-send\", &loc)}" }
                             }
                         }
                     }
@@ -445,7 +445,7 @@ pub fn PublicBookingWidget(workspace_id: String, locale: Option<String>) -> Elem
                                 submit_error.set(None);
                                 step.set(1);
                             },
-                            "Gör en ny beräkning"
+                            "{t(\"booking-widget-start-over\", &loc)}"
                         }
                     }
                 }
