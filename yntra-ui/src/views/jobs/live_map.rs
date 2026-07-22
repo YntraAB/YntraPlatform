@@ -41,8 +41,9 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
         "workspace-1".to_string()
     };
 
-    // Tracking mode signal: "both", "vehicles", "personnel"
+    // Tracking mode & search signals
     let mut tracking_mode = use_signal(|| "both".to_string());
+    let mut map_search = use_signal(String::new);
 
     let jobs_resource = use_resource(move || {
         let _ = db_trig;
@@ -215,9 +216,13 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
         let c_data = coords_res.read().clone().unwrap_or_default();
         let p_data = personnel_clone.clone();
         let mode = tracking_mode.read().clone();
+        let q = map_search.read().to_lowercase();
 
-        let v_json = serde_json::to_string(&v_data).unwrap_or_else(|_| "[]".to_string());
-        let p_json = serde_json::to_string(&p_data).unwrap_or_else(|_| "[]".to_string());
+        let v_filtered: Vec<_> = v_data.into_iter().filter(|v| q.is_empty() || v.name.to_lowercase().contains(&q) || v.license_plate.to_lowercase().contains(&q)).collect();
+        let p_filtered: Vec<_> = p_data.into_iter().filter(|p| q.is_empty() || p.name.to_lowercase().contains(&q) || p.role.to_lowercase().contains(&q)).collect();
+
+        let v_json = serde_json::to_string(&v_filtered).unwrap_or_else(|_| "[]".to_string());
+        let p_json = serde_json::to_string(&p_filtered).unwrap_or_else(|_| "[]".to_string());
         let j_json = serde_json::to_string(&j_data).unwrap_or_else(|_| "[]".to_string());
         let c_json = serde_json::to_string(&c_data).unwrap_or_else(|_| "{}".to_string());
         let script = format!(
@@ -233,6 +238,19 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
     });
 
     let (center_lat, center_lon, zoom) = (base_lat, base_lon, 12);
+
+    let query_str = map_search.read().to_lowercase();
+    let drawer_vehicles: Vec<MoveVehicle> = vehicles
+        .iter()
+        .cloned()
+        .filter(|v| query_str.is_empty() || v.name.to_lowercase().contains(&query_str) || v.license_plate.to_lowercase().contains(&query_str))
+        .collect();
+
+    let drawer_personnel: Vec<TrackedPersonnel> = personnel
+        .iter()
+        .cloned()
+        .filter(|p| query_str.is_empty() || p.name.to_lowercase().contains(&query_str) || p.role.to_lowercase().contains(&query_str))
+        .collect();
 
     let coords_json = serde_json::to_string(&coords).unwrap_or_else(|_| "{}".to_string());
     let vehicles_json = serde_json::to_string(&vehicles).unwrap_or_else(|_| "[]".to_string());
@@ -601,47 +619,82 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
                 class: "bg-slate-900"
             }
 
-            // Floating Header Control Bar (Glassmorphism Overlay)
+            // Floating Unified Top Command Header Bar (Glassmorphism Command Center)
             div { 
-                style: "position: absolute; top: 16px; left: 16px; right: 16px; z-index: 1000; pointer-events: none; display: flex; items-center: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;",
+                style: "position: absolute; top: 16px; left: 16px; right: 16px; z-index: 1000; pointer-events: auto; background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(24px) saturate(200%); -webkit-backdrop-filter: blur(24px) saturate(200%); border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 24px; padding: 0.5rem 1rem; box-shadow: 0 20px 40px -10px rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;",
                 
-                div { 
-                    style: "pointer-events: auto; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(16px) saturate(180%); -webkit-backdrop-filter: blur(16px) saturate(180%); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 20px; padding: 0.6rem 1.25rem; box-shadow: 0 10px 30px -5px rgba(0,0,0,0.6); display: flex; align-items: center; gap: 12px;",
-                    div { class: "rounded-xl bg-primary/20 p-2 text-primary border border-primary/30",
+                // Left Title & Live KPI Badges
+                div { class: "flex items-center gap-3",
+                    div { class: "rounded-xl bg-primary/20 p-2 text-primary border border-primary/30 flex items-center justify-center shrink-0",
                         components::LucideIcon { name: "map-pin", class: "h-5 w-5 animate-pulse" }
                     }
-                    div {
+                    div { class: "flex flex-col gap-0.5",
                         div { class: "flex items-center gap-2",
-                            h1 { class: "text-sm font-extrabold text-white m-0 tracking-wide", "Livekarta & Entitetsspårning" }
+                            h1 { class: "text-sm font-black text-white m-0 tracking-wide", "Livekarta & Telemetri" }
                             span { class: "text-[9px] font-extrabold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1",
                                 span { class: "w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" }
-                                "REALTID"
+                                "LIVE"
                             }
                         }
-                        p { class: "text-[10px] text-slate-400 m-0", "Övervakning av fordon, fältpersonal och uppdragsrutter i realtid." }
+                        div { class: "flex items-center gap-2 text-[10px] text-slate-400",
+                            span { class: "flex items-center gap-1 font-semibold text-emerald-400", 
+                                components::LucideIcon { name: "truck", size: "10" }
+                                "{vehicles.len()} Fordon" 
+                            }
+                            span { "•" }
+                            span { class: "flex items-center gap-1 font-semibold text-indigo-300", 
+                                components::LucideIcon { name: "users", size: "10" }
+                                "{personnel.len()} Personal" 
+                            }
+                        }
                     }
                 }
 
-                // Floating Interactive Mode Selector Pill
-                div { 
-                    style: "pointer-events: auto; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(16px) saturate(180%); -webkit-backdrop-filter: blur(16px) saturate(180%); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 20px; padding: 0.35rem 0.5rem; box-shadow: 0 10px 30px -5px rgba(0,0,0,0.6); display: flex; align-items: center; gap: 4px;",
-                    button {
-                        onclick: move |_| tracking_mode.set("both".to_string()),
-                        class: format!("px-3 py-1.5 rounded-xl text-xs font-bold transition-all border-0 cursor-pointer flex items-center gap-1.5 {}", if *tracking_mode.read() == "both" { "bg-primary text-primary-foreground shadow-lg" } else { "bg-transparent text-slate-400 hover:text-white" }),
-                        components::LucideIcon { name: "layers", size: "12" }
-                        "Alla (Fordon & Personal)"
+                // Center Real-Time Search & Filter Bar
+                div { class: "flex-1 max-w-sm relative min-w-[200px]",
+                    input {
+                        class: "w-full bg-white/10 border border-white/15 rounded-xl px-3 py-1.5 pl-8 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-primary focus:bg-white/15 transition-all shadow-inner",
+                        placeholder: "Sök regnr, modell, fältpersonal...",
+                        value: "{map_search}",
+                        oninput: move |e| map_search.set(e.value())
                     }
-                    button {
-                        onclick: move |_| tracking_mode.set("vehicles".to_string()),
-                        class: format!("px-3 py-1.5 rounded-xl text-xs font-bold transition-all border-0 cursor-pointer flex items-center gap-1.5 {}", if *tracking_mode.read() == "vehicles" { "bg-primary text-primary-foreground shadow-lg" } else { "bg-transparent text-slate-400 hover:text-white" }),
-                        components::LucideIcon { name: "truck", size: "12" }
-                        "Fordonsflotta"
+                    div { class: "absolute left-2.5 top-2 text-slate-400 pointer-events-none",
+                        components::LucideIcon { name: "search", size: "13" }
                     }
+                }
+
+                // Right Floating Interactive Mode Selector Pills & Recenter Action
+                div { class: "flex items-center gap-2",
+                    div { class: "flex items-center gap-1 bg-white/5 border border-white/10 p-1 rounded-xl shadow-xs",
+                        button {
+                            onclick: move |_| tracking_mode.set("both".to_string()),
+                            class: format!("px-3 py-1.5 rounded-lg text-xs font-bold transition-all border-0 cursor-pointer flex items-center gap-1.5 {}", if *tracking_mode.read() == "both" { "bg-primary text-primary-foreground shadow-md" } else { "bg-transparent text-slate-400 hover:text-white" }),
+                            components::LucideIcon { name: "layers", size: "12" }
+                            "Alla"
+                        }
+                        button {
+                            onclick: move |_| tracking_mode.set("vehicles".to_string()),
+                            class: format!("px-3 py-1.5 rounded-xl text-xs font-bold transition-all border-0 cursor-pointer flex items-center gap-1.5 {}", if *tracking_mode.read() == "vehicles" { "bg-primary text-primary-foreground shadow-md" } else { "bg-transparent text-slate-400 hover:text-white" }),
+                            components::LucideIcon { name: "truck", size: "12" }
+                            "Fordonsflotta"
+                        }
+                        button {
+                            onclick: move |_| tracking_mode.set("personnel".to_string()),
+                            class: format!("px-3 py-1.5 rounded-xl text-xs font-bold transition-all border-0 cursor-pointer flex items-center gap-1.5 {}", if *tracking_mode.read() == "personnel" { "bg-primary text-primary-foreground shadow-md" } else { "bg-transparent text-slate-400 hover:text-white" }),
+                            components::LucideIcon { name: "users", size: "12" }
+                            "Fältpersonal"
+                        }
+                    }
+
+                    // Recenter / Reset Map Action Button
                     button {
-                        onclick: move |_| tracking_mode.set("personnel".to_string()),
-                        class: format!("px-3 py-1.5 rounded-xl text-xs font-bold transition-all border-0 cursor-pointer flex items-center gap-1.5 {}", if *tracking_mode.read() == "personnel" { "bg-primary text-primary-foreground shadow-lg" } else { "bg-transparent text-slate-400 hover:text-white" }),
-                        components::LucideIcon { name: "users", size: "12" }
-                        "Fältpersonal"
+                        class: "p-2 rounded-xl bg-white/10 border border-white/15 text-slate-300 hover:text-white hover:bg-white/20 cursor-pointer transition-all flex items-center justify-center shadow-xs",
+                        title: "Centrera karta",
+                        onclick: move |_| {
+                            let script = format!("if (window.leafletMap) {{ window.leafletMap.setView([{}, {}], {}); }}", base_lat, base_lon, 12);
+                            let _ = dioxus::document::eval(&script);
+                        },
+                        components::LucideIcon { name: "compass", size: "16" }
                     }
                 }
             }
@@ -666,12 +719,12 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
                     if *tracking_mode.read() == "both" || *tracking_mode.read() == "vehicles" {
                         div { class: "text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-1 flex items-center justify-between",
                             span { "Fordonsflotta" }
-                            span { class: "bg-white/10 text-white px-1.5 py-0.5 rounded text-[9px]", "{vehicles.len()}" }
+                            span { class: "bg-white/10 text-white px-1.5 py-0.5 rounded text-[9px]", "{drawer_vehicles.len()}" }
                         }
-                        if vehicles.is_empty() {
-                            p { class: "text-xs text-slate-500 italic text-center py-2 m-0", "Inga fordon tillgängliga" }
+                        if drawer_vehicles.is_empty() {
+                            p { class: "text-xs text-slate-500 italic text-center py-2 m-0", "Inga fordon matchar sökningen" }
                         } else {
-                            for v in vehicles.iter() {
+                            for v in drawer_vehicles.iter() {
                                 div {
                                     class: "p-2.5 rounded-xl bg-white/5 border border-white/5 flex items-center gap-3 transition-all hover:bg-white/10 mb-1.5 shadow-xs",
                                     div {
@@ -699,25 +752,29 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
                     if *tracking_mode.read() == "both" || *tracking_mode.read() == "personnel" {
                         div { class: "text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-1 mt-3 flex items-center justify-between",
                             span { "Fältpersonal & Team" }
-                            span { class: "bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded text-[9px]", "{personnel.len()}" }
+                            span { class: "bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded text-[9px]", "{drawer_personnel.len()}" }
                         }
-                        for p in personnel.iter() {
-                            div {
-                                class: "p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center gap-3 transition-all hover:bg-indigo-500/20 mb-1.5 shadow-xs",
+                        if drawer_personnel.is_empty() {
+                            p { class: "text-xs text-slate-500 italic text-center py-2 m-0", "Ingen personal matchar sökningen" }
+                        } else {
+                            for p in drawer_personnel.iter() {
                                 div {
-                                    class: "w-6 h-6 rounded-full bg-indigo-600 text-white text-[9px] font-extrabold flex items-center justify-center shrink-0 shadow",
-                                    "{p.initials}"
-                                }
-                                div { class: "flex-1 min-w-0",
-                                    p { class: "text-xs font-bold text-white m-0 truncate", "{p.name}" }
-                                    p { class: "text-[9px] text-indigo-300 m-0 flex items-center gap-1 mt-0.5",
-                                        components::LucideIcon { name: "user-check", size: "9" }
-                                        "{p.role}"
+                                    class: "p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center gap-3 transition-all hover:bg-indigo-500/20 mb-1.5 shadow-xs",
+                                    div {
+                                        class: "w-6 h-6 rounded-full bg-indigo-600 text-white text-[9px] font-extrabold flex items-center justify-center shrink-0 shadow",
+                                        "{p.initials}"
                                     }
-                                }
-                                div { class: "text-[8px] font-mono text-indigo-300 text-right flex-shrink-0 bg-indigo-500/20 px-1.5 py-0.5 rounded border border-indigo-500/20",
-                                    div { "{p.latitude:.4}°N" }
-                                    div { "{p.longitude:.4}°E" }
+                                    div { class: "flex-1 min-w-0",
+                                        p { class: "text-xs font-bold text-white m-0 truncate", "{p.name}" }
+                                        p { class: "text-[9px] text-indigo-300 m-0 flex items-center gap-1 mt-0.5",
+                                            components::LucideIcon { name: "user-check", size: "9" }
+                                            "{p.role}"
+                                        }
+                                    }
+                                    div { class: "text-[8px] font-mono text-indigo-300 text-right flex-shrink-0 bg-indigo-500/20 px-1.5 py-0.5 rounded border border-indigo-500/20",
+                                        div { "{p.latitude:.4}°N" }
+                                        div { "{p.longitude:.4}°E" }
+                                    }
                                 }
                             }
                         }
