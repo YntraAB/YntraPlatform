@@ -785,5 +785,25 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
     .await
     .map_err(|e| YntraError::DbError(e.to_string()))?;
 
+    // Defensive column assertions for job_tickets
+    let job_ticket_cols = [
+        "ALTER TABLE job_tickets ADD COLUMN origin_address TEXT",
+        "ALTER TABLE job_tickets ADD COLUMN destination_address TEXT",
+        "ALTER TABLE job_tickets ADD COLUMN origin_floor INTEGER DEFAULT 0",
+        "ALTER TABLE job_tickets ADD COLUMN destination_floor INTEGER DEFAULT 0",
+        "ALTER TABLE job_tickets ADD COLUMN origin_has_elevator INTEGER DEFAULT 0",
+        "ALTER TABLE job_tickets ADD COLUMN destination_has_elevator INTEGER DEFAULT 0",
+        "ALTER TABLE job_tickets ADD COLUMN origin_parking_permit_needed INTEGER DEFAULT 0",
+        "ALTER TABLE job_tickets ADD COLUMN destination_parking_permit_needed INTEGER DEFAULT 0",
+        "ALTER TABLE job_tickets ADD COLUMN assigned_vehicle_id TEXT",
+        "ALTER TABLE job_tickets ADD COLUMN route_stops_json TEXT",
+        "ALTER TABLE job_tickets ADD COLUMN long_carry_meters INTEGER DEFAULT 0",
+        "ALTER TABLE job_tickets ADD COLUMN toll_fees REAL DEFAULT 0.0",
+    ];
+
+    for col_sql in job_ticket_cols {
+        let _ = conn.execute(col_sql, ()).await;
+    }
+
     Ok(())
 }

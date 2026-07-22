@@ -15,7 +15,7 @@ pub mod todos;
 pub use client_portal::ClientPortalView;
 pub use dashboard::DashboardView;
 pub use directory::DirectoryView;
-pub use jobs::JobsView;
+pub use jobs::{BookingWidgetView, DispatchView, FleetView, JobsView, LiveMapView, RutExportsView};
 pub use login::LoginView;
 pub use messaging::MessagingView;
 pub use notes::NotesView;

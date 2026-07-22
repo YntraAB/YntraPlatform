@@ -331,6 +331,56 @@ pub fn EmployeeLayout() -> Element {
                                         }
                                     }
 
+                                    "dispatch" => {
+                                        rsx! {
+                                            views::DispatchView {
+                                                active_user_id: active_user_id,
+                                                auth_region: auth_region,
+                                                db_trigger: trigger_jobs,
+                                            }
+                                        }
+                                    }
+
+                                    "live_map" => {
+                                        rsx! {
+                                            views::LiveMapView {
+                                                active_user_id: active_user_id,
+                                                auth_region: auth_region,
+                                                db_trigger: trigger_jobs,
+                                            }
+                                        }
+                                    }
+
+                                    "fleet" => {
+                                        rsx! {
+                                            views::FleetView {
+                                                active_user_id: active_user_id,
+                                                auth_region: auth_region,
+                                                db_trigger: trigger_jobs,
+                                            }
+                                        }
+                                    }
+
+                                    "rut_exports" => {
+                                        rsx! {
+                                            views::RutExportsView {
+                                                active_user_id: active_user_id,
+                                                auth_region: auth_region,
+                                                db_trigger: trigger_jobs,
+                                            }
+                                        }
+                                    }
+
+                                    "booking_widget" => {
+                                        rsx! {
+                                            views::BookingWidgetView {
+                                                active_user_id: active_user_id,
+                                                auth_region: auth_region,
+                                                db_trigger: trigger_jobs,
+                                            }
+                                        }
+                                    }
+
 
                                     "settings" => {
                                         rsx! {

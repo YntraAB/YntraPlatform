@@ -12,7 +12,7 @@ use yntra_core::{BlockItem, Workspace, update_workspace_modules};
 fn get_module_default_state(block_id: &str) -> bool {
     match block_id {
         "messaging" | "scheduling" | "notes" | "time" | "directory" | "reporting" | "jobs"
-        | "todos" => true,
+        | "todos" | "dispatch" | "live_map" | "fleet" | "rut_exports" | "booking_widget" => true,
         _ => false,
     }
 }

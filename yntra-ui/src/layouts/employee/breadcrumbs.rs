@@ -88,6 +88,11 @@ pub fn get_breadcrumbs(
             "medications" => t("section-medications", locale).to_string(),
             "reporting" => t("section-reporting", locale).to_string(),
             "jobs" => t("jobs-nav", locale).to_string(),
+            "dispatch" => t("section-dispatch", locale).to_string(),
+            "live_map" => t("section-live-map", locale).to_string(),
+            "fleet" => t("section-fleet", locale).to_string(),
+            "rut_exports" => t("section-rut-exports", locale).to_string(),
+            "booking_widget" => t("section-booking-widget", locale).to_string(),
             "settings" => t("common-settings", locale).to_string(),
             _ => section.clone(),
         };

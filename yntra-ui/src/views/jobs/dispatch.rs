@@ -865,3 +865,58 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
         }
     }
 }
+
+#[derive(Props, Clone)]
+pub struct DispatchViewProps {
+    pub active_user_id: Signal<String>,
+    pub auth_region: Signal<String>,
+    pub db_trigger: Signal<u32>,
+}
+
+impl PartialEq for DispatchViewProps {
+    fn eq(&self, _other: &Self) -> bool {
+        false
+    }
+}
+
+#[component]
+pub fn DispatchView(props: DispatchViewProps) -> Element {
+    let region = props.auth_region.read().clone();
+    let db_trig = *props.db_trigger.read();
+    let uid = props.active_user_id.read().clone();
+
+    let jobs_res = use_resource(move || {
+        let _ = db_trig;
+        let uid = uid.clone();
+        async move {
+            yntra_core::get_job_tickets(uid).await.unwrap_or_default()
+        }
+    });
+    let jobs = jobs_res.read().clone().unwrap_or_default();
+
+    let uid2 = props.active_user_id.read().clone();
+    let vehicles_res = use_resource(move || {
+        let _ = db_trig;
+        let uid = uid2.clone();
+        async move {
+            yntra_core::get_vehicles(uid).await.unwrap_or_default()
+        }
+    });
+    let vehicles = vehicles_res.read().clone().unwrap_or_default();
+
+    rsx! {
+        div { class: "mx-auto w-full max-w-5xl p-6 flex flex-col gap-6",
+            div { class: "flex flex-col gap-1",
+                h1 { class: "text-2xl font-bold text-foreground", "Resursplanering" }
+                p { class: "text-sm text-muted-foreground", "Schemaläggning av fordonsflotta, förare och arbetsorder." }
+            }
+            DispatchBoard {
+                active_user_id: props.active_user_id.read().clone(),
+                region: region,
+                db_trigger: props.db_trigger,
+                vehicles: vehicles,
+                jobs: jobs,
+            }
+        }
+    }
+}

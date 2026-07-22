@@ -82,6 +82,14 @@ pub fn LucideIcon(props: LucideIconProps) -> Element {
         "message-square" | "messaging" => rsx! {
             path { d: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" }
         },
+        "briefcase" | "jobs" => rsx! {
+            path { d: "M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" }
+            rect { width: "20", height: "14", x: "2", y: "6", rx: "2" }
+        },
+        "code" | "booking-widget" | "booking_widget" => rsx! {
+            polyline { points: "16 18 22 12 16 6" }
+            polyline { points: "8 6 2 12 8 18" }
+        },
         "calendar" | "scheduling" => rsx! {
             rect {
                 x: "3",
