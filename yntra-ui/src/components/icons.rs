@@ -338,6 +338,27 @@ pub fn LucideIcon(props: LucideIconProps) -> Element {
             line { x1: "2", x2: "22", y1: "12", y2: "12" }
             path { d: "M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" }
         },
+        "maximize" | "fit-bounds" => rsx! {
+            path { d: "M8 3H5a2 2 0 0 0-2 2v3" }
+            path { d: "M21 8V5a2 2 0 0 0-2-2h-3" }
+            path { d: "M3 16v3a2 2 0 0 0 2 2h3" }
+            path { d: "M16 21h3a2 2 0 0 0 2-2v-3" }
+        },
+        "compass" | "recenter" => rsx! {
+            circle { cx: "12", cy: "12", r: "10" }
+            polygon { points: "16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" }
+        },
+        "zoom-in" => rsx! {
+            circle { cx: "11", cy: "11", r: "8" }
+            line { x1: "21", x2: "16.65", y1: "21", y2: "16.65" }
+            line { x1: "11", x2: "11", y1: "8", y2: "14" }
+            line { x1: "8", x2: "14", y1: "11", y2: "11" }
+        },
+        "zoom-out" => rsx! {
+            circle { cx: "11", cy: "11", r: "8" }
+            line { x1: "21", x2: "16.65", y1: "21", y2: "16.65" }
+            line { x1: "8", x2: "14", y1: "11", y2: "11" }
+        },
         "x" => rsx! {
             line { x1: "18", x2: "6", y1: "6", y2: "18" }
             line { x1: "6", x2: "18", y1: "6", y2: "18" }

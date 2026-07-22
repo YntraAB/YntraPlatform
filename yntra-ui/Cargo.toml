@@ -12,6 +12,8 @@ yntra-core = { workspace = true }
 rkyv = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+futures = "0.3"
+
 uuid = { workspace = true }
 getrandom = { workspace = true }
 fluent-bundle = { workspace = true }

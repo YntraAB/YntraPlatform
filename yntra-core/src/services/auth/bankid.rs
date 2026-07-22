@@ -592,7 +592,7 @@ pub async fn submit_bankid_pin(session_id: String, token: String, pin: String) -
         }
         #[cfg(not(debug_assertions))]
         {
-            is_norwegian_flow
+            false
         }
     };
 

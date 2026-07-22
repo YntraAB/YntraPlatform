@@ -9605,6 +9605,7 @@ dependencies = [
  "dioxus-primitives",
  "dioxus-ssr",
  "fluent-bundle",
+ "futures",
  "getrandom 0.3.4",
  "js-sys",
  "log",

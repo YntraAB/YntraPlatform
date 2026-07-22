@@ -246,41 +246,53 @@ pub async fn complete_hardware_auth(
         };
 
         if is_simulated {
-            if pin.is_empty() {
-                return Err(YntraError::AuthError("PIN cannot be empty".to_string()));
-            }
-
-            let mut resolved_user_info = None;
-            let mut stmt = conn
-                .prepare("SELECT id, metadata ->> 'siths_public_key' FROM users")
-                .await?;
-            let mut rows = stmt.query(()).await?;
-            while let Some(row) = rows.next().await? {
-                let uid: String = row.get(0)?;
-                let pubkey: Option<String> = row.get(1)?;
-                if let Some(pk) = pubkey {
-                    resolved_user_info = Some((uid, pk));
-                    break;
-                }
-            }
-
-            if let Some((uid, pubkey_hex)) = resolved_user_info {
-                let challenge_bytes = const_hex::decode(&challenge_hex).unwrap_or_default();
-                let seed_val = if uid == "user-1" { 1 } else { 2 };
-                let signing_key = ed25519_dalek::SigningKey::from_bytes(&[seed_val; 32]);
-
-                use ed25519_dalek::Signer;
-                let signature = signing_key.sign(&challenge_bytes);
-                let sig_hex = const_hex::encode(signature.to_bytes());
-
-                crate::services::auth::bankid::verify_hardware_auth_signature(
-                    session_id, pubkey_hex, sig_hex,
-                )
-                .await?;
-            } else {
-                return Err(YntraError::NotFoundError(
-                    "No user registered for smart card authentication".to_string(),
+            #[cfg(not(debug_assertions))]
+            {
+                let _ = pin;
+                let _ = challenge_hex;
+                return Err(YntraError::AuthError(
+                    "Hardware authentication simulation is disabled in release builds. No smart card reader detected.".to_string(),
                 ));
+            }
+
+            #[cfg(debug_assertions)]
+            {
+                if pin.is_empty() {
+                    return Err(YntraError::AuthError("PIN cannot be empty".to_string()));
+                }
+
+                let mut resolved_user_info = None;
+                let mut stmt = conn
+                    .prepare("SELECT id, metadata ->> 'siths_public_key' FROM users")
+                    .await?;
+                let mut rows = stmt.query(()).await?;
+                while let Some(row) = rows.next().await? {
+                    let uid: String = row.get(0)?;
+                    let pubkey: Option<String> = row.get(1)?;
+                    if let Some(pk) = pubkey {
+                        resolved_user_info = Some((uid, pk));
+                        break;
+                    }
+                }
+
+                if let Some((uid, pubkey_hex)) = resolved_user_info {
+                    let challenge_bytes = const_hex::decode(&challenge_hex).unwrap_or_default();
+                    let seed_val = if uid == "user-1" { 1 } else { 2 };
+                    let signing_key = ed25519_dalek::SigningKey::from_bytes(&[seed_val; 32]);
+
+                    use ed25519_dalek::Signer;
+                    let signature = signing_key.sign(&challenge_bytes);
+                    let sig_hex = const_hex::encode(signature.to_bytes());
+
+                    crate::services::auth::bankid::verify_hardware_auth_signature(
+                        session_id, pubkey_hex, sig_hex,
+                    )
+                    .await?;
+                } else {
+                    return Err(YntraError::NotFoundError(
+                        "No user registered for smart card authentication".to_string(),
+                    ));
+                }
             }
         } else {
             use pcsc::*;
