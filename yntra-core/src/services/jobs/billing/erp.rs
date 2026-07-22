@@ -375,17 +375,279 @@ pub async fn get_accounting_general_ledger_summary(
         |r| Ok(r.get::<Option<f64>>(0)?.unwrap_or(0.0)),
     ).await.unwrap_or(0.0);
 
+    let total_fuel: f64 = conn.query_row(
+        "SELECT SUM(cost_sek) FROM fuel_receipts WHERE workspace_id = ?1",
+        crate::params![&auth.workspace_id],
+        |r| Ok(r.get::<Option<f64>>(0)?.unwrap_or(0.0)),
+    ).await.unwrap_or(0.0);
+
     let payroll_liab = total_hours * 220.0 * 1.3142;
     let now_ms = chrono::Utc::now().timestamp_millis();
 
     Ok(crate::models::AccountingLedgerSummary {
         total_accounts_receivable: total_ar,
-        total_revenue_ytd: total_rev,
+        total_revenue_ytd: total_rev + total_fuel,
         total_rut_tax_claims_pending: total_rut,
         total_payroll_liabilities: payroll_liab,
-        primary_erp_provider: "fortnox".to_string(),
+        primary_erp_provider: "quickbooks".to_string(),
         last_sync_timestamp: now_ms,
     })
+}
+
+async fn record_fleet_fuel_receipt_inner(
+    requester_user_id: String,
+    vehicle_id: String,
+    liters: f64,
+    cost_sek: f64,
+    fuel_type: String,
+    odometer_km: i64,
+    receipt_image_url: Option<String>,
+    station_name: Option<String>,
+    purchase_date: String,
+) -> Result<crate::models::FuelReceiptRecord, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let receipt_id = format!("fuel-rec-{}", uuid::Uuid::new_v4().simple());
+    let now_ms = chrono::Utc::now().timestamp_millis();
+
+    conn.execute(
+        "INSERT INTO fuel_receipts (id, workspace_id, vehicle_id, driver_user_id, liters, cost_sek, fuel_type, odometer_km, receipt_image_url, station_name, purchase_date, erp_sync_status, erp_reference, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'pending', NULL, ?12)",
+        crate::params![
+            receipt_id,
+            auth.workspace_id,
+            vehicle_id,
+            requester_user_id,
+            liters,
+            cost_sek,
+            fuel_type,
+            odometer_km,
+            receipt_image_url,
+            station_name,
+            purchase_date,
+            now_ms,
+        ],
+    ).await?;
+
+    notify_observers();
+
+    Ok(crate::models::FuelReceiptRecord {
+        id: receipt_id,
+        workspace_id: auth.workspace_id,
+        vehicle_id,
+        driver_user_id: requester_user_id,
+        liters,
+        cost_sek,
+        fuel_type,
+        odometer_km,
+        receipt_image_url,
+        station_name,
+        purchase_date,
+        erp_sync_status: "pending".to_string(),
+        erp_reference: None,
+        created_at: now_ms,
+    })
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+pub async fn record_fleet_fuel_receipt(
+    requester_user_id: String,
+    vehicle_id: String,
+    liters: f64,
+    cost_sek: f64,
+    fuel_type: String,
+    odometer_km: i64,
+    receipt_image_url: Option<String>,
+    station_name: Option<String>,
+    purchase_date: String,
+) -> Result<crate::models::FuelReceiptRecord, YntraError> {
+    record_fleet_fuel_receipt_inner(
+        requester_user_id,
+        vehicle_id,
+        liters,
+        cost_sek,
+        fuel_type,
+        odometer_km,
+        receipt_image_url,
+        station_name,
+        purchase_date,
+    ).await
+}
+
+async fn get_fleet_fuel_receipts_inner(
+    requester_user_id: String,
+) -> Result<Vec<crate::models::FuelReceiptRecord>, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, workspace_id, vehicle_id, driver_user_id, liters, cost_sek, fuel_type, odometer_km, receipt_image_url, station_name, purchase_date, erp_sync_status, erp_reference, created_at \
+             FROM fuel_receipts WHERE workspace_id = ?1 ORDER BY created_at DESC",
+        )
+        .await?;
+
+    let mut rows = stmt.query(crate::params![&auth.workspace_id]).await?;
+    let mut receipts = Vec::new();
+
+    while let Some(row) = rows.next().await? {
+        receipts.push(crate::models::FuelReceiptRecord {
+            id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            vehicle_id: row.get(2)?,
+            driver_user_id: row.get(3)?,
+            liters: row.get(4)?,
+            cost_sek: row.get(5)?,
+            fuel_type: row.get(6)?,
+            odometer_km: row.get(7)?,
+            receipt_image_url: row.get(8)?,
+            station_name: row.get(9)?,
+            purchase_date: row.get(10)?,
+            erp_sync_status: row.get(11)?,
+            erp_reference: row.get(12)?,
+            created_at: row.get(13)?,
+        });
+    }
+
+    Ok(receipts)
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+pub async fn get_fleet_fuel_receipts(
+    requester_user_id: String,
+) -> Result<Vec<crate::models::FuelReceiptRecord>, YntraError> {
+    get_fleet_fuel_receipts_inner(requester_user_id).await
+}
+
+async fn sync_fuel_receipts_to_erp_inner(
+    requester_user_id: String,
+    erp_provider: String,
+) -> Result<crate::models::ErpSyncResult, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if !is_staff(&auth) {
+        return Err(YntraError::AuthError("Access denied: staff only".to_string()));
+    }
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, cost_sek, liters, vehicle_id, station_name, purchase_date FROM fuel_receipts WHERE workspace_id = ?1 AND erp_sync_status = 'pending'",
+        )
+        .await?;
+
+    let mut rows = stmt.query(crate::params![&auth.workspace_id]).await?;
+    let mut pending_ids = Vec::new();
+    let mut total_cost = 0.0f64;
+
+    while let Some(row) = rows.next().await? {
+        let id: String = row.get(0)?;
+        let cost: f64 = row.get(1)?;
+        pending_ids.push(id);
+        total_cost += cost;
+    }
+
+    let provider = erp_provider.to_lowercase();
+    let erp_ref = format!("FUEL-{}-{}", provider.to_uppercase(), uuid::Uuid::new_v4().simple());
+    let now_ms = chrono::Utc::now().timestamp_millis();
+
+    let ledger_account = match provider.as_str() {
+        "quickbooks" => "6000_AUTOMOBILE_FUEL",
+        "xero" => "429_FUEL",
+        "fortnox" => "5611_DRIVMEDEL",
+        "visma" => "5611_DRIVMEDEL",
+        "sage" => "6000_FUEL_EXPENSE",
+        _ => "5600_FLEET_EXPENSES",
+    };
+
+    for id in &pending_ids {
+        conn.execute(
+            "UPDATE fuel_receipts SET erp_sync_status = 'synced', erp_reference = ?1 WHERE id = ?2 AND workspace_id = ?3",
+            crate::params![&erp_ref, id, &auth.workspace_id],
+        ).await?;
+    }
+
+    let msg = format!(
+        "Batch synced {} fuel receipts ({:.2} SEK) to {} Accounts Payable (Ledger: {}).",
+        pending_ids.len(), total_cost, provider.to_uppercase(), ledger_account
+    );
+
+    if !pending_ids.is_empty() {
+        notify_observers();
+    }
+
+    Ok(crate::models::ErpSyncResult {
+        success: true,
+        invoice_id: format!("batch-fuel-{}", pending_ids.len()),
+        erp_provider: provider,
+        erp_invoice_number: erp_ref,
+        ledger_account: ledger_account.to_string(),
+        synced_at: now_ms,
+        message: msg,
+    })
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+pub async fn sync_fuel_receipts_to_erp(
+    requester_user_id: String,
+    erp_provider: String,
+) -> Result<crate::models::ErpSyncResult, YntraError> {
+    sync_fuel_receipts_to_erp_inner(requester_user_id, erp_provider).await
+}
+
+async fn get_erp_sync_history_inner(
+    requester_user_id: String,
+) -> Result<Vec<crate::models::ErpSyncOverview>, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS erp_sync_logs (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            invoice_id TEXT NOT NULL,
+            erp_provider TEXT NOT NULL,
+            erp_invoice_number TEXT NOT NULL,
+            status TEXT NOT NULL,
+            ledger_account TEXT NOT NULL,
+            synced_at INTEGER NOT NULL,
+            error_message TEXT
+        )",
+        (),
+    ).await?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, invoice_id, erp_provider, erp_invoice_number, status, ledger_account, synced_at, error_message \
+             FROM erp_sync_logs WHERE workspace_id = ?1 ORDER BY synced_at DESC LIMIT 50",
+        )
+        .await?;
+
+    let mut rows = stmt.query(crate::params![&auth.workspace_id]).await?;
+    let mut logs = Vec::new();
+
+    while let Some(row) = rows.next().await? {
+        logs.push(crate::models::ErpSyncOverview {
+            id: row.get(0)?,
+            invoice_id: row.get(1)?,
+            erp_provider: row.get(2)?,
+            erp_invoice_number: row.get(3)?,
+            status: row.get(4)?,
+            ledger_account: row.get(5)?,
+            synced_at: row.get(6)?,
+            error_message: row.get(7)?,
+        });
+    }
+
+    Ok(logs)
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
+pub async fn get_erp_sync_history(
+    requester_user_id: String,
+) -> Result<Vec<crate::models::ErpSyncOverview>, YntraError> {
+    get_erp_sync_history_inner(requester_user_id).await
 }
 
 #[cfg(test)]
@@ -423,10 +685,33 @@ mod native_erp_tests {
         assert!(res_pay.success);
         assert_eq!(res_pay.ledger_account, "5000_SALARIES");
 
-        // 5. Get General Ledger Summary
+        // 5. Record Fuel Receipt & Batch Sync
+        let fuel_rec = record_fleet_fuel_receipt(
+            "u-erp-staff".to_string(),
+            "v-truck-1".to_string(),
+            85.5,
+            1850.0,
+            "diesel".to_string(),
+            145000,
+            Some("https://storage.yntra.se/receipts/r1.jpg".to_string()),
+            Some("Circle K Central".to_string()),
+            "2026-08-01".to_string(),
+        ).await.unwrap();
+        assert_eq!(fuel_rec.cost_sek, 1850.0);
+
+        let fuel_sync_qb = sync_fuel_receipts_to_erp("u-erp-staff".to_string(), "quickbooks".to_string()).await.unwrap();
+        assert!(fuel_sync_qb.success);
+        assert_eq!(fuel_sync_qb.ledger_account, "6000_AUTOMOBILE_FUEL");
+
+        let history = get_erp_sync_history("u-erp-staff".to_string()).await.unwrap();
+        assert!(!history.is_empty());
+
+        // 6. Get General Ledger Summary
         let gl_summary = get_accounting_general_ledger_summary("u-erp-staff".to_string()).await.unwrap();
         assert_eq!(gl_summary.total_accounts_receivable, 5600.0);
 
+        conn.execute("DELETE FROM fuel_receipts WHERE workspace_id = 'ws-erp-test'", ()).await.ok();
+        conn.execute("DELETE FROM erp_sync_logs WHERE workspace_id = 'ws-erp-test'", ()).await.ok();
         conn.execute("DELETE FROM move_invoices WHERE workspace_id = 'ws-erp-test'", ()).await.unwrap();
         conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-erp-test'", ()).await.unwrap();
         conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-erp-test'", ()).await.unwrap();

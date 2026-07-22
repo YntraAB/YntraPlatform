@@ -287,6 +287,12 @@ pub async fn get_move_invoice(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
+    if auth.role == "mover" || auth.role == "driver" {
+        return Err(YntraError::AuthError(
+            "Access denied: mover role cannot view move invoices".to_string(),
+        ));
+    }
+
     let mut stmt = conn.prepare(
         "SELECT id, workspace_id, customer_id, invoice_date, due_date, subtotal, rut_deduction, customer_amount, tax_authority_amount, status, actual_hours, additional_charges, adjustment_notes FROM move_invoices WHERE quote_id = ?1 LIMIT 1",
     ).await?;

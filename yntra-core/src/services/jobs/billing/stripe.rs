@@ -275,8 +275,7 @@ pub async fn process_stripe_payment_webhook(
     process_stripe_payment_webhook_inner(workspace_id, signature_header, payload_json).await
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
-pub async fn initiate_mobile_pos_terminal_session(
+async fn initiate_mobile_pos_terminal_session_inner(
     requester_user_id: String,
     invoice_id: String,
     provider: Option<String>,
@@ -322,8 +321,30 @@ pub async fn initiate_mobile_pos_terminal_session(
     Ok(session)
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
-pub async fn confirm_mobile_pos_terminal_payment(
+#[uniffi::export]
+#[cfg(target_arch = "wasm32")]
+pub async fn initiate_mobile_pos_terminal_session(
+    requester_user_id: String,
+    invoice_id: String,
+    provider: Option<String>,
+    reader_id: Option<String>,
+) -> Result<crate::models::MobilePosTerminalSession, YntraError> {
+    let fut = initiate_mobile_pos_terminal_session_inner(requester_user_id, invoice_id, provider, reader_id);
+    crate::database::wasm::SendFuture::new(fut).await
+}
+
+#[uniffi::export]
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn initiate_mobile_pos_terminal_session(
+    requester_user_id: String,
+    invoice_id: String,
+    provider: Option<String>,
+    reader_id: Option<String>,
+) -> Result<crate::models::MobilePosTerminalSession, YntraError> {
+    initiate_mobile_pos_terminal_session_inner(requester_user_id, invoice_id, provider, reader_id).await
+}
+
+async fn confirm_mobile_pos_terminal_payment_inner(
     requester_user_id: String,
     invoice_id: String,
     payment_method_type: String,
@@ -359,6 +380,31 @@ pub async fn confirm_mobile_pos_terminal_payment(
 
     notify_observers();
     Ok(())
+}
+
+#[uniffi::export]
+#[cfg(target_arch = "wasm32")]
+pub async fn confirm_mobile_pos_terminal_payment(
+    requester_user_id: String,
+    invoice_id: String,
+    payment_method_type: String,
+    card_brand: String,
+    last4: String,
+) -> Result<(), YntraError> {
+    let fut = confirm_mobile_pos_terminal_payment_inner(requester_user_id, invoice_id, payment_method_type, card_brand, last4);
+    crate::database::wasm::SendFuture::new(fut).await
+}
+
+#[uniffi::export]
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn confirm_mobile_pos_terminal_payment(
+    requester_user_id: String,
+    invoice_id: String,
+    payment_method_type: String,
+    card_brand: String,
+    last4: String,
+) -> Result<(), YntraError> {
+    confirm_mobile_pos_terminal_payment_inner(requester_user_id, invoice_id, payment_method_type, card_brand, last4).await
 }
 
 #[cfg(test)]
