@@ -406,12 +406,80 @@ async fn test_public_booking_lead_submission() {
     assert_eq!(base_price, 1500.0);
     assert_eq!(total_price, 1875.0);
 
-    // 7. Clean up
-    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-lead-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-lead-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-lead-test'", ()).await.unwrap();
+    // 8. Cleanup
+    conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = ?1", crate::params![&job_id]).await.unwrap();
+    conn.execute("DELETE FROM move_quotes WHERE job_ticket_id = ?1", crate::params![&job_id]).await.unwrap();
+    conn.execute("DELETE FROM job_tickets WHERE id = ?1", crate::params![&job_id]).await.unwrap();
     conn.execute("DELETE FROM users WHERE workspace_id = 'ws-lead-test'", ()).await.unwrap();
     conn.execute("DELETE FROM workspaces WHERE id = 'ws-lead-test'", ()).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_third_party_lead_aggregator_webhooks() {
+    use crate::services::jobs::ingest_third_party_lead_webhook;
+
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    let settings = serde_json::json!({
+        "lead_webhook_api_key": "lead-secret-key-123"
+    }).to_string();
+
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-agg-test', 'Aggregator WS', '[\"moving_company\"]', ?1)", crate::params![&settings]).await.unwrap();
+
+    // 1. Google LSA webhook test
+    let google_payload = serde_json::json!({
+        "customerName": "Alice Google",
+        "customerEmail": "alice@googlelsa.com",
+        "customerPhone": "+46700001111",
+        "originAddress": "Google St 1",
+        "destinationAddress": "Google St 2"
+    }).to_string();
+
+    let g_job = ingest_third_party_lead_webhook(
+        "ws-agg-test".to_string(),
+        "google_lsa".to_string(),
+        "lead-secret-key-123".to_string(),
+        google_payload,
+    ).await.unwrap();
+
+    let (g_title, g_prio): (String, String) = conn
+        .query_row("SELECT title, priority FROM job_tickets WHERE id = ?1", crate::params![&g_job], |r| Ok((r.get(0)?, r.get(1)?)))
+        .await
+        .unwrap();
+
+    assert!(g_title.contains("Google LSA"));
+    assert_eq!(g_prio, "high");
+
+    // 2. Yelp webhook test
+    let yelp_payload = serde_json::json!({
+        "user_name": "Bob Yelp",
+        "user_email": "bob@yelp.com",
+        "user_phone": "+46700002222",
+        "start_location": "Yelp St 10",
+        "end_location": "Yelp St 20"
+    }).to_string();
+
+    let y_job = ingest_third_party_lead_webhook(
+        "ws-agg-test".to_string(),
+        "yelp".to_string(),
+        "lead-secret-key-123".to_string(),
+        yelp_payload,
+    ).await.unwrap();
+
+    let (y_title,): (String,) = conn
+        .query_row("SELECT title FROM job_tickets WHERE id = ?1", crate::params![&y_job], |r| Ok((r.get(0)?,)))
+        .await
+        .unwrap();
+
+    assert!(y_title.contains("Yelp"));
+
+    // Cleanup
+    conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-agg-test'", ()).await.ok();
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-agg-test'", ()).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-agg-test'", ()).await.ok();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-agg-test'", ()).await.ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-agg-test'", ()).await.ok();
 }
 
 #[tokio::test]
@@ -552,4 +620,73 @@ async fn test_customer_live_tracking_and_quote_deposit() {
     conn.execute("DELETE FROM vehicles WHERE workspace_id = 'ws-track-test'", ()).await.unwrap();
     conn.execute("DELETE FROM users WHERE workspace_id = 'ws-track-test'", ()).await.unwrap();
     conn.execute("DELETE FROM workspaces WHERE id = 'ws-track-test'", ()).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_coarse_grained_mover_permissions_and_field_sheet_scoping() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-mover-perm-test', 'Mover Perm WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, full_name, role) VALUES ('u-mover-admin', 'ws-mover-perm-test', 'admin@perm.io', 'Manager Max', 'admin')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, full_name, role) VALUES ('u-field-mover', 'ws-mover-perm-test', 'mover@perm.io', 'Crew Carl', 'mover')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO vehicles (id, workspace_id, name, license_plate, capacity_m3, status) VALUES ('v-mover-1', 'ws-mover-perm-test', 'Truck A', 'MOVER-888', 35.0, 'available')", ()).await.unwrap();
+
+    let job = create_job_ticket(
+        "u-mover-admin".to_string(),
+        "ws-mover-perm-test".to_string(),
+        "Assigned Field Job".to_string(),
+        "Field sheet scope test".to_string(),
+        "Origin Street 10".to_string(),
+        "high".to_string(),
+        Some("u-field-mover".to_string()),
+        "2026-09-01".to_string(),
+        "[]".to_string(),
+        Some("Origin Street 10".to_string()),
+        Some("Dest Ave 20".to_string()),
+        2, 4, true, false, false, false,
+    ).await.unwrap();
+
+    conn.execute("UPDATE job_tickets SET assigned_vehicle_id = 'v-mover-1' WHERE id = ?1", crate::params![&job.id]).await.unwrap();
+    conn.execute("INSERT INTO job_crew (job_ticket_id, user_id, role) VALUES (?1, 'u-field-mover', 'mover')", crate::params![&job.id]).await.unwrap();
+
+    let quote_id = "q-mover-perm-1".to_string();
+    conn.execute(
+        "INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at) VALUES (?1, 'ws-mover-perm-test', ?2, 8000.0, 500.0, 300.0, 200.0, 9000.0, 'sent', 0)",
+        crate::params![&quote_id, &job.id],
+    ).await.unwrap();
+
+    // 1. Mover fetches read-only Field Sheet Manifest -> succeeds
+    let manifest = crate::services::jobs::get_mover_field_sheet_manifest("u-field-mover".to_string(), job.id.clone()).await.unwrap();
+    assert_eq!(manifest.title, "Assigned Field Job");
+    assert_eq!(manifest.assigned_vehicle_plate, Some("MOVER-888".to_string()));
+    assert_eq!(manifest.origin_floor, 2);
+    assert_eq!(manifest.destination_floor, 4);
+    assert!(manifest.assigned_crew_names.contains(&"Crew Carl".to_string()));
+
+    // 2. Mover attempts to view financial quotes -> blocked with AuthError
+    let quote_err = crate::services::jobs::get_move_quote("u-field-mover".to_string(), job.id.clone()).await;
+    assert!(quote_err.is_err());
+    if let Err(crate::infra::errors::YntraError::AuthError(msg)) = quote_err {
+        assert!(msg.contains("mover role cannot view financial quotes"));
+    } else {
+        panic!("Expected AuthError for mover quote access");
+    }
+
+    // 3. Mover attempts to view move invoice -> blocked with AuthError
+    let invoice_err = crate::services::jobs::get_move_invoice("u-field-mover".to_string(), quote_id.clone()).await;
+    assert!(invoice_err.is_err());
+    if let Err(crate::infra::errors::YntraError::AuthError(msg)) = invoice_err {
+        assert!(msg.contains("mover role cannot view move invoices"));
+    } else {
+        panic!("Expected AuthError for mover invoice access");
+    }
+
+    // Cleanup
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-mover-perm-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM job_crew WHERE job_ticket_id = ?1", crate::params![&job.id]).await.unwrap();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-mover-perm-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM vehicles WHERE workspace_id = 'ws-mover-perm-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-mover-perm-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-mover-perm-test'", ()).await.unwrap();
 }

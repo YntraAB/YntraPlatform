@@ -606,3 +606,129 @@ pub async fn optimize_job_route(
 ) -> Result<Vec<String>, YntraError> {
     optimize_job_route_inner(requester_user_id, job_id).await
 }
+
+#[uniffi::export]
+pub async fn get_mover_field_sheet_manifest(
+    requester_user_id: String,
+    job_id: String,
+) -> Result<crate::models::MoverFieldSheetManifest, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let (
+        job_ws,
+        title,
+        description,
+        scheduled_date,
+        status,
+        origin_address,
+        destination_address,
+        origin_floor,
+        destination_floor,
+        origin_has_elevator,
+        destination_has_elevator,
+        assigned_vehicle_id,
+        route_stops_json,
+        long_carry_meters,
+    ): (
+        String,
+        String,
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        i32,
+        i32,
+        bool,
+        bool,
+        Option<String>,
+        Option<String>,
+        i32,
+    ) = conn
+        .query_row(
+            "SELECT workspace_id, title, description, scheduled_date, status, origin_address, destination_address, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, assigned_vehicle_id, route_stops_json, long_carry_meters FROM job_tickets WHERE id = ?1",
+            crate::params![&job_id],
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                    r.get::<i64>(7)? as i32,
+                    r.get::<i64>(8)? as i32,
+                    r.get::<bool>(9)?,
+                    r.get::<bool>(10)?,
+                    r.get(11)?,
+                    r.get(12)?,
+                    r.get::<i64>(13)? as i32,
+                ))
+            },
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
+
+    if auth.workspace_id != job_ws {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    // Verify assigned mover access or management staff
+    let is_assigned: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM job_tickets WHERE id = ?1 AND (assigned_user_id = ?2 OR EXISTS (SELECT 1 FROM job_crew WHERE job_ticket_id = ?1 AND user_id = ?2))",
+            crate::params![&job_id, &auth.user_id],
+            |r| Ok(r.get::<i64>(0)? > 0),
+        )
+        .await
+        .unwrap_or(false);
+
+    if !is_management_staff(&auth) && !is_assigned {
+        return Err(YntraError::AuthError("Access denied: unassigned mover field sheet".to_string()));
+    }
+
+    // Load Item Manifest (Read-Only)
+    let inventory_items = super::moves::get_move_inventory(requester_user_id.clone(), job_id.clone()).await.unwrap_or_default();
+
+    // Load Assigned Crew Names
+    let mut crew_stmt = conn.prepare("SELECT u.full_name FROM job_crew j JOIN users u ON j.user_id = u.id WHERE j.job_ticket_id = ?1").await?;
+    let mut crew_rows = crew_stmt.query(crate::params![&job_id]).await?;
+    let mut assigned_crew_names = Vec::new();
+    while let Some(row) = crew_rows.next().await? {
+        let name: String = row.get::<Option<String>>(0)?.unwrap_or_else(|| "Mover".to_string());
+        assigned_crew_names.push(name);
+    }
+
+    // Load Assigned Vehicle License Plate
+    let mut assigned_vehicle_plate = None;
+    if let Some(vid) = assigned_vehicle_id {
+        if let Ok(plate) = conn.query_row(
+            "SELECT license_plate FROM vehicles WHERE id = ?1",
+            crate::params![&vid],
+            |r| r.get::<String>(0),
+        ).await {
+            assigned_vehicle_plate = Some(plate);
+        }
+    }
+
+    Ok(crate::models::MoverFieldSheetManifest {
+        job_id,
+        title,
+        description,
+        scheduled_date,
+        status,
+        origin_address,
+        destination_address,
+        origin_floor,
+        destination_floor,
+        origin_has_elevator,
+        destination_has_elevator,
+        inventory_items,
+        assigned_crew_names,
+        assigned_vehicle_plate,
+        route_stops_json,
+        long_carry_meters,
+    })
+}

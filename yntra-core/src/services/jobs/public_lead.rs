@@ -167,3 +167,128 @@ pub async fn submit_public_booking_lead(
 ) -> Result<String, YntraError> {
     submit_public_booking_lead_inner(workspace_id, customer_name, customer_email, customer_phone, origin_address, destination_address, items_json).await
 }
+
+async fn ingest_third_party_lead_webhook_inner(
+    workspace_id: String,
+    provider: String,
+    api_key: String,
+    payload_json: String,
+) -> Result<String, YntraError> {
+    let conn = database::acquire_connection().await?;
+
+    let settings_str: String = conn
+        .query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![&workspace_id],
+            |r| r.get(0),
+        )
+        .await
+        .map_err(|_| YntraError::ValidationError(format!("Workspace {} not found", workspace_id)))?;
+
+    let settings_json: serde_json::Value = serde_json::from_str(&settings_str)
+        .unwrap_or(serde_json::json!({}));
+
+    let expected_key = settings_json
+        .get("lead_webhook_api_key")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    if !expected_key.is_empty() && expected_key != api_key {
+        return Err(YntraError::AuthError("Invalid lead webhook API key".to_string()));
+    }
+
+    let payload: serde_json::Value = serde_json::from_str(&payload_json)
+        .map_err(|e| YntraError::ValidationError(format!("Invalid webhook JSON payload: {}", e)))?;
+
+    let (name, email, phone, origin, destination, items_json) = match provider.to_lowercase().as_str() {
+        "google_lsa" | "google" => (
+            payload.get("customerName").or_else(|| payload.get("name")).and_then(|v| v.as_str()).unwrap_or("Google LSA Lead").to_string(),
+            payload.get("customerEmail").or_else(|| payload.get("email")).and_then(|v| v.as_str()).unwrap_or("lead@googlelsa.com").to_string(),
+            payload.get("customerPhone").or_else(|| payload.get("phone")).and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            payload.get("originAddress").or_else(|| payload.get("origin")).and_then(|v| v.as_str()).unwrap_or("Address Not Specified").to_string(),
+            payload.get("destinationAddress").or_else(|| payload.get("destination")).and_then(|v| v.as_str()).unwrap_or("Address Not Specified").to_string(),
+            payload.get("items").map(|v| v.to_string()).unwrap_or_else(|| "[]".to_string()),
+        ),
+        "yelp" => (
+            payload.get("user_name").or_else(|| payload.get("name")).and_then(|v| v.as_str()).unwrap_or("Yelp Lead").to_string(),
+            payload.get("user_email").or_else(|| payload.get("email")).and_then(|v| v.as_str()).unwrap_or("lead@yelp.com").to_string(),
+            payload.get("user_phone").or_else(|| payload.get("phone")).and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            payload.get("start_location").or_else(|| payload.get("origin")).and_then(|v| v.as_str()).unwrap_or("Address Not Specified").to_string(),
+            payload.get("end_location").or_else(|| payload.get("destination")).and_then(|v| v.as_str()).unwrap_or("Address Not Specified").to_string(),
+            payload.get("items").map(|v| v.to_string()).unwrap_or_else(|| "[]".to_string()),
+        ),
+        "moving_com" | "moving" => (
+            payload.pointer("/mover_lead/contact/name").or_else(|| payload.get("name")).and_then(|v| v.as_str()).unwrap_or("Moving.com Lead").to_string(),
+            payload.pointer("/mover_lead/contact/email").or_else(|| payload.get("email")).and_then(|v| v.as_str()).unwrap_or("lead@moving.com").to_string(),
+            payload.pointer("/mover_lead/contact/phone").or_else(|| payload.get("phone")).and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            payload.pointer("/mover_lead/origin").or_else(|| payload.get("origin")).and_then(|v| v.as_str()).unwrap_or("Address Not Specified").to_string(),
+            payload.pointer("/mover_lead/destination").or_else(|| payload.get("destination")).and_then(|v| v.as_str()).unwrap_or("Address Not Specified").to_string(),
+            payload.pointer("/mover_lead/items").map(|v| v.to_string()).unwrap_or_else(|| "[]".to_string()),
+        ),
+        "angi" | "homeadvisor" => (
+            payload.get("contact_name").or_else(|| payload.get("name")).and_then(|v| v.as_str()).unwrap_or("Angi Lead").to_string(),
+            payload.get("contact_email").or_else(|| payload.get("email")).and_then(|v| v.as_str()).unwrap_or("lead@angi.com").to_string(),
+            payload.get("contact_phone").or_else(|| payload.get("phone")).and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            payload.get("address").or_else(|| payload.get("origin")).and_then(|v| v.as_str()).unwrap_or("Address Not Specified").to_string(),
+            payload.get("destination").and_then(|v| v.as_str()).unwrap_or("Address Not Specified").to_string(),
+            payload.get("items").map(|v| v.to_string()).unwrap_or_else(|| "[]".to_string()),
+        ),
+        _ => (
+            payload.get("name").and_then(|v| v.as_str()).unwrap_or("Inbound Lead").to_string(),
+            payload.get("email").and_then(|v| v.as_str()).unwrap_or("lead@inbound.com").to_string(),
+            payload.get("phone").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            payload.get("origin").or_else(|| payload.get("address")).and_then(|v| v.as_str()).unwrap_or("Address Not Specified").to_string(),
+            payload.get("destination").and_then(|v| v.as_str()).unwrap_or("Address Not Specified").to_string(),
+            payload.get("items").map(|v| v.to_string()).unwrap_or_else(|| "[]".to_string()),
+        ),
+    };
+
+    let job_id = submit_public_booking_lead_inner(
+        workspace_id.clone(),
+        name,
+        email,
+        phone,
+        origin,
+        destination,
+        items_json,
+    ).await?;
+
+    let provider_tag = match provider.to_lowercase().as_str() {
+        "google_lsa" | "google" => "Google LSA",
+        "yelp" => "Yelp",
+        "moving_com" | "moving" => "Moving.com",
+        "angi" | "homeadvisor" => "Angi / HomeAdvisor",
+        _ => "Partner API",
+    };
+
+    conn.execute(
+        "UPDATE job_tickets SET title = title || ' [' || ?1 || ']', description = description || ' (Importerad via ' || ?1 || ' webhook-integration)', priority = 'high' WHERE id = ?2",
+        crate::params![provider_tag, &job_id],
+    ).await?;
+
+    crate::infra::observer::notify_observers();
+    Ok(job_id)
+}
+
+#[uniffi::export]
+#[cfg(target_arch = "wasm32")]
+pub async fn ingest_third_party_lead_webhook(
+    workspace_id: String,
+    provider: String,
+    api_key: String,
+    payload_json: String,
+) -> Result<String, YntraError> {
+    let fut = ingest_third_party_lead_webhook_inner(workspace_id, provider, api_key, payload_json);
+    crate::database::wasm::SendFuture::new(fut).await
+}
+
+#[uniffi::export]
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn ingest_third_party_lead_webhook(
+    workspace_id: String,
+    provider: String,
+    api_key: String,
+    payload_json: String,
+) -> Result<String, YntraError> {
+    ingest_third_party_lead_webhook_inner(workspace_id, provider, api_key, payload_json).await
+}
