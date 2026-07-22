@@ -393,7 +393,7 @@ async fn test_public_booking_lead_submission() {
     let update_res = update_job_status("staff-lead-test".to_string(), job_id.clone(), "assigned".to_string()).await;
     assert!(update_res.is_ok());
 
-    // 6. Verify quote created (1500 kr base + 2.5 * 150 kr = 1875 kr total)
+    // 6. Verify quote created using unified calculation engine (2.5 m3 * 500 = 1250 base_price, 800 distance_fee, 250 supplies_fee = 2300 total)
     let (base_price, total_price): (f64, f64) = conn
         .query_row(
             "SELECT base_price, total_price FROM move_quotes WHERE job_ticket_id = ?1",
@@ -403,8 +403,8 @@ async fn test_public_booking_lead_submission() {
         .await
         .unwrap();
 
-    assert_eq!(base_price, 1500.0);
-    assert_eq!(total_price, 1875.0);
+    assert_eq!(base_price, 1250.0);
+    assert_eq!(total_price, 2300.0);
 
     // 8. Cleanup
     conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = ?1", crate::params![&job_id]).await.unwrap();
@@ -415,8 +415,70 @@ async fn test_public_booking_lead_submission() {
 }
 
 #[tokio::test]
+async fn test_public_lead_validation_and_rate_limiting() {
+    use crate::services::jobs::submit_public_booking_lead;
+    use crate::infra::errors::YntraError;
+
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-lead-val-test', 'Lead Val WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+
+    // 1. Invalid email missing @ should fail validation
+    let err_email = submit_public_booking_lead(
+        "ws-lead-val-test".to_string(),
+        "Bot User".to_string(),
+        "invalidemailformat.com".to_string(),
+        "12345".to_string(),
+        "A".to_string(),
+        "B".to_string(),
+        "[]".to_string(),
+    ).await;
+    assert!(err_email.is_err());
+    assert!(matches!(err_email.unwrap_err(), YntraError::ValidationError(_)));
+
+    // 2. Short name should fail validation
+    let err_name = submit_public_booking_lead(
+        "ws-lead-val-test".to_string(),
+        "X".to_string(),
+        "bot@spam.com".to_string(),
+        "12345".to_string(),
+        "A".to_string(),
+        "B".to_string(),
+        "[]".to_string(),
+    ).await;
+    assert!(err_name.is_err());
+
+    // 3. Valid lead should succeed and set unverified_guest metadata
+    let res_ok = submit_public_booking_lead(
+        "ws-lead-val-test".to_string(),
+        "Valid Lead".to_string(),
+        "valid@lead.se".to_string(),
+        "0700000000".to_string(),
+        "Start Str 1".to_string(),
+        "End Str 2".to_string(),
+        "[]".to_string(),
+    ).await;
+    assert!(res_ok.is_ok());
+
+    let guest_meta: String = conn.query_row(
+        "SELECT metadata FROM users WHERE workspace_id = 'ws-lead-val-test' AND email = 'valid@lead.se'",
+        (),
+        |r| r.get(0),
+    ).await.unwrap();
+    assert!(guest_meta.contains("unverified_guest"));
+
+    // Cleanup
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-lead-val-test'", ()).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-lead-val-test'", ()).await.ok();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-lead-val-test'", ()).await.ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-lead-val-test'", ()).await.ok();
+}
+
+#[tokio::test]
 async fn test_third_party_lead_aggregator_webhooks() {
     use crate::services::jobs::ingest_third_party_lead_webhook;
+    use crate::infra::errors::YntraError;
 
     let _lock = database::DB_TEST_LOCK.lock().unwrap();
     let conn = database::acquire_connection().await.unwrap();
@@ -473,6 +535,54 @@ async fn test_third_party_lead_aggregator_webhooks() {
         .unwrap();
 
     assert!(y_title.contains("Yelp"));
+
+    // 3. Webhook with structured address object (e.g. Angi / Moving.com)
+    let angi_payload = serde_json::json!({
+        "contact_name": "Carol Angi",
+        "contact_email": "carol@angi.com",
+        "contact_phone": "+46700003333",
+        "address": {
+            "street": "Kungsgatan 12",
+            "city": "Stockholm",
+            "postal_code": "11122"
+        },
+        "destination": {
+            "street_address": "Drottninggatan 45",
+            "locality": "Stockholm",
+            "zip": "11151"
+        }
+    }).to_string();
+
+    let a_job = ingest_third_party_lead_webhook(
+        "ws-agg-test".to_string(),
+        "angi".to_string(),
+        "lead-secret-key-123".to_string(),
+        angi_payload,
+    ).await.unwrap();
+
+    let (a_orig, a_dest): (Option<String>, Option<String>) = conn
+        .query_row("SELECT origin_address, destination_address FROM job_tickets WHERE id = ?1", crate::params![&a_job], |r| Ok((r.get(0)?, r.get(1)?)))
+        .await
+        .unwrap();
+
+    assert_eq!(a_orig, Some("Kungsgatan 12, 11122 Stockholm".to_string()));
+    assert_eq!(a_dest, Some("Drottninggatan 45, 11151 Stockholm".to_string()));
+
+    // 4. Webhook missing origin address should be rejected with ValidationError
+    let invalid_payload = serde_json::json!({
+        "customerName": "Dave NoAddress",
+        "customerEmail": "dave@noaddress.com"
+    }).to_string();
+
+    let inv_res = ingest_third_party_lead_webhook(
+        "ws-agg-test".to_string(),
+        "google_lsa".to_string(),
+        "lead-secret-key-123".to_string(),
+        invalid_payload,
+    ).await;
+
+    assert!(inv_res.is_err());
+    assert!(matches!(inv_res.unwrap_err(), YntraError::ValidationError(_)));
 
     // Cleanup
     conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-agg-test'", ()).await.ok();

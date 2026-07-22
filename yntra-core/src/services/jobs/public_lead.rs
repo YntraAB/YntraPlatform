@@ -10,9 +10,40 @@ async fn submit_public_booking_lead_inner(
     destination_address: String,
     items_json: String,
 ) -> Result<String, YntraError> {
+    // 1. Input sanitization & validation
+    let name_clean = customer_name.trim();
+    if name_clean.len() < 2 {
+        return Err(YntraError::ValidationError(
+            "Customer name must be at least 2 characters long.".to_string(),
+        ));
+    }
+
+    let customer_email_clean = customer_email.trim().to_lowercase();
+    if customer_email_clean.is_empty() || !customer_email_clean.contains('@') {
+        return Err(YntraError::ValidationError(format!(
+            "Invalid customer email address '{}': missing '@' domain identifier",
+            customer_email
+        )));
+    }
+    let parts: Vec<&str> = customer_email_clean.split('@').collect();
+    if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() || !parts[1].contains('.') {
+        return Err(YntraError::ValidationError(format!(
+            "Invalid customer email address '{}': must contain valid local and domain parts (e.g. user@domain.com)",
+            customer_email
+        )));
+    }
+
+    let origin_clean = origin_address.trim();
+    let dest_clean = destination_address.trim();
+    if origin_clean.is_empty() || dest_clean.is_empty() {
+        return Err(YntraError::ValidationError(
+            "Origin and destination addresses cannot be empty.".to_string(),
+        ));
+    }
+
     let conn = database::acquire_connection().await?;
 
-    // 1. Verify workspace exists
+    // 2. Verify workspace exists
     let ws_exists: bool = conn
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM workspaces WHERE id = ?1)",
@@ -28,11 +59,28 @@ async fn submit_public_booking_lead_inner(
         )));
     }
 
-    // 2. Create or find guest client user
+    // 3. Rate limiting check (max 5 leads per email/workspace in 15 minutes)
+    let fifteen_mins_ago = crate::infra::time::get_current_time_ms() - (15 * 60 * 1000);
+    let recent_leads_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM job_tickets WHERE workspace_id = ?1 AND title LIKE ?2 AND created_at >= ?3",
+            crate::params![&workspace_id, format!("%{}", name_clean), fifteen_mins_ago],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or(0);
+
+    if recent_leads_count >= 5 {
+        return Err(YntraError::ValidationError(
+            "Rate limit exceeded: Too many booking lead requests submitted recently. Please wait before submitting another request.".to_string(),
+        ));
+    }
+
+    // 4. Create or find guest client user
     let existing_uid: Option<String> = conn
         .query_row(
             "SELECT id FROM users WHERE workspace_id = ?1 AND email = ?2",
-            crate::params![&workspace_id, &customer_email],
+            crate::params![&workspace_id, &customer_email_clean],
             |r| r.get(0),
         )
         .await
@@ -45,16 +93,22 @@ async fn submit_public_booking_lead_inner(
         }
         None => {
             let id = format!("u-guest-{}", uuid::Uuid::new_v4());
+            let guest_meta = serde_json::json!({
+                "unverified_guest": true,
+                "verification_status": "unverified",
+                "lead_source": "public_lead_widget"
+            }).to_string();
+
             conn.execute(
-                "INSERT INTO users (id, workspace_id, email, full_name, phone, role, preferences) VALUES (?1, ?2, ?3, ?4, ?5, 'client', '{}')",
-                crate::params![&id, &workspace_id, &customer_email, &customer_name, &customer_phone],
+                "INSERT INTO users (id, workspace_id, email, full_name, phone, role, preferences, metadata) VALUES (?1, ?2, ?3, ?4, ?5, 'client', '{}', ?6)",
+                crate::params![&id, &workspace_id, &customer_email_clean, name_clean, &customer_phone, &guest_meta],
             ).await?;
             crate::services::users::ensure_user_role_signature(&conn, &id, "client", &workspace_id).await?;
             id
         }
     };
 
-    // 3. Create job ticket for the lead
+    // 5. Create job ticket for the lead
     let job_id = format!("job-lead-{}", uuid::Uuid::new_v4());
     let now_ms = crate::infra::time::get_current_time_ms();
     let now_date = chrono::Utc::now().format("%Y-%m-%d").to_string();
@@ -64,13 +118,13 @@ async fn submit_public_booking_lead_inner(
         crate::params![
             &job_id,
             &workspace_id,
-            format!("Offertförfrågan - {}", customer_name),
-            format!("Offertförfrågan skapad via publik lead-widget för {}", customer_name),
-            &origin_address,
+            format!("Offertförfrågan - {}", name_clean),
+            format!("Offertförfrågan skapad via publik lead-widget för {} [UNVERIFIED GUEST LEAD]", name_clean),
+            origin_clean,
             &now_date,
             now_ms,
-            &origin_address,
-            &destination_address,
+            origin_clean,
+            dest_clean,
         ],
     ).await?;
 
@@ -97,32 +151,15 @@ async fn submit_public_booking_lead_inner(
         ).await?;
     }
 
-    // 5. Calculate and save move quote estimate (1500 kr base + 150 kr per m3 volume)
-    let total_volume: f64 = conn
-        .query_row(
-            "SELECT COALESCE(SUM(quantity * estimated_volume_m3), 0.0) FROM move_inventory WHERE job_ticket_id = ?1",
-            crate::params![&job_id],
-            |r| r.get(0),
-        )
-        .await
-        .unwrap_or(0.0);
+    // Drop active database connection handle before calling calculate_and_save_move_quote
+    drop(conn);
 
-    let base_price = 1500.0;
-    let volume_fee = total_volume * 150.0;
-    let total_price = base_price + volume_fee;
-
-    let quote_id = format!("quote-lead-{}", uuid::Uuid::new_v4());
-    conn.execute(
-        "INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status) VALUES (?1, ?2, ?3, ?4, 0.0, 0.0, 0.0, ?5, 'pending')",
-        crate::params![
-            &quote_id,
-            &workspace_id,
-            &job_id,
-            base_price,
-            total_price,
-        ],
-    ).await?;
-
+    // 5. Calculate and save move quote estimate using workspace settings calculation engine
+    crate::services::jobs::moves::calculate_and_save_move_quote(
+        customer_id.clone(),
+        job_id.clone(),
+    )
+    .await?;
     // 6. Trigger automated email/SMS receipt to customer
     let _ = crate::services::jobs::notifications::send_external_notification(
         customer_id.clone(),
@@ -168,6 +205,65 @@ pub async fn submit_public_booking_lead(
     submit_public_booking_lead_inner(workspace_id, customer_name, customer_email, customer_phone, origin_address, destination_address, items_json).await
 }
 
+fn extract_address_from_payload(payload: &serde_json::Value, candidate_keys: &[&str]) -> Option<String> {
+    for &key in candidate_keys {
+        let val_opt = if key.starts_with('/') {
+            payload.pointer(key)
+        } else {
+            payload.get(key)
+        };
+
+        if let Some(val) = val_opt {
+            if let Some(s) = val.as_str() {
+                let trimmed = s.trim();
+                if !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case("address not specified") {
+                    return Some(trimmed.to_string());
+                }
+            } else if let Some(obj) = val.as_object() {
+                let street = obj.get("street")
+                    .or_else(|| obj.get("street_address"))
+                    .or_else(|| obj.get("address_line_1"))
+                    .or_else(|| obj.get("line1"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim();
+                let city = obj.get("city")
+                    .or_else(|| obj.get("locality"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim();
+                let zip = obj.get("zip")
+                    .or_else(|| obj.get("postal_code"))
+                    .or_else(|| obj.get("postcode"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim();
+                let state = obj.get("state")
+                    .or_else(|| obj.get("region"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim();
+
+                let mut parts = Vec::new();
+                if !street.is_empty() { parts.push(street.to_string()); }
+                if !zip.is_empty() && !city.is_empty() {
+                    parts.push(format!("{} {}", zip, city));
+                } else {
+                    if !zip.is_empty() { parts.push(zip.to_string()); }
+                    if !city.is_empty() { parts.push(city.to_string()); }
+                }
+                if !state.is_empty() { parts.push(state.to_string()); }
+
+                let full_addr = parts.join(", ");
+                if full_addr.len() >= 3 {
+                    return Some(full_addr);
+                }
+            }
+        }
+    }
+    None
+}
+
 async fn ingest_third_party_lead_webhook_inner(
     workspace_id: String,
     provider: String,
@@ -200,45 +296,64 @@ async fn ingest_third_party_lead_webhook_inner(
     let payload: serde_json::Value = serde_json::from_str(&payload_json)
         .map_err(|e| YntraError::ValidationError(format!("Invalid webhook JSON payload: {}", e)))?;
 
-    let (name, email, phone, origin, destination, items_json) = match provider.to_lowercase().as_str() {
+    let (origin_keys, dest_keys) = match provider.to_lowercase().as_str() {
+        "google_lsa" | "google" => (
+            vec!["originAddress", "origin", "from_address", "address"],
+            vec!["destinationAddress", "destination", "to_address"],
+        ),
+        "yelp" => (
+            vec!["start_location", "origin", "address", "location"],
+            vec!["end_location", "destination", "dropoff_location"],
+        ),
+        "moving_com" | "moving" => (
+            vec!["/mover_lead/origin", "/mover_lead/origin_address", "origin", "address"],
+            vec!["/mover_lead/destination", "/mover_lead/destination_address", "destination"],
+        ),
+        "angi" | "homeadvisor" => (
+            vec!["address", "origin", "start_address"],
+            vec!["destination", "destination_address", "end_address"],
+        ),
+        _ => (
+            vec!["origin", "address", "start_location", "from_address", "/mover_lead/origin"],
+            vec!["destination", "end_location", "to_address", "/mover_lead/destination"],
+        ),
+    };
+
+    let origin = extract_address_from_payload(&payload, &origin_keys)
+        .ok_or_else(|| YntraError::ValidationError(format!("Third-party lead webhook from '{}' missing valid origin address", provider)))?;
+
+    let destination = extract_address_from_payload(&payload, &dest_keys)
+        .ok_or_else(|| YntraError::ValidationError(format!("Third-party lead webhook from '{}' missing valid destination address", provider)))?;
+
+    let (name, email, phone, items_json) = match provider.to_lowercase().as_str() {
         "google_lsa" | "google" => (
             payload.get("customerName").or_else(|| payload.get("name")).and_then(|v| v.as_str()).unwrap_or("Google LSA Lead").to_string(),
             payload.get("customerEmail").or_else(|| payload.get("email")).and_then(|v| v.as_str()).unwrap_or("lead@googlelsa.com").to_string(),
             payload.get("customerPhone").or_else(|| payload.get("phone")).and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            payload.get("originAddress").or_else(|| payload.get("origin")).and_then(|v| v.as_str()).unwrap_or("Address Not Specified").to_string(),
-            payload.get("destinationAddress").or_else(|| payload.get("destination")).and_then(|v| v.as_str()).unwrap_or("Address Not Specified").to_string(),
             payload.get("items").map(|v| v.to_string()).unwrap_or_else(|| "[]".to_string()),
         ),
         "yelp" => (
             payload.get("user_name").or_else(|| payload.get("name")).and_then(|v| v.as_str()).unwrap_or("Yelp Lead").to_string(),
             payload.get("user_email").or_else(|| payload.get("email")).and_then(|v| v.as_str()).unwrap_or("lead@yelp.com").to_string(),
             payload.get("user_phone").or_else(|| payload.get("phone")).and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            payload.get("start_location").or_else(|| payload.get("origin")).and_then(|v| v.as_str()).unwrap_or("Address Not Specified").to_string(),
-            payload.get("end_location").or_else(|| payload.get("destination")).and_then(|v| v.as_str()).unwrap_or("Address Not Specified").to_string(),
             payload.get("items").map(|v| v.to_string()).unwrap_or_else(|| "[]".to_string()),
         ),
         "moving_com" | "moving" => (
             payload.pointer("/mover_lead/contact/name").or_else(|| payload.get("name")).and_then(|v| v.as_str()).unwrap_or("Moving.com Lead").to_string(),
             payload.pointer("/mover_lead/contact/email").or_else(|| payload.get("email")).and_then(|v| v.as_str()).unwrap_or("lead@moving.com").to_string(),
             payload.pointer("/mover_lead/contact/phone").or_else(|| payload.get("phone")).and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            payload.pointer("/mover_lead/origin").or_else(|| payload.get("origin")).and_then(|v| v.as_str()).unwrap_or("Address Not Specified").to_string(),
-            payload.pointer("/mover_lead/destination").or_else(|| payload.get("destination")).and_then(|v| v.as_str()).unwrap_or("Address Not Specified").to_string(),
             payload.pointer("/mover_lead/items").map(|v| v.to_string()).unwrap_or_else(|| "[]".to_string()),
         ),
         "angi" | "homeadvisor" => (
             payload.get("contact_name").or_else(|| payload.get("name")).and_then(|v| v.as_str()).unwrap_or("Angi Lead").to_string(),
             payload.get("contact_email").or_else(|| payload.get("email")).and_then(|v| v.as_str()).unwrap_or("lead@angi.com").to_string(),
             payload.get("contact_phone").or_else(|| payload.get("phone")).and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            payload.get("address").or_else(|| payload.get("origin")).and_then(|v| v.as_str()).unwrap_or("Address Not Specified").to_string(),
-            payload.get("destination").and_then(|v| v.as_str()).unwrap_or("Address Not Specified").to_string(),
             payload.get("items").map(|v| v.to_string()).unwrap_or_else(|| "[]".to_string()),
         ),
         _ => (
             payload.get("name").and_then(|v| v.as_str()).unwrap_or("Inbound Lead").to_string(),
             payload.get("email").and_then(|v| v.as_str()).unwrap_or("lead@inbound.com").to_string(),
             payload.get("phone").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            payload.get("origin").or_else(|| payload.get("address")).and_then(|v| v.as_str()).unwrap_or("Address Not Specified").to_string(),
-            payload.get("destination").and_then(|v| v.as_str()).unwrap_or("Address Not Specified").to_string(),
             payload.get("items").map(|v| v.to_string()).unwrap_or_else(|| "[]".to_string()),
         ),
     };
