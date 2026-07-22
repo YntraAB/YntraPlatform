@@ -145,9 +145,10 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
         }
     };
     let mut show_swish_modal = use_signal(|| Option::<SwishPaymentSession>::None);
-    let mut show_stripe_modal = use_signal(|| Option::<StripePaymentSession>::None);
     let mut show_adyen_modal = use_signal(|| Option::<AdyenPaymentSession>::None);
-    let mut swish_polling_seconds = use_signal(|| 0);
+    let mut show_stripe_modal = use_signal(|| Option::<StripePaymentSession>::None);
+    let mut swish_polling_seconds = use_signal(|| 0i32);
+    let mut show_tracking_job_id = use_signal(|| Option::<String>::None);
 
     let state = use_context::<crate::state::AppState>();
     let workspace_opt = state.workspace.read().clone();
@@ -301,7 +302,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
     
     let elapsed_sec = *swish_polling_seconds.read();
     let progress_percent = ((elapsed_sec as f64 / 120.0) * 100.0).min(100.0) as i64;
-    let current_inv_id = invoice.as_ref().map(|i| i.id.clone()).unwrap_or_default();
+    let current_inv_id = invoice_res.read().clone().flatten().map(|i| i.id).unwrap_or_default();
 
     rsx! {
 
@@ -377,6 +378,19 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                             div { class: "flex items-center gap-1 text-xs text-muted-foreground border-t border-border/20 pt-2",
                                                 components::LucideIcon { name: "map-pin", class: "h-3.5 w-3.5 text-primary" }
                                                 span { "{job.location_address}" }
+                                            }
+                                        }
+                                        div { class: "pt-2 flex justify-end border-t border-border/20",
+                                            {
+                                                let j_id = job.id.clone();
+                                                rsx! {
+                                                    button {
+                                                        class: "px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 shadow-sm",
+                                                        onclick: move |_| show_tracking_job_id.set(Some(j_id.clone())),
+                                                        components::LucideIcon { name: "navigation", class: "h-3.5 w-3.5" }
+                                                        "Spåra Flytt (Live GPS)"
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -608,7 +622,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
 
         // Tabs Section for Moving
         div { class: "w-full animate-in fade-in zoom-in duration-300",
-            div { class: "grid w-full max-w-md grid-cols-2 bg-muted/50 rounded-xl p-1 mb-6 border border-border",
+            div { class: "grid w-full max-w-xl grid-cols-3 bg-muted/50 rounded-xl p-1 mb-6 border border-border",
                 button {
                     onclick: move |_| active_tab.set("moving_jobs".to_string()),
                     class: if *active_tab.read() == "moving_jobs" {
@@ -618,6 +632,16 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                     },
                     components::LucideIcon { name: "check-square", class: "h-3.5 w-3.5" }
                     "Mina Flyttuppdrag"
+                }
+                button {
+                    onclick: move |_| active_tab.set("inventory_builder".to_string()),
+                    class: if *active_tab.read() == "inventory_builder" {
+                        "rounded-lg gap-2 text-xs font-bold py-2 flex items-center justify-center bg-indigo-600 text-white shadow border-0 cursor-pointer"
+                    } else {
+                        "rounded-lg gap-2 text-xs font-bold py-2 flex items-center justify-center text-muted-foreground hover:bg-secondary/50 hover:text-foreground border-0 bg-transparent cursor-pointer"
+                    },
+                    components::LucideIcon { name: "package", class: "h-3.5 w-3.5" }
+                    "Möbelberäknare 🛋️"
                 }
                 button {
                     onclick: move |_| active_tab.set("moving_agreement".to_string()),
@@ -981,6 +1005,15 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                         }
                     }
                 }
+            } else if *active_tab.read() == "inventory_builder" {
+                super::inventory_builder::InteractiveSelfServiceInventoryBuilder {
+                    active_user_id: props.active_user_id.clone(),
+                    job_id: active_job_id.clone(),
+                    on_inventory_updated: move |_| {
+                        let val = *db_trigger.read();
+                        db_trigger.set(val + 1);
+                    }
+                }
             } else {
                 components::Card {
                     class: "border border-border bg-sidebar shadow-md",
@@ -1223,6 +1256,13 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                         }
                     }
                 }
+            }
+        }
+        if let Some(ref j_id) = *show_tracking_job_id.read() {
+            crate::views::jobs::live_tracking_modal::CustomerLiveTrackingModal {
+                job_id: j_id.clone(),
+                active_user_id: props.active_user_id.clone(),
+                on_close: move |_| show_tracking_job_id.set(None),
             }
         }
     }
