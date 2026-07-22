@@ -668,6 +668,53 @@ async fn test_skatteverket_rut_export_flow() {
 }
 
 #[tokio::test]
+async fn test_skatteverket_batch_export_resilience_to_invalid_pnums() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-batch-resil-test', 'Resil WS', '[\"moving_company\"]', '{\"company_org_number\":\"556888-8888\"}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-resil-staff', 'ws-batch-resil-test', 'staff@resil.io', 'admin')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('client-valid', 'ws-batch-resil-test', 'valid@resil.io', 'client', '{\"personal_number\":\"198112189876\"}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('client-invalid', 'ws-batch-resil-test', 'invalid@resil.io', 'client', '{\"personal_number\":\"invalid-pnum\"}')", ()).await.unwrap();
+
+    let job_valid = create_job_ticket(
+        "u-resil-staff".to_string(), "ws-batch-resil-test".to_string(), "Valid Move".to_string(), "Desc".to_string(), "Addr".to_string(), "medium".to_string(), Some("client-valid".to_string()), "2026-08-01".to_string(), "[]".to_string(), None, None, 0, 0, true, true, false, false,
+    ).await.unwrap();
+    conn.execute("INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status) VALUES ('quote-valid', 'ws-batch-resil-test', ?1, 1000.0, 0.0, 0.0, 0.0, 1000.0, 'accepted')", crate::params![&job_valid.id]).await.unwrap();
+    let inv_valid = generate_move_invoice("u-resil-staff".to_string(), "quote-valid".to_string(), true).await.unwrap();
+
+    let job_invalid = create_job_ticket(
+        "u-resil-staff".to_string(), "ws-batch-resil-test".to_string(), "Invalid Move".to_string(), "Desc".to_string(), "Addr".to_string(), "medium".to_string(), Some("client-invalid".to_string()), "2026-08-01".to_string(), "[]".to_string(), None, None, 0, 0, true, true, false, false,
+    ).await.unwrap();
+    conn.execute("INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status) VALUES ('quote-invalid', 'ws-batch-resil-test', ?1, 1000.0, 0.0, 0.0, 0.0, 1000.0, 'accepted')", crate::params![&job_invalid.id]).await.unwrap();
+    // Directly insert an invoice for client-invalid to simulate historical/legacy data with invalid personal number
+    let now_date = crate::infra::time::get_current_datetime_str();
+    conn.execute(
+        "INSERT INTO move_invoices (id, workspace_id, quote_id, customer_id, invoice_date, due_date, subtotal, rut_deduction, tax_authority_amount, customer_amount, status, updated_at) VALUES ('inv-invalid', 'ws-batch-resil-test', 'quote-invalid', 'client-invalid', ?1, ?1, 1000.0, 500.0, 500.0, 500.0, 'issued', 100000)",
+        crate::params![&now_date],
+    ).await.unwrap();
+
+    // Export batch containing BOTH valid and invalid invoices
+    let batch_ids = vec![inv_valid.id.clone(), "inv-invalid".to_string()];
+    let xml = export_skatteverket_claims("u-resil-staff".to_string(), batch_ids.clone(), "xml".to_string()).await.unwrap();
+    
+    // Assert XML exported valid claim and skipped invalid claim without failing batch
+    assert!(xml.contains("198112189876"));
+    assert!(!xml.contains("invalid-pnum"));
+
+    let csv = export_skatteverket_claims("u-resil-staff".to_string(), batch_ids, "csv".to_string()).await.unwrap();
+    assert!(csv.contains("198112189876"));
+    assert!(!csv.contains("invalid-pnum"));
+
+    // Cleanup
+    conn.execute("DELETE FROM move_invoices WHERE workspace_id = 'ws-batch-resil-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-batch-resil-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-batch-resil-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-batch-resil-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-batch-resil-test'", ()).await.unwrap();
+}
+
+#[tokio::test]
 async fn test_skatteverket_export_validation_failures() {
     let _lock = database::DB_TEST_LOCK.lock().unwrap();
     let conn = database::acquire_connection().await.unwrap();
@@ -806,6 +853,31 @@ async fn test_skatteverket_direct_submission() {
     conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-direct-test'", ()).await.unwrap();
     conn.execute("DELETE FROM users WHERE workspace_id = 'ws-direct-test'", ()).await.unwrap();
     conn.execute("DELETE FROM workspaces WHERE id = 'ws-direct-test'", ()).await.unwrap();
+}
+
+#[test]
+fn test_skatteverket_receipt_reference_parsing() {
+    use crate::services::jobs::billing::extract_skatteverket_receipt_reference;
+
+    // XML response format with <Mottagningsreferens>
+    let xml_body = "<Svar><Mottagningsreferens>SKV-REC-2026-991234</Mottagningsreferens><Status>OK</Status></Svar>";
+    assert_eq!(extract_skatteverket_receipt_reference(xml_body), "SKV-REC-2026-991234");
+
+    // XML response format with <Journalnummer>
+    let xml_jn_body = "<Response><Journalnummer>JN-8884920</Journalnummer></Response>";
+    assert_eq!(extract_skatteverket_receipt_reference(xml_jn_body), "JN-8884920");
+
+    // JSON response format with "mottagningsreferens"
+    let json_body = r#"{"mottagningsreferens": "JSON-REC-10020", "status": "APPROVED"}"#;
+    assert_eq!(extract_skatteverket_receipt_reference(json_body), "JSON-REC-10020");
+
+    // JSON response format with "reference_number"
+    let json_ref_body = r#"{"reference_number": "REF-994821"}"#;
+    assert_eq!(extract_skatteverket_receipt_reference(json_ref_body), "REF-994821");
+
+    // Plain text fallback
+    let plain_body = "REF-DIRECT-STRING-1234";
+    assert_eq!(extract_skatteverket_receipt_reference(plain_body), "REF-DIRECT-STRING-1234");
 }
 
 #[tokio::test]
@@ -1266,6 +1338,76 @@ async fn test_annual_personal_rut_cap_enforcement() {
 }
 
 #[tokio::test]
+async fn test_annual_rut_cap_race_condition_pending_accepted_quotes() {
+    use crate::services::jobs::billing::calculate_customer_annual_rut_used;
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    conn.execute(
+        "INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-rut-pending-test', 'RUT Pending WS', '[\"moving_company\"]', '{\"target_region\":\"SE\",\"moving_base_rate_per_m3\":1000.0,\"annual_rut_limit_per_person\":75000.0}')",
+        ()
+    ).await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-rut-p-staff', 'ws-rut-pending-test', 'staff@rutp.se', 'admin', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-rut-p-cust', 'ws-rut-pending-test', 'customer@rutp.se', 'client', '{\"personal_number\":\"19811218-9876\"}')", ()).await.unwrap();
+
+    let current_year = chrono::Utc::now().format("%Y").to_string();
+    let sched_date = format!("{}-06-15", current_year);
+
+    // Job 1 & accepted quote for 100,000 SEK base price (RUT deduction portion = 0.5 * (100000 * 0.70) = 35,000 SEK)
+    conn.execute(
+        "INSERT INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, created_at, updated_at, assigned_user_id) VALUES ('job-p-1', 'ws-rut-pending-test', 'Job 1', 'Desc', 'Addr', 'medium', 'open', ?1, '[]', 100, 100, 'u-rut-p-cust')",
+        crate::params![&sched_date]
+    ).await.unwrap();
+
+    conn.execute(
+        "INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at, sync_status) VALUES ('q-p-1', 'ws-rut-pending-test', 'job-p-1', 100000.0, 0.0, 0.0, 0.0, 100000.0, 'accepted', 100, 'pending')",
+        ()
+    ).await.unwrap();
+
+    // Existing billed invoice for 30,000 SEK RUT
+    let inv_date = format!("{}-02-10", current_year);
+    conn.execute(
+        "INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at, sync_status) VALUES ('q-p-billed', 'ws-rut-pending-test', 'job-p-1', 60000.0, 0.0, 0.0, 0.0, 60000.0, 'accepted', 100, 'pending')",
+        ()
+    ).await.unwrap();
+    conn.execute(
+        "INSERT INTO move_invoices (id, workspace_id, quote_id, customer_id, invoice_date, due_date, subtotal, rut_deduction, customer_amount, tax_authority_amount, status, updated_at, sync_status) VALUES ('inv-p-billed', 'ws-rut-pending-test', 'q-p-billed', 'u-rut-p-cust', ?1, ?1, 60000.0, 30000.0, 30000.0, 30000.0, 'paid', 100, 'pending')",
+        crate::params![&inv_date]
+    ).await.unwrap();
+
+    // Now calculate customer annual RUT used for 2026:
+    // 30,000 (billed invoice) + 35,000 (accepted unbilled quote q-p-1) = 65,000 SEK total used RUT!
+    let used_rut = calculate_customer_annual_rut_used(&conn, "ws-rut-pending-test", "u-rut-p-cust", &current_year, None).await.unwrap();
+    assert_eq!(used_rut, 65000.0);
+
+    // Create a 2nd new job & quote for 40,000 SEK base price (raw RUT would be 14,000 SEK)
+    conn.execute(
+        "INSERT INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, created_at, updated_at, assigned_user_id) VALUES ('job-p-2', 'ws-rut-pending-test', 'Job 2', 'Desc', 'Addr', 'medium', 'open', ?1, '[]', 100, 100, 'u-rut-p-cust')",
+        crate::params![&sched_date]
+    ).await.unwrap();
+    conn.execute(
+        "INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at, sync_status) VALUES ('q-p-2', 'ws-rut-pending-test', 'job-p-2', 40000.0, 0.0, 0.0, 0.0, 40000.0, 'sent', 100, 'pending')",
+        ()
+    ).await.unwrap();
+
+    // Generate invoice for q-p-2
+    let inv2 = generate_move_invoice("u-rut-p-cust".to_string(), "q-p-2".to_string(), true).await.unwrap();
+
+    // 75,000 limit - 65,000 used = 10,000 remaining RUT cap.
+    // Raw RUT was 14,000 SEK, but rut_deduction MUST be capped at 10,000 SEK!
+    assert_eq!(inv2.rut_deduction, 10000.0);
+    assert_eq!(inv2.customer_amount, 30000.0);
+
+    // Cleanup
+    conn.execute("DELETE FROM move_invoices WHERE workspace_id = 'ws-rut-pending-test'", ()).await.ok();
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-rut-pending-test'", ()).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-rut-pending-test'", ()).await.ok();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-rut-pending-test'", ()).await.ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-rut-pending-test'", ()).await.ok();
+}
+
+#[tokio::test]
 async fn test_custom_flat_pricing_zero_volume_rut_calculation() {
     let _lock = database::DB_TEST_LOCK.lock().unwrap();
     let conn = database::acquire_connection().await.unwrap();
@@ -1394,3 +1536,53 @@ async fn test_unconfigured_stripe_rejection_and_client_pay_invoice_rbac() {
     conn.execute("DELETE FROM users WHERE workspace_id = 'ws-uncfg-test'", ()).await.ok();
     conn.execute("DELETE FROM workspaces WHERE id = 'ws-uncfg-test'", ()).await.ok();
 }
+
+#[tokio::test]
+async fn test_ineligible_rut_deduction_skatteverket_compliance() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    let settings = r#"{"moving_pricing_model":"flat","moving_base_rate_per_m3":1000.0,"moving_stairs_surcharge_per_floor":300.0,"surcharge_long_carry_per_meter":50.0,"surcharge_crane_hoist":1500.0,"moving_labor_ratio_volume":1.0}"#;
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-rut-skat-test', 'RUT Skatteverket WS', '[\"moving_company\"]', ?1)", crate::params![settings]).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-rut-skat-staff', 'ws-rut-skat-test', 'staff@skat.se', 'admin', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-rut-skat-client', 'ws-rut-skat-test', 'client@skat.se', 'client', '{\"personal_number\":\"198112189876\"}')", ()).await.unwrap();
+
+    let job = create_job_ticket(
+        "u-rut-skat-staff".to_string(),
+        "ws-rut-skat-test".to_string(),
+        "RUT Skatt Move".to_string(),
+        "Desc".to_string(),
+        "Addr".to_string(),
+        "medium".to_string(),
+        Some("u-rut-skat-client".to_string()),
+        "2026-10-01".to_string(),
+        "[]".to_string(),
+        None,
+        None,
+        2, 0, false, true, false, false,
+    ).await.unwrap();
+
+    conn.execute("UPDATE job_tickets SET long_carry_meters = 20 WHERE id = ?1", crate::params![&job.id]).await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO move_inventory (id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3) VALUES ('inv-rut-skat-1', 'ws-rut-skat-test', ?1, 'Möbler', 'Standard Table', 1, 2.0)", crate::params![&job.id]).await.unwrap();
+
+    calculate_and_save_move_quote("u-rut-skat-staff".to_string(), job.id.clone()).await.unwrap();
+
+    let quote = get_move_quote("u-rut-skat-staff".to_string(), job.id.clone()).await.unwrap().unwrap();
+
+    let inv = generate_move_invoice("u-rut-skat-staff".to_string(), quote.id, true).await.unwrap();
+
+    // Total eligible labor = 2300 (base labor) + 600 (eligible stair carrying labor) = 2900 SEK
+    // Expected RUT deduction = 50% * 2900 = 1450 SEK
+    // (Note: Long carry 1000 SEK and equipment rentals are non-deductible under Skatteverket rules and strictly excluded from RUT!)
+    assert_eq!(inv.rut_deduction, 1450.0);
+
+    // Cleanup
+    conn.execute("DELETE FROM move_invoices WHERE workspace_id = 'ws-rut-skat-test'", ()).await.ok();
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-rut-skat-test'", ()).await.ok();
+    conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-rut-skat-test'", ()).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-rut-skat-test'", ()).await.ok();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-rut-skat-test'", ()).await.ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-rut-skat-test'", ()).await.ok();
+}
+

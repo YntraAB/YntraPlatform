@@ -125,8 +125,9 @@ pub async fn calculate_customer_annual_rut_used(
     current_invoice_id: Option<&str>,
 ) -> Result<f64, YntraError> {
     let year_prefix = format!("{}%", target_year);
+    // 1. Issued/paid move invoices (excluding cancelled ones)
     let mut stmt = conn.prepare(
-        "SELECT id, rut_deduction FROM move_invoices WHERE workspace_id = ?1 AND customer_id = ?2 AND invoice_date LIKE ?3 AND rut_deduction > 0.0",
+        "SELECT id, rut_deduction FROM move_invoices WHERE workspace_id = ?1 AND customer_id = ?2 AND invoice_date LIKE ?3 AND rut_deduction > 0.0 AND status != 'cancelled'",
     ).await?;
     let mut rows = stmt.query(crate::params![workspace_id, customer_id, &year_prefix]).await?;
     let mut total_rut = 0.0;
@@ -140,6 +141,25 @@ pub async fn calculate_customer_annual_rut_used(
         let rut_val: f64 = row.get(1)?;
         total_rut += rut_val;
     }
+
+    // 2. Committed RUT from pending accepted quotes not yet invoiced for this customer in target_year
+    let mut quote_stmt = conn.prepare(
+        "SELECT q.base_price, q.stairs_surcharge FROM move_quotes q
+         JOIN job_tickets j ON q.job_ticket_id = j.id
+         WHERE q.workspace_id = ?1
+           AND (j.assigned_user_id = ?2 OR j.assigned_user_id IS NULL OR j.assigned_user_id = '' OR ?2 IN (SELECT id FROM users WHERE workspace_id = ?1 AND role = 'client'))
+           AND (j.scheduled_date LIKE ?3 OR j.scheduled_date = '' OR j.scheduled_date IS NULL)
+           AND q.status = 'accepted'
+           AND q.id NOT IN (SELECT quote_id FROM move_invoices WHERE workspace_id = ?1 AND status != 'cancelled')",
+    ).await?;
+    let mut quote_rows = quote_stmt.query(crate::params![workspace_id, customer_id, &year_prefix]).await?;
+    while let Some(row) = quote_rows.next().await? {
+        let base_price: f64 = row.get(0)?;
+        let stairs_surcharge: f64 = row.get(1)?;
+        let estimated_quote_rut = 0.5 * ((base_price * 0.70) + stairs_surcharge);
+        total_rut += estimated_quote_rut;
+    }
+
     Ok(total_rut)
 }
 #[uniffi::export]
@@ -292,7 +312,27 @@ pub async fn generate_move_invoice(
         }
 
         let eligible_labor = calculate_eligible_labor_cost(&conn, &job_ticket_id, base_price, &settings_json).await?;
-        let raw_rut = 0.5 * (eligible_labor + stairs_surcharge);
+
+        let long_carry_meters: f64 = conn
+            .query_row(
+                "SELECT COALESCE(long_carry_meters, 0) FROM job_tickets WHERE id = ?1",
+                crate::params![&job_ticket_id],
+                |r| Ok(r.get::<i64>(0)? as f64),
+            )
+            .await
+            .unwrap_or(0.0);
+
+        let surcharge_long_carry_per_meter = settings_json.get("surcharge_long_carry_per_meter").and_then(|v| v.as_f64()).unwrap_or(50.0);
+        let surcharge_crane_hoist = settings_json.get("surcharge_crane_hoist").and_then(|v| v.as_f64()).unwrap_or(1500.0);
+        let requires_crane_hoist = settings_json.get("requires_crane_hoist").and_then(|v| v.as_bool()).unwrap_or(false);
+
+        let long_carry_fee = long_carry_meters * surcharge_long_carry_per_meter;
+        let crane_hoist_fee = if requires_crane_hoist { surcharge_crane_hoist } else { 0.0 };
+
+        let non_deductible_stair_additions = long_carry_fee + crane_hoist_fee;
+        let eligible_stair_labor = (stairs_surcharge - non_deductible_stair_additions).max(0.0);
+
+        let raw_rut = 0.5 * (eligible_labor + eligible_stair_labor);
 
         let used_rut = calculate_customer_annual_rut_used(&conn, &ws_id, &customer_id, &target_year, None).await.unwrap_or(0.0);
         let annual_cap = settings_json.get("annual_rut_limit_per_person").and_then(|v| v.as_f64()).unwrap_or(75000.0);
@@ -678,9 +718,28 @@ pub async fn adjust_invoice_for_actuals(
     let is_rut_active = target_region == "SE" || settings_json.get("use_rut_deduction").and_then(|v| v.as_bool()).unwrap_or(false);
 
     let (rut_deduction, tax_authority_amount, customer_amount) = if is_rut_active {
-        // Recalculate eligible labor based on the adjusted actual base price
         let eligible_labor = calculate_eligible_labor_cost(&conn, &job_ticket_id, adjusted_base_price, &settings_json).await?;
-        let raw_rut = 0.5 * (eligible_labor + stairs_surcharge);
+        
+        let long_carry_meters: f64 = conn
+            .query_row(
+                "SELECT COALESCE(long_carry_meters, 0) FROM job_tickets WHERE id = ?1",
+                crate::params![&job_ticket_id],
+                |r| Ok(r.get::<i64>(0)? as f64),
+            )
+            .await
+            .unwrap_or(0.0);
+
+        let surcharge_long_carry_per_meter = settings_json.get("surcharge_long_carry_per_meter").and_then(|v| v.as_f64()).unwrap_or(50.0);
+        let surcharge_crane_hoist = settings_json.get("surcharge_crane_hoist").and_then(|v| v.as_f64()).unwrap_or(1500.0);
+        let requires_crane_hoist = settings_json.get("requires_crane_hoist").and_then(|v| v.as_bool()).unwrap_or(false);
+
+        let long_carry_fee = long_carry_meters * surcharge_long_carry_per_meter;
+        let crane_hoist_fee = if requires_crane_hoist { surcharge_crane_hoist } else { 0.0 };
+
+        let non_deductible_stair_additions = long_carry_fee + crane_hoist_fee;
+        let eligible_stair_labor = (stairs_surcharge - non_deductible_stair_additions).max(0.0);
+
+        let raw_rut = 0.5 * (eligible_labor + eligible_stair_labor);
 
         let target_year = if invoice_date.len() >= 4 { &invoice_date[0..4] } else { "2026" };
         let used_rut = calculate_customer_annual_rut_used(&conn, &auth.workspace_id, &customer_id, target_year, Some(&invoice_id)).await.unwrap_or(0.0);
