@@ -149,6 +149,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
     let mut show_adyen_modal = use_signal(|| Option::<AdyenPaymentSession>::None);
     let mut show_stripe_modal = use_signal(|| Option::<StripePaymentSession>::None);
     let mut swish_polling_seconds = use_signal(|| 0i32);
+    let mut swish_payment_status = use_signal(|| "pending".to_string());
     let mut show_tracking_job_id = use_signal(|| Option::<String>::None);
 
     let state = use_context::<crate::state::AppState>();
@@ -204,9 +205,20 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
             "US" => " $".to_string(),
             "DE" | "FR" | "ES" | "IT" | "NL" | "AT" | "FI" => " €".to_string(),
             "GB" => " £".to_string(),
-            _ => " kr".to_string(),
-        }
     };
+
+    let dynamic_tax_rate = settings_json
+        .get("tax_rate")
+        .and_then(|v| v.as_f64())
+        .unwrap_or_else(|| {
+            if target_region == "US" {
+                settings_json.get("sales_tax_rate").and_then(|v| v.as_f64()).unwrap_or(0.08)
+            } else if target_region == "DE" {
+                settings_json.get("vat_rate").and_then(|v| v.as_f64()).unwrap_or(0.19)
+            } else {
+                0.0
+            }
+        });
 
     let active_gateway = if let Some(ref gw) = configured_gateway {
         gw.clone()
@@ -321,36 +333,43 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                 if let Ok(session) = initiate_swish_payment(uid.clone(), invoice_id.clone()).await {
                     show_swish_modal.set(Some(session.clone()));
                     swish_polling_seconds.set(0);
+                    swish_payment_status.set("pending".to_string());
                     
                     let invoice_id_c = invoice_id.clone();
                     let uid_c = uid.clone();
                     let token_c = session.token.clone();
                     spawn(async move {
+                        let mut resolved = false;
                         // Poll Swish payment status every 2 seconds for up to 120 seconds (60 iterations)
                         for iteration in 1..=60 {
                             crate::utils::sleep_ms(2000).await;
                             if show_swish_modal.read().is_none() {
+                                resolved = true;
                                 break;
                             }
                             swish_polling_seconds.set(iteration * 2);
                             
                             if let Ok(status) = check_swish_payment_status(uid_c.clone(), invoice_id_c.clone(), token_c.clone()).await {
                                 if status == "paid" {
+                                    resolved = true;
+                                    swish_payment_status.set("paid".to_string());
+                                    swish_polling_seconds.set(120);
                                     let current_val = *db_trigger.read();
                                     db_trigger.set(current_val + 1);
-                                    
-                                    // Set to 120 to show completed progress and Betalning Godkänd! in UI
-                                    swish_polling_seconds.set(120);
                                     
                                     // Pause to let the user see the success state
                                     crate::utils::sleep_ms(1500).await;
                                     show_swish_modal.set(None);
                                     break;
                                 } else if status == "failed" || status == "declined" || status == "cancelled" {
-                                    show_swish_modal.set(None);
+                                    resolved = true;
+                                    swish_payment_status.set(status);
                                     break;
                                 }
                             }
+                        }
+                        if !resolved && show_swish_modal.read().is_some() {
+                            swish_payment_status.set("timeout".to_string());
                         }
                     });
                 }
@@ -505,17 +524,18 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                     let labor_cost = q.base_price + q.stairs_surcharge;
                                     
                                     let (tax_amount, final_total) = match target_region.as_str() {
-                                        "US" => {
-                                            let tax = q.total_price * 0.08;
-                                            (tax, q.total_price + tax)
-                                        }
-                                        "DE" => {
-                                            let tax = q.total_price * 0.19;
+                                        "US" | "DE" => {
+                                            let tax = q.total_price * dynamic_tax_rate;
                                             (tax, q.total_price + tax)
                                         }
                                         _ => {
-                                            let rut = if is_rut { 0.5 * labor_cost } else { 0.0 };
-                                            (rut, q.total_price - rut)
+                                            if dynamic_tax_rate > 0.0 && !is_rut {
+                                                let tax = q.total_price * dynamic_tax_rate;
+                                                (tax, q.total_price + tax)
+                                            } else {
+                                                let rut = if is_rut { 0.5 * labor_cost } else { 0.0 };
+                                                (rut, q.total_price - rut)
+                                            }
                                         }
                                     };
 
@@ -1154,14 +1174,33 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                             span { class: "font-mono font-semibold text-foreground/80", "{current_inv_id}" }
                         }
                     }
+                    let current_sw_status = swish_payment_status.read().clone();
                     div { class: "w-full space-y-2 pt-1",
-                        div { class: "flex items-center justify-center gap-2 text-xs font-semibold text-primary",
-                            if elapsed_sec < 120 {
-                                div { class: "w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" }
-                                span { "Väntar på BankID-signering..." }
-                            } else {
+                        if current_sw_status == "paid" {
+                            div { class: "flex items-center justify-center gap-2 text-xs font-semibold text-emerald-500",
                                 components::LucideIcon { name: "check-circle", class: "h-4 w-4 text-emerald-500 animate-bounce" }
-                                span { class: "text-emerald-500", "Betalning Godkänd!" }
+                                span { "Betalning Godkänd!" }
+                            }
+                        } else if current_sw_status == "timeout" {
+                            div { class: "flex flex-col items-center justify-center gap-1 text-xs font-semibold text-amber-500 text-center",
+                                div { class: "flex items-center gap-1.5",
+                                    components::LucideIcon { name: "clock", class: "h-4 w-4 text-amber-500" }
+                                    span { "Tidsgränsen passerades (120s)" }
+                                }
+                                span { class: "text-[11px] font-normal text-muted-foreground", "Ingen bekräftelse mottogs i tid. Kontrollera din Swish-app eller försök igen." }
+                            }
+                        } else if current_sw_status == "failed" || current_sw_status == "declined" || current_sw_status == "cancelled" {
+                            div { class: "flex flex-col items-center justify-center gap-1 text-xs font-semibold text-destructive text-center",
+                                div { class: "flex items-center gap-1.5",
+                                    components::LucideIcon { name: "alert-circle", class: "h-4 w-4 text-destructive" }
+                                    span { "Betalningen avbröts eller misslyckades" }
+                                }
+                                span { class: "text-[11px] font-normal text-muted-foreground", "Var god försök igen eller välj ett annat betalsätt." }
+                            }
+                        } else {
+                            div { class: "flex items-center justify-center gap-2 text-xs font-semibold text-primary",
+                                div { class: "w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" }
+                                span { "Väntar på BankID-signering... (max 120s)" }
                             }
                         }
                         div { class: "w-full h-1.5 bg-muted rounded-full overflow-hidden border border-border/10",
@@ -1172,19 +1211,36 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                         }
                     }
                     div { class: "w-full pt-1 flex flex-col gap-2",
-                        a {
-                            href: "{swish_url}",
-                            class: "w-full py-2.5 rounded-xl bg-primary hover:opacity-90 text-xs font-bold text-primary-foreground text-center no-underline border-0 cursor-pointer transition-all flex items-center justify-center gap-1.5",
-                            components::LucideIcon { name: "smartphone", size: "14" }
-                            "Öppna Swish-appen"
-                        }
-                        button {
-                            onclick: {
-                                let inv_id = current_inv_id.clone();
-                                move |_| on_complete_swish_payment(inv_id.clone())
-                            },
-                            class: "w-full py-2 rounded-xl bg-secondary hover:bg-secondary/80 text-[10px] font-bold text-secondary-foreground border-0 cursor-pointer transition-all",
-                            "Simulera Godkännande (Test)"
+                        if current_sw_status == "timeout" || current_sw_status == "failed" || current_sw_status == "declined" || current_sw_status == "cancelled" {
+                            button {
+                                onclick: {
+                                    let inv_id = current_inv_id.clone();
+                                    move |_| on_pay_invoice(inv_id.clone())
+                                },
+                                class: "w-full py-2.5 rounded-xl bg-primary hover:opacity-90 text-xs font-bold text-primary-foreground text-center border-0 cursor-pointer transition-all flex items-center justify-center gap-1.5",
+                                components::LucideIcon { name: "refresh-cw", size: "14" }
+                                "Starta om Swish-betalning (Försök igen)"
+                            }
+                            button {
+                                onclick: move |_| show_swish_modal.set(None),
+                                class: "w-full py-2 rounded-xl bg-muted hover:bg-muted/80 text-xs font-semibold text-foreground border-0 cursor-pointer transition-all",
+                                "Stäng fönstret"
+                            }
+                        } else {
+                            a {
+                                href: "{swish_url}",
+                                class: "w-full py-2.5 rounded-xl bg-primary hover:opacity-90 text-xs font-bold text-primary-foreground text-center no-underline border-0 cursor-pointer transition-all flex items-center justify-center gap-1.5",
+                                components::LucideIcon { name: "smartphone", size: "14" }
+                                "Öppna Swish-appen"
+                            }
+                            button {
+                                onclick: {
+                                    let inv_id = current_inv_id.clone();
+                                    move |_| on_complete_swish_payment(inv_id.clone())
+                                },
+                                class: "w-full py-2 rounded-xl bg-secondary hover:bg-secondary/80 text-[10px] font-bold text-secondary-foreground border-0 cursor-pointer transition-all",
+                                "Simulera Godkännande (Test)"
+                            }
                         }
                     }
                 }
