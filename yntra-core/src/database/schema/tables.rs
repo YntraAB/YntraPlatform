@@ -259,6 +259,7 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             name TEXT NOT NULL,
             license_plate TEXT NOT NULL,
             capacity_m3 REAL NOT NULL,
+            max_payload_kg REAL,
             status TEXT NOT NULL,
             updated_at INTEGER NOT NULL DEFAULT 0,
             sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),

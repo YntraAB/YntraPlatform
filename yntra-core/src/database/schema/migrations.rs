@@ -979,7 +979,8 @@ pub async fn run_schema_migrations(
             "ALTER TABLE vehicles ADD COLUMN latitude REAL;
              ALTER TABLE vehicles ADD COLUMN longitude REAL;
              ALTER TABLE vehicles ADD COLUMN last_ping INTEGER;
-             ALTER TABLE vehicles ADD COLUMN gps_device_id TEXT;",
+             ALTER TABLE vehicles ADD COLUMN gps_device_id TEXT;
+             ALTER TABLE vehicles ADD COLUMN max_payload_kg REAL;",
         )
         .await?;
         version = 21;

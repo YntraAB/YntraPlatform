@@ -129,14 +129,55 @@ async fn test_vehicle_capacity_validation() {
     let err_msg = assign_res_fail.unwrap_err().to_string();
     assert!(err_msg.contains("exceeds vehicle capacity"));
 
-    // 6. Delete heavy item and insert small item (3.0 m3)
-    conn.execute("DELETE FROM move_inventory WHERE id = 'inv-cap-1'", ()).await.unwrap();
+    // 6. Test spatial packing buffer edge case: 30 m3 cargo assigned to 32 m3 vehicle
+    // 30 m3 * 1.2 buffer = 36 m3 required volume > 32 m3 vehicle capacity
     conn.execute(
-        "INSERT INTO move_inventory (id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3) VALUES ('inv-cap-2', 'ws-cap-test', ?1, 'Möbler', 'Small Table', 1, 3.0)",
+        "INSERT OR REPLACE INTO vehicles (id, workspace_id, name, license_plate, capacity_m3, status) VALUES ('v-cap-32', 'ws-cap-test', 'Mid Truck', 'MID-320', 32.0, 'active')",
+        ()
+    ).await.unwrap();
+    conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = ?1", crate::params![&job.id]).await.unwrap();
+    conn.execute(
+        "INSERT INTO move_inventory (id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3) VALUES ('inv-cap-30', 'ws-cap-test', ?1, 'Möbler', '30m3 Cargo', 1, 30.0)",
         crate::params![&job.id]
     ).await.unwrap();
 
-    // 7. Verify assignment succeeds with smaller volume
+    let assign_res_buffer_fail = assign_vehicle_to_job(
+        "u-cap-staff".to_string(),
+        job.id.clone(),
+        Some("v-cap-32".to_string())
+    ).await;
+    assert!(assign_res_buffer_fail.is_err());
+    let err_buf_msg = assign_res_buffer_fail.unwrap_err().to_string();
+    assert!(err_buf_msg.contains("20% packing buffer"));
+
+    // 7. Test max_payload_kg enforcement: 1200 kg cargo assigned to 1000 kg payload vehicle
+    conn.execute(
+        "INSERT OR REPLACE INTO vehicles (id, workspace_id, name, license_plate, capacity_m3, max_payload_kg, status) VALUES ('v-payload-1000', 'ws-cap-test', 'Light Van', 'PAY-100', 20.0, 1000.0, 'active')",
+        ()
+    ).await.unwrap();
+    conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = ?1", crate::params![&job.id]).await.unwrap();
+    conn.execute(
+        "INSERT INTO move_inventory (id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, estimated_weight_kg) VALUES ('inv-heavy-weight', 'ws-cap-test', ?1, 'Möbler', 'Heavy Safe', 1, 2.0, 1200.0)",
+        crate::params![&job.id]
+    ).await.unwrap();
+
+    let assign_res_payload_fail = assign_vehicle_to_job(
+        "u-cap-staff".to_string(),
+        job.id.clone(),
+        Some("v-payload-1000".to_string())
+    ).await;
+    assert!(assign_res_payload_fail.is_err());
+    let err_pay_msg = assign_res_payload_fail.unwrap_err().to_string();
+    assert!(err_pay_msg.contains("exceeds vehicle max payload limit"));
+
+    // 8. Delete heavy item and insert small item (3.0 m3, 50 kg)
+    conn.execute("DELETE FROM move_inventory WHERE id = 'inv-heavy-weight'", ()).await.unwrap();
+    conn.execute(
+        "INSERT INTO move_inventory (id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, estimated_weight_kg) VALUES ('inv-cap-2', 'ws-cap-test', ?1, 'Möbler', 'Small Table', 1, 3.0, 50.0)",
+        crate::params![&job.id]
+    ).await.unwrap();
+
+    // 9. Verify assignment succeeds with smaller volume and weight
     let assign_res2 = assign_vehicle_to_job(
         "u-cap-staff".to_string(),
         job.id.clone(),

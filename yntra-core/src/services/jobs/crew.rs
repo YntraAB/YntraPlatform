@@ -93,34 +93,28 @@ pub async fn assign_vehicle_to_job(
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        if total_volume > capacity_m3 {
+        let required_volume = total_volume * 1.2;
+        if required_volume > capacity_m3 {
             if enforce_single_trip {
                 return Err(YntraError::ValidationError(format!(
-                    "Cannot assign vehicle {}: total cargo volume ({:.2} m³) exceeds vehicle capacity ({:.2} m³)",
-                    vehicle_name, total_volume, capacity_m3
+                    "Cannot assign vehicle {}: required loading volume with 20% packing buffer ({:.2} m³) exceeds vehicle capacity ({:.2} m³)",
+                    vehicle_name, required_volume, capacity_m3
                 )));
             } else {
-                let trips_needed = (total_volume / capacity_m3).ceil() as i64;
+                let trips_needed = (required_volume / capacity_m3).ceil() as i64;
                 tracing::info!(
-                    "Vehicle {} assigned to job {} requires {} trips. Cargo volume ({:.2} m³) exceeds vehicle capacity ({:.2} m³)",
-                    vehicle_name, job_id, trips_needed, total_volume, capacity_m3
+                    "Vehicle {} assigned to job {} requires {} trips. Required loading volume with 20% packing buffer ({:.2} m³) exceeds vehicle capacity ({:.2} m³)",
+                    vehicle_name, job_id, trips_needed, required_volume, capacity_m3
                 );
             }
         }
 
         if let Some(payload) = max_payload_kg {
             if payload > 0.0 && total_weight > payload {
-                if enforce_single_trip {
-                    return Err(YntraError::ValidationError(format!(
-                        "Cannot assign vehicle {}: total cargo weight ({:.2} kg) exceeds vehicle max payload limit ({:.2} kg)",
-                        vehicle_name, total_weight, payload
-                    )));
-                } else {
-                    tracing::warn!(
-                        "Vehicle {} assigned to job {} exceeds max payload limit. Cargo weight ({:.2} kg) exceeds payload ({:.2} kg)",
-                        vehicle_name, job_id, total_weight, payload
-                    );
-                }
+                return Err(YntraError::ValidationError(format!(
+                    "Cannot assign vehicle {}: total cargo weight ({:.2} kg) exceeds vehicle max payload limit ({:.2} kg)",
+                    vehicle_name, total_weight, payload
+                )));
             }
         }
     }
