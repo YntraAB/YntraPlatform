@@ -82,10 +82,21 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
     let mut selected_job_id = use_signal(|| Option::<String>::None);
     let jobs = jobs_res.read().clone().unwrap_or_default();
 
-    let active_job_id = match selected_job_id.read().clone() {
-        Some(id) if jobs.iter().any(|j| j.id == id) => id,
-        _ => jobs.first().map(|j| j.id.clone()).unwrap_or_default(),
-    };
+    use_effect(move || {
+        let current_jobs = jobs_res.read().clone().unwrap_or_default();
+        if !current_jobs.is_empty() {
+            let sel = selected_job_id.read().clone();
+            if sel.is_none() || !current_jobs.iter().any(|j| j.id == sel.as_deref().unwrap_or("")) {
+                selected_job_id.set(Some(current_jobs[0].id.clone()));
+            }
+        }
+    });
+
+    let active_job_id = selected_job_id
+        .read()
+        .clone()
+        .or_else(|| jobs.first().map(|j| j.id.clone()))
+        .unwrap_or_default();
     let active_job = jobs.iter().find(|j| j.id == active_job_id).cloned();
 
     let active_job_id_for_inv = active_job_id.clone();
@@ -232,21 +243,55 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
         "stripe".to_string()
     };
 
+    let is_english = target_region != "SE";
+
     let payment_method_label = match active_gateway.as_str() {
-        "stripe" | "card" => "Betala med Stripe (Kort)".to_string(),
-        "adyen" => "Betala med Adyen".to_string(),
-        "swish" => "Betala med Swish".to_string(),
-        gw => format!("Betala med {}", gw),
+        "stripe" | "card" => if is_english { "Pay with Card (Stripe)".to_string() } else { "Betala med Stripe (Kort)".to_string() },
+        "adyen" => if is_english { "Pay with Adyen".to_string() } else { "Betala med Adyen".to_string() },
+        "swish" => if is_english { "Pay with Swish".to_string() } else { "Betala med Swish".to_string() },
+        gw => if is_english { format!("Pay with {}", gw) } else { format!("Betala med {}", gw) },
     };
 
-    let tax_label = if target_region == "US" || configured_currency.as_deref() == Some("USD") {
-        "Moms / Sales Tax:".to_string()
-    } else if target_region == "DE" || configured_currency.as_deref() == Some("EUR") {
-        "Moms / VAT (MwSt):".to_string()
-    } else if target_region == "SE" || configured_currency.as_deref() == Some("SEK") {
-        "Skatteverket RUT-avdrag (söks av oss):".to_string()
-    } else {
-        "Moms / VAT:".to_string()
+    let tax_label = match (target_region.as_str(), configured_currency.as_deref()) {
+        // Nordics
+        ("SE", _) | (_, Some("SEK")) => "Skatteverket RUT-avdrag (söks av oss):".to_string(),
+        ("NO", _) | (_, Some("NOK")) => "MVA / Merverdiavgift (25%):".to_string(),
+        ("DK", _) | (_, Some("DKK")) => "Moms / Merværdiafgift (25%):".to_string(),
+        ("FI", _) => "ALV / Arvonlisävero (25.5%):".to_string(),
+        ("IS", _) | (_, Some("ISK")) => "VSK / Virðisaukaskattur (24%):".to_string(),
+
+        // North America
+        ("US", _) | (_, Some("USD")) => "Sales Tax:".to_string(),
+        ("CA", _) | (_, Some("CAD")) => "GST / HST / PST:".to_string(),
+        ("MX", _) | (_, Some("MXN")) => "IVA / Impuesto al Valor Agregado (16%):".to_string(),
+
+        // UK, Ireland, Commonwealth & Oceania
+        ("GB", _) | ("UK", _) | (_, Some("GBP")) => "VAT (20%):".to_string(),
+        ("IE", _) => "VAT / Value Added Tax (23%):".to_string(),
+        ("AU", _) | (_, Some("AUD")) => "GST / Goods and Services Tax (10%):".to_string(),
+        ("NZ", _) | (_, Some("NZD")) => "GST / Goods and Services Tax (15%):".to_string(),
+
+        // DACH & Western Europe
+        ("DE", _) => "MwSt / Umsatzsteuer (19%):".to_string(),
+        ("AT", _) => "MwSt / USt (20%):".to_string(),
+        ("CH", _) | (_, Some("CHF")) => "MWST / TVA / IVA (8.1%):".to_string(),
+        ("NL", _) => "Btw / Omzetbelasting (21%):".to_string(),
+        ("BE", _) => "TVA / BTW (21%):".to_string(),
+        ("FR", _) => "TVA / Taxe sur la valeur ajoutée (20%):".to_string(),
+        ("ES", _) => "IVA / Impuesto sobre el Valor Añadido (21%):".to_string(),
+        ("IT", _) => "IVA / Imposta sul Valore Aggiunto (22%):".to_string(),
+        ("PT", _) => "IVA / Imposto sobre o Valor Acrescentado (23%):".to_string(),
+
+        // Asia Pacific & Middle East & LatAm
+        ("JP", _) | (_, Some("JPY")) => "消費税 / Consumption Tax (10%):".to_string(),
+        ("SG", _) | (_, Some("SGD")) => "GST / Goods and Services Tax (9%):".to_string(),
+        ("AE", _) | (_, Some("AED")) => "VAT / Value Added Tax (5%):".to_string(),
+        ("SA", _) | (_, Some("SAR")) => "VAT / Value Added Tax (15%):".to_string(),
+        ("BR", _) | (_, Some("BRL")) => "Impostos / ICMS / ISS:".to_string(),
+
+        // Fallback for EUR or general international
+        (_, Some("EUR")) => "VAT (MwSt / TVA / Btw):".to_string(),
+        _ => "VAT / Sales Tax:".to_string(),
     };
 
     let quote_id_for_inv = quote.as_ref().map(|q| q.id.clone()).unwrap_or_default();
@@ -312,6 +357,83 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                 db_trigger.set(current_val + 1);
             }
             show_adyen_modal.set(None);
+        });
+    };
+
+    let active_uid_for_swish_retry = props.active_user_id.clone();
+    let on_retry_swish = move |invoice_id: String| {
+        let uid = active_uid_for_swish_retry.clone();
+        spawn(async move {
+            swish_payment_status.set("pending".to_string());
+            swish_polling_seconds.set(0);
+            if let Ok(session) = initiate_swish_payment(uid.clone(), invoice_id.clone()).await {
+                show_swish_modal.set(Some(session.clone()));
+                let invoice_id_c = invoice_id.clone();
+                let uid_c = uid.clone();
+                let token_c = session.token.clone();
+                spawn(async move {
+                    let mut resolved = false;
+                    for iteration in 1..=60 {
+                        crate::utils::sleep_ms(2000).await;
+                        if show_swish_modal.read().is_none() {
+                            resolved = true;
+                            break;
+                        }
+                        swish_polling_seconds.set(iteration * 2);
+                        if let Ok(status) = check_swish_payment_status(uid_c.clone(), invoice_id_c.clone(), token_c.clone()).await {
+                            if status == "paid" {
+                                resolved = true;
+                                swish_payment_status.set("paid".to_string());
+                                swish_polling_seconds.set(120);
+                                let current_val = *db_trigger.read();
+                                db_trigger.set(current_val + 1);
+                                crate::utils::sleep_ms(1500).await;
+                                show_swish_modal.set(None);
+                                break;
+                            } else if status == "failed" || status == "declined" || status == "cancelled" {
+                                resolved = true;
+                                swish_payment_status.set(status);
+                                break;
+                            }
+                        }
+                    }
+                    if !resolved && show_swish_modal.read().is_some() {
+                        swish_payment_status.set("timeout".to_string());
+                    }
+                });
+            } else {
+                swish_payment_status.set("failed".to_string());
+            }
+        });
+    };
+
+    let active_uid_for_card_fallback = props.active_user_id.clone();
+    let on_fallback_to_card = move |invoice_id: String| {
+        let uid = active_uid_for_card_fallback.clone();
+        spawn(async move {
+            show_swish_modal.set(None);
+            if let Ok(session) = initiate_stripe_payment(uid, invoice_id).await {
+                show_stripe_modal.set(Some(session));
+            }
+        });
+    };
+
+    let active_uid_for_manual_check = props.active_user_id.clone();
+    let on_manual_swish_check = move |invoice_id: String| {
+        let uid = active_uid_for_manual_check.clone();
+        let session_token = show_swish_modal.read().as_ref().map(|s| s.token.clone()).unwrap_or_default();
+        spawn(async move {
+            if let Ok(status) = check_swish_payment_status(uid, invoice_id, session_token).await {
+                if status == "paid" {
+                    swish_payment_status.set("paid".to_string());
+                    let current_val = *db_trigger.read();
+                    db_trigger.set(current_val + 1);
+                    crate::utils::sleep_ms(1500).await;
+                    show_swish_modal.set(None);
+                } else {
+                    swish_payment_status.set(status);
+                }
+            }
         });
     };
 
@@ -945,10 +1067,10 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                                                             value: "{new_item_category}",
                                                                             onchange: move |e: FormEvent| new_item_category.set(e.value()),
                                                                             class: "w-full text-xs p-1.5 rounded border border-border bg-background text-foreground focus:outline-none focus:border-primary",
-                                                                            option { value: "Möbler", "Möbler" }
-                                                                            option { value: "Kartonger", "Kartonger" }
-                                                                            option { value: "Vitvaror", "Vitvaror" }
-                                                                            option { value: "Övrigt", "Övrigt" }
+                                                                            option { value: "Möbler", if is_english { "Furniture" } else { "Möbler" } }
+                                                                            option { value: "Kartonger", if is_english { "Boxes" } else { "Kartonger" } }
+                                                                            option { value: "Vitvaror", if is_english { "Appliances" } else { "Vitvaror" } }
+                                                                            option { value: "Övrigt", if is_english { "Other" } else { "Övrigt" } }
                                                                         }
                                                                     }
                                                                 }
@@ -1215,15 +1337,33 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                             button {
                                 onclick: {
                                     let inv_id = current_inv_id.clone();
-                                    move |_| on_pay_invoice(inv_id.clone())
+                                    move |_| on_retry_swish(inv_id.clone())
                                 },
-                                class: "w-full py-2.5 rounded-xl bg-primary hover:opacity-90 text-xs font-bold text-primary-foreground text-center border-0 cursor-pointer transition-all flex items-center justify-center gap-1.5",
+                                class: "w-full py-2.5 rounded-xl bg-primary hover:opacity-90 text-xs font-bold text-primary-foreground text-center border-0 cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow",
                                 components::LucideIcon { name: "refresh-cw", size: "14" }
-                                "Starta om Swish-betalning (Försök igen)"
+                                "Generera Ny Swish QR-kod (Försök igen)"
+                            }
+                            button {
+                                onclick: {
+                                    let inv_id = current_inv_id.clone();
+                                    move |_| on_manual_swish_check(inv_id.clone())
+                                },
+                                class: "w-full py-2 rounded-xl bg-secondary hover:bg-secondary/80 text-xs font-semibold text-secondary-foreground text-center border border-border/40 cursor-pointer transition-all flex items-center justify-center gap-1.5",
+                                components::LucideIcon { name: "search", size: "14" }
+                                "Kontrollera status igen (Manuell sökning)"
+                            }
+                            button {
+                                onclick: {
+                                    let inv_id = current_inv_id.clone();
+                                    move |_| on_fallback_to_card(inv_id.clone())
+                                },
+                                class: "w-full py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white text-center border-0 cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-sm",
+                                components::LucideIcon { name: "credit-card", size: "14" }
+                                "Växla till Kortbetalning (Stripe)"
                             }
                             button {
                                 onclick: move |_| show_swish_modal.set(None),
-                                class: "w-full py-2 rounded-xl bg-muted hover:bg-muted/80 text-xs font-semibold text-foreground border-0 cursor-pointer transition-all",
+                                class: "w-full py-1.5 rounded-xl bg-transparent hover:bg-muted/40 text-[11px] font-medium text-muted-foreground border-0 cursor-pointer transition-all",
                                 "Stäng fönstret"
                             }
                         } else {
