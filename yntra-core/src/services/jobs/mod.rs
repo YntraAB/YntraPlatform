@@ -62,6 +62,8 @@ pub use moves::get_move_quote;
 pub use moves::get_move_quote_revisions;
 pub use moves::MoveQuoteRevision;
 pub use moves::accept_move_quote;
+pub use moves::accept_move_quote_with_rut;
+pub use moves::update_customer_personal_number;
 pub use moves::create_move_inventory_item;
 pub use moves::create_move_inventory_item_with_details;
 pub use moves::scan_inventory_item_by_barcode;

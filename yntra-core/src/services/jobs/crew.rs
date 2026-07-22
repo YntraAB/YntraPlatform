@@ -110,10 +110,16 @@ pub async fn assign_vehicle_to_job(
         }
 
         if let Some(payload) = max_payload_kg {
-            if payload > 0.0 && total_weight > payload {
+            let crew_size = settings_json.get("moving_default_crew_size").and_then(|v| v.as_f64()).unwrap_or(2.0);
+            let crew_weight_kg = crew_size * 85.0; // 85 kg per crew member
+            let equipment_and_fuel_buffer_kg = settings_json.get("vehicle_tare_equipment_buffer_kg").and_then(|v| v.as_f64()).unwrap_or(300.0); // Fuel, tailgate, ramps, dollies, blankets
+            let operational_tare_buffer = crew_weight_kg + equipment_and_fuel_buffer_kg;
+            let total_operational_payload = total_weight + operational_tare_buffer;
+
+            if payload > 0.0 && total_operational_payload > payload {
                 return Err(YntraError::ValidationError(format!(
-                    "Cannot assign vehicle {}: total cargo weight ({:.2} kg) exceeds vehicle max payload limit ({:.2} kg)",
-                    vehicle_name, total_weight, payload
+                    "Cannot assign vehicle {}: total operational payload ({:.1} kg cargo + {:.1} kg crew/equipment/fuel = {:.1} kg) exceeds vehicle max payload limit ({:.1} kg)",
+                    vehicle_name, total_weight, operational_tare_buffer, total_operational_payload, payload
                 )));
             }
         }
