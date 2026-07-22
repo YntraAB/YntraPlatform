@@ -650,7 +650,20 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
                             let classroom_val = if classroom_text.read().is_empty() { None } else { Some(classroom_text.read().clone()) };
 
                             let vehicle_val = if vehicle_id_text.read().is_empty() { None } else { Some(vehicle_id_text.read().clone()) };
-                            let volume_val = if cargo_volume_text.read().is_empty() { None } else { Some(cargo_volume_text.read().clone()) };
+                            let volume_val = {
+                                let raw = cargo_volume_text.read().trim().to_string();
+                                if raw.is_empty() {
+                                    None
+                                } else if let Ok(val) = raw.parse::<f64>() {
+                                    if val >= 0.0 {
+                                        Some(format!("{:.1}", val))
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                }
+                            };
                             let dest_val = if destination_text.read().is_empty() { None } else { Some(destination_text.read().clone()) };
 
                             let metadata_obj = EventMetadata {

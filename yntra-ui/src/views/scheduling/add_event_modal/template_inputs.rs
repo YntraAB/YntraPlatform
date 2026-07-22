@@ -92,6 +92,16 @@ pub fn TemplateInputs(props: TemplateInputsProps) -> Element {
             }
         }
         WorkspaceTemplateType::MovingCompany => {
+            let is_volume_invalid = {
+                let val = cargo_volume_text.read().trim().to_string();
+                !val.is_empty() && val.parse::<f64>().map_or(true, |v| v < 0.0)
+            };
+            let volume_input_class = if is_volume_invalid {
+                "border-destructive focus-visible:ring-destructive bg-destructive/10 w-full"
+            } else {
+                "border-border bg-muted/50 w-full"
+            };
+
             rsx! {
                 div { class: "grid grid-cols-3 gap-4",
                     div { class: "flex flex-col gap-1.5",
@@ -108,14 +118,32 @@ pub fn TemplateInputs(props: TemplateInputsProps) -> Element {
                     }
                     div { class: "flex flex-col gap-1.5",
                         label { class: "text-xs font-semibold uppercase tracking-wider text-muted-foreground",
-                            "{t(\"scheduler-volume\", &props.locale)}"
+                            "{t(\"scheduler-volume\", &props.locale)} (m³)"
                         }
                         crate::components::Input {
-                            r#type: "text",
-                            class: "border-border bg-muted/50 w-full",
-                            placeholder: "e.g. 25",
+                            r#type: "number",
+                            class: "{volume_input_class}",
+                            placeholder: "e.g. 25.0",
                             value: "{cargo_volume_text}",
-                            oninput: move |e: FormEvent| cargo_volume_text.set(e.value())
+                            oninput: move |e: FormEvent| {
+                                let raw = e.value();
+                                let sanitized: String = raw.chars()
+                                    .filter(|c| c.is_ascii_digit() || *c == '.' || *c == ',')
+                                    .collect();
+                                let sanitized = sanitized.replace(',', ".");
+                                let parts: Vec<&str> = sanitized.split('.').collect();
+                                let final_val = if parts.len() > 2 {
+                                    format!("{}.{}", parts[0], parts[1..].join(""))
+                                } else {
+                                    sanitized
+                                };
+                                cargo_volume_text.set(final_val);
+                            }
+                        }
+                        if is_volume_invalid {
+                            span { class: "text-[10px] text-destructive font-medium",
+                                "Ange ett giltigt tal ≥ 0 (m³)"
+                            }
                         }
                     }
                     div { class: "flex flex-col gap-1.5",

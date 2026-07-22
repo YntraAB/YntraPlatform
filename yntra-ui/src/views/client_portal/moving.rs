@@ -17,16 +17,16 @@ struct InventoryTemplate {
 
 const TEMPLATES: &[InventoryTemplate] = &[
     InventoryTemplate { name: "Flyttkartong", category: "Kartonger", volume: 0.1 },
-    InventoryTemplate { name: "Säng (enkel)", category: "Möbler", volume: 0.6 },
-    InventoryTemplate { name: "Säng (dubbel)", category: "Möbler", volume: 1.2 },
-    InventoryTemplate { name: "Soffa (3-sits)", category: "Möbler", volume: 1.5 },
-    InventoryTemplate { name: "Matbord", category: "Möbler", volume: 0.8 },
+    InventoryTemplate { name: "Säng (enkel)", category: "Möbler", volume: 1.2 },
+    InventoryTemplate { name: "Säng (dubbel)", category: "Möbler", volume: 2.4 },
+    InventoryTemplate { name: "Soffa (3-sits)", category: "Möbler", volume: 1.8 },
+    InventoryTemplate { name: "Matbord", category: "Möbler", volume: 1.2 },
     InventoryTemplate { name: "Stol", category: "Möbler", volume: 0.2 },
-    InventoryTemplate { name: "Garderob", category: "Möbler", volume: 1.0 },
+    InventoryTemplate { name: "Garderob", category: "Möbler", volume: 2.0 },
     InventoryTemplate { name: "Bokhylla", category: "Möbler", volume: 0.8 },
-    InventoryTemplate { name: "Byrå", category: "Möbler", volume: 0.5 },
-    InventoryTemplate { name: "Kyl/Frys", category: "Vitvaror", volume: 1.0 },
-    InventoryTemplate { name: "Tvättmaskin", category: "Vitvaror", volume: 0.5 },
+    InventoryTemplate { name: "Byrå", category: "Möbler", volume: 0.7 },
+    InventoryTemplate { name: "Kyl/Frys", category: "Vitvaror", volume: 1.5 },
+    InventoryTemplate { name: "Tvättmaskin", category: "Vitvaror", volume: 0.6 },
 ];
 
 
@@ -79,13 +79,14 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
             }
         }
     });
+    let mut selected_job_id = use_signal(|| Option::<String>::None);
     let jobs = jobs_res.read().clone().unwrap_or_default();
 
-    let active_job = jobs.first().cloned();
-    let active_job_id = active_job
-        .as_ref()
-        .map(|j| j.id.clone())
-        .unwrap_or_default();
+    let active_job_id = match selected_job_id.read().clone() {
+        Some(id) if jobs.iter().any(|j| j.id == id) => id,
+        _ => jobs.first().map(|j| j.id.clone()).unwrap_or_default(),
+    };
+    let active_job = jobs.iter().find(|j| j.id == active_job_id).cloned();
 
     let active_job_id_for_inv = active_job_id.clone();
     let uid_for_inv = active_uid_for_inv.clone();
@@ -160,17 +161,80 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
     let target_region = settings_json
         .get("target_region")
         .and_then(|v| v.as_str())
-        .unwrap_or("SE")
+        .unwrap_or_else(|| {
+            settings_json
+                .get("company_country")
+                .and_then(|v| v.as_str())
+                .unwrap_or("SE")
+        })
         .to_uppercase();
     let show_rut = settings_json
         .get("show_rut_deduction")
         .and_then(|v| v.as_bool())
         .unwrap_or_else(|| target_region == "SE");
 
-    let (tax_label, currency_suffix, payment_method_label) = match target_region.as_str() {
-        "US" => ("Moms / Sales Tax:".to_string(), " $".to_string(), "Betala med Stripe (Kort)".to_string()),
-        "DE" => ("Moms / VAT (MwSt):".to_string(), " €".to_string(), "Betala med Adyen".to_string()),
-        _ => ("Skatteverket RUT-avdrag (söks av oss):".to_string(), " kr".to_string(), "Betala med Swish".to_string()),
+    let configured_currency = settings_json
+        .get("currency")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_uppercase());
+
+    let configured_currency_symbol = settings_json
+        .get("currency_symbol")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let configured_gateway = settings_json
+        .get("payment_gateway")
+        .or_else(|| settings_json.get("payment_method"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_lowercase());
+
+    let currency_suffix = if let Some(ref sym) = configured_currency_symbol {
+        format!(" {}", sym)
+    } else if let Some(ref curr) = configured_currency {
+        match curr.as_str() {
+            "USD" => " $".to_string(),
+            "EUR" => " €".to_string(),
+            "GBP" => " £".to_string(),
+            "SEK" | "NOK" | "DKK" => " kr".to_string(),
+            c => format!(" {}", c),
+        }
+    } else {
+        match target_region.as_str() {
+            "US" => " $".to_string(),
+            "DE" | "FR" | "ES" | "IT" | "NL" | "AT" | "FI" => " €".to_string(),
+            "GB" => " £".to_string(),
+            _ => " kr".to_string(),
+        }
+    };
+
+    let active_gateway = if let Some(ref gw) = configured_gateway {
+        gw.clone()
+    } else if target_region == "US" || configured_currency.as_deref() == Some("USD") {
+        "stripe".to_string()
+    } else if target_region == "DE" || configured_currency.as_deref() == Some("EUR") {
+        "adyen".to_string()
+    } else if target_region == "SE" || configured_currency.as_deref() == Some("SEK") {
+        "swish".to_string()
+    } else {
+        "stripe".to_string()
+    };
+
+    let payment_method_label = match active_gateway.as_str() {
+        "stripe" | "card" => "Betala med Stripe (Kort)".to_string(),
+        "adyen" => "Betala med Adyen".to_string(),
+        "swish" => "Betala med Swish".to_string(),
+        gw => format!("Betala med {}", gw),
+    };
+
+    let tax_label = if target_region == "US" || configured_currency.as_deref() == Some("USD") {
+        "Moms / Sales Tax:".to_string()
+    } else if target_region == "DE" || configured_currency.as_deref() == Some("EUR") {
+        "Moms / VAT (MwSt):".to_string()
+    } else if target_region == "SE" || configured_currency.as_deref() == Some("SEK") {
+        "Skatteverket RUT-avdrag (söks av oss):".to_string()
+    } else {
+        "Moms / VAT:".to_string()
     };
 
     let quote_id_for_inv = quote.as_ref().map(|q| q.id.clone()).unwrap_or_default();
@@ -240,16 +304,16 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
     };
 
     let active_uid_for_pay_c = props.active_user_id.clone();
-    let region_for_pay = target_region.clone();
+    let gateway_for_pay = active_gateway.clone();
     let on_pay_invoice = move |invoice_id: String| {
         let uid = active_uid_for_pay_c.clone();
-        let region = region_for_pay.clone();
+        let gateway = gateway_for_pay.clone();
         spawn(async move {
-            if region == "US" {
+            if gateway == "stripe" || gateway == "card" {
                 if let Ok(session) = initiate_stripe_payment(uid, invoice_id).await {
                     show_stripe_modal.set(Some(session));
                 }
-            } else if region == "DE" {
+            } else if gateway == "adyen" {
                 if let Ok(session) = initiate_adyen_payment(uid, invoice_id).await {
                     show_adyen_modal.set(Some(session));
                 }
@@ -380,7 +444,23 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                                 span { "{job.location_address}" }
                                             }
                                         }
-                                        div { class: "pt-2 flex justify-end border-t border-border/20",
+                                        div { class: "pt-2 flex items-center justify-between border-t border-border/20",
+                                            {
+                                                let j_id_select = job.id.clone();
+                                                let is_active = job.id == active_job_id;
+                                                rsx! {
+                                                    button {
+                                                        class: if is_active {
+                                                            "px-3 py-1.5 bg-primary text-primary-foreground text-xs font-semibold rounded-lg shadow-sm flex items-center gap-1.5 cursor-default"
+                                                        } else {
+                                                            "px-3 py-1.5 bg-secondary hover:bg-secondary/80 text-foreground text-xs font-semibold rounded-lg transition-colors border border-border flex items-center gap-1.5"
+                                                        },
+                                                        onclick: move |_| selected_job_id.set(Some(j_id_select.clone())),
+                                                        components::LucideIcon { name: "check-circle", class: "h-3.5 w-3.5" }
+                                                        if is_active { "Vald Aktiv Flytt" } else { "Välj denna flytt" }
+                                                    }
+                                                }
+                                            }
                                             {
                                                 let j_id = job.id.clone();
                                                 rsx! {
@@ -426,15 +506,15 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                     
                                     let (tax_amount, final_total) = match target_region.as_str() {
                                         "US" => {
-                                            let tax = (q.total_price as f64 * 0.08) as i64;
+                                            let tax = q.total_price * 0.08;
                                             (tax, q.total_price + tax)
                                         }
                                         "DE" => {
-                                            let tax = (q.total_price as f64 * 0.19) as i64;
+                                            let tax = q.total_price * 0.19;
                                             (tax, q.total_price + tax)
                                         }
                                         _ => {
-                                            let rut = if is_rut { (0.5 * labor_cost as f64) as i64 } else { 0 };
+                                            let rut = if is_rut { 0.5 * labor_cost } else { 0.0 };
                                             (rut, q.total_price - rut)
                                         }
                                     };
@@ -469,7 +549,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                                         span { "-{tax_amount}{currency_suffix}" }
                                                     }
                                                 }
-                                                if target_region != "SE" && tax_amount > 0 {
+                                                if target_region != "SE" && tax_amount > 0.0 {
                                                     div { class: "flex items-center justify-between text-xs text-muted-foreground",
                                                         span { "{tax_label}" }
                                                         span { "+{tax_amount}{currency_suffix}" }
@@ -1067,7 +1147,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                         }
                         div { class: "flex justify-between",
                             span { class: "text-muted-foreground", "Belopp:" }
-                            span { class: "font-bold text-foreground", "{swish_amount} kr" }
+                            span { class: "font-bold text-foreground", "{swish_amount}{currency_suffix}" }
                         }
                         div { class: "flex justify-between",
                             span { class: "text-muted-foreground", "Referens:" }
