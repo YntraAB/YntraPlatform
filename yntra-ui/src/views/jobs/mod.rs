@@ -78,6 +78,7 @@ pub mod live_tracking_modal;
 pub mod field_crew_view;
 pub mod eld_modal;
 pub mod dispatch_alerts_modal;
+pub mod hvac_modal;
 
 pub use dispatch::DispatchView;
 pub use fleet::FleetView;

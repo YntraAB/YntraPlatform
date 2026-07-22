@@ -12,6 +12,9 @@ pub mod claims;
 pub mod pdf;
 pub mod sit_storage;
 pub mod crew_payroll;
+pub mod hvac;
+
+pub use hvac::*;
 
 pub use pdf::generate_printable_bol_html;
 pub use pdf::generate_printable_invoice_html;

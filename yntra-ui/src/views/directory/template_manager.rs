@@ -28,6 +28,7 @@ pub fn TemplateManagerDialog(
     let mut temp_health_clinic = use_signal(|| false);
     let mut temp_report_cards = use_signal(|| false);
     let mut temp_moving_company = use_signal(|| false);
+    let mut temp_hvac_plumbing = use_signal(|| false);
 
     // Care Subtype and Reset Roles
     let mut care_subtype = use_signal(|| "aldreomsorg".to_string());
@@ -147,6 +148,12 @@ pub fn TemplateManagerDialog(
             temp_moving_company.set(
                 modules_val
                     .get("moving_company")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
+            );
+            temp_hvac_plumbing.set(
+                modules_val
+                    .get("hvac_plumbing")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false),
             );
@@ -329,12 +336,39 @@ pub fn TemplateManagerDialog(
                                     temp_health_clinic.set(false);
                                     temp_report_cards.set(false);
                                     temp_moving_company.set(true);
+                                    temp_hvac_plumbing.set(false);
                                 },
                                  div { class: "font-bold text-primary", "{t(\"templates-preset-moving\", &region)}" }
                                  div { class: "text-xs text-muted-foreground mt-1",
                                  style: "line-height: 1.3;", "{t(\"templates-preset-moving-desc\", &region)}" }
                             }
-                            // Preset 4: School
+                            // Preset 4: HVAC & Plumbing Company
+                            div {
+                                class: "border border-border p-3 rounded-lg cursor-pointer bg-white/[0.02]",
+                                style: "transition:all 0.2s;",
+                                onclick: move |_| {
+                                    temp_messaging.set(true);
+                                    temp_scheduling.set(true);
+                                    temp_notes.set(true);
+                                    temp_journals.set(false);
+                                    temp_medications.set(false);
+                                    temp_jobs.set(true);
+                                    temp_reporting.set(true);
+                                    temp_todos.set(true);
+                                    temp_academics.set(false);
+                                    temp_attendance.set(false);
+                                    temp_finance.set(false);
+                                    temp_library.set(false);
+                                    temp_health_clinic.set(false);
+                                    temp_report_cards.set(false);
+                                    temp_moving_company.set(false);
+                                    temp_hvac_plumbing.set(true);
+                                },
+                                div { class: "font-bold text-primary", "{t(\"templates-preset-hvac\", &region)}" }
+                                div { class: "text-xs text-muted-foreground mt-1",
+                                style: "line-height: 1.3;", "{t(\"templates-preset-hvac-desc\", &region)}" }
+                            }
+                            // Preset 5: School
                             div {
                                 class: "border border-border p-3 rounded-lg cursor-pointer bg-white/[0.02]",
                                 style: "transition:all 0.2s;",
@@ -354,12 +388,13 @@ pub fn TemplateManagerDialog(
                                     temp_health_clinic.set(true);
                                     temp_report_cards.set(true);
                                     temp_moving_company.set(false);
+                                    temp_hvac_plumbing.set(false);
                                 },
                                 div { class: "font-bold text-primary", "{t(\"templates-preset-school\", &region)}" }
                                 div { class: "text-xs text-muted-foreground mt-1",
                                 style: "line-height: 1.3;", "{t(\"templates-preset-school-desc\", &region)}" }
                             }
-                            // Preset 5: Full Suite
+                            // Preset 6: Full Suite
                             div {
                                 class: "border border-border p-3 rounded-lg cursor-pointer bg-white/[0.02]",
                                 style: "transition:all 0.2s;",
@@ -379,6 +414,7 @@ pub fn TemplateManagerDialog(
                                     temp_health_clinic.set(true);
                                     temp_report_cards.set(true);
                                     temp_moving_company.set(false);
+                                    temp_hvac_plumbing.set(false);
                                 },
                                 div { class: "font-bold text-primary", "{t(\"templates-preset-full\", &region)}" }
                                 div { class: "text-xs text-muted-foreground mt-1",
@@ -602,6 +638,7 @@ pub fn TemplateManagerDialog(
 
 
                                 modules_map.insert("moving_company".to_string(), serde_json::Value::Bool(*temp_moving_company.read()));
+                                modules_map.insert("hvac_plumbing".to_string(), serde_json::Value::Bool(*temp_hvac_plumbing.read()));
                                 if *temp_journals.read() || *temp_medications.read() {
                                     modules_map.insert("care_subtype".to_string(), serde_json::Value::String((*care_subtype.read()).clone()));
                                 }

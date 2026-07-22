@@ -86,6 +86,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
     let mut completion_report_state = props.completion_report_state;
     let inventories = props.inventories;
     let quote = props.quote;
+    let db_trigger = props.db_trigger;
 
     let state = use_context::<crate::state::AppState>();
     let active_role = state.active_user_role.read().clone();
@@ -101,6 +102,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
     let mut show_field_crew_view = use_signal(|| false);
     let mut show_eld_modal = use_signal(|| false);
     let mut show_dispatch_alerts_modal = use_signal(|| false);
+    let mut show_hvac_modal = use_signal(|| false);
     let mut show_edit_surcharges = use_signal(|| false);
     let mut edit_long_carry = use_signal(|| job.long_carry_meters);
     let mut edit_toll_fees = use_signal(|| job.toll_fees);
@@ -425,6 +427,12 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                         onclick: move |_| show_dispatch_alerts_modal.set(true),
                         components::LucideIcon { name: "message-square", size: "14" }
                         "Dispatch SMS & Omdömen 💬"
+                    }
+                    button {
+                        class: "px-3 py-1 text-xs font-semibold rounded bg-teal-600/10 text-teal-400 hover:bg-teal-600/20 border border-teal-500/30 cursor-pointer flex items-center gap-1.5 transition-colors",
+                        onclick: move |_| show_hvac_modal.set(true),
+                        components::LucideIcon { name: "zap", size: "14" }
+                        "HVAC & VVS Diagnostik ⚡"
                     }
                 }
                 h2 { class: "m-0 font-extrabold",
@@ -2132,6 +2140,13 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                     active_user_id: active_user_id.clone(),
                     on_close: move |_| show_dispatch_alerts_modal.set(false),
                 }
+            }
+
+            super::hvac_modal::HvacDiagnosticModal {
+                show: show_hvac_modal,
+                job_id: job.id.clone(),
+                active_user_id: active_user_id.clone(),
+                db_trigger: db_trigger,
             }
         }
     }

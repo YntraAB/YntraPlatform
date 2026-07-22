@@ -134,6 +134,10 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
             .get("moving_company")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        let is_hvac_plumbing = modules_val
+            .get("hvac_plumbing")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         let care_subtype_str = modules_val
             .get("care_subtype")
@@ -144,6 +148,8 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
             "School Template".to_string()
         } else if is_moving_company {
             "Moving Company Template".to_string()
+        } else if is_hvac_plumbing {
+            "HVAC & Plumbing Template".to_string()
         } else if is_assistance {
             match care_subtype_str {
                 "lss" => "LSS & Assistance Template".to_string(),
@@ -535,6 +541,7 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                                             "notes": true,
                                             "reporting": true,
                                             "moving_company": true,
+                                            "hvac_plumbing": false,
                                             "academics": false,
                                             "attendance": false,
                                             "finance": false,
@@ -545,6 +552,44 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                                             "journals": false,
                                         });
                                         yntra_core::update_workspace_modules(user_id, ws_id, moving_modules.to_string()).await?;
+                                        let current = *db_trigger.read();
+                                        db_trigger.set(current + 1);
+                                        Ok(())
+                                    });
+                                    header_template_open.set(false);
+                                }
+                            }
+                        }
+                        components::DropdownItem {
+                            label: "HVAC & Plumbing Company Template".to_string(),
+                            onclick: {
+                                let user_id = active_user_id.read().clone();
+                                let ws_id = active_user.workspace_id.clone().unwrap_or_else(|| "workspace-1".to_string());
+                                let runner = runner.clone();
+                                move |_| {
+                                    let user_id = user_id.clone();
+                                    let ws_id = ws_id.clone();
+                                    let runner = runner.clone();
+                                    runner.run(async move {
+                                        let hvac_modules = serde_json::json!({
+                                            "jobs": true,
+                                            "time": true,
+                                            "todos": true,
+                                            "messaging": true,
+                                            "notes": true,
+                                            "reporting": true,
+                                            "hvac_plumbing": true,
+                                            "moving_company": false,
+                                            "academics": false,
+                                            "attendance": false,
+                                            "finance": false,
+                                            "library": false,
+                                            "timetable": false,
+                                            "assistance": false,
+                                            "medications": false,
+                                            "journals": false,
+                                        });
+                                        yntra_core::update_workspace_modules(user_id, ws_id, hvac_modules.to_string()).await?;
                                         let current = *db_trigger.read();
                                         db_trigger.set(current + 1);
                                         Ok(())
