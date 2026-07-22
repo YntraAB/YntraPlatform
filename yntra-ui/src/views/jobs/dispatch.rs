@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 use yntra_core::{JobTicket, MoveVehicle};
 use crate::components;
+use crate::locales::t;
 use crate::views::scheduling::{add_days_to_date, parse_date};
 use std::collections::HashMap;
 
@@ -13,7 +14,7 @@ pub struct DispatchBoardProps {
     pub jobs: Vec<JobTicket>,
 }
 
-fn format_day_header(date_str: &str) -> String {
+fn format_day_header(date_str: &str, region: &str) -> String {
     let (y, m, d) = parse_date(date_str);
     let mut year = y;
     let mut month = m;
@@ -25,16 +26,17 @@ fn format_day_header(date_str: &str) -> String {
     let k = year % 100;
     let j = year / 100;
     let h = (day + (13 * (month as i32 + 1)) / 5 + k + k / 4 + j / 4 + 5 * j) % 7;
-    let day_name = match h {
-        0 => "Lör",
-        1 => "Sön",
-        2 => "Mån",
-        3 => "Tis",
-        4 => "Ons",
-        5 => "Tor",
-        6 => "Fre",
+    let day_key = match h {
+        0 => "dispatch-day-sat",
+        1 => "dispatch-day-sun",
+        2 => "dispatch-day-mon",
+        3 => "dispatch-day-tue",
+        4 => "dispatch-day-wed",
+        5 => "dispatch-day-thu",
+        6 => "dispatch-day-fri",
         _ => "",
     };
+    let day_name = t(day_key, region);
     format!("{} {}/{}", day_name, d, m)
 }
 
@@ -173,8 +175,8 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
             // Left Sidebar: Unscheduled Jobs bucket
             div { class: "w-80 flex-shrink-0 flex flex-col gap-4 border border-border bg-sidebar rounded-xl p-4 shadow-sm",
                 div {
-                    h3 { class: "text-sm font-extrabold m-0 text-foreground", "Oplanerade / Ej tilldelade uppdrag" }
-                    p { class: "text-[10px] text-muted-foreground mt-1 mb-0", "Dra uppdrag härifrån till fordonsschemat för att boka dem." }
+                    h3 { class: "text-sm font-extrabold m-0 text-foreground", "{t(\"dispatch-unscheduled-title\", &region)}" }
+                    p { class: "text-[10px] text-muted-foreground mt-1 mb-0", "{t(\"dispatch-unscheduled-desc\", &region)}" }
                 }
 
                 // Unschedule Drop target
@@ -196,7 +198,7 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
                         }
                     },
                     components::LucideIcon { name: "trash-2", class: "h-4 w-4 text-muted-foreground/60" }
-                    span { class: "text-[10px] font-bold text-muted-foreground", "Släpp här för att avboka" }
+                    span { class: "text-[10px] font-bold text-muted-foreground", "{t(\"dispatch-drop-unassign\", &region)}" }
                 }
 
                 // Unscheduled Jobs List
@@ -204,7 +206,7 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
                     if unscheduled_jobs.is_empty() {
                         div { class: "flex flex-col items-center justify-center py-12 text-center text-muted-foreground border border-dashed rounded-xl border-border bg-background/30",
                             components::LucideIcon { name: "check-circle", class: "h-6 w-6 text-emerald-500/60 mb-1" }
-                            p { class: "text-xs font-bold m-0", "Alla uppdrag tilldelade!" }
+                            p { class: "text-xs font-bold m-0", "{t(\"dispatch-all-assigned\", &region)}" }
                         }
                     } else {
                         for job in unscheduled_jobs.iter() {
@@ -258,8 +260,8 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
                 // Gantt Header (Week Navigation)
                 div { class: "flex justify-between items-center pb-2 border-b border-border/40",
                     div {
-                        h3 { class: "text-sm font-extrabold m-0 text-foreground", "Fordonsschema & Beläggning" }
-                        p { class: "text-[10px] text-muted-foreground mt-1 mb-0", "Flytta och fördela uppdrag över fordon och dagar." }
+                        h3 { class: "text-sm font-extrabold m-0 text-foreground", "{t(\"dispatch-timeline-title\", &region)}" }
+                        p { class: "text-[10px] text-muted-foreground mt-1 mb-0", "{t(\"dispatch-timeline-desc\", &region)}" }
                     }
                     div { class: "flex items-center gap-1.5",
                         button {
@@ -275,7 +277,7 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
                             onclick: move |_| {
                                 selected_start_date.set("2026-06-30".to_string());
                             },
-                            "Idag"
+                            "{t(\"dispatch-today\", &region)}"
                         }
                         button {
                             class: "rounded p-1.5 hover:bg-muted border border-border bg-background cursor-pointer text-foreground flex items-center justify-center transition-all",
@@ -295,10 +297,10 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
                         // Column Headers (Dates)
                         div { class: "grid border-b border-border/60 pb-2",
                             style: "grid-template-columns: 180px repeat(7, minmax(0, 1fr));",
-                            div { class: "text-xs font-extrabold text-muted-foreground/80 self-end px-2", "Fordon" }
+                            div { class: "text-xs font-extrabold text-muted-foreground/80 self-end px-2", "{t(\"dispatch-col-vehicle\", &region)}" }
                             for date in dates.iter() {
                                 div { key: "{date}", class: "text-center px-1",
-                                    div { class: "text-xs font-bold text-foreground", "{format_day_header(date)}" }
+                                    div { class: "text-xs font-bold text-foreground", "{format_day_header(date, &region)}" }
                                     div { class: "text-[9px] text-muted-foreground font-semibold mt-0.5", "{date}" }
                                 }
                             }
@@ -309,8 +311,8 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
                             if vehicles.is_empty() {
                                 div { class: "text-center py-20 text-muted-foreground",
                                     components::LucideIcon { name: "truck", class: "h-8 w-8 opacity-25 mx-auto mb-2" }
-                                    p { class: "text-sm font-bold m-0", "Inga fordon registrerade." }
-                                    p { class: "text-xs text-muted-foreground/60 mt-1 m-0", "Registrera fordon under tabben 'Fordonsflotta' först." }
+                                    p { class: "text-sm font-bold m-0", "{t(\"dispatch-no-vehicles\", &region)}" }
+                                    p { class: "text-xs text-muted-foreground/60 mt-1 m-0", "{t(\"dispatch-no-vehicles-desc\", &region)}" }
                                 }
                             } else {
                                 for vehicle in vehicles.iter() {
@@ -323,7 +325,7 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
                                         div { class: "flex flex-col justify-center px-2 pr-4 border-r border-border/20 gap-0.5",
                                             span { class: "text-xs font-extrabold text-foreground", "{vehicle.name}" }
                                             span { class: "text-[9px] bg-muted w-max px-1.5 py-0.5 rounded font-mono font-bold text-muted-foreground mt-0.5", "{vehicle.license_plate}" }
-                                            span { class: "text-[9px] text-muted-foreground font-semibold mt-1", "Kapacitet: {vehicle.capacity_m3:.1} m³" }
+                                            span { class: "text-[9px] text-muted-foreground font-semibold mt-1", "{t(\"dispatch-capacity\", &region)}: {vehicle.capacity_m3:.1} m³" }
                                             button {
                                                 onclick: {
                                                     let v = vehicle.clone();
@@ -333,7 +335,7 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
                                                 },
                                                 class: "mt-1.5 px-2 py-0.75 w-max rounded bg-primary/10 hover:bg-primary/20 text-primary border-0 cursor-pointer text-[9px] font-extrabold flex items-center gap-1 transition-all",
                                                 components::LucideIcon { name: "map-pin", size: "10" }
-                                                "Spåra Live"
+                                                "{t(\"dispatch-track-live\", &region)}"
                                             }
                                         }
 
@@ -407,9 +409,9 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
                                                                     if is_overloaded { "bg-red-500/20 text-red-400 border-red-500/30 shadow-sm animate-pulse" } else { "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" }
                                                                 ),
                                                                 if is_overloaded {
-                                                                    span { "⚠️ Överlast: {cell_vol:.1}/{vehicle.capacity_m3:.0} m³" }
+                                                                    span { "⚠️ {t(\"dispatch-overloaded\", &region)}: {cell_vol:.1}/{vehicle.capacity_m3:.0} m³" }
                                                                 } else {
-                                                                    span { "Fyllnad: {cell_vol:.1}/{vehicle.capacity_m3:.0} m³" }
+                                                                    span { "{t(\"dispatch-fill\", &region)}: {cell_vol:.1}/{vehicle.capacity_m3:.0} m³" }
                                                                 }
                                                             }
                                                         }
@@ -752,8 +754,8 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
                                     div { class: "flex items-center gap-2",
                                         components::LucideIcon { name: "truck", class: "h-5 w-5 accent-text animate-pulse" }
                                         div {
-                                            h4 { class: "text-sm font-bold text-foreground m-0", "Fordonspårning: {resolved_v.name}" }
-                                            p { class: "text-[10px] text-muted-foreground m-0", "{resolved_v.license_plate} • Kapacitet: {resolved_v.capacity_m3} m³" }
+                                            h4 { class: "text-sm font-bold text-foreground m-0", "{t(\"dispatch-modal-title\", &region)}: {resolved_v.name}" }
+                                            p { class: "text-[10px] text-muted-foreground m-0", "{resolved_v.license_plate} • {t(\"dispatch-capacity\", &region)}: {resolved_v.capacity_m3} m³" }
                                         }
                                     }
                                     button {
@@ -771,35 +773,35 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
                                     div { class: "w-64 border-r border-border/40 p-4 flex flex-col justify-between bg-secondary/5",
                                         div { class: "flex flex-col gap-4",
                                             div { class: "flex flex-col gap-1",
-                                                span { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider", "Status" }
+                                                span { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider", "{t(\"dispatch-modal-status-label\", &region)}" }
                                                 div { class: "flex items-center gap-1.5 mt-0.5",
                                                     span { class: format!("w-2 h-2 rounded-full {}", if has_coords { "bg-emerald-500 animate-pulse shadow-[0_0_6px_#10b981]" } else { "bg-slate-400" }) }
-                                                    span { class: "text-xs font-bold text-foreground", if has_coords { "Spårar live" } else { "Inga koordinater" } }
+                                                    span { class: "text-xs font-bold text-foreground", if has_coords { "{t(\"dispatch-modal-tracking-live\", &region)}" } else { "{t(\"dispatch-modal-no-coords\", &region)}" } }
                                                 }
                                             }
                                             
                                             if let (Some(lat), Some(lng)) = (resolved_v.latitude, resolved_v.longitude) {
                                                 div { class: "flex flex-col gap-1.5 p-3 rounded-lg border border-border/20 bg-background",
-                                                    div { class: "text-[10px] font-extrabold text-muted-foreground uppercase", "Senaste position" }
+                                                    div { class: "text-[10px] font-extrabold text-muted-foreground uppercase", "{t(\"dispatch-modal-recent-pos\", &region)}" }
                                                     div { class: "text-xs font-mono font-bold text-foreground mt-0.5", "{lat:.5}°N" }
                                                     div { class: "text-xs font-mono font-bold text-foreground", "{lng:.5}°E" }
                                                     if let Some(ref time_str) = formatted_ping_time {
                                                         div { class: "text-[9px] text-muted-foreground mt-1.5 font-semibold",
-                                                            "Mottagen: {time_str}"
+                                                            "{t(\"dispatch-modal-received-at\", &region)}: {time_str}"
                                                         }
                                                     }
                                                 }
                                             } else {
                                                 div { class: "p-3 rounded-lg border border-dashed border-border text-center text-muted-foreground",
                                                     components::LucideIcon { name: "help-circle", class: "h-5 w-5 mx-auto opacity-40 mb-1" }
-                                                    p { class: "text-[10px] italic m-0", "Inga aktiva GPS-signaler har tagits emot från denna lastbil ännu." }
+                                                    p { class: "text-[10px] italic m-0", "{t(\"dispatch-modal-no-signals\", &region)}" }
                                                 }
                                             }
 
                                             div { class: "flex flex-col gap-1",
-                                                span { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider", "Schemalagda rutter" }
+                                                span { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider", "{t(\"dispatch-modal-routes-title\", &region)}" }
                                                 if tracking_jobs.is_empty() {
-                                                    span { class: "text-xs text-muted-foreground italic mt-0.5", "Inga jobb schemalagda" }
+                                                    span { class: "text-xs text-muted-foreground italic mt-0.5", "{t(\"dispatch-modal-no-jobs\", &region)}" }
                                                 } else {
                                                     div { class: "flex flex-col gap-1.5 mt-1 max-h-40 overflow-y-auto pr-1",
                                                         for job in tracking_jobs.iter() {
@@ -810,39 +812,6 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
                                                             }
                                                         }
                                                     }
-                                                }
-                                            }
-                                        }
-                                        
-                                        // Production GPS Telemetry Hook Info
-                                        div { class: "border-t border-border/40 pt-4 flex flex-col gap-2.5 text-left",
-                                            div { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider", "IoT GPS Gateway (Produktion)" }
-                                            
-                                            div { class: "p-2.5 rounded-lg bg-background/50 border border-border/20 space-y-2 text-[10px]",
-                                                div { class: "flex flex-col gap-1",
-                                                    span { class: "text-muted-foreground", "Mottagare (Webhook URL):" }
-                                                    span { class: "font-mono font-bold text-foreground break-all", "https://api.yntra.se/v1/vehicles/gps-webhook" }
-                                                }
-                                                div { class: "flex justify-between items-center gap-2",
-                                                    span { class: "text-muted-foreground", "Auktoriserings-token:" }
-                                                    span { class: "font-mono font-bold text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded", "{gps_webhook_token}" }
-                                                }
-                                                if let Some(ref v) = tracking_vehicle_resolved {
-                                                    div { class: "flex justify-between items-center gap-2 border-t border-border/10 pt-1.5 mt-1.5",
-                                                        span { class: "text-muted-foreground", "Enhet GPS ID (IMEI):" }
-                                                        span { class: "font-mono font-bold text-blue-500 bg-blue-500/10 px-1.5 py-0.5 rounded", 
-                                                            "{v.gps_device_id.as_deref().unwrap_or(\"Saknas - ställ in i inställningar\")}"
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            
-                                            div { class: "rounded-lg border border-primary/20 bg-primary/5 p-2 text-[9px] text-muted-foreground flex gap-1.5 items-start",
-                                                components::LucideIcon { name: "info", class: "h-3.5 w-3.5 shrink-0 mt-0.5 text-primary" }
-                                                span {
-                                                    "Instruktion: Konfigurera din fysiska GPS-spårare (eller trådlösa mobilapp) att skicka HTTP POST pings med JSON payload (t.ex. "
-                                                    code { class: "font-mono text-foreground", "{{ \"deviceId\": \"IMEI\", \"lat\": 59.32, \"lon\": 18.06 }}" }
-                                                    ") till ovanstående webhook-URL."
                                                 }
                                             }
                                         }
@@ -907,8 +876,8 @@ pub fn DispatchView(props: DispatchViewProps) -> Element {
     rsx! {
         div { class: "mx-auto w-full max-w-5xl p-6 flex flex-col gap-6",
             div { class: "flex flex-col gap-1",
-                h1 { class: "text-2xl font-bold text-foreground", "Resursplanering" }
-                p { class: "text-sm text-muted-foreground", "Schemaläggning av fordonsflotta, förare och arbetsorder." }
+                h1 { class: "text-2xl font-bold text-foreground", "{t(\"dispatch-title\", &region)}" }
+                p { class: "text-sm text-muted-foreground", "{t(\"dispatch-subtitle\", &region)}" }
             }
             DispatchBoard {
                 active_user_id: props.active_user_id.read().clone(),
