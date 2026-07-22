@@ -1436,20 +1436,20 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
 
                                 if let Some(over) = q.manual_price_override {
                                     div { class: "flex items-center justify-between text-[11px] text-muted-foreground px-1",
-                                        span { "Manuell priskorrigering:" }
+                                        span { "{t(\"jobs-manual-override\", &region)}" }
                                         span { class: "font-semibold text-foreground", "{over} kr" }
                                     }
                                 }
                                 if let Some(disc) = q.price_discount {
                                     if disc > 0.0 {
                                         div { class: "flex items-center justify-between text-[11px] text-muted-foreground px-1",
-                                            span { "Rabatt:" }
+                                            span { "{t(\"jobs-discount\", &region)}" }
                                             span { class: "font-semibold text-rose-500", "-{disc} kr" }
                                         }
                                     }
                                 }
                                 div { class: "flex items-center justify-between text-xs font-bold text-foreground px-1 border-t border-border/10 pt-1.5 mt-1",
-                                    span { "Totalt Offerterat Pris:" }
+                                    span { "{t(\"jobs-total-quoted-price\", &region)}" }
                                     span { class: "text-sm text-primary font-extrabold", "{q.total_price} kr" }
                                 }
                                 if is_staff {
@@ -1526,31 +1526,36 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                         }
                                     }
                                     div { class: "flex items-center justify-between text-[11px] text-muted-foreground",
-                                        span { "Kundbelopp:" }
+                                        span { "{t(\"jobs-customer-amount\", &region)}" }
                                         span { class: "font-semibold text-foreground", "{inv.customer_amount} kr" }
                                     }
                                     if show_rut {
                                         div { class: "flex items-center justify-between text-[11px] text-muted-foreground",
-                                            span { "Skatteverket (RUT):" }
+                                            span { "{t(\"jobs-tax-authority-rut\", &region)}" }
                                             span { class: "font-semibold text-foreground", "{inv.tax_authority_amount} kr" }
                                         }
                                     }
                                     div { class: "flex items-center justify-between text-[11px] text-muted-foreground pt-1 border-t border-border/10",
-                                        span { "Fakturastatus:" }
-                                        span {
-                                            class: if inv.status == "paid" { "text-emerald-500 font-bold" } else { "text-amber-500 font-bold" },
-                                            if inv.status == "paid" { "Betald" } else { "Obetald" }
+                                        span { "{t(\"jobs-invoice-status\", &region)}" }
+                                        {
+                                            let status_text = if inv.status == "paid" { t("jobs-status-paid", &region) } else { t("jobs-status-unpaid", &region) };
+                                            rsx! {
+                                                span {
+                                                    class: if inv.status == "paid" { "text-emerald-500 font-bold" } else { "text-amber-500 font-bold" },
+                                                    "{status_text}"
+                                                }
+                                            }
                                         }
                                     }
                                     if let Some(hrs) = inv.actual_hours {
                                         div { class: "flex items-center justify-between text-[11px] text-muted-foreground",
-                                            span { "Arbetade timmar:" }
+                                            span { "{t(\"jobs-worked-hours\", &region)}" }
                                             span { class: "font-semibold text-foreground", "{hrs} h" }
                                         }
                                     }
                                     if let Some(charges) = inv.additional_charges {
                                         div { class: "flex items-center justify-between text-[11px] text-muted-foreground",
-                                            span { "Extra tillägg:" }
+                                            span { "{t(\"jobs-additional-charges\", &region)}" }
                                             span { class: "font-semibold text-foreground", "{charges} kr" }
                                         }
                                     }
