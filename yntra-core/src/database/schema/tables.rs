@@ -268,6 +268,68 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             gps_device_id TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS eld_hos_logs (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            driver_id TEXT NOT NULL,
+            driver_name TEXT NOT NULL,
+            vehicle_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            driving_hours_today REAL NOT NULL,
+            on_duty_hours_today REAL NOT NULL,
+            cycle_hours_7day REAL NOT NULL,
+            rest_break_required INTEGER NOT NULL,
+            violation_flag INTEGER NOT NULL,
+            violation_reason TEXT,
+            timestamp_ms INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS dvir_inspections (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            vehicle_id TEXT NOT NULL,
+            inspector_driver_id TEXT NOT NULL,
+            inspection_type TEXT NOT NULL,
+            brakes_ok INTEGER NOT NULL,
+            tires_ok INTEGER NOT NULL,
+            lights_ok INTEGER NOT NULL,
+            steering_ok INTEGER NOT NULL,
+            coupling_devices_ok INTEGER NOT NULL,
+            defects_found INTEGER NOT NULL,
+            defect_details TEXT,
+            safety_status TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS ifta_fuel_logs (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            vehicle_id TEXT NOT NULL,
+            driver_id TEXT NOT NULL,
+            from_jurisdiction TEXT NOT NULL,
+            to_jurisdiction TEXT NOT NULL,
+            odometer_km REAL NOT NULL,
+            fuel_purchased_liters REAL NOT NULL,
+            timestamp_ms INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS hvac_diagnostics (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            job_ticket_id TEXT NOT NULL,
+            technician_id TEXT NOT NULL,
+            refrigerant_type TEXT NOT NULL,
+            refrigerant_charge_level TEXT NOT NULL,
+            high_side_psi REAL NOT NULL,
+            low_side_psi REAL NOT NULL,
+            temp_differential_c REAL NOT NULL,
+            voltage_v REAL NOT NULL,
+            amp_draw_a REAL NOT NULL,
+            diagnostic_status TEXT NOT NULL,
+            notes TEXT,
+            created_at INTEGER NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS job_tickets (
             id TEXT PRIMARY KEY,
             workspace_id TEXT NOT NULL,

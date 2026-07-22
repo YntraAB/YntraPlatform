@@ -863,6 +863,9 @@ templates-preset-school = School & Education
 templates-preset-school-desc = Standard setup for education including student registry, courses, grading, and attendance logs.
 templates-preset-moving = Moving & Relocation
 templates-preset-moving-desc = Standard setup for moving and logistics. Enables schedules, handover notes, timesheets, and moving job work orders.
+templates-preset-hvac = HVAC & Plumbing Company
+templates-preset-hvac-desc = Optimized for heating, ventilation, plumbing & field service technicians with ROT tax credits, work orders, diagnostic logs & van tracking.
+settings-blocks-hvac-plumbing-name = HVAC & Plumbing Specialty
 
 
 
@@ -1254,6 +1257,44 @@ fleet-placeholder-gps = Optional IMEI / ID
 fleet-cancel = Cancel
 fleet-save = Save & Register
 
+fleet-dot-compliant = DOT Safe
+fleet-dot-attention = Inspection Due
+fleet-dot-out-of-service = Out of Service
+fleet-badge-low-bridge = Low Bridge Risk
+fleet-badge-weight-limit = >3.5t Weight Limit
+fleet-badge-lez-zone = LEZ Clean Badge
+fleet-badge-permit-required = Loading Permit Req.
+fleet-delete-confirm-title = Delete Vehicle?
+fleet-delete-confirm-desc = Are you sure you want to remove this vehicle from your fleet? Active job assignments may be impacted.
+fleet-delete-confirm-btn = Confirm Delete
+fleet-delete-cancel-btn = Keep Vehicle
+fleet-ping-just-now = Online (GPS)
+fleet-ping-offline = Offline
+fleet-kpi-dot-compliant = DOT Compliant
+fleet-filter-out-of-service = Out of Service
+
+fleet-drawer-title = Vehicle Specs & Safety Drawer
+fleet-drawer-tab-dvir = Digital DVIR & Safety
+fleet-drawer-tab-routing = Route Clearance Evaluator
+fleet-drawer-tab-telemetry = Live GPS Telemetry
+fleet-dvir-submit-btn = Submit Inspection
+fleet-dvir-inspection-type = Inspection Type
+fleet-dvir-pre-trip = Pre-Trip Inspection
+fleet-dvir-post-trip = Post-Trip Inspection
+fleet-dvir-check-brakes = Brakes & Air Lines
+fleet-dvir-check-tires = Tires & Tread Depth
+fleet-dvir-check-lights = Headlights & Signals
+fleet-dvir-check-steering = Steering Column
+fleet-dvir-check-coupling = Coupling & Hitch
+fleet-dvir-defects-label = Defect Details / Remarks
+fleet-dvir-defects-placeholder = Describe any mechanical defects found...
+fleet-dvir-history-title = DVIR Audit Log History
+fleet-dvir-empty-history = No previous inspection reports recorded for this vehicle.
+fleet-route-origin-label = Origin Address
+fleet-route-dest-label = Destination Address
+fleet-route-eval-btn = Evaluate Route
+fleet-route-results-title = Route Restriction Analysis
+
 booking-widget-admin-title = Booking Widget
 booking-widget-admin-subtitle = Generate and preview embeddable booking widget for your website.
 booking-widget-preview-header = Embeddable Lead Widget
@@ -1323,3 +1364,15 @@ live-map-no-vehicles-matched = No vehicles match search
 live-map-no-personnel-matched = No crew members match search
 live-map-collapse-panel = Collapse Panel
 live-map-expand-panel = Show Units
+live-map-fit-bounds = Auto-Fit View
+live-map-popup-cargo-capacity = Cargo Capacity
+live-map-popup-status = Status
+live-map-popup-last-tracked = Last Tracked
+live-map-popup-role = Role / Position
+live-map-popup-phone = Phone
+live-map-popup-gps-status = GPS Status
+live-map-popup-start-point = Start Point (A)
+live-map-popup-destination = Destination (B)
+live-map-popup-planned-route = Planned Route
+live-map-popup-job = Job
+
