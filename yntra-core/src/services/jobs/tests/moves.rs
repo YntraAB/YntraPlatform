@@ -733,14 +733,20 @@ async fn test_manual_override_dynamic_item_additions() {
     assert_eq!(q2.manual_price_override, Some(3000.0));
     assert_eq!(q2.total_price, 3000.0);
 
-    // 3. Customer/Admin adds an extra item (Armchair @ 1.0 m3 -> volume cost +500 SEK, supplies +100 SEK -> calculated total increases by +600 SEK to 2600 SEK)
+    // 3. Customer/Admin adds an extra item (Armchair @ 1.0 m3 -> volume cost +500 SEK, supplies +100 SEK -> calculated total increases to 2600 SEK, but manual override remains fixed at 3000 SEK)
     create_move_inventory_item("u-ovr-staff".to_string(), job.id.clone(), "Möbler".to_string(), "Fåtölj".to_string(), 1, 1.0, None).await.unwrap();
     calculate_and_save_move_quote("u-ovr-staff".to_string(), job.id.clone()).await.unwrap();
 
-    // The manual price override must adjust by the delta (+600 SEK) -> new total_price = 3600 SEK!
+    // The agreed manual price override remains preserved at 3000 SEK
     let q3 = get_move_quote("u-ovr-staff".to_string(), job.id.clone()).await.unwrap().unwrap();
-    assert_eq!(q3.manual_price_override, Some(3600.0));
-    assert_eq!(q3.total_price, 3600.0);
+    assert_eq!(q3.manual_price_override, Some(3000.0));
+    assert_eq!(q3.total_price, 3000.0);
+
+    // 4. Admin clears the manual price override -> total price reverts to updated calculated total (2600.0 SEK)
+    crate::services::jobs::update_move_quote_price_adjustments("u-ovr-staff".to_string(), job.id.clone(), None, None).await.unwrap();
+    let q4 = get_move_quote("u-ovr-staff".to_string(), job.id.clone()).await.unwrap().unwrap();
+    assert_eq!(q4.manual_price_override, None);
+    assert_eq!(q4.total_price, 2600.0);
 
     // Cleanup
     conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-ovr-test'", ()).await.ok();
@@ -796,10 +802,17 @@ async fn test_quote_revision_audit_trail_and_accepted_lock() {
     // 3. Accept quote
     accept_move_quote("u-rev-staff".to_string(), q1.id.clone()).await.unwrap();
 
-    // 4. Attempt to add or delete inventory items after acceptance must fail
-    let err = create_move_inventory_item("u-rev-staff".to_string(), job.id.clone(), "Möbler".to_string(), "Stol".to_string(), 1, 0.5, None).await;
-    assert!(err.is_err());
-    assert!(matches!(err.unwrap_err(), YntraError::ValidationError(_)));
+    // 4. Guest / client attempts to modify inventory after acceptance must fail
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-client-guest', 'ws-rev-test', 'client@rev.se', 'client')", ()).await.unwrap();
+    let guest_err = create_move_inventory_item("u-client-guest".to_string(), job.id.clone(), "Möbler".to_string(), "Stol".to_string(), 1, 0.5, None).await;
+    assert!(guest_err.is_err());
+    assert!(matches!(guest_err.unwrap_err(), YntraError::ValidationError(_)));
+
+    // 5. Authorized field crew / staff CAN add items on move day post-acceptance
+    create_move_inventory_item("u-rev-staff".to_string(), job.id.clone(), "Möbler".to_string(), "Stol".to_string(), 1, 0.5, None).await.unwrap();
+    calculate_and_save_move_quote("u-rev-staff".to_string(), job.id.clone()).await.unwrap();
+    let updated_quote = get_move_quote("u-rev-staff".to_string(), job.id.clone()).await.unwrap().unwrap();
+    assert_eq!(updated_quote.status, "revised");
 
     // Cleanup
     conn.execute("DELETE FROM move_quote_revisions WHERE workspace_id = 'ws-rev-test'", ()).await.ok();
@@ -914,8 +927,117 @@ async fn test_custom_domain_deposit_link_generation() {
 
     // Cleanup
     conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-customdomain-test'", ()).await.ok();
-    conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-customdomain-test'", ()).await.ok();
     conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-customdomain-test'", ()).await.ok();
     conn.execute("DELETE FROM users WHERE workspace_id = 'ws-customdomain-test'", ()).await.ok();
     conn.execute("DELETE FROM workspaces WHERE id = 'ws-customdomain-test'", ()).await.ok();
+}
+
+#[tokio::test]
+async fn test_per_job_distance_isolation() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    conn.execute(
+        "INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-dist-iso-test', 'Dist Iso WS', '[\"moving_company\"]', '{\"moving_distance_fee_flat\":500.0,\"moving_local_radius_km\":30.0,\"moving_per_km_rate\":10.0}')",
+        ()
+    ).await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-dist-staff', 'ws-dist-iso-test', 'staff@dist.io', 'admin')", ()).await.unwrap();
+
+    // Job A: Long distance (100 km) stored on Job A ticket
+    let job_a = create_job_ticket(
+        "u-dist-staff".to_string(),
+        "ws-dist-iso-test".to_string(),
+        "Long Distance Move".to_string(),
+        "Job A Desc".to_string(),
+        "City A".to_string(),
+        "medium".to_string(),
+        None,
+        "2026-10-01".to_string(),
+        "[]".to_string(),
+        Some("City A".to_string()),
+        Some("City B".to_string()),
+        0, 0, true, true, false, false,
+    ).await.unwrap();
+    conn.execute("UPDATE job_tickets SET route_stops_json = '{\"estimated_distance_km\": 100.0}' WHERE id = ?1", crate::params![&job_a.id]).await.unwrap();
+
+    // Job B: Local move (10 km) stored on Job B ticket
+    let job_b = create_job_ticket(
+        "u-dist-staff".to_string(),
+        "ws-dist-iso-test".to_string(),
+        "Local Move".to_string(),
+        "Job B Desc".to_string(),
+        "City A".to_string(),
+        "medium".to_string(),
+        None,
+        "2026-10-01".to_string(),
+        "[]".to_string(),
+        Some("City A".to_string()),
+        Some("City A East".to_string()),
+        0, 0, true, true, false, false,
+    ).await.unwrap();
+    conn.execute("UPDATE job_tickets SET route_stops_json = '{\"estimated_distance_km\": 10.0}' WHERE id = ?1", crate::params![&job_b.id]).await.unwrap();
+
+    // Calculate quotes for both jobs
+    calculate_and_save_move_quote("u-dist-staff".to_string(), job_a.id.clone()).await.unwrap();
+    calculate_and_save_move_quote("u-dist-staff".to_string(), job_b.id.clone()).await.unwrap();
+
+    let quote_a = get_move_quote("u-dist-staff".to_string(), job_a.id.clone()).await.unwrap().unwrap();
+    let quote_b = get_move_quote("u-dist-staff".to_string(), job_b.id.clone()).await.unwrap().unwrap();
+
+    // Job A: 500 flat + (100 - 30)*10 = 1200 SEK distance fee
+    assert_eq!(quote_a.distance_fee, 1200.0);
+    // Job B: 10 km <= 30 km radius -> 500 SEK flat distance fee
+    assert_eq!(quote_b.distance_fee, 500.0);
+
+    // Cleanup
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-dist-iso-test'", ()).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-dist-iso-test'", ()).await.ok();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-dist-iso-test'", ()).await.ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-dist-iso-test'", ()).await.ok();
+}
+
+#[tokio::test]
+async fn test_depot_positioning_and_roundtrip_mileage() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    conn.execute(
+        "INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-depot-test', 'Depot WS', '[\"moving_company\"]', '{\"moving_distance_fee_flat\":500.0,\"moving_local_radius_km\":30.0,\"moving_per_km_rate\":10.0}')",
+        ()
+    ).await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-depot-staff', 'ws-depot-test', 'staff@depot.io', 'admin')", ()).await.unwrap();
+
+    let job = create_job_ticket(
+        "u-depot-staff".to_string(),
+        "ws-depot-test".to_string(),
+        "Depot & Roundtrip Move".to_string(),
+        "Test Desc".to_string(),
+        "City A".to_string(),
+        "medium".to_string(),
+        None,
+        "2026-10-01".to_string(),
+        "[]".to_string(),
+        Some("City A".to_string()),
+        Some("City B".to_string()),
+        0, 0, true, true, false, false,
+    ).await.unwrap();
+
+    // 50 km move + 15 km depot-to-origin + 25 km destination-to-depot + roundtrip (50*2 = 100 + 15 + 25 = 140 km)
+    let route_json = r#"{"estimated_distance_km": 50.0, "depot_to_origin_km": 15.0, "destination_to_depot_km": 25.0, "include_roundtrip": true}"#;
+    conn.execute("UPDATE job_tickets SET route_stops_json = ?1 WHERE id = ?2", crate::params![route_json, &job.id]).await.unwrap();
+
+    calculate_and_save_move_quote("u-depot-staff".to_string(), job.id.clone()).await.unwrap();
+
+    let quote = get_move_quote("u-depot-staff".to_string(), job.id.clone()).await.unwrap().unwrap();
+
+    // Effective distance = 140 km. Fee = 500 + (140 - 30)*10 = 1600.0 SEK
+    assert_eq!(quote.distance_fee, 1600.0);
+
+    // Cleanup
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-depot-test'", ()).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-depot-test'", ()).await.ok();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-depot-test'", ()).await.ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-depot-test'", ()).await.ok();
 }

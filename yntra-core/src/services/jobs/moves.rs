@@ -369,8 +369,17 @@ pub async fn create_move_inventory_item_with_details(
         .await
         .ok();
 
+    let is_staff = auth.is_admin
+        || auth.role == "admin"
+        || auth.role == "manager"
+        || auth.role == "staff"
+        || auth.role == "mover"
+        || auth.role == "dispatch"
+        || auth.role == "field_worker"
+        || auth.role == "platform_admin";
+
     if let Some(ref status) = quote_status {
-        if status == "accepted" || status == "invoiced" {
+        if (status == "accepted" || status == "invoiced") && !is_staff {
             return Err(YntraError::ValidationError(
                 "Cannot modify inventory after quote has been accepted or invoiced.".to_string(),
             ));
@@ -378,9 +387,11 @@ pub async fn create_move_inventory_item_with_details(
     }
 
     let weight = estimated_weight_kg.unwrap_or(0.0);
-    let job_short = if job_ticket_id.len() >= 6 { &job_ticket_id[..6] } else { &job_ticket_id };
-    let id_short = if id.len() >= 6 { &id[..6] } else { &id };
-    let barcode_tag = format!("YNT-{}-{}", job_short.to_uppercase(), id_short.to_uppercase());
+    let job_clean = job_ticket_id.replace('-', "");
+    let id_clean = id.replace('-', "");
+    let job_part = if job_clean.len() >= 8 { &job_clean[..8] } else { &job_clean };
+    let id_part = if id_clean.len() >= 8 { &id_clean[..8] } else { &id_clean };
+    let base_barcode = format!("YNT-{}-{}", job_part.to_uppercase(), id_part.to_uppercase());
 
     conn.execute(
         "INSERT INTO move_inventory (id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, handling_notes, updated_at, sync_status, room_name, estimated_weight_kg, preset_id, barcode_tag, scan_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending', ?10, ?11, ?12, ?13, 'unscanned')",
@@ -397,7 +408,7 @@ pub async fn create_move_inventory_item_with_details(
             room_name,
             weight,
             preset_id,
-            barcode_tag
+            base_barcode
         ],
     ).await?;
 
@@ -423,12 +434,16 @@ pub async fn scan_inventory_item_by_barcode(
     let now_ms = chrono::Utc::now().timestamp_millis();
 
     let mut stmt = conn.prepare(
-        "SELECT id FROM move_inventory WHERE job_ticket_id = ?1 AND (UPPER(barcode_tag) = ?2 OR UPPER(id) = ?2)"
+        "SELECT id FROM move_inventory WHERE job_ticket_id = ?1 AND (UPPER(barcode_tag) = ?2 OR UPPER(id) = ?2 OR ?2 LIKE UPPER(barcode_tag) || '-%' OR ?2 LIKE UPPER(id) || '-%' OR ?2 LIKE UPPER(barcode_tag) || '#%') ORDER BY CASE WHEN scan_status = 'unscanned' THEN 0 ELSE 1 END, id ASC"
     ).await?;
     let mut rows = stmt.query(crate::params![&job_ticket_id, &clean_barcode]).await?;
-
-    if let Some(row) = rows.next().await? {
+    let mut matching_ids = Vec::new();
+    while let Some(row) = rows.next().await? {
         let item_id: String = row.get(0)?;
+        matching_ids.push(item_id);
+    }
+
+    if let Some(item_id) = matching_ids.into_iter().next() {
         let valid_status = match target_status.to_lowercase().as_str() {
             "packed" => "packed",
             "loaded" => "loaded",
@@ -604,11 +619,12 @@ pub async fn get_move_inventory_summary(
                     .await
                 {
                     if let Some(cap) = capacity_m3 {
-                        if total_vol > cap {
+                        let required_loading_vol = (total_vol * 1.2 * 10.0).round() / 10.0;
+                        if required_loading_vol > cap {
                             truck_capacity_exceeded = true;
                             truck_capacity_warning = Some(format!(
-                                "Inventory volume ({:.1} m³) exceeds assigned vehicle capacity ({:.1} m³)",
-                                total_vol, cap
+                                "Required loading volume with 20% packing buffer ({:.1} m³) exceeds assigned vehicle capacity ({:.1} m³)",
+                                required_loading_vol, cap
                             ));
                         }
                     }
@@ -682,8 +698,17 @@ pub async fn delete_move_inventory_item(
         .await
         .ok();
 
+    let is_staff = auth.is_admin
+        || auth.role == "admin"
+        || auth.role == "manager"
+        || auth.role == "staff"
+        || auth.role == "mover"
+        || auth.role == "dispatch"
+        || auth.role == "field_worker"
+        || auth.role == "platform_admin";
+
     if let Some(ref status) = quote_status {
-        if status == "accepted" || status == "invoiced" {
+        if (status == "accepted" || status == "invoiced") && !is_staff {
             return Err(YntraError::ValidationError(
                 "Cannot delete inventory items after quote has been accepted or invoiced.".to_string(),
             ));
@@ -808,7 +833,7 @@ pub fn calculate_item_specialty_surcharge_extended(
 }
 
 #[uniffi::export]
-pub fn calculate_access_and_stair_surcharge_with_multipliers(
+pub fn calculate_eligible_stair_labor_surcharge(
     origin_floor: i32,
     destination_floor: i32,
     origin_has_elevator: bool,
@@ -817,11 +842,7 @@ pub fn calculate_access_and_stair_surcharge_with_multipliers(
     destination_staircase_type: Option<String>,
     origin_elevator_size: Option<String>,
     destination_elevator_size: Option<String>,
-    long_carry_meters: i32,
-    requires_crane_hoist: bool,
     stairs_surcharge_per_floor: f64,
-    surcharge_long_carry_per_meter: f64,
-    surcharge_crane_hoist: f64,
     surcharge_small_elevator: f64,
     mult_spiral: f64,
     mult_narrow: f64,
@@ -861,12 +882,50 @@ pub fn calculate_access_and_stair_surcharge_with_multipliers(
         stairs_surcharge += surcharge_small_elevator;
     }
 
-    // Long carry surcharge
+    stairs_surcharge
+}
+
+pub fn calculate_access_and_stair_surcharge_with_multipliers(
+    origin_floor: i32,
+    destination_floor: i32,
+    origin_has_elevator: bool,
+    destination_has_elevator: bool,
+    origin_staircase_type: Option<String>,
+    destination_staircase_type: Option<String>,
+    origin_elevator_size: Option<String>,
+    destination_elevator_size: Option<String>,
+    long_carry_meters: i32,
+    requires_crane_hoist: bool,
+    stairs_surcharge_per_floor: f64,
+    surcharge_long_carry_per_meter: f64,
+    surcharge_crane_hoist: f64,
+    surcharge_small_elevator: f64,
+    mult_spiral: f64,
+    mult_narrow: f64,
+    mult_outdoor: f64,
+) -> f64 {
+    let mut stairs_surcharge = calculate_eligible_stair_labor_surcharge(
+        origin_floor,
+        destination_floor,
+        origin_has_elevator,
+        destination_has_elevator,
+        origin_staircase_type,
+        destination_staircase_type,
+        origin_elevator_size,
+        destination_elevator_size,
+        stairs_surcharge_per_floor,
+        surcharge_small_elevator,
+        mult_spiral,
+        mult_narrow,
+        mult_outdoor,
+    );
+
+    // Long carry surcharge (Non-deductible under Skatteverket RUT)
     if long_carry_meters > 0 {
         stairs_surcharge += (long_carry_meters as f64) * surcharge_long_carry_per_meter;
     }
 
-    // External crane / hoist requirement surcharge
+    // External crane / hoist requirement surcharge (Equipment rental - Non-deductible under Skatteverket RUT)
     if requires_crane_hoist {
         stairs_surcharge += surcharge_crane_hoist;
     }
@@ -985,10 +1044,10 @@ pub async fn calculate_and_save_move_quote(
 
     // 1. Fetch Job Ticket details
     let mut stmt = conn.prepare(
-        "SELECT workspace_id, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, COALESCE(long_carry_meters, 0), COALESCE(toll_fees, 0.0), scheduled_date FROM job_tickets WHERE id = ?1",
+        "SELECT workspace_id, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, COALESCE(long_carry_meters, 0), COALESCE(toll_fees, 0.0), scheduled_date, route_stops_json FROM job_tickets WHERE id = ?1",
     ).await?;
     let mut rows = stmt.query(crate::params![&job_ticket_id]).await?;
-    let (job_ws, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, long_carry_meters, toll_fees, scheduled_date) = if let Some(row) = rows.next().await? {
+    let (job_ws, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, long_carry_meters, toll_fees, scheduled_date, route_stops_json) = if let Some(row) = rows.next().await? {
         (
             row.get::<String>(0)?,
             row.get::<i64>(1)? as i32,
@@ -998,6 +1057,7 @@ pub async fn calculate_and_save_move_quote(
             row.get::<i64>(5)? as i32,
             row.get::<f64>(6)?,
             row.get::<String>(7)?,
+            row.get::<Option<String>>(8)?,
         )
     } else {
         return Err(YntraError::NotFoundError("Job not found".to_string()));
@@ -1064,6 +1124,7 @@ pub async fn calculate_and_save_move_quote(
         );
         specialty_surcharge += item_fee * (quantity as f64);
     }
+    total_volume = (total_volume * 1000.0).round() / 1000.0;
 
     // 4. Quoting Calculations:
     let base_rate_per_m3 = settings_json
@@ -1084,13 +1145,55 @@ pub async fn calculate_and_save_move_quote(
         .unwrap_or(100.0);
 
     // Dynamic Multipliers & Tariffs
-    let distance_km = settings_json.get("estimated_distance_km").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    // Inspect job-specific route metadata first to prevent global workspace settings pollution across concurrent jobs
+    let job_distance_km: Option<f64> = route_stops_json
+        .as_deref()
+        .and_then(|json_str| serde_json::from_str::<serde_json::Value>(json_str).ok())
+        .and_then(|v| {
+            v.get("estimated_distance_km")
+                .or_else(|| v.get("distance_km"))
+                .or_else(|| v.get("total_distance_km"))
+                .and_then(|d| d.as_f64())
+        });
+
+    let distance_km = job_distance_km
+        .or_else(|| settings_json.get("estimated_distance_km").and_then(|v| v.as_f64()))
+        .unwrap_or(0.0);
+
+    // Depot & Round-Trip Distance Accounting
+    let depot_to_origin_km = route_stops_json
+        .as_deref()
+        .and_then(|json_str| serde_json::from_str::<serde_json::Value>(json_str).ok())
+        .and_then(|v| v.get("depot_to_origin_km").and_then(|d| d.as_f64()))
+        .or_else(|| settings_json.get("depot_to_origin_km").and_then(|v| v.as_f64()))
+        .unwrap_or(0.0);
+
+    let destination_to_depot_km = route_stops_json
+        .as_deref()
+        .and_then(|json_str| serde_json::from_str::<serde_json::Value>(json_str).ok())
+        .and_then(|v| v.get("destination_to_depot_km").and_then(|d| d.as_f64()))
+        .or_else(|| settings_json.get("destination_to_depot_km").and_then(|v| v.as_f64()))
+        .unwrap_or(0.0);
+
+    let is_roundtrip = route_stops_json
+        .as_deref()
+        .and_then(|json_str| serde_json::from_str::<serde_json::Value>(json_str).ok())
+        .and_then(|v| v.get("include_roundtrip").and_then(|b| b.as_bool()))
+        .or_else(|| settings_json.get("moving_include_roundtrip").and_then(|v| v.as_bool()))
+        .unwrap_or(false);
+
+    let effective_distance_km = if is_roundtrip {
+        (distance_km * 2.0) + depot_to_origin_km + destination_to_depot_km
+    } else {
+        distance_km + depot_to_origin_km + destination_to_depot_km
+    };
+
     let local_radius = settings_json.get("moving_local_radius_km").and_then(|v| v.as_f64()).unwrap_or(30.0);
     let per_km_rate = settings_json.get("moving_per_km_rate").and_then(|v| v.as_f64()).unwrap_or(15.0);
 
     let mut distance_fee = distance_fee_flat;
-    if distance_km > local_radius {
-        distance_fee += (distance_km - local_radius) * per_km_rate;
+    if effective_distance_km > local_radius {
+        distance_fee += (effective_distance_km - local_radius) * per_km_rate;
     }
     distance_fee += toll_fees;
 
@@ -1265,19 +1368,18 @@ pub async fn calculate_and_save_move_quote(
     let old_calculated_total = old_base + old_dist + old_stairs + old_supplies;
 
     let (effective_override, mut total_price) = if let Some(override_val) = existing_override {
-        if old_calculated_total > 0.0 {
-            let delta = calculated_total - old_calculated_total;
-            let updated_override = (override_val + delta).max(0.0);
-            (Some(updated_override), updated_override)
-        } else {
-            (Some(override_val), override_val)
-        }
+        (Some(override_val), override_val)
     } else {
         (None, calculated_total)
     };
 
     if let Some(discount) = existing_discount {
         total_price = (total_price - discount).max(0.0);
+    }
+
+    let mut save_status = quote_status.clone();
+    if quote_status == "accepted" && old_calculated_total > 0.0 && (calculated_total - old_calculated_total).abs() > 0.01 {
+        save_status = "revised".to_string();
     }
 
     conn.execute(
@@ -1291,7 +1393,7 @@ pub async fn calculate_and_save_move_quote(
             stairs_surcharge,
             packing_supplies_fee,
             total_price,
-            quote_status,
+            save_status,
             now_ms,
             effective_override,
             existing_discount
