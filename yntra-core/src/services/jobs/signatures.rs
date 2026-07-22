@@ -501,6 +501,13 @@ pub async fn sign_bill_of_lading_phase(
         ],
     ).await?;
 
+    if is_dest {
+        conn.execute(
+            "UPDATE job_tickets SET status = 'completed', updated_at = ?1, sync_status = 'pending' WHERE id = ?2 AND status != 'completed'",
+            crate::params![now_ms, &job_id],
+        ).await.ok();
+    }
+
     let _ = crate::services::audit::log_action_with_conn(
         &conn,
         requester_user_id,
@@ -511,6 +518,52 @@ pub async fn sign_bill_of_lading_phase(
     notify_observers();
 
     get_bill_of_lading(job_id).await?.ok_or_else(|| YntraError::NotFoundError("Failed to reload BOL".to_string()))
+}
+
+#[uniffi::export]
+pub async fn validate_bill_of_lading_fmcsa_compliance(
+    requester_user_id: String,
+    job_id: String,
+) -> Result<bool, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let bol = get_bill_of_lading(job_id.clone()).await?
+        .ok_or_else(|| YntraError::NotFoundError(format!("No Bill of Lading found for job {}", job_id)))?;
+
+    if bol.origin_signature_hash.is_none() {
+        return Err(YntraError::ValidationError(
+            "US DOT FMCSA Compliance Error: Origin pick-up signature is missing from Bill of Lading.".to_string(),
+        ));
+    }
+
+    if bol.destination_signature_hash.is_none() {
+        return Err(YntraError::ValidationError(
+            "US DOT FMCSA Compliance Error: Destination delivery signature is missing. 49 CFR § 375.505 requires destination sign-off to validate cargo condition upon delivery.".to_string(),
+        ));
+    }
+
+    let calculated_tamper_hash = calculate_bol_tamper_hash(
+        &bol.bol_number,
+        &bol.job_ticket_id,
+        &bol.shipper_name,
+        &bol.origin_address,
+        &bol.destination_address,
+        &bol.valuation_option,
+        bol.valuation_declared_amount,
+        bol.total_estimated_weight_lbs,
+        &bol.inventory_manifest_json,
+        bol.origin_signature_hash.as_deref(),
+        bol.destination_signature_hash.as_deref(),
+    );
+
+    if bol.document_tamper_hash != calculated_tamper_hash {
+        return Err(YntraError::ValidationError(
+            "Security Integrity Violation: Bill of Lading tamper hash mismatch. Document may have been modified after signing.".to_string(),
+        ));
+    }
+
+    Ok(true)
 }
 
 #[uniffi::export]
@@ -604,6 +657,11 @@ mod tests {
         assert_eq!(bol_full.valuation_premium, 250.0); // 1% of 25000 = 250
         assert!(bol_full.customer_signature_hash.is_some());
 
+        // 2.5 FMCSA Compliance check before destination sign-off fails due to missing delivery signature
+        let fmcsa_fail = validate_bill_of_lading_fmcsa_compliance("u-bol-staff".to_string(), "job-bol-1".to_string()).await;
+        assert!(fmcsa_fail.is_err());
+        assert!(fmcsa_fail.unwrap_err().to_string().contains("Destination delivery signature is missing"));
+
         // 3. Phase-2 Destination Sign-off
         let bol_dest = sign_bill_of_lading_phase(
             "u-bol-staff".to_string(),
@@ -616,6 +674,11 @@ mod tests {
         assert!(bol_dest.destination_signature_hash.is_some());
         assert!(bol_dest.signed_destination_at.is_some());
         assert!(!bol_dest.document_tamper_hash.is_empty());
+
+        // 3.5 FMCSA Compliance check after destination delivery sign-off succeeds
+        let fmcsa_pass = validate_bill_of_lading_fmcsa_compliance("u-bol-staff".to_string(), "job-bol-1".to_string()).await;
+        assert!(fmcsa_pass.is_ok());
+        assert!(fmcsa_pass.unwrap());
 
         // 4. Fetch BOL
         let fetched = get_bill_of_lading("job-bol-1".to_string()).await.unwrap().unwrap();
