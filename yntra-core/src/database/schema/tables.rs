@@ -268,26 +268,6 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             gps_device_id TEXT
         );
 
-        CREATE TABLE IF NOT EXISTS job_crew (
-            job_ticket_id TEXT NOT NULL,
-            user_id TEXT NOT NULL,
-            role TEXT NOT NULL DEFAULT 'mover',
-            PRIMARY KEY(job_ticket_id, user_id),
-            FOREIGN KEY(job_ticket_id) REFERENCES job_tickets(id) ON DELETE CASCADE,
-            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS move_signatures (
-            id TEXT PRIMARY KEY,
-            workspace_id TEXT NOT NULL DEFAULT 'workspace-1',
-            job_ticket_id TEXT NOT NULL,
-            signer_name TEXT NOT NULL,
-            signature_data_base64 TEXT NOT NULL,
-            signed_at INTEGER NOT NULL,
-            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
-            FOREIGN KEY(job_ticket_id) REFERENCES job_tickets(id) ON DELETE CASCADE
-        );
-
         CREATE TABLE IF NOT EXISTS job_tickets (
             id TEXT PRIMARY KEY,
             workspace_id TEXT NOT NULL,
@@ -317,6 +297,73 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             toll_fees REAL DEFAULT 0.0,
             FOREIGN KEY(assigned_user_id) REFERENCES users(id),
             FOREIGN KEY(assigned_vehicle_id) REFERENCES vehicles(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS job_crew (
+            job_ticket_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'mover',
+            PRIMARY KEY(job_ticket_id, user_id),
+            FOREIGN KEY(job_ticket_id) REFERENCES job_tickets(id) ON DELETE CASCADE,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS move_signatures (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL DEFAULT 'workspace-1',
+            job_ticket_id TEXT NOT NULL,
+            signer_name TEXT NOT NULL,
+            signature_data_base64 TEXT NOT NULL,
+            signed_at INTEGER NOT NULL,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(job_ticket_id) REFERENCES job_tickets(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS warehouse_vaults (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            job_ticket_id TEXT NOT NULL,
+            vault_number TEXT NOT NULL,
+            warehouse_name TEXT NOT NULL,
+            allocated_volume_m3 REAL NOT NULL,
+            monthly_rate_sek REAL NOT NULL,
+            move_in_date TEXT NOT NULL,
+            estimated_move_out_date TEXT,
+            status TEXT NOT NULL DEFAULT 'stored',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(job_ticket_id) REFERENCES job_tickets(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS job_tips (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            job_ticket_id TEXT NOT NULL,
+            total_tip_amount REAL NOT NULL,
+            crew_count INTEGER NOT NULL,
+            tip_per_member REAL NOT NULL,
+            status TEXT NOT NULL DEFAULT 'distributed',
+            created_at INTEGER NOT NULL,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(job_ticket_id) REFERENCES job_tickets(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS fuel_receipts (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            vehicle_id TEXT NOT NULL,
+            driver_user_id TEXT NOT NULL,
+            liters REAL NOT NULL,
+            cost_sek REAL NOT NULL,
+            fuel_type TEXT NOT NULL,
+            odometer_km INTEGER NOT NULL,
+            receipt_image_url TEXT,
+            station_name TEXT,
+            purchase_date TEXT NOT NULL,
+            erp_sync_status TEXT NOT NULL DEFAULT 'pending',
+            erp_reference TEXT,
+            created_at INTEGER NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS move_inventory (
