@@ -1,5 +1,6 @@
 use crate::database;
-use crate::services::jobs::{create_job_ticket, calculate_and_save_move_quote, get_move_quote};
+use crate::infra::errors::YntraError;
+use crate::services::jobs::{create_job_ticket, calculate_and_save_move_quote, get_move_quote, accept_move_quote, get_move_quote_revisions, accept_move_quote_with_deposit, confirm_quote_deposit_payment};
 use crate::services::jobs::{create_move_inventory_item, get_move_inventory, delete_move_inventory_item};
 use crate::services::jobs::{add_job_packaging_item, get_job_packaging_items, remove_job_packaging_item};
 
@@ -90,11 +91,11 @@ async fn test_move_operations() {
     // Stairs Surcharge = 3 floors * 300 SEK (since origin has no elevator, dest has elevator so 0 surcharge) = 900 SEK
     // Packing supplies fee = 2.0 * 100 = 200 SEK
     // Total = 1000 + 800 + 900 + 200 = 2900 SEK
-    assert_eq!(q.base_price, 1000);
-    assert_eq!(q.distance_fee, 800);
-    assert_eq!(q.stairs_surcharge, 900);
-    assert_eq!(q.packing_supplies_fee, 200);
-    assert_eq!(q.total_price, 2900);
+    assert_eq!(q.base_price, 1000.0);
+    assert_eq!(q.distance_fee, 800.0);
+    assert_eq!(q.stairs_surcharge, 900.0);
+    assert_eq!(q.packing_supplies_fee, 200.0);
+    assert_eq!(q.total_price, 2900.0);
 
     // 4. Delete the Books item
     delete_move_inventory_item("u-move-staff".to_string(), books_item.id.clone())
@@ -122,8 +123,8 @@ async fn test_move_operations() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(q_updated.base_price, 750);
-    assert_eq!(q_updated.total_price, 2600);
+    assert_eq!(q_updated.base_price, 750.0);
+    assert_eq!(q_updated.total_price, 2600.0);
 
     // Cleanup
     conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = ?1", crate::params![&job.id]).await.unwrap();
@@ -216,11 +217,11 @@ async fn test_client_self_service_inventory_flow() {
     // Stairs Surcharge = 2 floors * 300 SEK (destination floor 2, no elevator) = 600 SEK
     // Packing supplies fee = 2.5 * 100 = 250 SEK
     // Total = 1250 + 800 + 600 + 250 = 2900 SEK
-    assert_eq!(q.base_price, 1250);
-    assert_eq!(q.distance_fee, 800);
-    assert_eq!(q.stairs_surcharge, 600);
-    assert_eq!(q.packing_supplies_fee, 250);
-    assert_eq!(q.total_price, 2900);
+    assert_eq!(q.base_price, 1250.0);
+    assert_eq!(q.distance_fee, 800.0);
+    assert_eq!(q.stairs_surcharge, 600.0);
+    assert_eq!(q.packing_supplies_fee, 250.0);
+    assert_eq!(q.total_price, 2900.0);
 
     // 7. Client deletes Sofa
     let sofa_item = inv.iter().find(|i| i.item_name == "Soffa").unwrap();
@@ -275,8 +276,8 @@ async fn test_specialty_item_surcharges() {
         "job-spec-test".to_string(),
     ).await.unwrap().unwrap();
 
-    assert_eq!(quote.base_price, 1650);
-    assert_eq!(quote.total_price, 2600); // base (1650) + distance default (800) + packaging default (1.5 * 100 = 150) = 2600
+    assert_eq!(quote.base_price, 1650.0);
+    assert_eq!(quote.total_price, 2600.0); // base (1650) + distance default (800) + packaging default (1.5 * 100 = 150) = 2600
 
     // Direct unit test of calculate_item_specialty_surcharge matching synonyms, category, and notes
     use crate::services::jobs::calculate_item_specialty_surcharge;
@@ -327,7 +328,7 @@ async fn test_packaging_inventory_system() {
         "u-pack-staff".to_string(),
         "job-pack-test".to_string(),
     ).await.unwrap().unwrap();
-    assert_eq!(quote1.packing_supplies_fee, 200);
+    assert_eq!(quote1.packing_supplies_fee, 200.0);
 
     // 4. Add packaging items (reactive trigger should update the quote automatically)
     // Item 1: Moving Box (Qty 10, Price 30.0 SEK) -> 300.0 SEK
@@ -363,7 +364,7 @@ async fn test_packaging_inventory_system() {
         "u-pack-staff".to_string(),
         "job-pack-test".to_string(),
     ).await.unwrap().unwrap();
-    assert_eq!(quote2.packing_supplies_fee, 400);
+    assert_eq!(quote2.packing_supplies_fee, 400.0);
 
     // 5. Remove one packaging item
     // Remove Item 2 (Tape). Expected supplies fee = 300.0 SEK
@@ -377,7 +378,7 @@ async fn test_packaging_inventory_system() {
         "u-pack-staff".to_string(),
         "job-pack-test".to_string(),
     ).await.unwrap().unwrap();
-    assert_eq!(quote3.packing_supplies_fee, 300);
+    assert_eq!(quote3.packing_supplies_fee, 300.0);
 
     // 6. Clean up
     conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-pack-test'", ()).await.unwrap();
@@ -450,8 +451,8 @@ async fn test_basement_carrying_surcharges() {
     // Stairs Surcharge = |-2| + |-1| = 3 floors * 300 SEK = 900 SEK
     // Packing supplies fee = 2.0 * 100 = 200 SEK
     // Total = 1000 + 800 + 900 + 200 = 2900 SEK
-    assert_eq!(q.stairs_surcharge, 900);
-    assert_eq!(q.total_price, 2900);
+    assert_eq!(q.stairs_surcharge, 900.0);
+    assert_eq!(q.total_price, 2900.0);
 
     // Verify custom admin staircase multipliers
     use crate::services::jobs::moves::{calculate_access_and_stair_surcharge, calculate_access_and_stair_surcharge_with_multipliers};
@@ -517,10 +518,10 @@ async fn test_dynamic_pricing_models() {
 
     // Minimum hours = 4.0 hours * 1000.0 SEK/h = 4000 SEK base labor
     // Weekend (1.25) * Peak (1.15) = 1.4375 -> Base price = 4000 * 1.4375 = 5750 SEK
-    assert_eq!(q.base_price, 5750);
+    assert_eq!(q.base_price, 5750.0);
 
     // Distance fee: Flat (500) + (100km - 30km) * 15 SEK/km (1050) = 1550 SEK
-    assert_eq!(q.distance_fee, 1550);
+    assert_eq!(q.distance_fee, 1550.0);
 
     // Cleanup
     conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-dyn-test'", ()).await.unwrap();
@@ -688,4 +689,233 @@ async fn test_tip_distribution_and_mover_payroll_split() {
     conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-pay-test'", ()).await.ok();
     conn.execute("DELETE FROM users WHERE workspace_id = 'ws-pay-test'", ()).await.ok();
     conn.execute("DELETE FROM workspaces WHERE id = 'ws-pay-test'", ()).await.ok();
+}
+
+#[tokio::test]
+async fn test_manual_override_dynamic_item_additions() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    conn.execute(
+        "INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-ovr-test', 'Override WS', '[\"moving_company\"]', '{\"moving_base_rate_per_m3\":500.0}')",
+        ()
+    ).await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-ovr-staff', 'ws-ovr-test', 'staff@ovr.io', 'admin')", ()).await.unwrap();
+
+    let job = create_job_ticket(
+        "u-ovr-staff".to_string(),
+        "ws-ovr-test".to_string(),
+        "Override Job".to_string(),
+        "Testing manual override dynamic additions".to_string(),
+        "Addr 1".to_string(),
+        "medium".to_string(),
+        None,
+        "2026-09-10".to_string(),
+        "[]".to_string(),
+        Some("Addr 1".to_string()),
+        Some("Addr 2".to_string()),
+        0, 0, true, true, false, false,
+    ).await.unwrap();
+
+    // 1. Initial inventory: 1 Sofa @ 2.0 m3 -> volume cost = 1000 SEK. Distance fee = 800 SEK, supplies = 200 SEK.
+    // Total calculated = 2000 SEK
+    create_move_inventory_item("u-ovr-staff".to_string(), job.id.clone(), "Möbler".to_string(), "Sofa".to_string(), 1, 2.0, None).await.unwrap();
+    calculate_and_save_move_quote("u-ovr-staff".to_string(), job.id.clone()).await.unwrap();
+
+    let q1 = get_move_quote("u-ovr-staff".to_string(), job.id.clone()).await.unwrap().unwrap();
+    assert_eq!(q1.total_price, 2000.0);
+
+    // 2. Admin sets a manual price override of 3000 SEK (a custom price agreement)
+    crate::services::jobs::update_move_quote_price_adjustments("u-ovr-staff".to_string(), job.id.clone(), Some(3000.0), None).await.unwrap();
+
+    let q2 = get_move_quote("u-ovr-staff".to_string(), job.id.clone()).await.unwrap().unwrap();
+    assert_eq!(q2.manual_price_override, Some(3000.0));
+    assert_eq!(q2.total_price, 3000.0);
+
+    // 3. Customer/Admin adds an extra item (Armchair @ 1.0 m3 -> volume cost +500 SEK, supplies +100 SEK -> calculated total increases by +600 SEK to 2600 SEK)
+    create_move_inventory_item("u-ovr-staff".to_string(), job.id.clone(), "Möbler".to_string(), "Fåtölj".to_string(), 1, 1.0, None).await.unwrap();
+    calculate_and_save_move_quote("u-ovr-staff".to_string(), job.id.clone()).await.unwrap();
+
+    // The manual price override must adjust by the delta (+600 SEK) -> new total_price = 3600 SEK!
+    let q3 = get_move_quote("u-ovr-staff".to_string(), job.id.clone()).await.unwrap().unwrap();
+    assert_eq!(q3.manual_price_override, Some(3600.0));
+    assert_eq!(q3.total_price, 3600.0);
+
+    // Cleanup
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-ovr-test'", ()).await.ok();
+    conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-ovr-test'", ()).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-ovr-test'", ()).await.ok();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-ovr-test'", ()).await.ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-ovr-test'", ()).await.ok();
+}
+
+#[tokio::test]
+async fn test_quote_revision_audit_trail_and_accepted_lock() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-rev-test', 'Revision WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-rev-staff', 'ws-rev-test', 'staff@rev.se', 'admin')", ()).await.unwrap();
+
+    let job = create_job_ticket(
+        "u-rev-staff".to_string(),
+        "ws-rev-test".to_string(),
+        "Revision Job".to_string(),
+        "Audit test".to_string(),
+        "Street 1".to_string(),
+        "medium".to_string(),
+        None,
+        "2026-10-01".to_string(),
+        "[]".to_string(),
+        None,
+        None,
+        0,
+        0,
+        true,
+        true,
+        false,
+        false,
+    ).await.unwrap();
+
+    // 1. Initial inventory item and quote
+    create_move_inventory_item("u-rev-staff".to_string(), job.id.clone(), "Möbler".to_string(), "Bord".to_string(), 1, 2.0, None).await.unwrap();
+    calculate_and_save_move_quote("u-rev-staff".to_string(), job.id.clone()).await.unwrap();
+
+    let q1 = get_move_quote("u-rev-staff".to_string(), job.id.clone()).await.unwrap().unwrap();
+
+    // 2. Client adds a second item -> recalculates quote and creates audit revision record
+    create_move_inventory_item("u-rev-staff".to_string(), job.id.clone(), "Möbler".to_string(), "Soffa".to_string(), 1, 3.0, None).await.unwrap();
+    calculate_and_save_move_quote("u-rev-staff".to_string(), job.id.clone()).await.unwrap();
+
+    let revs = get_move_quote_revisions("u-rev-staff".to_string(), q1.id.clone()).await.unwrap();
+    assert!(!revs.is_empty());
+    assert_eq!(revs[0].quote_id, q1.id);
+    assert_eq!(revs[0].previous_total, q1.total_price);
+
+    // 3. Accept quote
+    accept_move_quote("u-rev-staff".to_string(), q1.id.clone()).await.unwrap();
+
+    // 4. Attempt to add or delete inventory items after acceptance must fail
+    let err = create_move_inventory_item("u-rev-staff".to_string(), job.id.clone(), "Möbler".to_string(), "Stol".to_string(), 1, 0.5, None).await;
+    assert!(err.is_err());
+    assert!(matches!(err.unwrap_err(), YntraError::ValidationError(_)));
+
+    // Cleanup
+    conn.execute("DELETE FROM move_quote_revisions WHERE workspace_id = 'ws-rev-test'", ()).await.ok();
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-rev-test'", ()).await.ok();
+    conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-rev-test'", ()).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-rev-test'", ()).await.ok();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-rev-test'", ()).await.ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-rev-test'", ()).await.ok();
+}
+
+#[tokio::test]
+async fn test_quote_deposit_flow_prevents_premature_accepted_lock() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-dep-test', 'Deposit WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-dep-staff', 'ws-dep-test', 'staff@dep.se', 'admin')", ()).await.unwrap();
+
+    let job = create_job_ticket(
+        "u-dep-staff".to_string(),
+        "ws-dep-test".to_string(),
+        "Deposit Job".to_string(),
+        "Deposit test".to_string(),
+        "Addr 1".to_string(),
+        "medium".to_string(),
+        None,
+        "2026-10-01".to_string(),
+        "[]".to_string(),
+        None,
+        None,
+        0,
+        0,
+        true,
+        true,
+        false,
+        false,
+    ).await.unwrap();
+
+    create_move_inventory_item("u-dep-staff".to_string(), job.id.clone(), "Möbler".to_string(), "Bord".to_string(), 1, 2.0, None).await.unwrap();
+    calculate_and_save_move_quote("u-dep-staff".to_string(), job.id.clone()).await.unwrap();
+    let q1 = get_move_quote("u-dep-staff".to_string(), job.id.clone()).await.unwrap().unwrap();
+
+    // 1. Initiate deposit payment approval
+    let dep_res = accept_move_quote_with_deposit("u-dep-staff".to_string(), q1.id.clone(), "swish".to_string()).await.unwrap();
+    assert!(dep_res.success);
+    assert_eq!(dep_res.quote_status, "pending_deposit");
+    assert!(dep_res.payment_session_url.is_some());
+
+    // Verify quote and job ticket statuses are NOT locked as accepted/assigned prematurely
+    let q_status: String = conn.query_row("SELECT status FROM move_quotes WHERE id = ?1", crate::params![&q1.id], |r| r.get(0)).await.unwrap();
+    let j_status: String = conn.query_row("SELECT status FROM job_tickets WHERE id = ?1", crate::params![&job.id], |r| r.get(0)).await.unwrap();
+    assert_eq!(q_status, "pending_deposit");
+    assert_eq!(j_status, "deposit_pending");
+
+    // 2. Deposit payment completes -> confirm deposit payment
+    confirm_quote_deposit_payment("u-dep-staff".to_string(), q1.id.clone(), "ref-12345".to_string()).await.unwrap();
+
+    // Verify status transitions to accepted and assigned
+    let q_status_after: String = conn.query_row("SELECT status FROM move_quotes WHERE id = ?1", crate::params![&q1.id], |r| r.get(0)).await.unwrap();
+    let j_status_after: String = conn.query_row("SELECT status FROM job_tickets WHERE id = ?1", crate::params![&job.id], |r| r.get(0)).await.unwrap();
+    assert_eq!(q_status_after, "accepted");
+    assert_eq!(j_status_after, "assigned");
+
+    // Cleanup
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-dep-test'", ()).await.ok();
+    conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-dep-test'", ()).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-dep-test'", ()).await.ok();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-dep-test'", ()).await.ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-dep-test'", ()).await.ok();
+}
+
+#[tokio::test]
+async fn test_custom_domain_deposit_link_generation() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    conn.execute(
+        "INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-customdomain-test', 'White-Label WS', '[\"moving_company\"]', '{\"payment_portal_url\":\"https://pay.nordicmovers.se\"}')",
+        ()
+    ).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-cd-staff', 'ws-customdomain-test', 'staff@nordic.se', 'admin')", ()).await.unwrap();
+
+    let job = create_job_ticket(
+        "u-cd-staff".to_string(),
+        "ws-customdomain-test".to_string(),
+        "White-label Job".to_string(),
+        "Domain test".to_string(),
+        "Addr 1".to_string(),
+        "medium".to_string(),
+        None,
+        "2026-10-01".to_string(),
+        "[]".to_string(),
+        None,
+        None,
+        0,
+        0,
+        true,
+        true,
+        false,
+        false,
+    ).await.unwrap();
+
+    create_move_inventory_item("u-cd-staff".to_string(), job.id.clone(), "Möbler".to_string(), "Bord".to_string(), 1, 2.0, None).await.unwrap();
+    calculate_and_save_move_quote("u-cd-staff".to_string(), job.id.clone()).await.unwrap();
+    let q1 = get_move_quote("u-cd-staff".to_string(), job.id.clone()).await.unwrap().unwrap();
+
+    let dep_res = accept_move_quote_with_deposit("u-cd-staff".to_string(), q1.id.clone(), "swish".to_string()).await.unwrap();
+    assert!(dep_res.payment_session_url.is_some());
+    let url = dep_res.payment_session_url.unwrap();
+    assert!(url.starts_with("https://pay.nordicmovers.se/deposit/"));
+    assert!(url.contains(&q1.id));
+
+    // Cleanup
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-customdomain-test'", ()).await.ok();
+    conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-customdomain-test'", ()).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-customdomain-test'", ()).await.ok();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-customdomain-test'", ()).await.ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-customdomain-test'", ()).await.ok();
 }

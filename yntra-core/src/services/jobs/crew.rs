@@ -46,40 +46,54 @@ pub async fn assign_vehicle_to_job(
             .await
             .map_err(|_| YntraError::NotFoundError("Vehicle not found".to_string()))?;
 
+        let max_payload_kg: Option<f64> = conn
+            .query_row(
+                "SELECT max_payload_kg FROM vehicles WHERE id = ?1",
+                crate::params![vehicle_id],
+                |r| r.get(0),
+            )
+            .await
+            .ok()
+            .flatten();
+
         if auth.workspace_id != vehicle_ws {
             return Err(YntraError::AuthError(
                 "Access denied: vehicle belongs to a different workspace".to_string(),
             ));
         }
 
-        // Calculate total volume of the job inventory
+        // Calculate total volume and total weight of the job inventory
         let mut inv_stmt = conn.prepare(
-            "SELECT quantity, estimated_volume_m3 FROM move_inventory WHERE job_ticket_id = ?1",
+            "SELECT quantity, estimated_volume_m3, estimated_weight_kg FROM move_inventory WHERE job_ticket_id = ?1",
         ).await?;
         let mut inv_rows = inv_stmt.query(crate::params![&job_id]).await?;
         let mut total_volume = 0.0;
+        let mut total_weight = 0.0;
         while let Some(row) = inv_rows.next().await? {
             let quantity: i64 = row.get(0)?;
             let vol: f64 = row.get(1)?;
+            let weight: f64 = row.get::<Option<f64>>(2)?.unwrap_or(0.0);
             total_volume += (quantity as f64) * vol;
+            total_weight += (quantity as f64) * weight;
         }
 
+        let settings_str: String = conn
+            .query_row(
+                "SELECT settings FROM workspaces WHERE id = ?1",
+                crate::params![&auth.workspace_id],
+                |r| r.get(0),
+            )
+            .await
+            .unwrap_or_else(|_| "{}".to_string());
+        let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
+
+        let enforce_single_trip = settings_json
+            .get("enforce_single_trip_capacity")
+            .or_else(|| settings_json.get("enforce_vehicle_capacity"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
         if total_volume > capacity_m3 {
-            let settings_str: String = conn
-                .query_row(
-                    "SELECT settings FROM workspaces WHERE id = ?1",
-                    crate::params![&auth.workspace_id],
-                    |r| r.get(0),
-                )
-                .await
-                .unwrap_or_else(|_| "{}".to_string());
-            let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
-
-            let enforce_single_trip = settings_json
-                .get("enforce_single_trip_capacity")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-
             if enforce_single_trip {
                 return Err(YntraError::ValidationError(format!(
                     "Cannot assign vehicle {}: total cargo volume ({:.2} m³) exceeds vehicle capacity ({:.2} m³)",
@@ -91,6 +105,22 @@ pub async fn assign_vehicle_to_job(
                     "Vehicle {} assigned to job {} requires {} trips. Cargo volume ({:.2} m³) exceeds vehicle capacity ({:.2} m³)",
                     vehicle_name, job_id, trips_needed, total_volume, capacity_m3
                 );
+            }
+        }
+
+        if let Some(payload) = max_payload_kg {
+            if payload > 0.0 && total_weight > payload {
+                if enforce_single_trip {
+                    return Err(YntraError::ValidationError(format!(
+                        "Cannot assign vehicle {}: total cargo weight ({:.2} kg) exceeds vehicle max payload limit ({:.2} kg)",
+                        vehicle_name, total_weight, payload
+                    )));
+                } else {
+                    tracing::warn!(
+                        "Vehicle {} assigned to job {} exceeds max payload limit. Cargo weight ({:.2} kg) exceeds payload ({:.2} kg)",
+                        vehicle_name, job_id, total_weight, payload
+                    );
+                }
             }
         }
     }

@@ -59,6 +59,8 @@ pub use moves::get_move_inventory;
 pub use moves::get_furniture_catalog;
 pub use moves::get_move_inventory_summary;
 pub use moves::get_move_quote;
+pub use moves::get_move_quote_revisions;
+pub use moves::MoveQuoteRevision;
 pub use moves::accept_move_quote;
 pub use moves::create_move_inventory_item;
 pub use moves::create_move_inventory_item_with_details;
@@ -82,6 +84,7 @@ pub use billing::generate_move_invoice;
 pub use billing::get_move_invoice;
 pub use billing::pay_move_invoice;
 pub use billing::adjust_invoice_for_actuals;
+pub use billing::validate_customer_personal_number_for_rut;
 pub use billing::initiate_swish_payment;
 pub use billing::check_swish_payment_status;
 pub use billing::initiate_stripe_payment;
@@ -132,4 +135,5 @@ pub use claims::process_claim_payout;
 pub use claims::get_job_claims;
 
 pub use moves::accept_move_quote_with_deposit;
+pub use moves::confirm_quote_deposit_payment;
 

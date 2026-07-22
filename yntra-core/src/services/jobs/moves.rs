@@ -110,11 +110,11 @@ pub async fn get_move_quote(
             id: row.get(0)?,
             workspace_id: row.get(1)?,
             job_ticket_id: row.get(2)?,
-            base_price: row.get::<f64>(3)? as i64,
-            distance_fee: row.get::<f64>(4)? as i64,
-            stairs_surcharge: row.get::<f64>(5)? as i64,
-            packing_supplies_fee: row.get::<f64>(6)? as i64,
-            total_price: row.get::<f64>(7)? as i64,
+            base_price: row.get::<f64>(3)?,
+            distance_fee: row.get::<f64>(4)?,
+            stairs_surcharge: row.get::<f64>(5)?,
+            packing_supplies_fee: row.get::<f64>(6)?,
+            total_price: row.get::<f64>(7)?,
             status: row.get(8)?,
             accepted_at: row.get(9)?,
             updated_at: row.get(10)?,
@@ -360,6 +360,23 @@ pub async fn create_move_inventory_item_with_details(
         ));
     }
 
+    let quote_status: Option<String> = conn
+        .query_row(
+            "SELECT status FROM move_quotes WHERE job_ticket_id = ?1",
+            crate::params![&job_ticket_id],
+            |r| r.get(0),
+        )
+        .await
+        .ok();
+
+    if let Some(ref status) = quote_status {
+        if status == "accepted" || status == "invoiced" {
+            return Err(YntraError::ValidationError(
+                "Cannot modify inventory after quote has been accepted or invoiced.".to_string(),
+            ));
+        }
+    }
+
     let weight = estimated_weight_kg.unwrap_or(0.0);
     let job_short = if job_ticket_id.len() >= 6 { &job_ticket_id[..6] } else { &job_ticket_id };
     let id_short = if id.len() >= 6 { &id[..6] } else { &id };
@@ -580,7 +597,7 @@ pub async fn get_move_inventory_summary(
             if let Some(v_id) = assigned_vehicle_id {
                 if let Ok((capacity_m3, max_payload_kg)) = conn
                     .query_row(
-                        "SELECT cargo_capacity_m3, max_payload_kg FROM vehicles WHERE id = ?1",
+                        "SELECT capacity_m3, max_payload_kg FROM vehicles WHERE id = ?1",
                         crate::params![&v_id],
                         |r| Ok((r.get::<Option<f64>>(0)?, r.get::<Option<f64>>(1)?)),
                     )
@@ -635,11 +652,11 @@ pub async fn delete_move_inventory_item(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    let (item_ws,): (String,) = conn
+    let (item_ws, job_ticket_id): (String, String) = conn
         .query_row(
-            "SELECT workspace_id FROM move_inventory WHERE id = ?1",
+            "SELECT workspace_id, job_ticket_id FROM move_inventory WHERE id = ?1",
             crate::params![&item_id],
-            |r| Ok((r.get(0)?,)),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .await
         .map_err(|_| YntraError::NotFoundError("Inventory item not found".to_string()))?;
@@ -654,6 +671,23 @@ pub async fn delete_move_inventory_item(
         return Err(YntraError::AuthError(
             "Access denied: insufficient permissions".to_string(),
         ));
+    }
+
+    let quote_status: Option<String> = conn
+        .query_row(
+            "SELECT status FROM move_quotes WHERE job_ticket_id = ?1",
+            crate::params![&job_ticket_id],
+            |r| r.get(0),
+        )
+        .await
+        .ok();
+
+    if let Some(ref status) = quote_status {
+        if status == "accepted" || status == "invoiced" {
+            return Err(YntraError::ValidationError(
+                "Cannot delete inventory items after quote has been accepted or invoiced.".to_string(),
+            ));
+        }
     }
 
     conn.execute(
@@ -1054,11 +1088,11 @@ pub async fn calculate_and_save_move_quote(
     let local_radius = settings_json.get("moving_local_radius_km").and_then(|v| v.as_f64()).unwrap_or(30.0);
     let per_km_rate = settings_json.get("moving_per_km_rate").and_then(|v| v.as_f64()).unwrap_or(15.0);
 
-    let mut distance_fee = distance_fee_flat as i64;
+    let mut distance_fee = distance_fee_flat;
     if distance_km > local_radius {
-        distance_fee += ((distance_km - local_radius) * per_km_rate) as i64;
+        distance_fee += (distance_km - local_radius) * per_km_rate;
     }
-    distance_fee += toll_fees as i64;
+    distance_fee += toll_fees;
 
     // Base hourly/labor rate depending on configured pricing model
     let pricing_model = settings_json
@@ -1117,9 +1151,9 @@ pub async fn calculate_and_save_move_quote(
             .and_then(|v| v.as_f64())
             .unwrap_or(3.0);
         let estimated_hours = (total_volume * hours_per_m3).max(minimum_hours);
-        (estimated_hours * hourly_rate) as i64
+        estimated_hours * hourly_rate
     } else {
-        (total_volume * base_rate_per_m3) as i64
+        total_volume * base_rate_per_m3
     };
 
     // Apply Weekend and Peak-Season / End-of-Month Multipliers
@@ -1141,11 +1175,11 @@ pub async fn calculate_and_save_move_quote(
             1.0
         };
 
-        base_price = ((base_price as f64) * weekend_multiplier * peak_multiplier) as i64;
+        base_price = base_price * weekend_multiplier * peak_multiplier;
     }
 
     // Add specialty/heavy item handling fees to base labor price
-    base_price += specialty_surcharge as i64;
+    base_price += specialty_surcharge;
 
     let surcharge_long_carry_per_meter = settings_json
         .get("surcharge_long_carry_per_meter")
@@ -1188,7 +1222,7 @@ pub async fn calculate_and_save_move_quote(
         mult_spiral,
         mult_narrow,
         mult_outdoor,
-    ) as i64;
+    );
     let actual_supplies_cost: f64 = conn
         .query_row(
             "SELECT COALESCE(SUM(quantity * price_per_unit), 0.0) FROM job_packaging_items WHERE job_ticket_id = ?1",
@@ -1199,36 +1233,51 @@ pub async fn calculate_and_save_move_quote(
         .unwrap_or(0.0);
 
     let packing_supplies_fee = if actual_supplies_cost > 0.0 {
-        actual_supplies_cost as i64
+        actual_supplies_cost
     } else {
-        (total_volume * packing_supplies_fee_per_m3) as i64
+        total_volume * packing_supplies_fee_per_m3
     };
     let now_ms = chrono::Utc::now().timestamp_millis();
     
     // Check if quote exists to keep its status, default to "sent"
     let mut quote_stmt = conn.prepare(
-        "SELECT id, status, manual_price_override, price_discount FROM move_quotes WHERE job_ticket_id = ?1 LIMIT 1",
+        "SELECT id, status, manual_price_override, price_discount, base_price, distance_fee, stairs_surcharge, packing_supplies_fee FROM move_quotes WHERE job_ticket_id = ?1 LIMIT 1",
     ).await?;
     let mut q_rows = quote_stmt.query(crate::params![&job_ticket_id]).await?;
-    let (quote_id, quote_status, existing_override, existing_discount) = if let Some(row) = q_rows.next().await? {
+    let (quote_id, quote_status, existing_override, existing_discount, old_base, old_dist, old_stairs, old_supplies) = if let Some(row) = q_rows.next().await? {
         (
             row.get::<String>(0)?,
             row.get::<String>(1)?,
             row.get::<Option<f64>>(2)?,
             row.get::<Option<f64>>(3)?,
+            row.get::<f64>(4).unwrap_or(0.0),
+            row.get::<f64>(5).unwrap_or(0.0),
+            row.get::<f64>(6).unwrap_or(0.0),
+            row.get::<f64>(7).unwrap_or(0.0),
         )
     } else {
-        (uuid::Uuid::new_v4().to_string(), "sent".to_string(), None, None)
+        (uuid::Uuid::new_v4().to_string(), "sent".to_string(), None, None, 0.0, 0.0, 0.0, 0.0)
     };
+    drop(q_rows);
+    drop(quote_stmt);
 
     let calculated_total = base_price + distance_fee + stairs_surcharge + packing_supplies_fee;
-    let mut total_price = if let Some(override_val) = existing_override {
-        override_val as i64
+    let old_calculated_total = old_base + old_dist + old_stairs + old_supplies;
+
+    let (effective_override, mut total_price) = if let Some(override_val) = existing_override {
+        if old_calculated_total > 0.0 {
+            let delta = calculated_total - old_calculated_total;
+            let updated_override = (override_val + delta).max(0.0);
+            (Some(updated_override), updated_override)
+        } else {
+            (Some(override_val), override_val)
+        }
     } else {
-        calculated_total
+        (None, calculated_total)
     };
+
     if let Some(discount) = existing_discount {
-        total_price = (total_price - discount as i64).max(0);
+        total_price = (total_price - discount).max(0.0);
     }
 
     conn.execute(
@@ -1237,20 +1286,82 @@ pub async fn calculate_and_save_move_quote(
             quote_id,
             job_ws,
             job_ticket_id,
-            base_price as f64,
-            distance_fee as f64,
-            stairs_surcharge as f64,
-            packing_supplies_fee as f64,
-            total_price as f64,
+            base_price,
+            distance_fee,
+            stairs_surcharge,
+            packing_supplies_fee,
+            total_price,
             quote_status,
             now_ms,
-            existing_override,
+            effective_override,
             existing_discount
         ],
     ).await?;
 
+    if old_calculated_total > 0.0 && (total_price - old_calculated_total).abs() > 0.01 {
+        let rev_id = uuid::Uuid::new_v4().to_string();
+        let reason = "Self-service inventory modification".to_string();
+        conn.execute(
+            "INSERT INTO move_quote_revisions (id, workspace_id, quote_id, job_ticket_id, actor_user_id, previous_total, new_total, revision_reason, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            crate::params![
+                rev_id,
+                job_ws,
+                quote_id,
+                job_ticket_id,
+                requester_user_id,
+                old_calculated_total,
+                total_price,
+                reason,
+                now_ms
+            ],
+        ).await.ok();
+    }
+
     notify_observers();
     Ok(())
+}
+
+#[derive(serde::Serialize, serde::Deserialize, uniffi::Record, Clone, Debug, PartialEq)]
+pub struct MoveQuoteRevision {
+    pub id: String,
+    pub workspace_id: String,
+    pub quote_id: String,
+    pub job_ticket_id: String,
+    pub actor_user_id: String,
+    pub previous_total: f64,
+    pub new_total: f64,
+    pub revision_reason: String,
+    pub created_at: i64,
+}
+
+#[uniffi::export]
+pub async fn get_move_quote_revisions(
+    requester_user_id: String,
+    quote_id: String,
+) -> Result<Vec<MoveQuoteRevision>, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let mut stmt = conn.prepare(
+        "SELECT id, workspace_id, quote_id, job_ticket_id, actor_user_id, previous_total, new_total, revision_reason, created_at FROM move_quote_revisions WHERE quote_id = ?1 ORDER BY created_at DESC",
+    ).await?;
+    let mut rows = stmt.query(crate::params![quote_id]).await?;
+
+    let mut list = Vec::new();
+    while let Some(row) = rows.next().await? {
+        list.push(MoveQuoteRevision {
+            id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            quote_id: row.get(2)?,
+            job_ticket_id: row.get(3)?,
+            actor_user_id: row.get(4)?,
+            previous_total: row.get(5)?,
+            new_total: row.get(6)?,
+            revision_reason: row.get(7)?,
+            created_at: row.get(8)?,
+        });
+    }
+    Ok(list)
 }
 
 #[uniffi::export]
@@ -1501,6 +1612,8 @@ pub async fn update_move_quote_price_adjustments(
     ).await?;
     let mut q_rows = quote_stmt.query(crate::params![&job_ticket_id]).await?;
     let has_quote = q_rows.next().await?.is_some();
+    drop(q_rows);
+    drop(quote_stmt);
 
     if has_quote {
         conn.execute(
@@ -1583,7 +1696,69 @@ pub async fn accept_move_quote_with_deposit(
     let now_ms = chrono::Utc::now().timestamp_millis();
 
     conn.execute(
-        "UPDATE move_quotes SET status = 'accepted', updated_at = ?1 WHERE id = ?2 AND workspace_id = ?3",
+        "UPDATE move_quotes SET status = 'pending_deposit', updated_at = ?1 WHERE id = ?2 AND workspace_id = ?3",
+        crate::params![now_ms, &quote_id, &ws_id],
+    ).await?;
+
+    conn.execute(
+        "UPDATE job_tickets SET status = 'deposit_pending', updated_at = ?1 WHERE id = ?2 AND workspace_id = ?3",
+        crate::params![now_ms, &job_id, &ws_id],
+    ).await?;
+
+    notify_observers();
+
+    let portal_base_url = super::billing::helpers::get_config_val("payment_portal_url", "PAYMENT_PORTAL_URL", &settings_json)
+        .await
+        .or_else(|| {
+            let conn_ref = &conn;
+            let _ = conn_ref;
+            settings_json.get("custom_domain").and_then(|v| v.as_str()).map(|s| s.to_string())
+        })
+        .or_else(|| {
+            settings_json.get("api_base_url").and_then(|v| v.as_str()).map(|s| s.to_string())
+        })
+        .unwrap_or_else(|| "https://pay.yntra.se".to_string());
+
+    let portal_base_url = portal_base_url.trim_end_matches('/');
+    let payment_url = format!("{}/deposit/{}?method={}", portal_base_url, quote_id, payment_method.to_lowercase());
+
+    Ok(crate::models::QuoteDepositApprovalResult {
+        success: true,
+        quote_id,
+        deposit_amount,
+        remaining_balance,
+        payment_session_url: Some(payment_url),
+        quote_status: "pending_deposit".to_string(),
+        message: format!("Deposit payment of {:.2} SEK initiated via {}. Pending payment completion to confirm booking.", deposit_amount, payment_method),
+    })
+}
+
+#[uniffi::export]
+pub async fn confirm_quote_deposit_payment(
+    requester_user_id: String,
+    quote_id: String,
+    _payment_reference: String,
+) -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let (ws_id, job_id): (String, String) = conn
+        .query_row(
+            "SELECT workspace_id, job_ticket_id FROM move_quotes WHERE id = ?1",
+            crate::params![&quote_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Quote not found".to_string()))?;
+
+    if auth.workspace_id != ws_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let now_ms = chrono::Utc::now().timestamp_millis();
+
+    conn.execute(
+        "UPDATE move_quotes SET status = 'accepted', accepted_at = ?1, updated_at = ?1 WHERE id = ?2 AND workspace_id = ?3",
         crate::params![now_ms, &quote_id, &ws_id],
     ).await?;
 
@@ -1593,18 +1768,7 @@ pub async fn accept_move_quote_with_deposit(
     ).await?;
 
     notify_observers();
-
-    let payment_url = format!("https://pay.yntra.se/deposit/{}?method={}", quote_id, payment_method.to_lowercase());
-
-    Ok(crate::models::QuoteDepositApprovalResult {
-        success: true,
-        quote_id,
-        deposit_amount,
-        remaining_balance,
-        payment_session_url: Some(payment_url),
-        quote_status: "accepted".to_string(),
-        message: format!("Quote approved! Non-refundable deposit of {:.2} SEK initiated via {}.", deposit_amount, payment_method),
-    })
+    Ok(())
 }
 
 #[cfg(test)]
