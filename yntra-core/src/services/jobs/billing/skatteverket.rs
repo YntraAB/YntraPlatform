@@ -99,6 +99,7 @@ pub async fn export_skatteverket_claims(
         .unwrap_or("volume");
 
     if format_type.to_lowercase() == "csv" {
+        let mut exported_count = 0;
         let mut csv = String::new();
         csv.push_str("InvoiceID,OrgNr,KoparePersnr,BetalningsDatum,Arbetskostnad,BegartBelopp,ArbetadeTimmar,FlyttjansterHours\n");
 
@@ -129,28 +130,30 @@ pub async fn export_skatteverket_claims(
                 let raw_pnum = if let Some(user_row) = user_rows.next().await? {
                     let metadata_str = user_row.get::<String>(0)?;
                     let metadata_json: serde_json::Value = serde_json::from_str(&metadata_str).unwrap_or_default();
-                    metadata_json
-                        .get("personal_number")
-                        .and_then(|v| v.as_str())
-                        .ok_or_else(|| YntraError::ValidationError(format!("Customer personal number is missing for invoice {}", inv_id)))?
-                        .to_string()
+                    if let Some(p) = metadata_json.get("personal_number").and_then(|v| v.as_str()) {
+                        p.to_string()
+                    } else {
+                        continue;
+                    }
                 } else {
-                    return Err(YntraError::ValidationError(format!("Customer user record not found for invoice {}", inv_id)));
+                    continue;
                 };
 
                 let customer_pnum = if raw_pnum.starts_with("enc:") || raw_pnum.len() > 30 {
-                    crate::infra::crypto::decrypt_field(&raw_pnum, &auth.workspace_id)
-                        .map_err(|_| YntraError::ValidationError(format!("Failed to decrypt customer personal number for invoice {}", inv_id)))?
+                    if let Ok(decrypted) = crate::infra::crypto::decrypt_field(&raw_pnum, &auth.workspace_id) {
+                        decrypted
+                    } else {
+                        continue;
+                    }
                 } else {
                     raw_pnum
                 };
 
                 let current_year = chrono::Utc::now().year();
-                let normalized_pnum = crate::services::clients::normalize_swedish_pnum(&customer_pnum, current_year)
-                    .ok_or_else(|| YntraError::ValidationError(format!(
-                        "Invalid Swedish personal number '{}' for invoice {}. Skatteverket requires a valid 10 or 12 digit personal number.",
-                        customer_pnum, inv_id
-                    )))?;
+                let normalized_pnum = match crate::services::clients::normalize_swedish_pnum(&customer_pnum, current_year) {
+                    Some(p) => p,
+                    None => continue,
+                };
 
                 let eligible_labor = calculate_eligible_labor_cost(&conn, &job_ticket_id, base_price, &settings_json).await?;
                 let labor_cost = eligible_labor + stairs_surcharge;
@@ -194,10 +197,19 @@ pub async fn export_skatteverket_claims(
                     "{},{},{},{},{},{},{},{}\n",
                     inv_id, org_number, normalized_pnum, inv_date, labor_cost.round() as i64, rut_deduction.round() as i64, hours, hours
                 ));
+                exported_count += 1;
             }
         }
+
+        if exported_count == 0 {
+            return Err(YntraError::ValidationError(
+                "No claims in export batch have a valid customer personal number".to_string(),
+            ));
+        }
+
         Ok(csv)
     } else {
+        let mut exported_count = 0;
         let mut xml = String::new();
         xml.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
         xml.push_str("<BegaranFil xmlns=\"http://xmls.skatteverket.se/se/skatteverket/us/omr/rotrut/begaran/6.0\">\n");
@@ -229,28 +241,30 @@ pub async fn export_skatteverket_claims(
                 let raw_pnum = if let Some(user_row) = user_rows.next().await? {
                     let metadata_str = user_row.get::<String>(0)?;
                     let metadata_json: serde_json::Value = serde_json::from_str(&metadata_str).unwrap_or_default();
-                    metadata_json
-                        .get("personal_number")
-                        .and_then(|v| v.as_str())
-                        .ok_or_else(|| YntraError::ValidationError(format!("Customer personal number is missing for invoice {}", inv_id)))?
-                        .to_string()
+                    if let Some(p) = metadata_json.get("personal_number").and_then(|v| v.as_str()) {
+                        p.to_string()
+                    } else {
+                        continue;
+                    }
                 } else {
-                    return Err(YntraError::ValidationError(format!("Customer user record not found for invoice {}", inv_id)));
+                    continue;
                 };
 
                 let customer_pnum = if raw_pnum.starts_with("enc:") || raw_pnum.len() > 30 {
-                    crate::infra::crypto::decrypt_field(&raw_pnum, &auth.workspace_id)
-                        .map_err(|_| YntraError::ValidationError(format!("Failed to decrypt customer personal number for invoice {}", inv_id)))?
+                    if let Ok(decrypted) = crate::infra::crypto::decrypt_field(&raw_pnum, &auth.workspace_id) {
+                        decrypted
+                    } else {
+                        continue;
+                    }
                 } else {
                     raw_pnum
                 };
 
                 let current_year = chrono::Utc::now().year();
-                let normalized_pnum = crate::services::clients::normalize_swedish_pnum(&customer_pnum, current_year)
-                    .ok_or_else(|| YntraError::ValidationError(format!(
-                        "Invalid Swedish personal number '{}' for invoice {}. Skatteverket requires a valid 10 or 12 digit personal number.",
-                        customer_pnum, inv_id
-                    )))?;
+                let normalized_pnum = match crate::services::clients::normalize_swedish_pnum(&customer_pnum, current_year) {
+                    Some(p) => p,
+                    None => continue,
+                };
 
                 let eligible_labor = calculate_eligible_labor_cost(&conn, &job_ticket_id, base_price, &settings_json).await?;
                 let labor_cost = eligible_labor + stairs_surcharge;
@@ -303,7 +317,14 @@ pub async fn export_skatteverket_claims(
                 xml.push_str(&format!("      <Flyttjanster>{}</Flyttjanster>\n", hours));
                 xml.push_str("    </RutArbete>\n");
                 xml.push_str("  </Arende>\n");
+                exported_count += 1;
             }
+        }
+
+        if exported_count == 0 {
+            return Err(YntraError::ValidationError(
+                "No claims in export batch have a valid customer personal number".to_string(),
+            ));
         }
 
         xml.push_str("</BegaranFil>\n");
@@ -373,6 +394,75 @@ pub async fn initiate_bankid_skatteverket_session(
     ).await?;
     
     Ok(session)
+}
+
+pub fn extract_skatteverket_receipt_reference(body_text: &str) -> String {
+    let trimmed = body_text.trim();
+    if trimmed.is_empty() {
+        return format!("SV-REF-{}", uuid::Uuid::new_v4().simple());
+    }
+
+    // 1. Check XML tag patterns
+    let xml_tags = [
+        "Mottagningsreferens",
+        "mottagningsreferens",
+        "Journalnummer",
+        "journalnummer",
+        "Referensnummer",
+        "referensnummer",
+        "Receipt",
+        "receipt",
+        "BegaranId",
+        "begaranId",
+    ];
+
+    for tag in xml_tags {
+        let open_tag = format!("<{}>", tag);
+        let close_tag = format!("</{}>", tag);
+        if let Some(start) = trimmed.find(&open_tag) {
+            let value_start = start + open_tag.len();
+            if let Some(end) = trimmed[value_start..].find(&close_tag) {
+                let val = trimmed[value_start..value_start + end].trim();
+                if !val.is_empty() {
+                    return val.to_string();
+                }
+            }
+        }
+    }
+
+    // 2. Check JSON keys
+    if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        let json_keys = [
+            "mottagningsreferens",
+            "Mottagningsreferens",
+            "reference_number",
+            "referenceNumber",
+            "journalnummer",
+            "Journalnummer",
+            "receipt_id",
+            "receiptId",
+            "begaran_id",
+            "begaranId",
+        ];
+        for key in json_keys {
+            if let Some(val_str) = json_val.get(key).and_then(|v| v.as_str()) {
+                let val = val_str.trim();
+                if !val.is_empty() {
+                    return val.to_string();
+                }
+            }
+            if let Some(val_num) = json_val.get(key).and_then(|v| v.as_i64()) {
+                return val_num.to_string();
+            }
+        }
+    }
+
+    // 3. Fallback: plain reference string
+    if !trimmed.contains('<') && !trimmed.contains('{') && trimmed.len() <= 64 {
+        return trimmed.to_string();
+    }
+
+    format!("SV-REF-{}", uuid::Uuid::new_v4().simple())
 }
 
 async fn submit_skatteverket_claim_direct_inner(
@@ -455,7 +545,8 @@ async fn submit_skatteverket_claim_direct_inner(
         
     let (status, reference_number, message) = match res {
         Ok(resp) if resp.status().is_success() => {
-            let ref_num = format!("SV-REAL-{}", uuid::Uuid::new_v4().simple());
+            let body_txt = resp.text().await.unwrap_or_default();
+            let ref_num = extract_skatteverket_receipt_reference(&body_txt);
             ("accepted".to_string(), ref_num, "Successfully transmitted to Skatteverket. Processing approved.".to_string())
         }
         Ok(resp) => {
@@ -470,8 +561,8 @@ async fn submit_skatteverket_claim_direct_inner(
     if status == "accepted" {
         for inv_id in &invoice_ids {
             conn.execute(
-                "UPDATE move_invoices SET status = 'claimed', sync_status = 'pending' WHERE id = ?1 AND workspace_id = ?2",
-                crate::params![inv_id, &auth.workspace_id]
+                "UPDATE move_invoices SET status = 'claimed', adjustment_notes = ?1, sync_status = 'pending' WHERE id = ?2 AND workspace_id = ?3",
+                crate::params![&format!("Skatteverket Receipt Ref: {}", reference_number), inv_id, &auth.workspace_id]
             ).await?;
         }
         notify_observers();
