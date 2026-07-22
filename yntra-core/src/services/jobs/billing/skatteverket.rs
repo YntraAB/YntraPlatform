@@ -166,10 +166,21 @@ pub async fn export_skatteverket_claims(
                         let vol: f64 = inv_row.get(1)?;
                         total_volume += (quantity as f64) * vol;
                     }
+                    drop(inv_rows);
+                    drop(inv_stmt);
+
                     let hours_per_m3 = settings_json.get("moving_hours_per_m3").and_then(|v| v.as_f64()).unwrap_or(0.15);
                     let minimum_hours = settings_json.get("moving_minimum_hours").and_then(|v| v.as_f64()).unwrap_or(2.0);
-                    let estimated_hours = (total_volume * hours_per_m3).max(minimum_hours);
-                    estimated_hours.round() as i64
+                    if total_volume > 0.0 {
+                        (total_volume * hours_per_m3).max(minimum_hours).round() as i64
+                    } else {
+                        let hourly_rate = settings_json
+                            .get("moving_hourly_rate_per_mover")
+                            .and_then(|v| v.as_f64())
+                            .or_else(|| settings_json.get("moving_hourly_rate").and_then(|v| v.as_f64()))
+                            .unwrap_or(500.0);
+                        (eligible_labor / hourly_rate).max(minimum_hours).round() as i64
+                    }
                 } else {
                     let hourly_rate = settings_json
                         .get("moving_hourly_rate_per_mover")
@@ -255,10 +266,21 @@ pub async fn export_skatteverket_claims(
                         let vol: f64 = inv_row.get(1)?;
                         total_volume += (quantity as f64) * vol;
                     }
+                    drop(inv_rows);
+                    drop(inv_stmt);
+
                     let hours_per_m3 = settings_json.get("moving_hours_per_m3").and_then(|v| v.as_f64()).unwrap_or(0.15);
                     let minimum_hours = settings_json.get("moving_minimum_hours").and_then(|v| v.as_f64()).unwrap_or(2.0);
-                    let estimated_hours = (total_volume * hours_per_m3).max(minimum_hours);
-                    estimated_hours.round() as i64
+                    if total_volume > 0.0 {
+                        (total_volume * hours_per_m3).max(minimum_hours).round() as i64
+                    } else {
+                        let hourly_rate = settings_json
+                            .get("moving_hourly_rate_per_mover")
+                            .and_then(|v| v.as_f64())
+                            .or_else(|| settings_json.get("moving_hourly_rate").and_then(|v| v.as_f64()))
+                            .unwrap_or(500.0);
+                        (eligible_labor / hourly_rate).max(minimum_hours).round() as i64
+                    }
                 } else {
                     let hourly_rate = settings_json
                         .get("moving_hourly_rate_per_mover")

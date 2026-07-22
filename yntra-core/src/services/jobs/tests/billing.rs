@@ -4,8 +4,9 @@ use crate::services::jobs::{
     create_job_ticket, create_move_inventory_item,
     calculate_and_save_move_quote, get_move_quote,
     generate_move_invoice, get_move_invoice, pay_move_invoice,
+    validate_customer_personal_number_for_rut,
     initiate_swish_payment, check_swish_payment_status,
-    process_swish_payment_webhook, process_stripe_payment_webhook,
+    process_swish_payment_webhook, initiate_stripe_payment, process_stripe_payment_webhook,
     export_skatteverket_claims, get_rut_invoices,
     initiate_bankid_skatteverket_session, submit_skatteverket_claim_direct,
     adjust_invoice_for_actuals, process_onsite_mpos_card_payment,
@@ -20,8 +21,8 @@ async fn test_invoice_and_rut_calculations() {
 
     // Setup test workspace, staff/client user
     conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-inv-test', 'Invoice Test WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
-    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-inv-staff', 'ws-inv-test', 'staff@inv.io', 'admin')", ()).await.unwrap();
-    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-inv-client', 'ws-inv-test', 'client@inv.io', 'client')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-inv-staff', 'ws-inv-test', 'staff@inv.io', 'admin', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-inv-client', 'ws-inv-test', 'client@inv.io', 'client', '{\"personal_number\":\"198112189876\"}')", ()).await.unwrap();
 
     // Create job ticket
     let job = create_job_ticket(
@@ -179,11 +180,11 @@ async fn test_configurable_pricing_calculations() {
     // Stairs Surcharge = 2 floors * 400 SEK = 800 SEK
     // Packing supplies fee = 1.0 * 150.0 = 150 SEK
     // Total = 600 + 1000 + 800 + 150 = 2550 SEK
-    assert_eq!(q.base_price, 600);
-    assert_eq!(q.distance_fee, 1000);
-    assert_eq!(q.stairs_surcharge, 800);
-    assert_eq!(q.packing_supplies_fee, 150);
-    assert_eq!(q.total_price, 2550);
+    assert_eq!(q.base_price, 600.0);
+    assert_eq!(q.distance_fee, 1000.0);
+    assert_eq!(q.stairs_surcharge, 800.0);
+    assert_eq!(q.packing_supplies_fee, 150.0);
+    assert_eq!(q.total_price, 2550.0);
 
     // Cleanup
     conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = ?1", crate::params![&job.id]).await.unwrap();
@@ -201,8 +202,8 @@ async fn test_hourly_pricing_calculations() {
     // Setup test workspace with hourly pricing model
     let settings = r#"{"moving_pricing_model":"hourly","moving_hourly_rate":1200.0,"moving_distance_fee_flat":800.0,"moving_stairs_surcharge_per_floor":300.0,"moving_packing_supplies_fee_per_m3":100.0,"moving_hours_per_m3":0.15,"moving_minimum_hours":2.0,"moving_labor_ratio_hourly":0.70}"#;
     conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-hourly-test', 'Hourly Test WS', '[\"moving_company\"]', ?1)", crate::params![settings]).await.unwrap();
-    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-hourly-staff', 'ws-hourly-test', 'staff@hourly.io', 'admin')", ()).await.unwrap();
-    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-hourly-client', 'ws-hourly-test', 'client@hourly.io', 'client')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-hourly-staff', 'ws-hourly-test', 'staff@hourly.io', 'admin', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-hourly-client', 'ws-hourly-test', 'client@hourly.io', 'client', '{\"personal_number\":\"198112189876\"}')", ()).await.unwrap();
 
     // Create job ticket: 3 floors, no elevator
     let job = create_job_ticket(
@@ -243,11 +244,11 @@ async fn test_hourly_pricing_calculations() {
     // Stairs surcharge = 3 floors * 300.0 = 900 SEK
     // Packing supplies = 10.0 * 100 = 1000 SEK
     // Total price = 2400 + 800 + 900 + 1000 = 5100 SEK
-    assert_eq!(q.base_price, 2400);
-    assert_eq!(q.distance_fee, 800);
-    assert_eq!(q.stairs_surcharge, 900);
-    assert_eq!(q.packing_supplies_fee, 1000);
-    assert_eq!(q.total_price, 5100);
+    assert_eq!(q.base_price, 2400.0);
+    assert_eq!(q.distance_fee, 800.0);
+    assert_eq!(q.stairs_surcharge, 900.0);
+    assert_eq!(q.packing_supplies_fee, 1000.0);
+    assert_eq!(q.total_price, 5100.0);
 
     // Generate invoice with RUT enabled
     let invoice = generate_move_invoice("u-hourly-staff".to_string(), q.id.clone(), true).await.unwrap();
@@ -617,8 +618,8 @@ async fn test_skatteverket_rut_export_flow() {
     assert_eq!(inv.rut_deduction, 600.0);
     assert_eq!(inv.customer_amount, 600.0);
 
-    // Pay invoice
-    pay_move_invoice("client-1".to_string(), inv.id.clone())
+    // Pay invoice as staff
+    pay_move_invoice("staff-1".to_string(), inv.id.clone())
         .await
         .unwrap();
 
@@ -647,7 +648,7 @@ async fn test_skatteverket_rut_export_flow() {
     assert!(xml.contains("<KoparePersnr>198112189876</KoparePersnr>"));
     assert!(xml.contains("<BegartBelopp>600</BegartBelopp>"));
     assert!(xml.contains("<RutArbete>"));
-    assert!(xml.contains("<Flyttjanster>3</Flyttjanster>")); // minimum_hours = 3.0
+    assert!(xml.contains("<Flyttjanster>3</Flyttjanster>"));
 
     // 5. Export CSV as staff
     let csv = export_skatteverket_claims("staff-1".to_string(), vec![inv.id.clone()], "csv".to_string())
@@ -704,14 +705,12 @@ async fn test_skatteverket_export_validation_failures() {
         crate::params![&job.id]
     ).await.unwrap();
 
-    let inv = generate_move_invoice("u-fail-staff".to_string(), "quote-fail-1".to_string(), true).await.unwrap();
-
-    // 3. Export CSV - should fail with ValidationError because client has no personal number
-    let result_csv = export_skatteverket_claims("u-fail-staff".to_string(), vec![inv.id.clone()], "csv".to_string()).await;
-    assert!(result_csv.is_err());
-    match result_csv {
+    // 3. Invoice generation should fail upfront with ValidationError because client has no personal number
+    let inv_result = generate_move_invoice("u-fail-staff".to_string(), "quote-fail-1".to_string(), true).await;
+    assert!(inv_result.is_err());
+    match inv_result {
         Err(YntraError::ValidationError(msg)) => {
-            assert!(msg.contains("personal number is missing"));
+            assert!(msg.contains("personal number"));
         }
         _ => panic!("Expected ValidationError due to missing personal number"),
     }
@@ -897,9 +896,9 @@ async fn test_long_carry_and_toll_surcharges() {
         "job-carry-test".to_string(),
     ).await.unwrap().unwrap();
 
-    assert_eq!(quote.stairs_surcharge, 1000);
-    assert_eq!(quote.distance_fee, 1150);
-    assert_eq!(quote.total_price, 2350);
+    assert_eq!(quote.stairs_surcharge, 1000.0);
+    assert_eq!(quote.distance_fee, 1150.0);
+    assert_eq!(quote.total_price, 2350.0);
 
     // 5. Clean up
     conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-carry-test'", ()).await.unwrap();
@@ -946,7 +945,7 @@ async fn test_crew_size_pricing_adjustments() {
         "u-crew-staff".to_string(),
         "job-crew-test".to_string(),
     ).await.unwrap().unwrap();
-    assert_eq!(quote1.base_price, 2400);
+    assert_eq!(quote1.base_price, 2400.0);
 
     // 4. Assign 1 crew member (reactive trigger recalculates the quote)
     // Assigned crew count = 1 -> Hourly rate = 1 * 450 + 300 = 750 SEK
@@ -968,7 +967,7 @@ async fn test_crew_size_pricing_adjustments() {
         "u-crew-staff".to_string(),
         "job-crew-test".to_string(),
     ).await.unwrap().unwrap();
-    assert_eq!(quote2.base_price, 1500);
+    assert_eq!(quote2.base_price, 1500.0);
 
     // 5. Assign a second crew member
     // Assigned crew count = 2 -> Hourly rate = 2 * 450 + 300 = 1200 SEK
@@ -984,7 +983,7 @@ async fn test_crew_size_pricing_adjustments() {
         "u-crew-staff".to_string(),
         "job-crew-test".to_string(),
     ).await.unwrap().unwrap();
-    assert_eq!(quote3.base_price, 2400);
+    assert_eq!(quote3.base_price, 2400.0);
 
     // 6. Remove one crew member
     // Assigned crew count = 1 -> Hourly rate = 750 SEK
@@ -999,7 +998,7 @@ async fn test_crew_size_pricing_adjustments() {
         "u-crew-staff".to_string(),
         "job-crew-test".to_string(),
     ).await.unwrap().unwrap();
-    assert_eq!(quote4.base_price, 1500);
+    assert_eq!(quote4.base_price, 1500.0);
 
     // 7. Clean up
     conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-crew-test'", ()).await.unwrap();
@@ -1027,8 +1026,8 @@ async fn test_adjust_invoice_for_actuals() {
     }).to_string();
 
     conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-adj-test', 'Adj WS', '[\"moving_company\"]', ?1)", crate::params![&settings]).await.unwrap();
-    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-adj-staff', 'ws-adj-test', 'staff@adj.se', 'admin')", ()).await.unwrap();
-    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('client-adj', 'ws-adj-test', 'client@adj.se', 'client')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-adj-staff', 'ws-adj-test', 'staff@adj.se', 'admin', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('client-adj', 'ws-adj-test', 'client@adj.se', 'client', '{\"personal_number\":\"198112189876\"}')", ()).await.unwrap();
 
     // 2. Create job ticket, quote, and initial invoice
     let job = create_job_ticket(
@@ -1153,8 +1152,8 @@ async fn test_accounting_erp_sync_and_reconciliation() {
     let conn = database::acquire_connection().await.unwrap();
 
     conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-erp-test', 'ERP Test WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
-    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-erp-staff', 'ws-erp-test', 'staff@erp.io', 'admin')", ()).await.unwrap();
-    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-erp-client', 'ws-erp-test', 'client@erp.io', 'client')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-erp-staff', 'ws-erp-test', 'staff@erp.io', 'admin', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-erp-client', 'ws-erp-test', 'client@erp.io', 'client', '{\"personal_number\":\"198112189876\"}')", ()).await.unwrap();
 
     let job = create_job_ticket(
         "u-erp-staff".to_string(),
@@ -1205,4 +1204,193 @@ async fn test_accounting_erp_sync_and_reconciliation() {
     conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-erp-test'", ()).await.unwrap();
     conn.execute("DELETE FROM users WHERE workspace_id = 'ws-erp-test'", ()).await.unwrap();
     conn.execute("DELETE FROM workspaces WHERE id = 'ws-erp-test'", ()).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_annual_personal_rut_cap_enforcement() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    conn.execute(
+        "INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-rut-cap-test', 'RUT Cap WS', '[\"moving_company\"]', '{\"target_region\":\"SE\",\"moving_base_rate_per_m3\":1000.0,\"annual_rut_limit_per_person\":75000.0}')",
+        ()
+    ).await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-rut-staff', 'ws-rut-cap-test', 'staff@rutcap.se', 'admin', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-rut-cust', 'ws-rut-cap-test', 'customer@rutcap.se', 'client', '{\"personal_number\":\"198112189876\"}')", ()).await.unwrap();
+
+    conn.execute(
+        "INSERT INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, created_at, updated_at) VALUES ('job-rut-old', 'ws-rut-cap-test', 'Old Job', 'Desc', 'Addr', 'medium', 'completed', '2026-03-15', '[]', '2026-03-15', 100)",
+        ()
+    ).await.unwrap();
+
+    conn.execute(
+        "INSERT INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, created_at, updated_at) VALUES ('job-rut-new', 'ws-rut-cap-test', 'New Job', 'Desc', 'Addr', 'medium', 'open', '2026-09-01', '[]', '2026-09-01', 100)",
+        ()
+    ).await.unwrap();
+
+    // Insert an existing invoice for this customer in 2026 claiming 70,000 SEK of RUT
+    let current_year = chrono::Utc::now().format("%Y").to_string();
+    let past_inv_date = format!("{}-03-15", current_year);
+
+    conn.execute(
+        "INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at, sync_status) VALUES ('q-rut-old', 'ws-rut-cap-test', 'job-rut-old', 140000.0, 0.0, 0.0, 0.0, 140000.0, 'sent', 100, 'pending')",
+        ()
+    ).await.unwrap();
+
+    conn.execute(
+        "INSERT INTO move_invoices (id, workspace_id, quote_id, customer_id, invoice_date, due_date, subtotal, rut_deduction, customer_amount, tax_authority_amount, status, updated_at, sync_status) VALUES ('inv-rut-old', 'ws-rut-cap-test', 'q-rut-old', 'u-rut-cust', ?1, ?1, 140000.0, 70000.0, 70000.0, 70000.0, 'paid', 100, 'pending')",
+        crate::params![&past_inv_date]
+    ).await.unwrap();
+
+    // Now create a new quote for 20,000 SEK labor base_price (raw RUT would be 0.5 * 20000 = 10,000 SEK)
+    conn.execute(
+        "INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at, sync_status) VALUES ('q-rut-new', 'ws-rut-cap-test', 'job-rut-new', 20000.0, 0.0, 0.0, 0.0, 20000.0, 'sent', 100, 'pending')",
+        ()
+    ).await.unwrap();
+
+    // Generate new invoice for the customer
+    let new_inv = generate_move_invoice("u-rut-cust".to_string(), "q-rut-new".to_string(), true).await.unwrap();
+
+    // Since customer used 70,000 SEK out of 75,000 SEK cap, remaining cap is 5,000 SEK!
+    // Raw RUT was 10,000 SEK, but rut_deduction must be capped at 5,000.0 SEK!
+    assert_eq!(new_inv.rut_deduction, 5000.0);
+    assert_eq!(new_inv.customer_amount, 15000.0);
+
+    // Cleanup
+    conn.execute("DELETE FROM move_invoices WHERE workspace_id = 'ws-rut-cap-test'", ()).await.ok();
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-rut-cap-test'", ()).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-rut-cap-test'", ()).await.ok();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-rut-cap-test'", ()).await.ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-rut-cap-test'", ()).await.ok();
+}
+
+#[tokio::test]
+async fn test_custom_flat_pricing_zero_volume_rut_calculation() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    conn.execute(
+        "INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-flat-test', 'Flat Price WS', '[\"moving_company\"]', '{\"target_region\":\"SE\",\"moving_pricing_model\":\"volume\",\"moving_labor_ratio_volume\":0.70}')",
+        ()
+    ).await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-flat-staff', 'ws-flat-test', 'staff@flat.se', 'admin', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-flat-cust', 'ws-flat-test', 'cust@flat.se', 'client', '{\"personal_number\":\"198112189876\"}')", ()).await.unwrap();
+
+    conn.execute(
+        "INSERT INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, created_at, updated_at) VALUES ('job-flat-1', 'ws-flat-test', 'Flat Job', 'No itemized volume', 'Addr', 'medium', 'open', '2026-09-01', '[]', '2026-09-01', 100)",
+        ()
+    ).await.unwrap();
+
+    // Flat price agreement: base_price = 8000.0 SEK, total_price = 8000.0 SEK. Zero inventory items added.
+    conn.execute(
+        "INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at, sync_status) VALUES ('q-flat-1', 'ws-flat-test', 'job-flat-1', 8000.0, 0.0, 0.0, 0.0, 8000.0, 'sent', 100, 'pending')",
+        ()
+    ).await.unwrap();
+
+    let inv = generate_move_invoice("u-flat-cust".to_string(), "q-flat-1".to_string(), true).await.unwrap();
+
+    // Eligible labor = 8000 * 0.70 = 5600.0 SEK.
+    // RUT deduction = 50% * 5600.0 = 2800.0 SEK.
+    // Customer amount = 8000.0 - 2800.0 = 5200.0 SEK.
+    assert_eq!(inv.subtotal, 8000.0);
+    assert_eq!(inv.rut_deduction, 2800.0);
+    assert_eq!(inv.customer_amount, 5200.0);
+
+    // Cleanup
+    conn.execute("DELETE FROM move_invoices WHERE workspace_id = 'ws-flat-test'", ()).await.ok();
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-flat-test'", ()).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-flat-test'", ()).await.ok();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-flat-test'", ()).await.ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-flat-test'", ()).await.ok();
+}
+
+#[tokio::test]
+async fn test_unvalidated_personal_number_rejection_at_intake() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    // 1. Direct validation helper check
+    let valid_pnum = validate_customer_personal_number_for_rut("19811218-9876");
+    assert!(valid_pnum.is_ok());
+    assert_eq!(valid_pnum.unwrap(), "198112189876");
+
+    let invalid_pnum_checksum = validate_customer_personal_number_for_rut("19811218-0000");
+    assert!(invalid_pnum_checksum.is_err());
+    assert!(matches!(invalid_pnum_checksum.unwrap_err(), YntraError::ValidationError(_)));
+
+    let invalid_pnum_format = validate_customer_personal_number_for_rut("invalid-pnum-123");
+    assert!(invalid_pnum_format.is_err());
+
+    // 2. Intake validation check during invoice generation
+    conn.execute(
+        "INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-badpnum-test', 'Bad Pnum WS', '[\"moving_company\"]', '{\"target_region\":\"SE\"}')",
+        ()
+    ).await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-badpnum-staff', 'ws-badpnum-test', 'staff@bad.se', 'admin')", ()).await.unwrap();
+    // Insert client with invalid personal number (failed Luhn checksum)
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-badpnum-cust', 'ws-badpnum-test', 'cust@bad.se', 'client', '{\"personal_number\":\"19811218-0000\"}')", ()).await.unwrap();
+
+    conn.execute(
+        "INSERT INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, created_at, updated_at) VALUES ('job-badpnum-1', 'ws-badpnum-test', 'Bad Pnum Job', 'Desc', 'Addr', 'medium', 'open', '2026-09-01', '[]', '2026-09-01', 100)",
+        ()
+    ).await.unwrap();
+
+    conn.execute(
+        "INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at, sync_status) VALUES ('q-badpnum-1', 'ws-badpnum-test', 'job-badpnum-1', 4000.0, 0.0, 0.0, 0.0, 4000.0, 'sent', 100, 'pending')",
+        ()
+    ).await.unwrap();
+
+    let result = generate_move_invoice("u-badpnum-cust".to_string(), "q-badpnum-1".to_string(), true).await;
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        YntraError::ValidationError(msg) => {
+            assert!(msg.contains("Invalid or missing Swedish personal number"));
+        }
+        _ => panic!("Expected ValidationError for invalid personal number at invoice intake"),
+    }
+
+    // Cleanup
+    conn.execute("DELETE FROM move_invoices WHERE workspace_id = 'ws-badpnum-test'", ()).await.ok();
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-badpnum-test'", ()).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-badpnum-test'", ()).await.ok();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-badpnum-test'", ()).await.ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-badpnum-test'", ()).await.ok();
+}
+
+#[tokio::test]
+async fn test_unconfigured_stripe_rejection_and_client_pay_invoice_rbac() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-uncfg-test', 'Uncfg WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-uncfg-cust', 'ws-uncfg-test', 'cust@uncfg.se', 'client')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-uncfg-staff', 'ws-uncfg-test', 'staff@uncfg.se', 'staff')", ()).await.unwrap();
+
+    conn.execute("INSERT INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, created_at, updated_at) VALUES ('job-uncfg-1', 'ws-uncfg-test', 'Job', 'Desc', 'Loc', 'normal', 'completed', '2026-08-01', '[]', 100, 100)", ()).await.unwrap();
+    conn.execute("INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at, sync_status) VALUES ('q-uncfg-1', 'ws-uncfg-test', 'job-uncfg-1', 5000.0, 0.0, 0.0, 0.0, 5000.0, 'accepted', 100, 'synced')", ()).await.unwrap();
+    conn.execute("INSERT INTO move_invoices (id, workspace_id, quote_id, customer_id, invoice_date, due_date, subtotal, rut_deduction, customer_amount, tax_authority_amount, status, updated_at, sync_status) VALUES ('inv-uncfg-1', 'ws-uncfg-test', 'q-uncfg-1', 'u-uncfg-cust', '2026-08-01', '2026-08-15', 5000.0, 0.0, 5000.0, 0.0, 'unpaid', 100, 'synced')", ()).await.unwrap();
+
+    // 1. Unconfigured Stripe payment call must fail with ValidationError
+    let stripe_err = initiate_stripe_payment("u-uncfg-cust".to_string(), "inv-uncfg-1".to_string()).await;
+    assert!(stripe_err.is_err());
+    assert!(matches!(stripe_err.unwrap_err(), YntraError::ValidationError(_)));
+
+    // 2. Direct pay_move_invoice call by non-staff client must fail with AuthError
+    let pay_err = pay_move_invoice("u-uncfg-cust".to_string(), "inv-uncfg-1".to_string()).await;
+    assert!(pay_err.is_err());
+    assert!(matches!(pay_err.unwrap_err(), YntraError::AuthError(_)));
+
+    // 3. Direct pay_move_invoice call by staff must succeed
+    let pay_ok = pay_move_invoice("u-uncfg-staff".to_string(), "inv-uncfg-1".to_string()).await;
+    assert!(pay_ok.is_ok());
+
+    // Cleanup
+    conn.execute("DELETE FROM move_invoices WHERE workspace_id = 'ws-uncfg-test'", ()).await.ok();
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-uncfg-test'", ()).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-uncfg-test'", ()).await.ok();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-uncfg-test'", ()).await.ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-uncfg-test'", ()).await.ok();
 }

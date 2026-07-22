@@ -2,7 +2,6 @@ use crate::database;
 use crate::infra::observer::notify_observers;
 use crate::infra::errors::YntraError;
 use crate::services::jobs::tickets::is_staff;
-use super::helpers::get_config_val;
 
 pub async fn calculate_eligible_labor_cost(
     conn: &crate::database::DbConnection,
@@ -11,26 +10,26 @@ pub async fn calculate_eligible_labor_cost(
     settings_json: &serde_json::Value,
 ) -> Result<f64, YntraError> {
     let mut inv_stmt = conn.prepare(
-        "SELECT quantity, estimated_volume_m3, item_name, item_category, handling_notes FROM move_inventory WHERE job_ticket_id = ?1",
+        "SELECT quantity, item_name, item_category, handling_notes FROM move_inventory WHERE job_ticket_id = ?1",
     ).await?;
     let mut inv_rows = inv_stmt.query(crate::params![job_ticket_id]).await?;
-    let mut total_volume = 0.0;
     let mut specialty_surcharge = 0.0;
 
     let surcharge_piano = settings_json.get("surcharge_piano").and_then(|v| v.as_f64()).unwrap_or(1500.0);
     let surcharge_safe = settings_json.get("surcharge_safe").and_then(|v| v.as_f64()).unwrap_or(2000.0);
     let surcharge_jacuzzi = settings_json.get("surcharge_jacuzzi").and_then(|v| v.as_f64()).unwrap_or(2500.0);
     let surcharge_fragile = settings_json.get("surcharge_fragile").and_then(|v| v.as_f64()).unwrap_or(500.0);
+    let surcharge_server_rack = settings_json.get("surcharge_server_rack").and_then(|v| v.as_f64()).unwrap_or(3000.0);
+    let surcharge_fitness_equipment = settings_json.get("surcharge_fitness_equipment").and_then(|v| v.as_f64()).unwrap_or(800.0);
+    let surcharge_marble_glass = settings_json.get("surcharge_marble_glass").and_then(|v| v.as_f64()).unwrap_or(600.0);
 
     while let Some(row) = inv_rows.next().await? {
         let quantity: i64 = row.get(0)?;
-        let vol: f64 = row.get(1)?;
-        let item_name: String = row.get(2)?;
-        let item_category: String = row.get(3)?;
-        let handling_notes: Option<String> = row.get(4)?;
-        total_volume += (quantity as f64) * vol;
+        let item_name: String = row.get(1)?;
+        let item_category: String = row.get(2)?;
+        let handling_notes: Option<String> = row.get(3)?;
 
-        let item_fee = crate::services::jobs::calculate_item_specialty_surcharge(
+        let item_fee = crate::services::jobs::calculate_item_specialty_surcharge_extended(
             item_category,
             item_name,
             handling_notes,
@@ -38,6 +37,9 @@ pub async fn calculate_eligible_labor_cost(
             surcharge_safe,
             surcharge_jacuzzi,
             surcharge_fragile,
+            surcharge_server_rack,
+            surcharge_fitness_equipment,
+            surcharge_marble_glass,
         );
         specialty_surcharge += item_fee * (quantity as f64);
     }
@@ -46,6 +48,14 @@ pub async fn calculate_eligible_labor_cost(
         .get("moving_pricing_model")
         .and_then(|v| v.as_str())
         .unwrap_or("volume");
+
+    let effective_base_price = if base_price > 0.0 {
+        base_price
+    } else {
+        settings_json.get("moving_minimum_job_price").and_then(|v| v.as_f64()).unwrap_or(0.0)
+    };
+
+    let base_labor_price = (effective_base_price - specialty_surcharge).max(0.0);
 
     let labor_portion = if pricing_model == "hourly" {
         let crew_count: i64 = conn
@@ -59,8 +69,8 @@ pub async fn calculate_eligible_labor_cost(
 
         let default_crew_size = settings_json
             .get("moving_default_crew_size")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(2) as f64;
+            .and_then(|v| v.as_f64())
+            .unwrap_or(2.0);
 
         let active_crew_size = if crew_count > 0 {
             crew_count as f64
@@ -73,50 +83,75 @@ pub async fn calculate_eligible_labor_cost(
             .and_then(|v| v.as_f64())
             .unwrap_or(400.0);
 
-        let _hourly_rate_vehicle = settings_json
+        let hourly_rate_vehicle = settings_json
             .get("moving_hourly_rate_vehicle")
             .and_then(|v| v.as_f64())
             .unwrap_or(400.0);
-
-        let hours_per_m3 = settings_json
-            .get("moving_hours_per_m3")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.15);
-        let minimum_hours = settings_json
-            .get("moving_minimum_hours")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(2.0);
-        let estimated_hours = (total_volume * hours_per_m3).max(minimum_hours);
 
         let has_explicit_rates = settings_json.get("moving_hourly_rate_per_mover").is_some()
             || settings_json.get("moving_hourly_rate_vehicle").is_some();
 
         if has_explicit_rates {
-            estimated_hours * active_crew_size * hourly_rate_per_mover + specialty_surcharge
+            let total_rate = (active_crew_size * hourly_rate_per_mover) + hourly_rate_vehicle;
+            let mover_ratio = if total_rate > 0.0 {
+                (active_crew_size * hourly_rate_per_mover) / total_rate
+            } else {
+                1.0
+            };
+            (base_labor_price * mover_ratio) + specialty_surcharge
         } else {
-            let hourly_rate = settings_json
-                .get("moving_hourly_rate")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(1200.0);
             let labor_ratio = settings_json
                 .get("moving_labor_ratio_hourly")
                 .and_then(|v| v.as_f64())
-                .unwrap_or(0.70);
-            estimated_hours * hourly_rate * labor_ratio + specialty_surcharge
+                .unwrap_or(1.0);
+            (base_labor_price * labor_ratio) + specialty_surcharge
         }
     } else {
-        let base_rate_per_m3 = settings_json
-            .get("moving_base_rate_per_m3")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(500.0);
         let labor_ratio = settings_json
             .get("moving_labor_ratio_volume")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.70);
-        total_volume * base_rate_per_m3 * labor_ratio + specialty_surcharge
+        (base_labor_price * labor_ratio) + specialty_surcharge
     };
 
     Ok(labor_portion.min(base_price))
+}
+
+pub async fn calculate_customer_annual_rut_used(
+    conn: &crate::database::DbConnection,
+    workspace_id: &str,
+    customer_id: &str,
+    target_year: &str,
+    current_invoice_id: Option<&str>,
+) -> Result<f64, YntraError> {
+    let year_prefix = format!("{}%", target_year);
+    let mut stmt = conn.prepare(
+        "SELECT id, rut_deduction FROM move_invoices WHERE workspace_id = ?1 AND customer_id = ?2 AND invoice_date LIKE ?3 AND rut_deduction > 0.0",
+    ).await?;
+    let mut rows = stmt.query(crate::params![workspace_id, customer_id, &year_prefix]).await?;
+    let mut total_rut = 0.0;
+    while let Some(row) = rows.next().await? {
+        let inv_id: String = row.get(0)?;
+        if let Some(curr_id) = current_invoice_id {
+            if inv_id == curr_id {
+                continue;
+            }
+        }
+        let rut_val: f64 = row.get(1)?;
+        total_rut += rut_val;
+    }
+    Ok(total_rut)
+}
+#[uniffi::export]
+pub fn validate_customer_personal_number_for_rut(personal_number: &str) -> Result<String, YntraError> {
+    use chrono::Datelike;
+    let current_year = chrono::Utc::now().year();
+    crate::services::clients::normalize_swedish_pnum(personal_number, current_year).ok_or_else(|| {
+        YntraError::ValidationError(format!(
+            "Invalid Swedish personal number '{}': must be a valid 10 or 12 digit personal number with valid Luhn checksum.",
+            personal_number
+        ))
+    })
 }
 
 #[uniffi::export]
@@ -128,30 +163,40 @@ pub async fn generate_move_invoice(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    let mut stmt = conn.prepare(
-        "SELECT workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status FROM move_quotes WHERE id = ?1",
-    ).await?;
-    let mut rows = stmt.query(crate::params![&quote_id]).await?;
-    let (ws_id, job_ticket_id, base_price, _distance_fee, stairs_surcharge, _packing_supplies_fee, total_price, _quote_status) = if let Some(row) = rows.next().await? {
-        (
-            row.get::<String>(0)?,
-            row.get::<String>(1)?,
-            row.get::<f64>(2)?,
-            row.get::<f64>(3)?,
-            row.get::<f64>(4)?,
-            row.get::<f64>(5)?,
-            row.get::<f64>(6)?,
-            row.get::<String>(7)?,
+    let (job_ticket_id, base_price, _distance_fee, stairs_surcharge, _packing_supplies_fee, total_price, ws_id): (
+        String,
+        f64,
+        f64,
+        f64,
+        f64,
+        f64,
+        String,
+    ) = conn
+        .query_row(
+            "SELECT job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, workspace_id FROM move_quotes WHERE id = ?1",
+            crate::params![&quote_id],
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                ))
+            },
         )
-    } else {
-        return Err(YntraError::NotFoundError("Quote not found".to_string()));
-    };
+        .await
+        .map_err(|_| YntraError::NotFoundError("Quote not found".to_string()))?;
 
-    if auth.workspace_id != ws_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    if auth.role != "admin" && auth.workspace_id != ws_id {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
-    let customer_id = if auth.role == "client" {
+    let customer_id: String = if auth.role == "client" {
         requester_user_id.clone()
     } else {
         conn.query_row(
@@ -160,30 +205,34 @@ pub async fn generate_move_invoice(
             |r| r.get(0),
         )
         .await
-        .unwrap_or_else(|_| "client-1".to_string())
+        .unwrap_or_else(|_| requester_user_id.clone())
     };
 
     let settings_str: String = conn
         .query_row(
             "SELECT settings FROM workspaces WHERE id = ?1",
             crate::params![&ws_id],
-            |r| r.get(0),
+            |r| Ok(r.get::<String>(0)?),
         )
         .await
         .unwrap_or_else(|_| "{}".to_string());
     let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
-    
+
     let target_region = settings_json
         .get("target_region")
         .and_then(|v| v.as_str())
-        .unwrap_or("SE")
-        .to_uppercase();
+        .unwrap_or_else(|| {
+            settings_json
+                .get("company_country")
+                .and_then(|v| v.as_str())
+                .unwrap_or("SE")
+        });
 
     let currency = settings_json
         .get("currency")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .unwrap_or_else(|| match target_region.as_str() {
+        .unwrap_or_else(|| match target_region {
             "US" => "USD".to_string(),
             "DE" => "EUR".to_string(),
             _ => "SEK".to_string(),
@@ -204,20 +253,57 @@ pub async fn generate_move_invoice(
             }
         });
 
+    let now = chrono::Utc::now();
+    let invoice_date = now.format("%Y-%m-%d").to_string();
+    let due_date = (now + chrono::Duration::days(30)).format("%Y-%m-%d").to_string();
+    let target_year = now.format("%Y").to_string();
+
     let is_rut_active = (target_region == "SE" || settings_json.get("use_rut_deduction").and_then(|v| v.as_bool()).unwrap_or(false)) && use_rut;
 
     let (rut_deduction, tax_authority_amount, customer_amount) = if is_rut_active {
+        // Upfront validation of customer personal number
+        let raw_pnum: Option<String> = conn
+            .query_row(
+                "SELECT metadata ->> 'personal_number' FROM users WHERE id = ?1",
+                crate::params![&customer_id],
+                |r| r.get(0),
+            )
+            .await
+            .unwrap_or(None);
+
+        let valid_pnum = if let Some(ref pnum_str) = raw_pnum {
+            let decrypted = if pnum_str.starts_with("enc:") || pnum_str.len() > 30 {
+                crate::infra::crypto::decrypt_field(pnum_str, &ws_id).unwrap_or_else(|_| pnum_str.clone())
+            } else {
+                pnum_str.clone()
+            };
+            use chrono::Datelike;
+            let current_year = chrono::Utc::now().year();
+            crate::services::clients::normalize_swedish_pnum(&decrypted, current_year)
+        } else {
+            None
+        };
+
+        if valid_pnum.is_none() {
+            return Err(YntraError::ValidationError(format!(
+                "Invalid or missing Swedish personal number for customer {}. RUT deduction requires a valid 10 or 12 digit personal number with a valid Luhn checksum.",
+                customer_id
+            )));
+        }
+
         let eligible_labor = calculate_eligible_labor_cost(&conn, &job_ticket_id, base_price, &settings_json).await?;
-        let rut = 0.5 * (eligible_labor + stairs_surcharge);
+        let raw_rut = 0.5 * (eligible_labor + stairs_surcharge);
+
+        let used_rut = calculate_customer_annual_rut_used(&conn, &ws_id, &customer_id, &target_year, None).await.unwrap_or(0.0);
+        let annual_cap = settings_json.get("annual_rut_limit_per_person").and_then(|v| v.as_f64()).unwrap_or(75000.0);
+        let remaining_cap = (annual_cap - used_rut).max(0.0);
+        let rut = raw_rut.min(remaining_cap);
         (rut, rut, subtotal - rut)
     } else {
         let tax = subtotal * dynamic_tax_rate;
         (0.0, tax, subtotal + tax)
     };
 
-    let now = chrono::Utc::now();
-    let invoice_date = now.format("%Y-%m-%d").to_string();
-    let due_date = (now + chrono::Duration::days(30)).format("%Y-%m-%d").to_string();
     let now_ms = now.timestamp_millis();
 
     let mut inv_stmt = conn.prepare("SELECT id FROM move_invoices WHERE quote_id = ?1").await?;
@@ -371,32 +457,10 @@ pub async fn pay_move_invoice(
             return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
         }
 
-        let is_staff = is_staff(&auth);
-        if !is_staff && auth.user_id != cust {
-            return Err(YntraError::AuthError("Access denied: customer mismatch".to_string()));
-        }
-
-        if !is_staff {
-            let settings_str: String = conn
-                .query_row(
-                    "SELECT settings FROM workspaces WHERE id = ?1",
-                    crate::params![&ws],
-                    |r| r.get(0),
-                )
-                .await
-                .unwrap_or_else(|_| "{}".to_string());
-            let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
-            
-            let gateway_url = get_config_val("swish_gateway_url", "SWISH_GATEWAY_URL", &settings_json).await
-                .or(get_config_val("billing_gateway_url", "BILLING_GATEWAY_URL", &settings_json).await)
-                .or(get_config_val("stripe_gateway_url", "STRIPE_GATEWAY_URL", &settings_json).await);
-
-            let swish_sandbox = settings_json.get("swish_use_sandbox").and_then(|v| v.as_bool()).unwrap_or(false);
-            let stripe_sandbox = settings_json.get("stripe_use_sandbox").and_then(|v| v.as_bool()).unwrap_or(false);
-            
-            if gateway_url.is_some() && !swish_sandbox && !stripe_sandbox {
-                return Err(YntraError::AuthError("Access denied: only staff can manually mark production invoices as paid".to_string()));
-            }
+        if !is_staff(&auth) {
+            return Err(YntraError::AuthError(
+                "Access denied: only authorized staff can manually mark invoices as paid. Clients must process payments via an integrated gateway.".to_string(),
+            ));
         }
 
         (ws, cust)
@@ -508,7 +572,6 @@ pub async fn adjust_invoice_for_actuals(
 
     // 3. Recalculate adjusted pricing
     let mut adjusted_base_price = base_price;
-    let mut actual_labor_cost = base_price;
 
     if pricing_model == "hourly" {
         if let Some(hrs) = actual_hours {
@@ -556,7 +619,7 @@ pub async fn adjust_invoice_for_actuals(
             };
 
             let mut inv_stmt = conn.prepare(
-                "SELECT quantity, item_name FROM move_inventory WHERE job_ticket_id = ?1",
+                "SELECT quantity, estimated_volume_m3, item_name, item_category, handling_notes FROM move_inventory WHERE job_ticket_id = ?1",
             ).await?;
             let mut inv_rows = inv_stmt.query(crate::params![&job_ticket_id]).await?;
             let mut specialty_surcharge = 0.0;
@@ -565,36 +628,33 @@ pub async fn adjust_invoice_for_actuals(
             let surcharge_safe = settings_json.get("surcharge_safe").and_then(|v| v.as_f64()).unwrap_or(2000.0);
             let surcharge_jacuzzi = settings_json.get("surcharge_jacuzzi").and_then(|v| v.as_f64()).unwrap_or(2500.0);
             let surcharge_fragile = settings_json.get("surcharge_fragile").and_then(|v| v.as_f64()).unwrap_or(500.0);
+            let surcharge_server_rack = settings_json.get("surcharge_server_rack").and_then(|v| v.as_f64()).unwrap_or(3000.0);
+            let surcharge_fitness_equipment = settings_json.get("surcharge_fitness_equipment").and_then(|v| v.as_f64()).unwrap_or(800.0);
+            let surcharge_marble_glass = settings_json.get("surcharge_marble_glass").and_then(|v| v.as_f64()).unwrap_or(600.0);
 
             while let Some(row) = inv_rows.next().await? {
                 let quantity: i64 = row.get(0)?;
-                let item_name: String = row.get(1)?;
+                let _vol: f64 = row.get(1)?;
+                let item_name: String = row.get(2)?;
+                let item_category: String = row.get(3)?;
+                let handling_notes: Option<String> = row.get(4)?;
 
-                let item_name_lower = item_name.to_lowercase();
-                let item_fee = if item_name_lower.contains("piano") || item_name_lower.contains("flygel") {
-                    surcharge_piano
-                } else if item_name_lower.contains("safe") || item_name_lower.contains("kassaskåp") {
-                    surcharge_safe
-                } else if item_name_lower.contains("jacuzzi") || item_name_lower.contains("badkar") || item_name_lower.contains("spa") {
-                    surcharge_jacuzzi
-                } else if item_name_lower.contains("konst") || item_name_lower.contains("tavla") || item_name_lower.contains("painting") || item_name_lower.contains("fragile") {
-                    surcharge_fragile
-                } else {
-                    0.0
-                };
+                let item_fee = crate::services::jobs::calculate_item_specialty_surcharge_extended(
+                    item_category,
+                    item_name,
+                    handling_notes,
+                    surcharge_piano,
+                    surcharge_safe,
+                    surcharge_jacuzzi,
+                    surcharge_fragile,
+                    surcharge_server_rack,
+                    surcharge_fitness_equipment,
+                    surcharge_marble_glass,
+                );
                 specialty_surcharge += item_fee * (quantity as f64);
             }
 
             adjusted_base_price = (hrs * hourly_rate) + specialty_surcharge;
-            actual_labor_cost = if has_explicit_rates {
-                (hrs * active_crew_size * hourly_rate_per_mover) + specialty_surcharge
-            } else {
-                let labor_ratio = settings_json
-                    .get("moving_labor_ratio_hourly")
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.70);
-                (hrs * hourly_rate * labor_ratio) + specialty_surcharge
-            };
         }
     }
 
@@ -619,16 +679,14 @@ pub async fn adjust_invoice_for_actuals(
 
     let (rut_deduction, tax_authority_amount, customer_amount) = if is_rut_active {
         // Recalculate eligible labor based on the adjusted actual base price
-        let eligible_labor = if pricing_model == "hourly" {
-            actual_labor_cost
-        } else {
-            let labor_ratio = settings_json
-                .get("moving_labor_ratio_volume")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.70);
-            adjusted_base_price * labor_ratio
-        };
-        let rut = 0.5 * (eligible_labor + stairs_surcharge);
+        let eligible_labor = calculate_eligible_labor_cost(&conn, &job_ticket_id, adjusted_base_price, &settings_json).await?;
+        let raw_rut = 0.5 * (eligible_labor + stairs_surcharge);
+
+        let target_year = if invoice_date.len() >= 4 { &invoice_date[0..4] } else { "2026" };
+        let used_rut = calculate_customer_annual_rut_used(&conn, &auth.workspace_id, &customer_id, target_year, Some(&invoice_id)).await.unwrap_or(0.0);
+        let annual_cap = settings_json.get("annual_rut_limit_per_person").and_then(|v| v.as_f64()).unwrap_or(75000.0);
+        let remaining_cap = (annual_cap - used_rut).max(0.0);
+        let rut = raw_rut.min(remaining_cap);
         (rut, rut, subtotal - rut)
     } else {
         let tax = subtotal * dynamic_tax_rate;

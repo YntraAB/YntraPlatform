@@ -131,18 +131,9 @@ pub async fn initiate_stripe_payment(
             status: "open".to_string(),
         })
     } else {
-        // Fallback mock
-        let session_id = format!("cs_test_{}", uuid::Uuid::new_v4().simple());
-        let checkout_url = format!("https://checkout.stripe.com/pay/{}#client_secret=mock_secret", session_id);
-
-        Ok(crate::models::StripePaymentSession {
-            session_id,
-            checkout_url,
-            client_secret: Some(format!("mock_secret_{}", uuid::Uuid::new_v4().simple())),
-            amount,
-            currency,
-            status: "open".to_string(),
-        })
+        Err(YntraError::ValidationError(
+            "Stripe payment gateway is unconfigured: missing stripe_secret_key or billing_gateway_url in workspace settings or environment variables.".to_string(),
+        ))
     }
 }
 

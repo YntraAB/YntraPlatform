@@ -467,6 +467,19 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             FOREIGN KEY(job_ticket_id) REFERENCES job_tickets(id)
         );
 
+        CREATE TABLE IF NOT EXISTS move_quote_revisions (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            quote_id TEXT NOT NULL,
+            job_ticket_id TEXT NOT NULL,
+            actor_user_id TEXT NOT NULL,
+            previous_total REAL NOT NULL,
+            new_total REAL NOT NULL,
+            revision_reason TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_move_quote_revisions_quote ON move_quote_revisions(quote_id);
+
         CREATE TABLE IF NOT EXISTS move_invoices (
             id TEXT PRIMARY KEY,
             workspace_id TEXT NOT NULL DEFAULT 'workspace-1',

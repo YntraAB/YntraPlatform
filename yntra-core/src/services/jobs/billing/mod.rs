@@ -1,4 +1,4 @@
-mod helpers;
+pub mod helpers;
 mod invoices;
 mod swish;
 mod stripe;
@@ -6,7 +6,9 @@ mod adyen;
 mod skatteverket;
 pub mod erp;
 
-pub use invoices::{generate_move_invoice, get_move_invoice, pay_move_invoice, adjust_invoice_for_actuals};
+pub use helpers::get_config_val;
+
+pub use invoices::{generate_move_invoice, get_move_invoice, pay_move_invoice, adjust_invoice_for_actuals, validate_customer_personal_number_for_rut};
 pub use swish::{initiate_swish_payment, check_swish_payment_status, process_swish_payment_webhook, process_onsite_mpos_card_payment};
 pub use stripe::{initiate_stripe_payment, process_stripe_payment_webhook, initiate_mobile_pos_terminal_session, confirm_mobile_pos_terminal_payment};
 pub use adyen::initiate_adyen_payment;
