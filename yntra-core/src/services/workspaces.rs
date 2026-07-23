@@ -252,6 +252,46 @@ fn get_default_settings_for_modules(modules_json: &str) -> String {
     if is_moving_company {
         let moving_roles = super::role_templates::get_moving_company_roles(is_scandi);
         settings_map.insert("roles".to_string(), moving_roles);
+
+        // Seed operational defaults from definitions and regional defaults
+        let defs = get_workspace_settings_definitions();
+        for def in defs {
+            let val = match def.value_type.as_str() {
+                "currency" | "number" | "percentage" | "multiplier" => {
+                    if let Ok(n) = def.default_value.parse::<f64>() {
+                        serde_json::json!(n)
+                    } else {
+                        serde_json::Value::String(def.default_value)
+                    }
+                }
+                "boolean" => {
+                    if let Ok(b) = def.default_value.parse::<bool>() {
+                        serde_json::Value::Bool(b)
+                    } else {
+                        serde_json::Value::String(def.default_value)
+                    }
+                }
+                _ => serde_json::Value::String(def.default_value),
+            };
+            settings_map.insert(def.key, val);
+        }
+
+        settings_map.insert(
+            "target_region".to_string(),
+            serde_json::Value::String(if is_scandi { "SE".to_string() } else { "US".to_string() }),
+        );
+        settings_map.insert(
+            "currency".to_string(),
+            serde_json::Value::String(if is_scandi { "SEK".to_string() } else { "USD".to_string() }),
+        );
+        settings_map.insert(
+            "use_rut_deduction".to_string(),
+            serde_json::Value::Bool(is_scandi),
+        );
+        settings_map.insert(
+            "annual_rut_limit_per_person".to_string(),
+            serde_json::json!(75000.0),
+        );
     } else if is_assistance {
         let care_roles = super::role_templates::get_care_roles(care_subtype, is_scandi);
         settings_map.insert("roles".to_string(), care_roles);
@@ -678,12 +718,192 @@ pub fn get_workspace_settings_definitions() -> Vec<crate::models::SettingDefinit
             default_value: "20.0".to_string(),
             tooltip: "Percentage of quote total required as a non-refundable deposit upon customer quote acceptance.".to_string(),
         },
+        crate::models::SettingDefinition {
+            key: "moving_payment_due_days".to_string(),
+            label: "Payment Due Terms (Days) / Betalningsvillkor (Dagar)".to_string(),
+            category: "Billing & Deposit Gates".to_string(),
+            value_type: "number".to_string(),
+            default_value: "30.0".to_string(),
+            tooltip: "Number of days from invoice generation date until payment is due (e.g. 30, 14, 7, or 0 days upon job completion).".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "moving_base_rate_per_m3".to_string(),
+            label: "Base Rate per m³ / Grundpris per m³".to_string(),
+            category: "Billing & Deposit Gates".to_string(),
+            value_type: "currency".to_string(),
+            default_value: "500.0".to_string(),
+            tooltip: "Base volumetric tariff rate charged per cubic meter under volume pricing model.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "moving_distance_fee_flat".to_string(),
+            label: "Base Distance Fee / Grundavgift sträcka".to_string(),
+            category: "Billing & Deposit Gates".to_string(),
+            value_type: "currency".to_string(),
+            default_value: "800.0".to_string(),
+            tooltip: "Flat base distance/transport fee for relocations within the local radius.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "moving_packing_supplies_fee_per_m3".to_string(),
+            label: "Packing Supplies Fee per m³ / Emballageavgift per m³".to_string(),
+            category: "Billing & Deposit Gates".to_string(),
+            value_type: "currency".to_string(),
+            default_value: "100.0".to_string(),
+            tooltip: "Estimated packing materials supply fee per cubic meter when no itemized supplies are logged.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "moving_hourly_rate".to_string(),
+            label: "Combined Hourly Rate / Sammanlagt timpris".to_string(),
+            category: "Billing & Deposit Gates".to_string(),
+            value_type: "currency".to_string(),
+            default_value: "1200.0".to_string(),
+            tooltip: "Flat combined hourly labor and vehicle rate when explicit mover/vehicle breakdown is disabled.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "moving_default_crew_size".to_string(),
+            label: "Default Crew Size / Standard lagstorlek".to_string(),
+            category: "Billing & Deposit Gates".to_string(),
+            value_type: "number".to_string(),
+            default_value: "2.0".to_string(),
+            tooltip: "Default active crew size assigned to jobs when unassigned.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "moving_hours_per_m3".to_string(),
+            label: "Labor Hours per m³ / Arbetstimmar per m³".to_string(),
+            category: "Billing & Deposit Gates".to_string(),
+            value_type: "number".to_string(),
+            default_value: "0.15".to_string(),
+            tooltip: "Estimated labor hours required per m³ of move volume.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "moving_local_radius_km".to_string(),
+            label: "Local Service Radius (km) / Lokalområdesradie".to_string(),
+            category: "Billing & Deposit Gates".to_string(),
+            value_type: "number".to_string(),
+            default_value: "30.0".to_string(),
+            tooltip: "Radius in kilometers covered by the flat distance base fee before distance per-km charges apply.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "moving_per_km_rate".to_string(),
+            label: "Extra Distance Rate per km / Drivmedel/Km-pris".to_string(),
+            category: "Billing & Deposit Gates".to_string(),
+            value_type: "currency".to_string(),
+            default_value: "15.0".to_string(),
+            tooltip: "Per kilometer surcharge for travel distance beyond the local service radius.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "surcharge_marble_glass".to_string(),
+            label: "Marble / Glass Heavy Slab Fee / Marmor & Glasskiva-tillägg".to_string(),
+            category: "Specialty Item Surcharges".to_string(),
+            value_type: "currency".to_string(),
+            default_value: "600.0".to_string(),
+            tooltip: "Surcharge for fragile marble tops or large glass dining tabletops requiring blanket/crate protection.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "surcharge_crane_hoist".to_string(),
+            label: "Crane Hoist Equipment Fee / Kran/Lyft-utrustningstillägg".to_string(),
+            category: "Staircase & Architectural Access".to_string(),
+            value_type: "currency".to_string(),
+            default_value: "3500.0".to_string(),
+            tooltip: "Equipment rental surcharge when external balcony crane/hoist is required.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "annual_rut_limit_per_person".to_string(),
+            label: "Annual Individual RUT Tax Limit / Årligt RUT-avdragstak".to_string(),
+            category: "Billing & Deposit Gates".to_string(),
+            value_type: "currency".to_string(),
+            default_value: "75000.0".to_string(),
+            tooltip: "Maximum annual Swedish RUT tax deduction cap per person under Skatteverket rules.".to_string(),
+        },
     ]
+}
+
+pub fn get_setting_f64(settings_json: &serde_json::Value, key: &str) -> f64 {
+    if let Some(v) = settings_json.get(key) {
+        if let Some(n) = v.as_f64() {
+            return n;
+        }
+        if let Some(s) = v.as_str() {
+            if let Ok(n) = s.parse::<f64>() {
+                return n;
+            }
+        }
+    }
+    for def in get_workspace_settings_definitions() {
+        if def.key == key {
+            if let Ok(n) = def.default_value.parse::<f64>() {
+                return n;
+            }
+        }
+    }
+    0.0
+}
+
+pub fn get_setting_str(settings_json: &serde_json::Value, key: &str, fallback_str: &str) -> String {
+    if let Some(s) = settings_json.get(key).and_then(|v| v.as_str()) {
+        return s.to_string();
+    }
+    for def in get_workspace_settings_definitions() {
+        if def.key == key {
+            return def.default_value;
+        }
+    }
+    fallback_str.to_string()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_moving_company_default_settings_seeding() {
+        let modules_json = r#"{"moving_company": true, "locale": "se"}"#;
+        let default_settings_json = get_default_settings_for_modules(modules_json);
+        let settings_val: serde_json::Value = serde_json::from_str(&default_settings_json).unwrap();
+
+        assert!(settings_val.get("roles").is_some());
+        assert_eq!(
+            settings_val
+                .get("moving_pricing_model")
+                .and_then(|v| v.as_str()),
+            Some("volume")
+        );
+        assert_eq!(
+            settings_val
+                .get("moving_base_rate_per_m3")
+                .and_then(|v| v.as_f64()),
+            Some(500.0)
+        );
+        assert_eq!(
+            settings_val
+                .get("moving_hourly_rate_per_mover")
+                .and_then(|v| v.as_f64()),
+            Some(400.0)
+        );
+        assert_eq!(
+            settings_val.get("surcharge_piano").and_then(|v| v.as_f64()),
+            Some(1500.0)
+        );
+        assert_eq!(
+            settings_val
+                .get("moving_deposit_percent")
+                .and_then(|v| v.as_f64()),
+            Some(20.0)
+        );
+        assert_eq!(
+            settings_val.get("target_region").and_then(|v| v.as_str()),
+            Some("SE")
+        );
+        assert_eq!(
+            settings_val.get("currency").and_then(|v| v.as_str()),
+            Some("SEK")
+        );
+        assert_eq!(
+            settings_val
+                .get("use_rut_deduction")
+                .and_then(|v| v.as_bool()),
+            Some(true)
+        );
+    }
 
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]

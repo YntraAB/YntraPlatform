@@ -15,13 +15,13 @@ pub async fn calculate_eligible_labor_cost(
     let mut inv_rows = inv_stmt.query(crate::params![job_ticket_id]).await?;
     let mut specialty_surcharge = 0.0;
 
-    let surcharge_piano = settings_json.get("surcharge_piano").and_then(|v| v.as_f64()).unwrap_or(1500.0);
-    let surcharge_safe = settings_json.get("surcharge_safe").and_then(|v| v.as_f64()).unwrap_or(2000.0);
-    let surcharge_jacuzzi = settings_json.get("surcharge_jacuzzi").and_then(|v| v.as_f64()).unwrap_or(2500.0);
-    let surcharge_fragile = settings_json.get("surcharge_fragile").and_then(|v| v.as_f64()).unwrap_or(500.0);
-    let surcharge_server_rack = settings_json.get("surcharge_server_rack").and_then(|v| v.as_f64()).unwrap_or(3000.0);
-    let surcharge_fitness_equipment = settings_json.get("surcharge_fitness_equipment").and_then(|v| v.as_f64()).unwrap_or(800.0);
-    let surcharge_marble_glass = settings_json.get("surcharge_marble_glass").and_then(|v| v.as_f64()).unwrap_or(600.0);
+    let surcharge_piano = crate::services::workspaces::get_setting_f64(settings_json, "surcharge_piano");
+    let surcharge_safe = crate::services::workspaces::get_setting_f64(settings_json, "surcharge_safe");
+    let surcharge_jacuzzi = crate::services::workspaces::get_setting_f64(settings_json, "surcharge_jacuzzi");
+    let surcharge_fragile = crate::services::workspaces::get_setting_f64(settings_json, "surcharge_fragile");
+    let surcharge_server_rack = crate::services::workspaces::get_setting_f64(settings_json, "surcharge_server_rack");
+    let surcharge_fitness_equipment = crate::services::workspaces::get_setting_f64(settings_json, "surcharge_fitness_equipment");
+    let surcharge_marble_glass = crate::services::workspaces::get_setting_f64(settings_json, "surcharge_marble_glass");
 
     while let Some(row) = inv_rows.next().await? {
         let quantity: i64 = row.get(0)?;
@@ -44,18 +44,14 @@ pub async fn calculate_eligible_labor_cost(
         specialty_surcharge += item_fee * (quantity as f64);
     }
 
-    let pricing_model = settings_json
-        .get("moving_pricing_model")
-        .and_then(|v| v.as_str())
-        .unwrap_or("volume");
+    let pricing_model_str = crate::services::workspaces::get_setting_str(settings_json, "moving_pricing_model", "volume");
+    let pricing_model = pricing_model_str.as_str();
 
     let effective_base_price = if base_price > 0.0 {
         base_price
     } else {
-        settings_json.get("moving_minimum_job_price").and_then(|v| v.as_f64()).unwrap_or(0.0)
+        crate::services::workspaces::get_setting_f64(settings_json, "moving_minimum_job_price")
     };
-
-    let base_labor_price = (effective_base_price - specialty_surcharge).max(0.0);
 
     let labor_portion = if pricing_model == "hourly" {
         let crew_count: i64 = conn
@@ -67,10 +63,7 @@ pub async fn calculate_eligible_labor_cost(
             .await
             .unwrap_or(0);
 
-        let default_crew_size = settings_json
-            .get("moving_default_crew_size")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(2.0);
+        let default_crew_size = crate::services::workspaces::get_setting_f64(settings_json, "moving_default_crew_size");
 
         let active_crew_size = if crew_count > 0 {
             crew_count as f64
@@ -78,15 +71,9 @@ pub async fn calculate_eligible_labor_cost(
             default_crew_size
         };
 
-        let hourly_rate_per_mover = settings_json
-            .get("moving_hourly_rate_per_mover")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(400.0);
+        let hourly_rate_per_mover = crate::services::workspaces::get_setting_f64(settings_json, "moving_hourly_rate_per_mover");
 
-        let hourly_rate_vehicle = settings_json
-            .get("moving_hourly_rate_vehicle")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(400.0);
+        let hourly_rate_vehicle = crate::services::workspaces::get_setting_f64(settings_json, "moving_hourly_rate_vehicle");
 
         let has_explicit_rates = settings_json.get("moving_hourly_rate_per_mover").is_some()
             || settings_json.get("moving_hourly_rate_vehicle").is_some();
@@ -98,20 +85,20 @@ pub async fn calculate_eligible_labor_cost(
             } else {
                 1.0
             };
-            (base_labor_price * mover_ratio) + specialty_surcharge
+            effective_base_price * mover_ratio
         } else {
             let labor_ratio = settings_json
                 .get("moving_labor_ratio_hourly")
                 .and_then(|v| v.as_f64())
                 .unwrap_or(1.0);
-            (base_labor_price * labor_ratio) + specialty_surcharge
+            effective_base_price * labor_ratio
         }
     } else {
         let labor_ratio = settings_json
             .get("moving_labor_ratio_volume")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.70);
-        (base_labor_price * labor_ratio) + specialty_surcharge
+        effective_base_price * labor_ratio
     };
 
     Ok(labor_portion.min(base_price))
@@ -181,8 +168,8 @@ pub async fn calculate_customer_annual_rut_used(
             .as_deref()
             .and_then(|json_str| serde_json::from_str::<serde_json::Value>(json_str).ok());
 
-        let surcharge_long_carry_per_meter = settings_json.get("surcharge_long_carry_per_meter").and_then(|v| v.as_f64()).unwrap_or(50.0);
-        let surcharge_crane_hoist = settings_json.get("surcharge_crane_hoist").and_then(|v| v.as_f64()).unwrap_or(1500.0);
+        let surcharge_long_carry_per_meter = crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_long_carry_per_meter");
+        let surcharge_crane_hoist = crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_crane_hoist");
         let requires_crane_hoist = route_meta_json
             .as_ref()
             .and_then(|v| v.get("requires_crane_hoist").and_then(|b| b.as_bool()))
@@ -194,7 +181,8 @@ pub async fn calculate_customer_annual_rut_used(
         let non_deductible_stair_additions = long_carry_fee + crane_hoist_fee;
 
         let eligible_labor = calculate_eligible_labor_cost(conn, &job_id, base_price, &settings_json).await.unwrap_or(base_price * 0.70);
-        let total_eligible_labor = (eligible_labor + stairs_surcharge - non_deductible_stair_additions).max(0.0);
+        let eligible_stair_labor = (stairs_surcharge - non_deductible_stair_additions).max(0.0);
+        let total_eligible_labor = eligible_labor + eligible_stair_labor;
         let estimated_quote_rut = 0.5 * total_eligible_labor;
         total_rut += estimated_quote_rut;
     }
@@ -298,7 +286,7 @@ pub async fn generate_move_invoice(
         });
 
     let subtotal = total_price;
-    
+
     let dynamic_tax_rate = settings_json
         .get("tax_rate")
         .and_then(|v| v.as_f64())
@@ -314,7 +302,26 @@ pub async fn generate_move_invoice(
 
     let now = chrono::Utc::now();
     let invoice_date = now.format("%Y-%m-%d").to_string();
-    let due_date = (now + chrono::Duration::days(30)).format("%Y-%m-%d").to_string();
+
+    let due_days = settings_json
+        .get("moving_payment_due_days")
+        .or_else(|| settings_json.get("payment_due_days"))
+        .or_else(|| settings_json.get("due_days"))
+        .and_then(|v| {
+            if let Some(n) = v.as_f64() {
+                Some(n as i64)
+            } else if let Some(n) = v.as_i64() {
+                Some(n)
+            } else if let Some(s) = v.as_str() {
+                s.parse::<i64>().ok()
+            } else {
+                None
+            }
+        })
+        .unwrap_or(30)
+        .max(0);
+
+    let due_date = (now + chrono::Duration::days(due_days)).format("%Y-%m-%d").to_string();
     let target_year = now.format("%Y").to_string();
 
     let is_rut_active = (target_region == "SE" || settings_json.get("use_rut_deduction").and_then(|v| v.as_bool()).unwrap_or(false)) && use_rut;
@@ -323,12 +330,17 @@ pub async fn generate_move_invoice(
         // Upfront validation of customer personal number
         let raw_pnum: Option<String> = conn
             .query_row(
-                "SELECT metadata ->> 'personal_number' FROM users WHERE id = ?1",
+                "SELECT metadata FROM users WHERE id = ?1",
                 crate::params![&customer_id],
                 |r| r.get(0),
             )
             .await
-            .unwrap_or(None);
+            .unwrap_or(None)
+            .and_then(|meta_str: String| {
+                serde_json::from_str::<serde_json::Value>(&meta_str)
+                    .ok()
+                    .and_then(|v| v.get("personal_number").and_then(|p| p.as_str()).map(|s| s.to_string()))
+            });
 
         let valid_pnum = if let Some(ref pnum_str) = raw_pnum {
             let decrypted = if pnum_str.starts_with("enc:") || pnum_str.len() > 30 {
@@ -365,8 +377,8 @@ pub async fn generate_move_invoice(
             .as_deref()
             .and_then(|json_str| serde_json::from_str::<serde_json::Value>(json_str).ok());
 
-        let surcharge_long_carry_per_meter = settings_json.get("surcharge_long_carry_per_meter").and_then(|v| v.as_f64()).unwrap_or(50.0);
-        let surcharge_crane_hoist = settings_json.get("surcharge_crane_hoist").and_then(|v| v.as_f64()).unwrap_or(1500.0);
+        let surcharge_long_carry_per_meter = crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_long_carry_per_meter");
+        let surcharge_crane_hoist = crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_crane_hoist");
         let requires_crane_hoist = route_meta_json
             .as_ref()
             .and_then(|v| v.get("requires_crane_hoist").and_then(|b| b.as_bool()))
@@ -377,12 +389,13 @@ pub async fn generate_move_invoice(
         let crane_hoist_fee = if requires_crane_hoist { surcharge_crane_hoist } else { 0.0 };
 
         let non_deductible_stair_additions = long_carry_fee + crane_hoist_fee;
-        let total_eligible_labor = (eligible_labor + stairs_surcharge - non_deductible_stair_additions).max(0.0);
+        let eligible_stair_labor = (stairs_surcharge - non_deductible_stair_additions).max(0.0);
+        let total_eligible_labor = eligible_labor + eligible_stair_labor;
 
         let raw_rut = 0.5 * total_eligible_labor;
 
         let used_rut = calculate_customer_annual_rut_used(&conn, &ws_id, &customer_id, &target_year, None).await.unwrap_or(0.0);
-        let annual_cap = settings_json.get("annual_rut_limit_per_person").and_then(|v| v.as_f64()).unwrap_or(75000.0);
+        let annual_cap = crate::services::workspaces::get_setting_f64(&settings_json, "annual_rut_limit_per_person");
         let remaining_cap = (annual_cap - used_rut).max(0.0);
         let rut = raw_rut.min(remaining_cap);
         (rut, rut, subtotal - rut)
@@ -671,11 +684,7 @@ pub async fn adjust_invoice_for_actuals(
                 .await
                 .unwrap_or(0);
 
-            let default_crew_size = settings_json
-                .get("moving_default_crew_size")
-                .and_then(|v| v.as_f64())
-                .or_else(|| settings_json.get("moving_active_crew_size").and_then(|v| v.as_f64()))
-                .unwrap_or(2.0);
+            let default_crew_size = crate::services::workspaces::get_setting_f64(&settings_json, "moving_default_crew_size");
 
             let active_crew_size = if crew_count > 0 {
                 crew_count as f64
@@ -683,15 +692,8 @@ pub async fn adjust_invoice_for_actuals(
                 default_crew_size
             };
 
-            let hourly_rate_per_mover = settings_json
-                .get("moving_hourly_rate_per_mover")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(400.0);
-
-            let hourly_rate_vehicle = settings_json
-                .get("moving_hourly_rate_vehicle")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(400.0);
+            let hourly_rate_per_mover = crate::services::workspaces::get_setting_f64(&settings_json, "moving_hourly_rate_per_mover");
+            let hourly_rate_vehicle = crate::services::workspaces::get_setting_f64(&settings_json, "moving_hourly_rate_vehicle");
 
             let has_explicit_rates = settings_json.get("moving_hourly_rate_per_mover").is_some()
                 || settings_json.get("moving_hourly_rate_vehicle").is_some();
@@ -699,10 +701,7 @@ pub async fn adjust_invoice_for_actuals(
             let hourly_rate = if has_explicit_rates {
                 active_crew_size * hourly_rate_per_mover + hourly_rate_vehicle
             } else {
-                settings_json
-                    .get("moving_hourly_rate")
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(1200.0)
+                crate::services::workspaces::get_setting_f64(&settings_json, "moving_hourly_rate")
             };
 
             let mut inv_stmt = conn.prepare(
@@ -711,13 +710,13 @@ pub async fn adjust_invoice_for_actuals(
             let mut inv_rows = inv_stmt.query(crate::params![&job_ticket_id]).await?;
             let mut specialty_surcharge = 0.0;
 
-            let surcharge_piano = settings_json.get("surcharge_piano").and_then(|v| v.as_f64()).unwrap_or(1500.0);
-            let surcharge_safe = settings_json.get("surcharge_safe").and_then(|v| v.as_f64()).unwrap_or(2000.0);
-            let surcharge_jacuzzi = settings_json.get("surcharge_jacuzzi").and_then(|v| v.as_f64()).unwrap_or(2500.0);
-            let surcharge_fragile = settings_json.get("surcharge_fragile").and_then(|v| v.as_f64()).unwrap_or(500.0);
-            let surcharge_server_rack = settings_json.get("surcharge_server_rack").and_then(|v| v.as_f64()).unwrap_or(3000.0);
-            let surcharge_fitness_equipment = settings_json.get("surcharge_fitness_equipment").and_then(|v| v.as_f64()).unwrap_or(800.0);
-            let surcharge_marble_glass = settings_json.get("surcharge_marble_glass").and_then(|v| v.as_f64()).unwrap_or(600.0);
+            let surcharge_piano = crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_piano");
+            let surcharge_safe = crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_safe");
+            let surcharge_jacuzzi = crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_jacuzzi");
+            let surcharge_fragile = crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_fragile");
+            let surcharge_server_rack = crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_server_rack");
+            let surcharge_fitness_equipment = crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_fitness_equipment");
+            let surcharge_marble_glass = crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_marble_glass");
 
             while let Some(row) = inv_rows.next().await? {
                 let quantity: i64 = row.get(0)?;
@@ -741,7 +740,9 @@ pub async fn adjust_invoice_for_actuals(
                 specialty_surcharge += item_fee * (quantity as f64);
             }
 
-            adjusted_base_price = (hrs * hourly_rate) + specialty_surcharge;
+            let min_hours = crate::services::workspaces::get_setting_f64(&settings_json, "moving_minimum_hours");
+            let billable_hours = hrs.max(min_hours);
+            adjusted_base_price = (billable_hours * hourly_rate) + specialty_surcharge;
         }
     }
 

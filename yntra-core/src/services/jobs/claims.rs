@@ -193,6 +193,17 @@ pub async fn process_claim_payout(
         return Err(YntraError::AuthError("Access denied: only staff coordinators can process claim payouts".to_string()));
     }
 
+    let settings_str: String = conn
+        .query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![&auth.workspace_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or_else(|_| "{}".to_string());
+    let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
+    let currency = crate::services::workspaces::get_setting_str(&settings_json, "currency", "SEK");
+
     let claim = update_claim_status(
         requester_user_id,
         claim_id.clone(),
@@ -200,7 +211,7 @@ pub async fn process_claim_payout(
         Some(payout_amount),
         None,
         Some(insurance_policy_claim_ref.clone()),
-        Some(format!("Insurance payout processed: {:.2} SEK approved under policy ref {}", payout_amount, insurance_policy_claim_ref)),
+        Some(format!("Insurance payout processed: {:.2} {} approved under policy ref {}", payout_amount, currency, insurance_policy_claim_ref)),
     ).await?;
 
     Ok(crate::models::ClaimPayoutResult {
@@ -209,7 +220,7 @@ pub async fn process_claim_payout(
         payout_amount,
         insurance_reference: insurance_policy_claim_ref,
         new_status: "paid".to_string(),
-        message: format!("Successfully disbursed insurance payout of {:.2} SEK.", payout_amount),
+        message: format!("Successfully disbursed insurance payout of {:.2} {}.", payout_amount, currency),
     })
 }
 

@@ -145,6 +145,69 @@ pub struct SkatteverketSubmitResult {
     PartialEq,
 )]
 #[rkyv(compare(PartialEq), derive(Debug))]
+pub struct SkatteverketOmittedClaim {
+    pub invoice_id: String,
+    pub customer_id: String,
+    pub reason: String,
+    pub omitted_rut_amount: f64,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct SkatteverketBatchValidationResult {
+    pub total_requested: i32,
+    pub valid_count: i32,
+    pub omitted_count: i32,
+    pub total_valid_amount: f64,
+    pub total_omitted_amount: f64,
+    pub omitted_claims: Vec<SkatteverketOmittedClaim>,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct SkatteverketExportManifest {
+    pub payload: String,
+    pub format_type: String,
+    pub total_requested: i32,
+    pub exported_count: i32,
+    pub omitted_count: i32,
+    pub total_exported_amount: f64,
+    pub total_omitted_amount: f64,
+    pub omitted_claims: Vec<SkatteverketOmittedClaim>,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
 pub struct MobilePosTerminalSession {
     pub session_id: String,
     pub invoice_id: String,

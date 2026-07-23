@@ -423,6 +423,17 @@ pub async fn process_onsite_mpos_card_payment(
         crate::params![&note, now_ms, &invoice_id, &ws_id],
     ).await?;
 
+    let settings_str: String = conn
+        .query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![&ws_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or_else(|_| "{}".to_string());
+    let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
+    let currency = crate::services::workspaces::get_setting_str(&settings_json, "currency", "SEK");
+
     notify_observers();
 
     Ok(crate::models::OnSitePaymentResult {
@@ -431,6 +442,6 @@ pub async fn process_onsite_mpos_card_payment(
         payment_method: method_name.to_string(),
         amount_collected: amount,
         receipt_url: Some(format!("https://receipts.yntra.se/tx/{}", invoice_id)),
-        message: format!("Successfully collected {:.2} SEK via {} on-site.", amount, method_name),
+        message: format!("Successfully collected {:.2} {} via {} on-site.", amount, currency, method_name),
     })
 }
