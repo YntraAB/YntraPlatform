@@ -731,16 +731,16 @@ async fn test_manual_override_dynamic_item_additions() {
 
     let q2 = get_move_quote("u-ovr-staff".to_string(), job.id.clone()).await.unwrap().unwrap();
     assert_eq!(q2.manual_price_override, Some(3000.0));
-    assert_eq!(q2.total_price, 3000.0);
+    assert_eq!(q2.total_price, 4000.0);
 
     // 3. Customer/Admin adds an extra item (Armchair @ 1.0 m3 -> volume cost +500 SEK, supplies +100 SEK -> calculated total increases to 2600 SEK, but manual override remains fixed at 3000 SEK)
     create_move_inventory_item("u-ovr-staff".to_string(), job.id.clone(), "Möbler".to_string(), "Fåtölj".to_string(), 1, 1.0, None).await.unwrap();
     calculate_and_save_move_quote("u-ovr-staff".to_string(), job.id.clone()).await.unwrap();
 
-    // The agreed manual price override remains preserved at 3000 SEK
+    // The agreed manual price override remains preserved at 3000 SEK base
     let q3 = get_move_quote("u-ovr-staff".to_string(), job.id.clone()).await.unwrap().unwrap();
     assert_eq!(q3.manual_price_override, Some(3000.0));
-    assert_eq!(q3.total_price, 3000.0);
+    assert_eq!(q3.total_price, 4100.0);
 
     // 4. Admin clears the manual price override -> total price reverts to updated calculated total (2600.0 SEK)
     crate::services::jobs::update_move_quote_price_adjustments("u-ovr-staff".to_string(), job.id.clone(), None, None).await.unwrap();
@@ -763,6 +763,7 @@ async fn test_quote_revision_audit_trail_and_accepted_lock() {
 
     conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-rev-test', 'Revision WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
     conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-rev-staff', 'ws-rev-test', 'staff@rev.se', 'admin')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-rev-client', 'ws-rev-test', 'client@rev.se', 'client')", ()).await.unwrap();
 
     let job = create_job_ticket(
         "u-rev-staff".to_string(),
@@ -771,7 +772,7 @@ async fn test_quote_revision_audit_trail_and_accepted_lock() {
         "Audit test".to_string(),
         "Street 1".to_string(),
         "medium".to_string(),
-        None,
+        Some("u-rev-client".to_string()),
         "2026-10-01".to_string(),
         "[]".to_string(),
         None,
@@ -882,6 +883,91 @@ async fn test_quote_deposit_flow_prevents_premature_accepted_lock() {
     conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-dep-test'", ()).await.ok();
     conn.execute("DELETE FROM users WHERE workspace_id = 'ws-dep-test'", ()).await.ok();
     conn.execute("DELETE FROM workspaces WHERE id = 'ws-dep-test'", ()).await.ok();
+}
+
+#[tokio::test]
+async fn test_deposit_payment_link_desynchronization_prevention() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-dep-desync-test', 'Desync WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-desync-staff', 'ws-dep-desync-test', 'staff@desync.se', 'admin')", ()).await.unwrap();
+
+    let job = create_job_ticket(
+        "u-desync-staff".to_string(), "ws-dep-desync-test".to_string(), "Desync Job".to_string(), "Desc".to_string(), "Addr 1".to_string(), "medium".to_string(), None, "2026-10-01".to_string(), "[]".to_string(), None, None, 0, 0, true, true, false, false,
+    ).await.unwrap();
+
+    create_move_inventory_item("u-desync-staff".to_string(), job.id.clone(), "Möbler".to_string(), "Soffa".to_string(), 1, 3.0, None).await.unwrap();
+    calculate_and_save_move_quote("u-desync-staff".to_string(), job.id.clone()).await.unwrap();
+    let q1 = get_move_quote("u-desync-staff".to_string(), job.id.clone()).await.unwrap().unwrap();
+
+    // 1. Accept quote with deposit (status: pending_deposit)
+    let dep_res = accept_move_quote_with_deposit("u-desync-staff".to_string(), q1.id.clone(), "swish".to_string()).await.unwrap();
+    assert_eq!(dep_res.quote_status, "pending_deposit");
+
+    // 2. Client/staff modifies inventory after deposit link generation (adds heavy item)
+    create_move_inventory_item("u-desync-staff".to_string(), job.id.clone(), "Möbler".to_string(), "Pianobord".to_string(), 1, 5.0, None).await.unwrap();
+
+    // Verify quote status was invalidated and moved to 'revised', and job ticket returned to 'pending'
+    let q_status: String = conn.query_row("SELECT status FROM move_quotes WHERE id = ?1", crate::params![&q1.id], |r| r.get(0)).await.unwrap();
+    let j_status: String = conn.query_row("SELECT status FROM job_tickets WHERE id = ?1", crate::params![&job.id], |r| r.get(0)).await.unwrap();
+    assert_eq!(q_status, "revised");
+    assert_eq!(j_status, "pending");
+
+    // 3. Attempting to confirm stale deposit payment link must be rejected
+    let confirm_stale = confirm_quote_deposit_payment("u-desync-staff".to_string(), q1.id.clone(), "ref-stale".to_string()).await;
+    assert!(confirm_stale.is_err());
+    assert!(confirm_stale.unwrap_err().to_string().contains("deposit payment link invalidated due to quote revisions"));
+
+    // 4. Re-accepting quote with deposit produces new deposit amount based on updated total
+    let dep_res2 = accept_move_quote_with_deposit("u-desync-staff".to_string(), q1.id.clone(), "swish".to_string()).await.unwrap();
+    assert_eq!(dep_res2.quote_status, "pending_deposit");
+    assert!(dep_res2.deposit_amount > dep_res.deposit_amount);
+
+    // 5. Confirming payment on new deposit link succeeds
+    let confirm_fresh = confirm_quote_deposit_payment("u-desync-staff".to_string(), q1.id.clone(), "ref-fresh".to_string()).await;
+    assert!(confirm_fresh.is_ok());
+
+    let final_q_status: String = conn.query_row("SELECT status FROM move_quotes WHERE id = ?1", crate::params![&q1.id], |r| r.get(0)).await.unwrap();
+    assert_eq!(final_q_status, "accepted");
+
+    // Cleanup
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-dep-desync-test'", ()).await.ok();
+    conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-dep-desync-test'", ()).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-dep-desync-test'", ()).await.ok();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-dep-desync-test'", ()).await.ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-dep-desync-test'", ()).await.ok();
+}
+
+#[tokio::test]
+async fn test_dynamic_currency_labels_in_deposit_approval() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    conn.execute(
+        "INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-curr-test', 'Euro Movers WS', '[\"moving_company\"]', '{\"currency\":\"EUR\",\"target_region\":\"DE\"}')",
+        ()
+    ).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-curr-staff', 'ws-curr-test', 'staff@euromovers.de', 'admin')", ()).await.unwrap();
+
+    let job = create_job_ticket(
+        "u-curr-staff".to_string(), "ws-curr-test".to_string(), "Euro Move".to_string(), "Desc".to_string(), "Berlin 1".to_string(), "medium".to_string(), None, "2026-10-01".to_string(), "[]".to_string(), None, None, 0, 0, true, true, false, false,
+    ).await.unwrap();
+
+    create_move_inventory_item("u-curr-staff".to_string(), job.id.clone(), "Möbler".to_string(), "Tisch".to_string(), 1, 2.0, None).await.unwrap();
+    calculate_and_save_move_quote("u-curr-staff".to_string(), job.id.clone()).await.unwrap();
+    let q1 = get_move_quote("u-curr-staff".to_string(), job.id.clone()).await.unwrap().unwrap();
+
+    let dep_res = accept_move_quote_with_deposit("u-curr-staff".to_string(), q1.id.clone(), "swish".to_string()).await.unwrap();
+    assert!(dep_res.message.contains("EUR"));
+    assert!(!dep_res.message.contains("SEK"));
+
+    // Cleanup
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-curr-test'", ()).await.ok();
+    conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-curr-test'", ()).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-curr-test'", ()).await.ok();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-curr-test'", ()).await.ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-curr-test'", ()).await.ok();
 }
 
 #[tokio::test]

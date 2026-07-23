@@ -7,7 +7,7 @@ use crate::services::jobs::{
     validate_customer_personal_number_for_rut,
     initiate_swish_payment, check_swish_payment_status,
     process_swish_payment_webhook, initiate_stripe_payment, process_stripe_payment_webhook,
-    export_skatteverket_claims, get_rut_invoices,
+    export_skatteverket_claims, export_skatteverket_claims_strict, export_skatteverket_claims_detailed, validate_skatteverket_claim_batch, get_rut_invoices,
     initiate_bankid_skatteverket_session, submit_skatteverket_claim_direct,
     adjust_invoice_for_actuals, process_onsite_mpos_card_payment,
     sync_invoice_to_erp, reconcile_erp_payments,
@@ -696,15 +696,43 @@ async fn test_skatteverket_batch_export_resilience_to_invalid_pnums() {
 
     // Export batch containing BOTH valid and invalid invoices
     let batch_ids = vec![inv_valid.id.clone(), "inv-invalid".to_string()];
+
+    // 1. Validate batch before export
+    let validation = validate_skatteverket_claim_batch("u-resil-staff".to_string(), batch_ids.clone()).await.unwrap();
+    assert_eq!(validation.total_requested, 2);
+    assert_eq!(validation.valid_count, 1);
+    assert_eq!(validation.omitted_count, 1);
+    assert_eq!(validation.total_valid_amount, 350.0);
+    assert_eq!(validation.total_omitted_amount, 500.0);
+    assert_eq!(validation.omitted_claims[0].invoice_id, "inv-invalid");
+    assert_eq!(validation.omitted_claims[0].omitted_rut_amount, 500.0);
+    assert!(validation.omitted_claims[0].reason.contains("failed Luhn checksum"));
+
+    // 2. Strict export mode must abort and error out when omitted claims exist to prevent unnoticed revenue loss
+    let strict_err = export_skatteverket_claims_strict("u-resil-staff".to_string(), batch_ids.clone(), "xml".to_string()).await;
+    assert!(strict_err.is_err());
+    assert!(strict_err.unwrap_err().to_string().contains("Skatteverket export aborted: 1 of 2 invoice(s) omitted"));
+
+    // 3. Detailed manifest export returns full manifest with omitted claims breakdown
+    let manifest = export_skatteverket_claims_detailed("u-resil-staff".to_string(), batch_ids.clone(), "xml".to_string()).await.unwrap();
+    assert_eq!(manifest.total_requested, 2);
+    assert_eq!(manifest.exported_count, 1);
+    assert_eq!(manifest.omitted_count, 1);
+    assert_eq!(manifest.total_exported_amount, 350.0);
+    assert_eq!(manifest.total_omitted_amount, 500.0);
+    assert_eq!(manifest.omitted_claims[0].invoice_id, "inv-invalid");
+
+    // 4. Default / standard export XML as staff
     let xml = export_skatteverket_claims("u-resil-staff".to_string(), batch_ids.clone(), "xml".to_string()).await.unwrap();
     
-    // Assert XML exported valid claim and skipped invalid claim without failing batch
+    // Assert XML exported valid claim and logged warning for omitted invalid claim
     assert!(xml.contains("198112189876"));
-    assert!(!xml.contains("invalid-pnum"));
+    assert!(xml.contains("<!-- WARNING: Invoice 'inv-invalid' omitted -->"));
 
+    // 5. Export CSV as staff
     let csv = export_skatteverket_claims("u-resil-staff".to_string(), batch_ids, "csv".to_string()).await.unwrap();
     assert!(csv.contains("198112189876"));
-    assert!(!csv.contains("invalid-pnum"));
+    assert!(csv.contains("# WARNING: Invoice 'inv-invalid' omitted"));
 
     // Cleanup
     conn.execute("DELETE FROM move_invoices WHERE workspace_id = 'ws-batch-resil-test'", ()).await.unwrap();
@@ -1690,4 +1718,52 @@ async fn test_annual_rut_used_with_hourly_pricing_model() {
     conn.execute("DELETE FROM users WHERE workspace_id = 'ws-rut-hr-test'", ()).await.ok();
     conn.execute("DELETE FROM workspaces WHERE id = 'ws-rut-hr-test'", ()).await.ok();
 }
+
+#[tokio::test]
+async fn test_workspace_custom_payment_terms_due_date() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    let settings_7days = serde_json::json!({
+        "moving_payment_due_days": 7.0
+    }).to_string();
+
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-due-7-test', '7 Day WS', '[\"moving_company\"]', ?1)", crate::params![settings_7days]).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-due-7-staff', 'ws-due-7-test', 'staff7@terms.io', 'admin')", ()).await.unwrap();
+
+    let job = create_job_ticket(
+        "u-due-7-staff".to_string(),
+        "ws-due-7-test".to_string(),
+        "Terms Move".to_string(),
+        "Desc".to_string(),
+        "Addr".to_string(),
+        "medium".to_string(),
+        None,
+        "2026-10-01".to_string(),
+        "[]".to_string(),
+        None,
+        None,
+        0, 0, false, false, false, false,
+    ).await.unwrap();
+
+    conn.execute("INSERT OR REPLACE INTO move_inventory (id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3) VALUES ('inv-due-1', 'ws-due-7-test', ?1, 'Möbler', 'Soffa', 1, 2.0)", crate::params![&job.id]).await.unwrap();
+
+    calculate_and_save_move_quote("u-due-7-staff".to_string(), job.id.clone()).await.unwrap();
+    let quote = get_move_quote("u-due-7-staff".to_string(), job.id.clone()).await.unwrap().unwrap();
+
+    let inv = generate_move_invoice("u-due-7-staff".to_string(), quote.id, false).await.unwrap();
+
+    let today = chrono::Utc::now();
+    let expected_due = (today + chrono::Duration::days(7)).format("%Y-%m-%d").to_string();
+    assert_eq!(inv.due_date, expected_due);
+
+    // Cleanup
+    conn.execute("DELETE FROM move_invoices WHERE workspace_id = 'ws-due-7-test'", ()).await.ok();
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-due-7-test'", ()).await.ok();
+    conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-due-7-test'", ()).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-due-7-test'", ()).await.ok();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-due-7-test'", ()).await.ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-due-7-test'", ()).await.ok();
+}
+
 
