@@ -4,6 +4,99 @@ use crate::infra::errors::YntraError;
 use crate::services::jobs::tickets::is_staff;
 use crate::WorkspaceUser;
 
+
+
+#[uniffi::export]
+pub async fn validate_vehicle_dispatch_capacity(
+    requester_user_id: String,
+    job_id: String,
+    vehicle_id: String,
+) -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let (vehicle_ws, vehicle_name, capacity_m3): (String, String, f64) = conn
+        .query_row(
+            "SELECT workspace_id, name, capacity_m3 FROM vehicles WHERE id = ?1",
+            crate::params![&vehicle_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Vehicle not found".to_string()))?;
+
+    let max_payload_kg: Option<f64> = conn
+        .query_row(
+            "SELECT max_payload_kg FROM vehicles WHERE id = ?1",
+            crate::params![&vehicle_id],
+            |r| r.get(0),
+        )
+        .await
+        .ok()
+        .flatten();
+
+    if auth.workspace_id != vehicle_ws {
+        return Err(YntraError::AuthError(
+            "Access denied: vehicle belongs to a different workspace".to_string(),
+        ));
+    }
+
+    let mut inv_stmt = conn.prepare(
+        "SELECT quantity, estimated_volume_m3, estimated_weight_kg FROM move_inventory WHERE job_ticket_id = ?1",
+    ).await?;
+    let mut inv_rows = inv_stmt.query(crate::params![&job_id]).await?;
+    let mut total_volume = 0.0;
+    let mut total_weight = 0.0;
+    while let Some(row) = inv_rows.next().await? {
+        let qty: i64 = row.get(0)?;
+        let vol: f64 = row.get(1)?;
+        let w: f64 = row.get::<Option<f64>>(2)?.unwrap_or(0.0);
+        let weight = if w > 0.0 { w } else { vol * 150.0 };
+        total_volume += (qty as f64) * vol;
+        total_weight += (qty as f64) * weight;
+    }
+
+    let settings_str: String = conn
+        .query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![&auth.workspace_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or_else(|_| "{}".to_string());
+    let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
+
+    let enforce_capacity = settings_json
+        .get("enforce_single_trip_capacity")
+        .or_else(|| settings_json.get("enforce_vehicle_capacity"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+
+    let required_volume = total_volume * 1.2;
+    if capacity_m3 > 0.0 && required_volume > capacity_m3 && enforce_capacity {
+        return Err(YntraError::ValidationError(format!(
+            "Cannot dispatch vehicle {}: required loading volume with 20% packing buffer ({:.2} m³) exceeds vehicle capacity ({:.2} m³)",
+            vehicle_name, required_volume, capacity_m3
+        )));
+    }
+
+    if let Some(payload) = max_payload_kg {
+        let crew_size = settings_json.get("moving_default_crew_size").and_then(|v| v.as_f64()).unwrap_or(2.0);
+        let crew_weight_kg = crew_size * 85.0;
+        let equipment_and_fuel_buffer_kg = settings_json.get("vehicle_tare_equipment_buffer_kg").and_then(|v| v.as_f64()).unwrap_or(300.0);
+        let operational_tare_buffer = crew_weight_kg + equipment_and_fuel_buffer_kg;
+        let total_operational_payload = total_weight + operational_tare_buffer;
+
+        if payload > 0.0 && total_operational_payload > payload {
+            return Err(YntraError::ValidationError(format!(
+                "Cannot dispatch vehicle {}: total operational payload ({:.1} kg cargo + {:.1} kg crew/equipment/fuel = {:.1} kg) exceeds vehicle max payload limit ({:.1} kg)",
+                vehicle_name, total_weight, operational_tare_buffer, total_operational_payload, payload
+            )));
+        }
+    }
+
+    Ok(())
+}
+
 #[uniffi::export]
 pub async fn assign_vehicle_to_job(
     requester_user_id: String,
@@ -35,99 +128,21 @@ pub async fn assign_vehicle_to_job(
         ));
     }
 
-    // Verify vehicle belongs to workspace if assigned and check capacity constraints
     if let Some(ref vehicle_id) = assigned_vehicle_id {
-        let (vehicle_ws, vehicle_name, capacity_m3): (String, String, f64) = conn
-            .query_row(
-                "SELECT workspace_id, name, capacity_m3 FROM vehicles WHERE id = ?1",
-                crate::params![vehicle_id],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-            )
-            .await
-            .map_err(|_| YntraError::NotFoundError("Vehicle not found".to_string()))?;
-
-        let max_payload_kg: Option<f64> = conn
-            .query_row(
-                "SELECT max_payload_kg FROM vehicles WHERE id = ?1",
-                crate::params![vehicle_id],
-                |r| r.get(0),
-            )
-            .await
-            .ok()
-            .flatten();
-
-        if auth.workspace_id != vehicle_ws {
-            return Err(YntraError::AuthError(
-                "Access denied: vehicle belongs to a different workspace".to_string(),
-            ));
-        }
-
-        // Calculate total volume and total weight of the job inventory
-        let mut inv_stmt = conn.prepare(
-            "SELECT quantity, estimated_volume_m3, estimated_weight_kg FROM move_inventory WHERE job_ticket_id = ?1",
+        drop(conn);
+        validate_vehicle_dispatch_capacity(requester_user_id, job_id.clone(), vehicle_id.clone()).await?;
+        let conn = database::acquire_connection().await?;
+        conn.execute(
+            "UPDATE job_tickets SET assigned_vehicle_id = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
+            crate::params![assigned_vehicle_id, now_ms, job_id],
         ).await?;
-        let mut inv_rows = inv_stmt.query(crate::params![&job_id]).await?;
-        let mut total_volume = 0.0;
-        let mut total_weight = 0.0;
-        while let Some(row) = inv_rows.next().await? {
-            let quantity: i64 = row.get(0)?;
-            let vol: f64 = row.get(1)?;
-            let weight: f64 = row.get::<Option<f64>>(2)?.unwrap_or(0.0);
-            total_volume += (quantity as f64) * vol;
-            total_weight += (quantity as f64) * weight;
-        }
-
-        let settings_str: String = conn
-            .query_row(
-                "SELECT settings FROM workspaces WHERE id = ?1",
-                crate::params![&auth.workspace_id],
-                |r| r.get(0),
-            )
-            .await
-            .unwrap_or_else(|_| "{}".to_string());
-        let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
-
-        let enforce_single_trip = settings_json
-            .get("enforce_single_trip_capacity")
-            .or_else(|| settings_json.get("enforce_vehicle_capacity"))
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-
-        let required_volume = total_volume * 1.2;
-        if required_volume > capacity_m3 {
-            if enforce_single_trip {
-                return Err(YntraError::ValidationError(format!(
-                    "Cannot assign vehicle {}: required loading volume with 20% packing buffer ({:.2} m³) exceeds vehicle capacity ({:.2} m³)",
-                    vehicle_name, required_volume, capacity_m3
-                )));
-            } else {
-                let trips_needed = (required_volume / capacity_m3).ceil() as i64;
-                tracing::info!(
-                    "Vehicle {} assigned to job {} requires {} trips. Required loading volume with 20% packing buffer ({:.2} m³) exceeds vehicle capacity ({:.2} m³)",
-                    vehicle_name, job_id, trips_needed, required_volume, capacity_m3
-                );
-            }
-        }
-
-        if let Some(payload) = max_payload_kg {
-            let crew_size = settings_json.get("moving_default_crew_size").and_then(|v| v.as_f64()).unwrap_or(2.0);
-            let crew_weight_kg = crew_size * 85.0; // 85 kg per crew member
-            let equipment_and_fuel_buffer_kg = settings_json.get("vehicle_tare_equipment_buffer_kg").and_then(|v| v.as_f64()).unwrap_or(300.0); // Fuel, tailgate, ramps, dollies, blankets
-            let operational_tare_buffer = crew_weight_kg + equipment_and_fuel_buffer_kg;
-            let total_operational_payload = total_weight + operational_tare_buffer;
-
-            if payload > 0.0 && total_operational_payload > payload {
-                return Err(YntraError::ValidationError(format!(
-                    "Cannot assign vehicle {}: total operational payload ({:.1} kg cargo + {:.1} kg crew/equipment/fuel = {:.1} kg) exceeds vehicle max payload limit ({:.1} kg)",
-                    vehicle_name, total_weight, operational_tare_buffer, total_operational_payload, payload
-                )));
-            }
-        }
+        notify_observers();
+        return Ok(());
     }
 
     conn.execute(
-        "UPDATE job_tickets SET assigned_vehicle_id = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
-        crate::params![assigned_vehicle_id, now_ms, job_id],
+        "UPDATE job_tickets SET assigned_vehicle_id = NULL, updated_at = ?1, sync_status = 'pending' WHERE id = ?2",
+        crate::params![now_ms, job_id],
     ).await?;
 
     notify_observers();

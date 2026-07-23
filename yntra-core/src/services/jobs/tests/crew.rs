@@ -246,3 +246,56 @@ async fn test_driver_license_and_tachograph_compliance() {
     conn.execute("DELETE FROM users WHERE workspace_id = 'ws-comp-test'", ()).await.unwrap();
     conn.execute("DELETE FROM workspaces WHERE id = 'ws-comp-test'", ()).await.unwrap();
 }
+
+#[tokio::test]
+async fn test_over_capacity_vehicle_dispatch_rejection() {
+    let _lock = database::DB_TEST_LOCK.lock().unwrap();
+    let conn = database::acquire_connection().await.unwrap();
+
+    let settings = serde_json::json!({
+        "enforce_single_trip_capacity": true
+    }).to_string();
+
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-disp-cap-test', 'Disp Cap WS', '[\"moving_company\"]', ?1)", crate::params![settings]).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-disp-admin', 'ws-disp-cap-test', 'admin@dispcap.io', 'admin')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO vehicles (id, workspace_id, name, license_plate, capacity_m3, max_payload_kg, status) VALUES ('v-small-van', 'ws-disp-cap-test', 'City Van 10m3', 'VAN-111', 10.0, 800.0, 'active')", ()).await.unwrap();
+
+    let job = create_job_ticket(
+        "u-disp-admin".to_string(),
+        "ws-disp-cap-test".to_string(),
+        "Overload Move".to_string(),
+        "Large move".to_string(),
+        "Main St 1".to_string(),
+        "medium".to_string(),
+        Some("u-disp-admin".to_string()),
+        "2026-09-01".to_string(),
+        "[]".to_string(),
+        None, None, 0, 0, false, false, false, false,
+    ).await.unwrap();
+
+    // Add 15m3 cargo (> 10m3 capacity with 20% buffer = 18m3 required)
+    crate::services::jobs::moves::create_move_inventory_item(
+        "u-disp-admin".to_string(),
+        job.id.clone(),
+        "Möbler".to_string(),
+        "Big Wardrobe".to_string(),
+        3,
+        5.0,
+        None,
+    ).await.unwrap();
+
+    // 1. Vehicle assignment to over-capacity job ticket should fail
+    let assign_res = assign_vehicle_to_job("u-disp-admin".to_string(), job.id.clone(), Some("v-small-van".to_string())).await;
+    assert!(assign_res.is_err());
+    assert!(assign_res.unwrap_err().to_string().contains("exceeds vehicle capacity"));
+
+    // Cleanup
+    conn.execute("DELETE FROM move_invoices WHERE workspace_id = 'ws-disp-cap-test'", ()).await.ok();
+    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-disp-cap-test'", ()).await.ok();
+    conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-disp-cap-test'", ()).await.ok();
+    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-disp-cap-test'", ()).await.ok();
+    conn.execute("DELETE FROM vehicles WHERE workspace_id = 'ws-disp-cap-test'", ()).await.ok();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-disp-cap-test'", ()).await.ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-disp-cap-test'", ()).await.ok();
+}
+

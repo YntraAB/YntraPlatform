@@ -295,7 +295,7 @@ pub async fn update_job_status(
 ) -> Result<(), YntraError> {
     let now_ms = crate::infra::time::get_current_time_ms();
 
-    let conn = database::acquire_connection().await?;
+    let mut conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     validate_job_status(&status)?;
@@ -320,6 +320,27 @@ pub async fn update_job_status(
         return Err(YntraError::AuthError(
             "Access denied: only staff or the assigned worker can update job status".to_string(),
         ));
+    }
+
+    if status == "in_progress" || status == "in_transit" || status == "assigned" || status == "scheduled" {
+        let assigned_v_id: Option<String> = conn
+            .query_row(
+                "SELECT assigned_vehicle_id FROM job_tickets WHERE id = ?1",
+                crate::params![&job_id],
+                |r| r.get(0),
+            )
+            .await
+            .unwrap_or(None);
+
+        if let Some(vid) = assigned_v_id {
+            drop(conn);
+            super::crew::validate_vehicle_dispatch_capacity(
+                requester_user_id.clone(),
+                job_id.clone(),
+                vid,
+            ).await?;
+            conn = database::acquire_connection().await?;
+        }
     }
 
     conn.execute(
@@ -356,7 +377,7 @@ pub async fn schedule_job_ticket(
     assigned_user_id: Option<String>,
 ) -> Result<(), YntraError> {
     let now_ms = crate::infra::time::get_current_time_ms();
-    let conn = database::acquire_connection().await?;
+    let mut conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     let (job_ws, job_title): (String, String) = conn
@@ -378,6 +399,25 @@ pub async fn schedule_job_ticket(
         return Err(YntraError::AuthError(
             "Access denied: only staff can schedule jobs".to_string(),
         ));
+    }
+
+    let assigned_v_id: Option<String> = conn
+        .query_row(
+            "SELECT assigned_vehicle_id FROM job_tickets WHERE id = ?1",
+            crate::params![&job_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or(None);
+
+    if let Some(vid) = assigned_v_id {
+        drop(conn);
+        super::crew::validate_vehicle_dispatch_capacity(
+            requester_user_id.clone(),
+            job_id.clone(),
+            vid,
+        ).await?;
+        conn = database::acquire_connection().await?;
     }
 
     // Update job ticket: set scheduled_date, assigned_user_id, status to "assigned"

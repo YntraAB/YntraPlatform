@@ -47,6 +47,7 @@ pub use crew::get_job_crew;
 pub use crew::validate_driver_tachograph_compliance;
 pub use crew::get_recommended_crew_dispatch_equipment;
 pub use crew::validate_crew_equipment_and_physical_matching;
+pub use crew::validate_vehicle_dispatch_capacity;
 
 pub use signatures::save_job_signature;
 pub use signatures::save_job_signature_with_audit_trail;
@@ -93,6 +94,10 @@ pub use billing::initiate_stripe_payment;
 pub use billing::initiate_adyen_payment;
 pub use billing::get_rut_invoices;
 pub use billing::export_skatteverket_claims;
+pub use billing::export_skatteverket_claims_strict;
+pub use billing::export_skatteverket_claims_detailed;
+pub use billing::export_skatteverket_claims_with_options;
+pub use billing::validate_skatteverket_claim_batch;
 pub use billing::initiate_bankid_skatteverket_session;
 pub use billing::submit_skatteverket_claim_direct;
 pub use billing::process_swish_payment_webhook;
