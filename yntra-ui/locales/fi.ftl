@@ -1428,3 +1428,10 @@ block-select-option = Valitse vaihtoehto...
 block-loading-metadata = Ladataan dynaamisen lohkon metatietoja...
 block-empty-record = Tyhjä merkintä
 
+validation-required = { $label } on pakollinen.
+validation-email-invalid = { $label } on oltava kelvollinen sähköpostiosoite.
+validation-min-length = { $label } on oltava vähintään { $min } merkkiä.
+validation-max-length = { $label } saa olla enintään { $max } merkkiä.
+validation-pattern-invalid = { $label } muoto on virheellinen.
+validation-min-number = { $label } on oltava vähintään { $min }.
+validation-max-number = { $label } saa olla enintään { $max }.

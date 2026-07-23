@@ -1422,3 +1422,10 @@ block-select-option = Velg alternativ...
 block-loading-metadata = Laster inn metadata for dynamisk blokk...
 block-empty-record = Tom oppføring
 
+validation-required = { $label } er obligatorisk.
+validation-email-invalid = { $label } må være en gyldig e-postadresse.
+validation-min-length = { $label } må være minst { $min } tegn.
+validation-max-length = { $label } kan ikke være mer enn { $max } tegn.
+validation-pattern-invalid = { $label } formatet er ugyldig.
+validation-min-number = { $label } må være minst { $min }.
+validation-max-number = { $label } kan ikke være mer enn { $max }.

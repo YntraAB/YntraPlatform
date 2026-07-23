@@ -1415,3 +1415,10 @@ block-select-option = Select option...
 block-loading-metadata = Loading dynamic block metadata...
 block-empty-record = Empty record
 
+validation-required = { $label } is required.
+validation-email-invalid = { $label } must be a valid email address.
+validation-min-length = { $label } must be at least { $min } characters.
+validation-max-length = { $label } must be at most { $max } characters.
+validation-pattern-invalid = { $label } format is invalid.
+validation-min-number = { $label } must be at least { $min }.
+validation-max-number = { $label } must be at most { $max }.
