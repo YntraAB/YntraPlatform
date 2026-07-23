@@ -25,8 +25,8 @@ pub struct InputProps {
     pub r#type: String,
     #[props(default = String::new())]
     pub aria_label: String,
-    #[props(default = String::new())]
-    pub aria_describedby: String,
+    #[props(optional)]
+    pub aria_describedby: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
     #[props(default = false)]
@@ -43,6 +43,10 @@ pub struct InputProps {
     pub min: String,
     #[props(default = String::new())]
     pub max: String,
+    #[props(optional)]
+    pub error: Option<String>,
+    #[props(default = false)]
+    pub is_invalid: bool,
     #[props(default = String::new())]
     pub autocomplete: String,
     #[props(default = String::new())]
@@ -54,6 +58,8 @@ pub struct InputProps {
 #[component]
 pub fn Input(props: InputProps) -> Element {
     let mut resolved_style = props.style.clone();
+    let is_invalid = props.is_invalid || props.error.is_some();
+    let invalid_cls = if is_invalid { "is-invalid" } else { "" };
     
     // Auto-detect tailwind padding-left classes to prevent override by default shorthand padding
     if props.class.contains("pl-9") && !resolved_style.contains("padding-left") {
@@ -65,7 +71,7 @@ pub fn Input(props: InputProps) -> Element {
 
     rsx! {
         input {
-            class: "yntra-input {props.class}",
+            class: "yntra-input {props.class} {invalid_cls}",
             style: "{resolved_style}",
             r#type: "{props.r#type}",
             placeholder: "{props.placeholder}",
@@ -77,7 +83,8 @@ pub fn Input(props: InputProps) -> Element {
             name: if props.name.is_empty() { None } else { Some(props.name.clone()) },
             id: if props.id.is_empty() { None } else { Some(props.id.clone()) },
             aria_label: if props.aria_label.is_empty() { None } else { Some(props.aria_label.clone()) },
-            aria_describedby: if props.aria_describedby.is_empty() { None } else { Some(props.aria_describedby.clone()) },
+            aria_describedby: props.aria_describedby.as_ref().filter(|s| !s.is_empty()).cloned(),
+            aria_invalid: if is_invalid { "true" } else { "false" },
             step: if props.step.is_empty() { None } else { Some(props.step.clone()) },
             min: if props.min.is_empty() { None } else { Some(props.min.clone()) },
             max: if props.max.is_empty() { None } else { Some(props.max.clone()) },
@@ -100,12 +107,18 @@ pub fn Input(props: InputProps) -> Element {
                 border-radius: 8px;
                 font-size: 0.9rem;
                 outline: none;
-                transition: border-color 0.2s;
+                transition: border-color 0.2s, box-shadow 0.2s;
                 width: 100%;
                 box-sizing: border-box;
             }}
             :where(.yntra-input):focus {{
                 border-color: var(--accent-color);
+            }}
+            :where(.yntra-input.is-invalid) {{
+                border-color: rgba(239, 68, 68, 0.8) !important;
+            }}
+            :where(.yntra-input.is-invalid):focus {{
+                box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.3) !important;
             }}
             "#
         }

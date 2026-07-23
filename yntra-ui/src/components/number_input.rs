@@ -23,6 +23,8 @@ pub struct NumberInputProps {
     pub id: String,
     #[props(default = String::new())]
     pub aria_label: String,
+    #[props(optional)]
+    pub aria_describedby: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
     #[props(default = false)]
@@ -37,13 +39,19 @@ pub struct NumberInputProps {
     pub min: String,
     #[props(default = String::new())]
     pub max: String,
+    #[props(optional)]
+    pub error: Option<String>,
+    #[props(default = false)]
+    pub is_invalid: bool,
 }
 
 #[component]
 pub fn NumberInput(props: NumberInputProps) -> Element {
+    let is_invalid = props.is_invalid || props.error.is_some();
+    let invalid_cls = if is_invalid { "is-invalid" } else { "" };
     rsx! {
         input {
-            class: "yntra-input yntra-number-input {props.class}",
+            class: "yntra-input yntra-number-input {props.class} {invalid_cls}",
             style: "{props.style}",
             r#type: "number",
             placeholder: "{props.placeholder}",
@@ -54,6 +62,8 @@ pub fn NumberInput(props: NumberInputProps) -> Element {
             name: if props.name.is_empty() { None } else { Some(props.name.clone()) },
             id: if props.id.is_empty() { None } else { Some(props.id.clone()) },
             aria_label: if props.aria_label.is_empty() { None } else { Some(props.aria_label.clone()) },
+            aria_describedby: props.aria_describedby.as_ref().filter(|s| !s.is_empty()).cloned(),
+            aria_invalid: if is_invalid { "true" } else { "false" },
             step: if props.step.is_empty() { None } else { Some(props.step.clone()) },
             min: if props.min.is_empty() { None } else { Some(props.min.clone()) },
             max: if props.max.is_empty() { None } else { Some(props.max.clone()) },

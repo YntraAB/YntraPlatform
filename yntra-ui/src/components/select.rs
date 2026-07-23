@@ -19,20 +19,28 @@ pub struct NativeSelectProps {
     pub id: String,
     #[props(default = String::new())]
     pub aria_label: String,
+    #[props(optional)]
+    pub aria_describedby: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
     #[props(default = false)]
     pub required: bool,
     #[props(default = String::new())]
     pub name: String,
+    #[props(optional)]
+    pub error: Option<String>,
+    #[props(default = false)]
+    pub is_invalid: bool,
     pub children: Element,
 }
 
 #[component]
 pub fn NativeSelect(props: NativeSelectProps) -> Element {
+    let is_invalid = props.is_invalid || props.error.is_some();
+    let invalid_cls = if is_invalid { "is-invalid" } else { "" };
     rsx! {
         select {
-            class: "yntra-input yntra-select {props.class}",
+            class: "yntra-input yntra-select {props.class} {invalid_cls}",
             style: "{props.style}",
             value: "{props.value}",
             disabled: props.disabled,
@@ -40,6 +48,8 @@ pub fn NativeSelect(props: NativeSelectProps) -> Element {
             name: if props.name.is_empty() { None } else { Some(props.name.clone()) },
             id: if props.id.is_empty() { None } else { Some(props.id.clone()) },
             aria_label: if props.aria_label.is_empty() { None } else { Some(props.aria_label.clone()) },
+            aria_describedby: props.aria_describedby.as_ref().filter(|s| !s.is_empty()).cloned(),
+            aria_invalid: if is_invalid { "true" } else { "false" },
             onchange: move |evt| props.onchange.call(evt),
             oninput: move |evt| props.oninput.call(evt),
             onblur: move |evt| props.onblur.call(evt),
