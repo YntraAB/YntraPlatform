@@ -1406,3 +1406,19 @@ inventory-item-dresser = Kommode
 inventory-item-fridge-freezer = Køl/Frys
 inventory-item-washing-machine = Vaskemaskine
 
+# Dynamic Blocks & Dynamic Forms
+common-no-items = Ingen poster fundet.
+block-add-record = Tilføj post
+block-edit-record = Rediger post
+block-delete-record = Slet post
+block-copy-json = Kopier JSON-data
+block-no-schema-title = Intet skema konfigureret
+block-no-schema-desc = Dynamiske blokke kræver et feltskema i JSON for at vise formularer og lister. Konfigurer et skema i Indstillinger eller initialiser et eksempelskema nu.
+block-init-sample-schema = Initialiser eksempelskema
+block-confirm-deletion-title = Bekræft sletning
+block-confirm-deletion-desc = Er du sikker på, at du vil slette denne post? Denne handling kan ikke fortrydes. Posten vil blive permanent fjernet fra dit arbejdsområde.
+block-entity-attributes = Enhedsattributter
+block-select-option = Vælg mulighed...
+block-loading-metadata = Indlæser metadata for dynamisk blok...
+block-empty-record = Tom post
+

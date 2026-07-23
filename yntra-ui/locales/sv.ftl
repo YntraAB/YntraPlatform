@@ -1410,3 +1410,19 @@ inventory-item-dresser = Byrå
 inventory-item-fridge-freezer = Kyl/Frys
 inventory-item-washing-machine = Tvättmaskin
 
+# Dynamic Blocks & Dynamic Forms
+common-no-items = Inga poster hittades.
+block-add-record = Lägg till post
+block-edit-record = Redigera post
+block-delete-record = Ta bort post
+block-copy-json = Kopiera JSON-data
+block-no-schema-title = Inget schema konfigurerat
+block-no-schema-desc = Dynamiska block kräver ett fältschema i JSON för att visa formulär och listor. Konfigurera ett schema i Inställningar eller initiera ett exempelschema nu.
+block-init-sample-schema = Initiera exempelschema
+block-confirm-deletion-title = Bekräfta radering
+block-confirm-deletion-desc = Är du säker på att du vill ta bort den här posten? Denna åtgärd kan inte ångras. Posten raderas permanent från din arbetsyta.
+block-entity-attributes = Entitetsattribut
+block-select-option = Välj alternativ...
+block-loading-metadata = Läser in metadata för dynamiskt block...
+block-empty-record = Tom post
+

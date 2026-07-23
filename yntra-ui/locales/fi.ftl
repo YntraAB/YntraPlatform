@@ -1412,3 +1412,19 @@ inventory-item-dresser = Lipasto
 inventory-item-fridge-freezer = Jääkaappi/Pakastin
 inventory-item-washing-machine = Pesukone
 
+# Dynamic Blocks & Dynamic Forms
+common-no-items = Merkintöjä ei löytynyt.
+block-add-record = Lisää merkintä
+block-edit-record = Muokkaa merkintää
+block-delete-record = Poista merkintä
+block-copy-json = Kopioi JSON-tiedot
+block-no-schema-title = Ei määritettyä kaavaa
+block-no-schema-desc = Dynaamiset lohkot vaativat kenttäkaavan JSON-muodossa lomakkeiden ja luetteloiden näyttämiseksi. Määritä kaava Asetuksissa tai alusta esimerkkikaava nyt.
+block-init-sample-schema = Alusta esimerkkikaava
+block-confirm-deletion-title = Vahvista poisto
+block-confirm-deletion-desc = Oletko varma, että haluat poistaa tämän merkinnän? Tätä toimintoa ei voi peruuttaa. Merkintä poistetaan lopullisesti työtilastasi.
+block-entity-attributes = Entiteetin määritteet
+block-select-option = Valitse vaihtoehto...
+block-loading-metadata = Ladataan dynaamisen lohkon metatietoja...
+block-empty-record = Tyhjä merkintä
+

@@ -1399,3 +1399,19 @@ inventory-item-dresser = Dresser / Chest of Drawers
 inventory-item-fridge-freezer = Fridge / Freezer
 inventory-item-washing-machine = Washing Machine
 
+# Dynamic Blocks & Dynamic Forms
+common-no-items = No items found.
+block-add-record = Add Record
+block-edit-record = Edit Record
+block-delete-record = Delete Record
+block-copy-json = Copy JSON Payload
+block-no-schema-title = No Schema Configured
+block-no-schema-desc = Dynamic blocks require a fields schema JSON to render forms and listings. Configure a schema in Settings or initialize a sample now.
+block-init-sample-schema = Initialize Sample Schema
+block-confirm-deletion-title = Confirm Deletion
+block-confirm-deletion-desc = Are you sure you want to delete this record? This action cannot be undone. The record will be permanently removed from your workspace.
+block-entity-attributes = Entity Attributes
+block-select-option = Select option...
+block-loading-metadata = Loading dynamic block metadata...
+block-empty-record = Empty record
+

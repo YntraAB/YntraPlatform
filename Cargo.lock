@@ -9611,6 +9611,7 @@ dependencies = [
  "log",
  "palette",
  "qrcodegen",
+ "regex",
  "rfd",
  "rkyv",
  "serde",

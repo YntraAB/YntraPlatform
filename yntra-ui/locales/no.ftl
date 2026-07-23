@@ -1406,3 +1406,19 @@ inventory-item-dresser = Kommode
 inventory-item-fridge-freezer = Kjøl/Frys
 inventory-item-washing-machine = Vaskemaskin
 
+# Dynamic Blocks & Dynamic Forms
+common-no-items = Ingen oppføringer funnet.
+block-add-record = Legg til oppføring
+block-edit-record = Rediger oppføring
+block-delete-record = Slett oppføring
+block-copy-json = Kopier JSON-data
+block-no-schema-title = Ingen skjema konfigurert
+block-no-schema-desc = Dynamiske blokker krever et feltskjema i JSON for å vise skjemaer og lister. Konfigurer et skjema i Innstillinger eller initier et eksempelskjema nå.
+block-init-sample-schema = Initier eksempelskjema
+block-confirm-deletion-title = Bekreft sletting
+block-confirm-deletion-desc = Er du sikker på at du vil slette denne oppføringen? Denne handlingen kan ikke angres. Oppføringen vil bli permanent fjernet fra arbeidsområdet ditt.
+block-entity-attributes = Enhetsattributter
+block-select-option = Velg alternativ...
+block-loading-metadata = Laster inn metadata for dynamisk blokk...
+block-empty-record = Tom oppføring
+
