@@ -468,6 +468,20 @@ async fn test_public_lead_validation_and_rate_limiting() {
     ).await.unwrap();
     assert!(guest_meta.contains("unverified_guest"));
 
+    // 4. Invalid items JSON should fail upfront without creating orphaned records
+    let err_json = submit_public_booking_lead(
+        "ws-lead-val-test".to_string(),
+        "Bad Json User".to_string(),
+        "badjson@lead.se".to_string(),
+        "0700000000".to_string(),
+        "Start Str 1".to_string(),
+        "End Str 2".to_string(),
+        "invalid-json-string".to_string(),
+    ).await;
+    assert!(err_json.is_err());
+    let bad_user_count: i64 = conn.query_row("SELECT COUNT(*) FROM users WHERE workspace_id = 'ws-lead-val-test' AND email = 'badjson@lead.se'", (), |r| r.get(0)).await.unwrap();
+    assert_eq!(bad_user_count, 0);
+
     // Cleanup
     conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-lead-val-test'", ()).await.ok();
     conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-lead-val-test'", ()).await.ok();

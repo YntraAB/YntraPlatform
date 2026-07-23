@@ -41,6 +41,10 @@ async fn submit_public_booking_lead_inner(
         ));
     }
 
+    // Parse items JSON upfront before creating database records
+    let items: Vec<serde_json::Value> = serde_json::from_str(&items_json)
+        .map_err(|e| YntraError::ValidationError(format!("Invalid items JSON: {}", e)))?;
+
     let conn = database::acquire_connection().await?;
 
     // 2. Verify workspace exists
@@ -86,10 +90,10 @@ async fn submit_public_booking_lead_inner(
         .await
         .ok();
 
-    let customer_id = match existing_uid {
+    let (customer_id, is_new_guest) = match existing_uid {
         Some(id) => {
             crate::services::users::ensure_user_role_signature(&conn, &id, "client", &workspace_id).await?;
-            id
+            (id, false)
         }
         None => {
             let id = format!("u-guest-{}", uuid::Uuid::new_v4());
@@ -104,7 +108,7 @@ async fn submit_public_booking_lead_inner(
                 crate::params![&id, &workspace_id, &customer_email_clean, name_clean, &customer_phone, &guest_meta],
             ).await?;
             crate::services::users::ensure_user_role_signature(&conn, &id, "client", &workspace_id).await?;
-            id
+            (id, true)
         }
     };
 
@@ -128,10 +132,7 @@ async fn submit_public_booking_lead_inner(
         ],
     ).await?;
 
-    // 4. Parse and insert inventory items
-    let items: Vec<serde_json::Value> = serde_json::from_str(&items_json)
-        .map_err(|e| YntraError::ValidationError(format!("Invalid items JSON: {}", e)))?;
-
+    // 6. Insert inventory items
     for item in items {
         let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("Möbel");
         let quantity = item.get("quantity").and_then(|v| v.as_i64()).unwrap_or(1);
@@ -154,12 +155,24 @@ async fn submit_public_booking_lead_inner(
     // Drop active database connection handle before calling calculate_and_save_move_quote
     drop(conn);
 
-    // 5. Calculate and save move quote estimate using workspace settings calculation engine
-    crate::services::jobs::moves::calculate_and_save_move_quote(
+    // 7. Calculate and save move quote estimate using workspace settings calculation engine
+    let quote_res = crate::services::jobs::moves::calculate_and_save_move_quote(
         customer_id.clone(),
         job_id.clone(),
     )
-    .await?;
+    .await;
+
+    if let Err(e) = quote_res {
+        // Rollback orphaned database records if quote generation fails
+        if let Ok(clean_conn) = database::acquire_connection().await {
+            let _ = clean_conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = ?1", crate::params![&job_id]).await;
+            let _ = clean_conn.execute("DELETE FROM job_tickets WHERE id = ?1", crate::params![&job_id]).await;
+            if is_new_guest {
+                let _ = clean_conn.execute("DELETE FROM users WHERE id = ?1", crate::params![&customer_id]).await;
+            }
+        }
+        return Err(e);
+    }
     // 6. Trigger automated email/SMS receipt to customer
     let _ = crate::services::jobs::notifications::send_external_notification(
         customer_id.clone(),
