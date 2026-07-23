@@ -59,3 +59,7 @@ pub mod dynamic_list;
 pub use dynamic_list::DynamicList;
 pub mod suggestion_input;
 pub use suggestion_input::SuggestionInput;
+pub mod select;
+pub use select::NativeSelect;
+pub mod number_input;
+pub use number_input::NumberInput;
