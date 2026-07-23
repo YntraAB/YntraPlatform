@@ -1,7 +1,12 @@
 use crate::components::{Button, Dialog, DynamicForm, DynamicList, LucideIcon};
+use crate::locales::t;
+use crate::utils::DioxusDbObserver;
 use dioxus::prelude::*;
+use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
 use yntra_core::{
-    DynamicEntity, delete_dynamic_entity, get_blocks, get_dynamic_entities, save_dynamic_entity,
+    DynamicEntity, delete_dynamic_entity, get_blocks, get_dynamic_entities, register_observer,
+    save_dynamic_entity,
 };
 
 #[derive(Props, Clone, PartialEq)]
@@ -15,12 +20,38 @@ pub struct DynamicBlockViewProps {
 
 #[component]
 pub fn DynamicBlockView(props: DynamicBlockViewProps) -> Element {
+    let loc = props.locale.as_str();
     let mut db_trigger = props.db_trigger;
     let block_id = props.block_id.clone();
     let workspace_id = props.workspace_id.clone();
 
+    // Direct DatabaseObserver subscription
+    let mut observer_trigger = use_signal(|| 0u32);
+    let observer_channel = use_hook(|| {
+        let (tx, rx) = mpsc::unbounded_channel::<String>();
+        (tx, Arc::new(Mutex::new(Some(rx))))
+    });
+
+    use_effect({
+        let rx_opt_arc = observer_channel.1.clone();
+        let tx_channel = observer_channel.0.clone();
+        move || {
+            let mut rx_opt = rx_opt_arc.lock().unwrap();
+            if let Some(mut rx) = rx_opt.take() {
+                spawn(async move {
+                    while let Some(_evt) = rx.recv().await {
+                        let cur = *observer_trigger.read();
+                        observer_trigger.set(cur + 1);
+                    }
+                });
+            }
+            let observer = Box::new(DioxusDbObserver { tx: tx_channel.clone() });
+            register_observer(observer);
+        }
+    });
+
     // 1. Fetch block definition to get name, description, fields_schema, ui_config
-    let db_trig_val = *db_trigger.read();
+    let db_trig_val = *db_trigger.read() + *observer_trigger.read();
     let block_id_clone = block_id.clone();
     let requester_id = props.active_user_id.clone();
     let block_res = use_resource(move || {
@@ -59,7 +90,7 @@ pub fn DynamicBlockView(props: DynamicBlockViewProps) -> Element {
     if block_opt.is_none() {
         return rsx! {
             div { class: "p-8 text-center text-muted-foreground",
-                "Loading dynamic block metadata..."
+                "{t(\"block-loading-metadata\", loc)}"
             }
         };
     }
@@ -91,7 +122,7 @@ pub fn DynamicBlockView(props: DynamicBlockViewProps) -> Element {
                                 show_form_modal.set(true);
                             },
                             LucideIcon { name: "plus", class: "h-4 w-4" }
-                            "Add Record"
+                            "{t(\"block-add-record\", loc)}"
                         }
                     }
                 }
@@ -102,9 +133,9 @@ pub fn DynamicBlockView(props: DynamicBlockViewProps) -> Element {
                 // Schema editor fallback if no schema is configured
                 div { class: "flex flex-col items-center justify-center p-12 border border-dashed border-border rounded-2xl bg-card/10 text-center max-w-lg mx-auto mt-8",
                     LucideIcon { name: "settings", class: "h-10 w-10 text-muted-foreground/40 mb-3" }
-                    h3 { class: "text-sm font-bold text-foreground m-0", "No Schema Configured" }
+                    h3 { class: "text-sm font-bold text-foreground m-0", "{t(\"block-no-schema-title\", loc)}" }
                     p { class: "text-xs text-muted-foreground mt-2 max-w-sm",
-                        "Dynamic blocks require a fields schema JSON to render forms and listings. Configure a schema in Settings or initialize a sample now."
+                        "{t(\"block-no-schema-desc\", loc)}"
                     }
                     Button {
                         class: "mt-4 text-xs h-8 px-4 rounded-lg",
@@ -123,13 +154,14 @@ pub fn DynamicBlockView(props: DynamicBlockViewProps) -> Element {
                                 db_trigger.set(current + 1);
                             }
                         },
-                        "Initialize Sample Schema"
+                        "{t(\"block-init-sample-schema\", loc)}"
                     }
                 }
             } else {
                 DynamicList {
                     entities: entities.clone(),
                     ui_config: ui_config.clone(),
+                    locale: props.locale.clone(),
                     onedit: move |entity: DynamicEntity| {
                         editing_entity.set(Some(entity));
                         show_form_modal.set(true);
@@ -155,6 +187,7 @@ pub fn DynamicBlockView(props: DynamicBlockViewProps) -> Element {
                     let entity_ws = workspace_id.clone();
                     let entity_block = block.id.clone();
                     let requester_uid = props.active_user_id.clone();
+                    let dialog_title = if is_edit { t("block-edit-record", loc) } else { t("block-add-record", loc) };
 
                     let initial_values_json = match editing_entity.read().as_ref() {
                         Some(e) => e.data.clone(),
@@ -164,13 +197,14 @@ pub fn DynamicBlockView(props: DynamicBlockViewProps) -> Element {
                     rsx! {
                         Dialog {
                             open: *show_form_modal.read(),
-                            title: if is_edit { "Edit Record" } else { "Add Record" },
+                            title: dialog_title,
                             max_width: "500px".to_string(),
                             onclose: move |_| show_form_modal.set(false),
 
                             DynamicForm {
                                 fields_schema: fields_schema.clone(),
                                 initial_values: initial_values_json,
+                                locale: props.locale.clone(),
                                 onsubmit: move |values_json| {
                                     let ent = DynamicEntity {
                                         id: match editing_entity.read().as_ref() {
@@ -205,3 +239,4 @@ pub fn DynamicBlockView(props: DynamicBlockViewProps) -> Element {
         }
     }
 }
+
