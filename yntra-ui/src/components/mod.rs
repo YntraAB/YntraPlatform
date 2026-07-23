@@ -54,7 +54,7 @@ pub use color_picker::{ColorPicker, HexColorPicker};
 pub mod virtual_list;
 pub use virtual_list::VirtualList;
 pub mod dynamic_form;
-pub use dynamic_form::DynamicForm;
+pub use dynamic_form::{get_nested_value, set_nested_value, DynamicForm, FieldType, FormFieldSchema};
 pub mod dynamic_list;
 pub use dynamic_list::DynamicList;
 pub mod suggestion_input;

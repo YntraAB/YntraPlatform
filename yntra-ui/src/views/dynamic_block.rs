@@ -1,4 +1,4 @@
-use crate::components::{Button, Dialog, DynamicForm, DynamicList, LucideIcon};
+use crate::components::{Button, Dialog, DynamicForm, DynamicList, FormFieldSchema, LucideIcon};
 use crate::locales::t;
 use crate::utils::DioxusDbObserver;
 use dioxus::prelude::*;
@@ -193,6 +193,7 @@ pub fn DynamicBlockView(props: DynamicBlockViewProps) -> Element {
                         Some(e) => e.data.clone(),
                         None => "{}".to_string(),
                     };
+                    let schema_vec = FormFieldSchema::parse_json(&fields_schema).unwrap_or_default();
 
                     rsx! {
                         Dialog {
@@ -202,7 +203,7 @@ pub fn DynamicBlockView(props: DynamicBlockViewProps) -> Element {
                             onclose: move |_| show_form_modal.set(false),
 
                             DynamicForm {
-                                fields_schema: fields_schema.clone(),
+                                fields_schema: schema_vec,
                                 initial_values: initial_values_json,
                                 locale: props.locale.clone(),
                                 onsubmit: move |values_json| {
