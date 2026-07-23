@@ -432,7 +432,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                         class: "px-3 py-1 text-xs font-semibold rounded bg-teal-600/10 text-teal-400 hover:bg-teal-600/20 border border-teal-500/30 cursor-pointer flex items-center gap-1.5 transition-colors",
                         onclick: move |_| show_hvac_modal.set(true),
                         components::LucideIcon { name: "zap", size: "14" }
-                        "HVAC & VVS Diagnostik ⚡"
+                        "{t(\"hvac-btn-title\", &region)}"
                     }
                 }
                 h2 { class: "m-0 font-extrabold",

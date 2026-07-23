@@ -349,6 +349,7 @@ pub fn TemplateManagerDialog(
                                 onclick: move |_| {
                                     temp_messaging.set(true);
                                     temp_scheduling.set(true);
+                                    temp_time.set(true);
                                     temp_notes.set(true);
                                     temp_journals.set(false);
                                     temp_medications.set(false);
@@ -357,7 +358,7 @@ pub fn TemplateManagerDialog(
                                     temp_todos.set(true);
                                     temp_academics.set(false);
                                     temp_attendance.set(false);
-                                    temp_finance.set(false);
+                                    temp_finance.set(true);
                                     temp_library.set(false);
                                     temp_health_clinic.set(false);
                                     temp_report_cards.set(false);
@@ -582,6 +583,11 @@ pub fn TemplateManagerDialog(
                                     }
                                 },
                                 label: t("settings-blocks-report-cards-name", &region)
+                            }
+                            components::Checkbox {
+                                checked: *temp_hvac_plumbing.read(),
+                                onchange: move |val| temp_hvac_plumbing.set(val),
+                                label: t("settings-blocks-hvac-plumbing-name", &region)
                             }
                         }
                     }

@@ -1024,3 +1024,14 @@ pub fn use_init_app_state() -> AppState {
         db_initialized,
     }
 }
+
+impl AppState {
+    pub fn current_locale(&self) -> String {
+        let r = self.auth_region.read().clone();
+        if r.trim().is_empty() {
+            "sv".to_string()
+        } else {
+            r
+        }
+    }
+}
