@@ -1034,6 +1034,36 @@ pub async fn run_schema_migrations(
         .await?;
         version = 25;
     }
+    if version < 26 {
+        execute_migration_batch(
+            conn,
+            "ALTER TABLE hvac_diagnostics ADD COLUMN system_type TEXT DEFAULT 'REFRIGERANT_HVAC';
+             ALTER TABLE hvac_diagnostics ADD COLUMN water_pressure_bar REAL DEFAULT 0.0;
+             ALTER TABLE hvac_diagnostics ADD COLUMN asset_id TEXT;
+             CREATE TABLE IF NOT EXISTS job_parts_used (
+                 id TEXT PRIMARY KEY,
+                 workspace_id TEXT NOT NULL,
+                 job_ticket_id TEXT NOT NULL,
+                 part_name TEXT NOT NULL,
+                 quantity REAL NOT NULL,
+                 unit_cost_sek REAL NOT NULL,
+                 rot_eligible INTEGER NOT NULL DEFAULT 0,
+                 created_at INTEGER NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_job_parts_used_ticket ON job_parts_used(job_ticket_id);",
+        )
+        .await?;
+        version = 26;
+    }
+    if version < 27 {
+        execute_migration_batch(
+            conn,
+            "ALTER TABLE hvac_diagnostics ADD COLUMN operating_mode TEXT DEFAULT 'COOLING_MODE';
+             ALTER TABLE hvac_diagnostics ADD COLUMN ambient_temp_c REAL;",
+        )
+        .await?;
+        version = 27;
+    }
     Ok(version)
 }
 
@@ -1063,7 +1093,7 @@ mod tests {
         conn.execute("PRAGMA user_version = 0", ()).await.unwrap();
 
         let migrated_version = run_schema_migrations(&conn, 0).await.unwrap();
-        assert_eq!(migrated_version, 25);
+        assert_eq!(migrated_version, 27);
 
         let has_oauth_sessions = conn.query_row(
             "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='oauth_auth_sessions'",

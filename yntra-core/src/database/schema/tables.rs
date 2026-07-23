@@ -319,17 +319,34 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             workspace_id TEXT NOT NULL,
             job_ticket_id TEXT NOT NULL,
             technician_id TEXT NOT NULL,
+            system_type TEXT DEFAULT 'REFRIGERANT_HVAC',
             refrigerant_type TEXT NOT NULL,
             refrigerant_charge_level TEXT NOT NULL,
             high_side_psi REAL NOT NULL,
             low_side_psi REAL NOT NULL,
+            water_pressure_bar REAL DEFAULT 0.0,
             temp_differential_c REAL NOT NULL,
             voltage_v REAL NOT NULL,
             amp_draw_a REAL NOT NULL,
             diagnostic_status TEXT NOT NULL,
+            asset_id TEXT,
             notes TEXT,
+            operating_mode TEXT DEFAULT 'COOLING_MODE',
+            ambient_temp_c REAL,
             created_at INTEGER NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS job_parts_used (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            job_ticket_id TEXT NOT NULL,
+            part_name TEXT NOT NULL,
+            quantity REAL NOT NULL,
+            unit_cost_sek REAL NOT NULL,
+            rot_eligible INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_job_parts_used_ticket ON job_parts_used(job_ticket_id);
 
         CREATE TABLE IF NOT EXISTS job_tickets (
             id TEXT PRIMARY KEY,

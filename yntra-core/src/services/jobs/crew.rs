@@ -69,7 +69,7 @@ pub async fn validate_vehicle_dispatch_capacity(
         .get("enforce_single_trip_capacity")
         .or_else(|| settings_json.get("enforce_vehicle_capacity"))
         .and_then(|v| v.as_bool())
-        .unwrap_or(true);
+        .unwrap_or(false);
 
     let required_volume = total_volume * 1.2;
     if capacity_m3 > 0.0 && required_volume > capacity_m3 && enforce_capacity {
