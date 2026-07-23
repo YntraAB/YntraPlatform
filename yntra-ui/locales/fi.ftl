@@ -1389,3 +1389,26 @@ settings-blocks-hvac-plumbing-name = LVI & Putki Kenttäpalvelu
 templates-preset-hvac = LVI- & Putkiyritys
 templates-preset-hvac-desc = Lämpöpumppudiagnostiikka, painelokit, varaosaseuranta ja 30 % Ruotsin ROT-verovähennys.
 
+# Inventory Preset Categories & Items
+inventory-select-type = Valitse esineen tyyppi
+inventory-option-custom = Muu huonekalu tai laatikko (mukautettu)...
+inventory-label-item-name = Esineen nimi
+inventory-placeholder-custom-name = esim. Piano, Lipasto, Tallelokero
+
+inventory-category-boxes = Laatikot
+inventory-category-furniture = Huonekalut
+inventory-category-appliances = Kodinkoneet
+inventory-category-other = Muu
+
+inventory-item-moving-box = Muuttolaatikko
+inventory-item-bed-single = Sänky (yhden hengen)
+inventory-item-bed-double = Sänky (parivuode)
+inventory-item-sofa-3p = Sohva (3-istuttava)
+inventory-item-dining-table = Ruokapöytä
+inventory-item-chair = Tuoli
+inventory-item-wardrobe = Vaatekaappi
+inventory-item-bookshelf = Kirjahylly
+inventory-item-dresser = Lipasto
+inventory-item-fridge-freezer = Jääkaappi/Pakastin
+inventory-item-washing-machine = Pesukone
+

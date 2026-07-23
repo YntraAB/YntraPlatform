@@ -1383,3 +1383,26 @@ settings-blocks-hvac-plumbing-name = HVAC & VVS Feltservice
 templates-preset-hvac = HVAC & VVS-Virksomhed
 templates-preset-hvac-desc = Varmepumpediagnostik, tryklogaflæsning, reservedelssporing og 30% svensk ROT-fradrag.
 
+# Inventory Preset Categories & Items
+inventory-select-type = Vælg type genstand
+inventory-option-custom = Andet møbel eller kasse (tilpasset)...
+inventory-label-item-name = Genstandsnavn
+inventory-placeholder-custom-name = f.eks. Piano, Kommode, Pengeskab
+
+inventory-category-boxes = Flyttekasser
+inventory-category-furniture = Møbler
+inventory-category-appliances = Hvidevarer
+inventory-category-other = Andet
+
+inventory-item-moving-box = Flyttekasse
+inventory-item-bed-single = Seng (enkelt)
+inventory-item-bed-double = Seng (dobbelt)
+inventory-item-sofa-3p = Sofa (3-personers)
+inventory-item-dining-table = Spisebord
+inventory-item-chair = Stol
+inventory-item-wardrobe = Garderobe
+inventory-item-bookshelf = Reol
+inventory-item-dresser = Kommode
+inventory-item-fridge-freezer = Køl/Frys
+inventory-item-washing-machine = Vaskemaskine
+

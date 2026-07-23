@@ -1387,3 +1387,26 @@ settings-blocks-hvac-plumbing-name = HVAC & VVS Fältservice
 templates-preset-hvac = HVAC & VVS-Bolag
 templates-preset-hvac-desc = Värmepumpdiagnostik, hydroniska tryckloggar, reservdelsspårning och 30% Skatteverket ROT-avdrag.
 
+# Inventory Preset Categories & Items
+inventory-select-type = Välj typ av föremål
+inventory-option-custom = Annan möbel eller låda (anpassad)...
+inventory-label-item-name = Föremålsnamn
+inventory-placeholder-custom-name = t.ex. Piano, Byrå, Kassaskåp
+
+inventory-category-boxes = Kartonger
+inventory-category-furniture = Möbler
+inventory-category-appliances = Vitvaror
+inventory-category-other = Övrigt
+
+inventory-item-moving-box = Flyttkartong
+inventory-item-bed-single = Säng (enkel)
+inventory-item-bed-double = Säng (dubbel)
+inventory-item-sofa-3p = Soffa (3-sits)
+inventory-item-dining-table = Matbord
+inventory-item-chair = Stol
+inventory-item-wardrobe = Garderob
+inventory-item-bookshelf = Bokhylla
+inventory-item-dresser = Byrå
+inventory-item-fridge-freezer = Kyl/Frys
+inventory-item-washing-machine = Tvättmaskin
+

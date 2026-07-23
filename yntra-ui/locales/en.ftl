@@ -1376,3 +1376,26 @@ live-map-popup-destination = Destination (B)
 live-map-popup-planned-route = Planned Route
 live-map-popup-job = Job
 
+# Inventory Preset Categories & Items
+inventory-select-type = Select item type
+inventory-option-custom = Other furniture or box (custom)...
+inventory-label-item-name = Item Name
+inventory-placeholder-custom-name = e.g. Piano, Armchair, Safe
+
+inventory-category-boxes = Moving Boxes & Supplies
+inventory-category-furniture = Furniture
+inventory-category-appliances = Appliances & Heavy Equipment
+inventory-category-other = Other
+
+inventory-item-moving-box = Moving Box
+inventory-item-bed-single = Single Bed
+inventory-item-bed-double = Double Bed / King Bed
+inventory-item-sofa-3p = 3-Seater Sofa
+inventory-item-dining-table = Dining Table
+inventory-item-chair = Chair
+inventory-item-wardrobe = Wardrobe / Closet
+inventory-item-bookshelf = Bookshelf
+inventory-item-dresser = Dresser / Chest of Drawers
+inventory-item-fridge-freezer = Fridge / Freezer
+inventory-item-washing-machine = Washing Machine
+

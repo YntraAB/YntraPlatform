@@ -10,23 +10,25 @@ use crate::components;
 
 #[derive(Clone, Copy, PartialEq)]
 struct InventoryTemplate {
-    name: &'static str,
-    category: &'static str,
+    name_key: &'static str,
+    category_key: &'static str,
+    default_name: &'static str,
+    default_category: &'static str,
     volume: f64,
 }
 
 const TEMPLATES: &[InventoryTemplate] = &[
-    InventoryTemplate { name: "Flyttkartong", category: "Kartonger", volume: 0.1 },
-    InventoryTemplate { name: "Säng (enkel)", category: "Möbler", volume: 1.2 },
-    InventoryTemplate { name: "Säng (dubbel)", category: "Möbler", volume: 2.4 },
-    InventoryTemplate { name: "Soffa (3-sits)", category: "Möbler", volume: 1.8 },
-    InventoryTemplate { name: "Matbord", category: "Möbler", volume: 1.2 },
-    InventoryTemplate { name: "Stol", category: "Möbler", volume: 0.2 },
-    InventoryTemplate { name: "Garderob", category: "Möbler", volume: 2.0 },
-    InventoryTemplate { name: "Bokhylla", category: "Möbler", volume: 0.8 },
-    InventoryTemplate { name: "Byrå", category: "Möbler", volume: 0.7 },
-    InventoryTemplate { name: "Kyl/Frys", category: "Vitvaror", volume: 1.5 },
-    InventoryTemplate { name: "Tvättmaskin", category: "Vitvaror", volume: 0.6 },
+    InventoryTemplate { name_key: "inventory-item-moving-box", category_key: "inventory-category-boxes", default_name: "Flyttkartong", default_category: "Kartonger", volume: 0.1 },
+    InventoryTemplate { name_key: "inventory-item-bed-single", category_key: "inventory-category-furniture", default_name: "Säng (enkel)", default_category: "Möbler", volume: 1.2 },
+    InventoryTemplate { name_key: "inventory-item-bed-double", category_key: "inventory-category-furniture", default_name: "Säng (dubbel)", default_category: "Möbler", volume: 2.4 },
+    InventoryTemplate { name_key: "inventory-item-sofa-3p", category_key: "inventory-category-furniture", default_name: "Soffa (3-sits)", default_category: "Möbler", volume: 1.8 },
+    InventoryTemplate { name_key: "inventory-item-dining-table", category_key: "inventory-category-furniture", default_name: "Matbord", default_category: "Möbler", volume: 1.2 },
+    InventoryTemplate { name_key: "inventory-item-chair", category_key: "inventory-category-furniture", default_name: "Stol", default_category: "Möbler", volume: 0.2 },
+    InventoryTemplate { name_key: "inventory-item-wardrobe", category_key: "inventory-category-furniture", default_name: "Garderob", default_category: "Möbler", volume: 2.0 },
+    InventoryTemplate { name_key: "inventory-item-bookshelf", category_key: "inventory-category-furniture", default_name: "Bokhylla", default_category: "Möbler", volume: 0.8 },
+    InventoryTemplate { name_key: "inventory-item-dresser", category_key: "inventory-category-furniture", default_name: "Byrå", default_category: "Möbler", volume: 0.7 },
+    InventoryTemplate { name_key: "inventory-item-fridge-freezer", category_key: "inventory-category-appliances", default_name: "Kyl/Frys", default_category: "Vitvaror", volume: 1.5 },
+    InventoryTemplate { name_key: "inventory-item-washing-machine", category_key: "inventory-category-appliances", default_name: "Tvättmaskin", default_category: "Vitvaror", volume: 0.6 },
 ];
 
 
@@ -47,6 +49,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
     let mut db_trigger = props.db_trigger;
 
     let state = use_context::<crate::state::AppState>();
+    let locale = state.auth_region.read().clone();
     let workspace_opt = state.workspace.read().clone();
     let settings_json: serde_json::Value = if let Some(ref ws) = workspace_opt {
         serde_json::from_str(&ws.settings).unwrap_or_default()
@@ -216,6 +219,8 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
             "US" => " $".to_string(),
             "DE" | "FR" | "ES" | "IT" | "NL" | "AT" | "FI" => " €".to_string(),
             "GB" => " £".to_string(),
+            _ => " kr".to_string(),
+        }
     };
 
     let dynamic_tax_rate = settings_json
@@ -244,6 +249,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
     };
 
     let is_english = target_region != "SE";
+    let current_sw_status = swish_payment_status.read().clone();
 
     let payment_method_label = match active_gateway.as_str() {
         "stripe" | "card" => if is_english { "Pay with Card (Stripe)".to_string() } else { "Betala med Stripe (Kort)".to_string() },
@@ -1015,35 +1021,48 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                                                 "Avbryt"
                                                             }
                                                         }
-                                                        
+
                                                         // Dropdown of presets
                                                         div {
-                                                            label { class: "text-[10px] text-muted-foreground block mb-0.5", "Välj typ av föremål" }
+                                                            label { class: "text-[10px] text-muted-foreground block mb-0.5", "{crate::locales::t(\"inventory-select-type\", &locale)}" }
                                                             select {
                                                                 value: "{selected_template_idx}",
-                                                                onchange: move |e: FormEvent| {
-                                                                    let idx_str = e.value();
-                                                                    let idx: usize = idx_str.parse().unwrap_or(0);
-                                                                    selected_template_idx.set(idx);
-                                                                    if idx < TEMPLATES.len() {
-                                                                        new_item_name.set(TEMPLATES[idx].name.to_string());
-                                                                        new_item_category.set(TEMPLATES[idx].category.to_string());
-                                                                        new_item_vol.set(TEMPLATES[idx].volume);
-                                                                    } else {
-                                                                        // Custom selection
-                                                                        new_item_name.set(String::new());
-                                                                        new_item_category.set("Möbler".to_string());
-                                                                        new_item_vol.set(0.5);
+                                                                onchange: {
+                                                                    let locale_val = locale.clone();
+                                                                    move |e: FormEvent| {
+                                                                        let idx_str = e.value();
+                                                                        let idx: usize = idx_str.parse().unwrap_or(0);
+                                                                        selected_template_idx.set(idx);
+                                                                        if idx < TEMPLATES.len() {
+                                                                            let t_name = crate::locales::t(TEMPLATES[idx].name_key, &locale_val);
+                                                                            let t_cat = crate::locales::t(TEMPLATES[idx].category_key, &locale_val);
+                                                                            let name_str = if t_name == TEMPLATES[idx].name_key { TEMPLATES[idx].default_name.to_string() } else { t_name };
+                                                                            let cat_str = if t_cat == TEMPLATES[idx].category_key { TEMPLATES[idx].default_category.to_string() } else { t_cat };
+                                                                            new_item_name.set(name_str);
+                                                                            new_item_category.set(cat_str);
+                                                                            new_item_vol.set(TEMPLATES[idx].volume);
+                                                                        } else {
+                                                                            // Custom selection
+                                                                            let default_cat = crate::locales::t("inventory-category-furniture", &locale_val);
+                                                                            let cat_str = if default_cat == "inventory-category-furniture" { "Möbler".to_string() } else { default_cat };
+                                                                            new_item_name.set(String::new());
+                                                                            new_item_category.set(cat_str);
+                                                                            new_item_vol.set(0.5);
+                                                                        }
+                                                                        new_item_length.set(String::new());
+                                                                        new_item_width.set(String::new());
+                                                                        new_item_height.set(String::new());
                                                                     }
-                                                                    new_item_length.set(String::new());
-                                                                    new_item_width.set(String::new());
-                                                                    new_item_height.set(String::new());
                                                                 },
                                                                 class: "w-full text-xs p-1.5 rounded border border-border bg-background text-foreground focus:outline-none focus:border-primary",
-                                                                option { value: "999", "Annan möbel eller låda (anpassad)..." }
-                                                                for (i, t) in TEMPLATES.iter().enumerate() {
-                                                                    option { value: "{i}", "{t.name} ({t.volume} m³)" }
-                                                                }
+                                                                option { value: "999", "{crate::locales::t(\"inventory-option-custom\", &locale)}" }
+                                                                {TEMPLATES.iter().enumerate().map(|(i, t_item)| {
+                                                                    let raw_name = crate::locales::t(t_item.name_key, &locale);
+                                                                    let display_name = if raw_name == t_item.name_key { t_item.default_name.to_string() } else { raw_name };
+                                                                    rsx! {
+                                                                        option { key: "{i}", value: "{i}", "{display_name} ({t_item.volume} m³)" }
+                                                                    }
+                                                                })}
                                                             }
                                                         }
 
@@ -1052,10 +1071,10 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                                             div { class: "flex flex-col gap-2",
                                                                 div { class: "grid grid-cols-2 gap-2",
                                                                     div { class: "col-span-2 sm:col-span-1",
-                                                                        label { class: "text-[10px] text-muted-foreground block mb-0.5", "Föremålsnamn" }
+                                                                        label { class: "text-[10px] text-muted-foreground block mb-0.5", "{crate::locales::t(\"inventory-label-item-name\", &locale)}" }
                                                                         input {
                                                                             r#type: "text",
-                                                                            placeholder: "t.ex. Piano, Byrå",
+                                                                            placeholder: "{crate::locales::t(\"inventory-placeholder-custom-name\", &locale)}",
                                                                             value: "{new_item_name}",
                                                                             oninput: move |e: FormEvent| new_item_name.set(e.value()),
                                                                             class: "w-full text-xs p-1.5 rounded border border-border bg-background text-foreground focus:outline-none focus:border-primary",
@@ -1067,10 +1086,10 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                                                             value: "{new_item_category}",
                                                                             onchange: move |e: FormEvent| new_item_category.set(e.value()),
                                                                             class: "w-full text-xs p-1.5 rounded border border-border bg-background text-foreground focus:outline-none focus:border-primary",
-                                                                            option { value: "Möbler", if is_english { "Furniture" } else { "Möbler" } }
-                                                                            option { value: "Kartonger", if is_english { "Boxes" } else { "Kartonger" } }
-                                                                            option { value: "Vitvaror", if is_english { "Appliances" } else { "Vitvaror" } }
-                                                                            option { value: "Övrigt", if is_english { "Other" } else { "Övrigt" } }
+                                                                            option { value: "Möbler", "{crate::locales::t(\"inventory-category-furniture\", &locale)}" }
+                                                                            option { value: "Kartonger", "{crate::locales::t(\"inventory-category-boxes\", &locale)}" }
+                                                                            option { value: "Vitvaror", "{crate::locales::t(\"inventory-category-appliances\", &locale)}" }
+                                                                            option { value: "Övrigt", "{crate::locales::t(\"inventory-category-other\", &locale)}" }
                                                                         }
                                                                     }
                                                                 }
@@ -1256,48 +1275,47 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
         if show_swish {
             div {
                 class: "fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200",
-                div {
-                    class: "bg-sidebar border border-border rounded-2xl w-full max-w-sm p-6 shadow-2xl flex flex-col items-center text-center gap-5 relative animate-in zoom-in-95 duration-200",
-                    button {
-                        onclick: move |_| {
-                            show_swish_modal.set(None);
-                        },
-                        class: "absolute top-4 right-4 p-1 rounded-full hover:bg-muted border-0 bg-transparent cursor-pointer text-muted-foreground transition-all",
-                        components::LucideIcon { name: "x", size: "16" }
-                    }
-                    div {
-                        class: "w-16 h-16 rounded-2xl bg-[#EB2B7F] flex items-center justify-center text-white shadow-lg shadow-[#EB2B7F]/20 select-none",
-                        style: "font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 1.5rem; letter-spacing: -1px;",
-                        "swish"
-                    }
-                    div { class: "space-y-1.5",
-                        h3 { class: "text-lg font-bold text-foreground m-0", "Betala med Swish" }
-                        p { class: "text-xs text-muted-foreground m-0", "Öppna Swish i din mobil och godkänn betalningen." }
-                    }
-                    div {
-                        class: "p-4 rounded-2xl bg-white border border-border shadow-inner flex items-center justify-center relative group",
-                        img {
-                            src: "{qr_code_base64}",
-                            class: "w-44 h-44 select-none",
-                            alt: "Swish Betalning QR Kod"
-                        }
-                    }
-                    div { class: "w-full space-y-2 bg-muted/40 p-3.5 rounded-xl border border-border/30 text-xs text-left",
-                        div { class: "flex justify-between",
-                            span { class: "text-muted-foreground", "Mottagare:" }
-                            span { class: "font-semibold text-foreground", "Yntra Flytt AB" }
-                        }
-                        div { class: "flex justify-between",
-                            span { class: "text-muted-foreground", "Belopp:" }
-                            span { class: "font-bold text-foreground", "{swish_amount}{currency_suffix}" }
-                        }
-                        div { class: "flex justify-between",
-                            span { class: "text-muted-foreground", "Referens:" }
-                            span { class: "font-mono font-semibold text-foreground/80", "{current_inv_id}" }
-                        }
-                    }
-                    let current_sw_status = swish_payment_status.read().clone();
-                    div { class: "w-full space-y-2 pt-1",
+                        div {
+                            class: "bg-sidebar border border-border rounded-2xl w-full max-w-sm p-6 shadow-2xl flex flex-col items-center text-center gap-5 relative animate-in zoom-in-95 duration-200",
+                            button {
+                                onclick: move |_| {
+                                    show_swish_modal.set(None);
+                                },
+                                class: "absolute top-4 right-4 p-1 rounded-full hover:bg-muted border-0 bg-transparent cursor-pointer text-muted-foreground transition-all",
+                                components::LucideIcon { name: "x", size: "16" }
+                            }
+                            div {
+                                class: "w-16 h-16 rounded-2xl bg-[#EB2B7F] flex items-center justify-center text-white shadow-lg shadow-[#EB2B7F]/20 select-none",
+                                style: "font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 1.5rem; letter-spacing: -1px;",
+                                "swish"
+                            }
+                            div { class: "space-y-1.5",
+                                h3 { class: "text-lg font-bold text-foreground m-0", "Betala med Swish" }
+                                p { class: "text-xs text-muted-foreground m-0", "Öppna Swish i din mobil och godkänn betalningen." }
+                            }
+                            div {
+                                class: "p-4 rounded-2xl bg-white border border-border shadow-inner flex items-center justify-center relative group",
+                                img {
+                                    src: "{qr_code_base64}",
+                                    class: "w-44 h-44 select-none",
+                                    alt: "Swish Betalning QR Kod"
+                                }
+                            }
+                            div { class: "w-full space-y-2 bg-muted/40 p-3.5 rounded-xl border border-border/30 text-xs text-left",
+                                div { class: "flex justify-between",
+                                    span { class: "text-muted-foreground", "Mottagare:" }
+                                    span { class: "font-semibold text-foreground", "Yntra Flytt AB" }
+                                }
+                                div { class: "flex justify-between",
+                                    span { class: "text-muted-foreground", "Belopp:" }
+                                    span { class: "font-bold text-foreground", "{swish_amount}{currency_suffix}" }
+                                }
+                                div { class: "flex justify-between",
+                                    span { class: "text-muted-foreground", "Referens:" }
+                                    span { class: "font-mono font-semibold text-foreground/80", "{current_inv_id}" }
+                                }
+                            }
+                            div { class: "w-full space-y-2 pt-1",
                         if current_sw_status == "paid" {
                             div { class: "flex items-center justify-center gap-2 text-xs font-semibold text-emerald-500",
                                 components::LucideIcon { name: "check-circle", class: "h-4 w-4 text-emerald-500 animate-bounce" }
