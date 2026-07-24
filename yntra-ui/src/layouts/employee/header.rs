@@ -162,7 +162,7 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
     };
 
     rsx! {
-        header { class: "flex h-14 items-center justify-between border-b border-border bg-sidebar px-6",
+        header { class: "relative z-40 flex h-14 items-center justify-between border-b border-border bg-sidebar px-6",
             div { class: "flex items-center gap-1.5 text-sm text-muted-foreground duration-200 animate-in fade-in slide-in-from-left-2",
                 for (idx, item) in breadcrumbs.iter().enumerate() {
                     {
@@ -196,6 +196,8 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                         "technician" => "Technician View".to_string(),
                         _ => current_role.clone(),
                     },
+                    trigger_class: "whitespace-nowrap shrink-0 flex-row h-8 font-semibold text-xs",
+                    trigger_style: "height: 2rem; padding: 0.375rem 0.75rem; font-size: 0.75rem; font-weight: 600; white-space: nowrap;",
                     open: *header_role_open.read(),
                     ontoggle: move |_| {
                         let current = *header_role_open.read();
@@ -327,6 +329,8 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                 if current_role == "platform_admin" || current_role == "admin" {
                     components::Dropdown {
                         label: active_template_label,
+                        trigger_class: "whitespace-nowrap shrink-0 flex-row h-8 font-semibold text-xs",
+                        trigger_style: "height: 2rem; padding: 0.375rem 0.75rem; font-size: 0.75rem; font-weight: 600; white-space: nowrap;",
                         open: *header_template_open.read(),
                         ontoggle: move |_| {
                             let current = *header_template_open.read();
@@ -535,6 +539,13 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                                     runner.run(async move {
                                         let moving_modules = serde_json::json!({
                                             "jobs": true,
+                                            "dispatch": true,
+                                            "live_map": true,
+                                            "fleet": true,
+                                            "rut_exports": true,
+                                            "booking_widget": true,
+                                            "scheduling": true,
+                                            "directory": true,
                                             "time": true,
                                             "todos": true,
                                             "messaging": true,
@@ -573,6 +584,13 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                                     runner.run(async move {
                                         let hvac_modules = serde_json::json!({
                                             "jobs": true,
+                                            "dispatch": true,
+                                            "live_map": true,
+                                            "fleet": true,
+                                            "rut_exports": true,
+                                            "booking_widget": true,
+                                            "scheduling": true,
+                                            "directory": true,
                                             "time": true,
                                             "todos": true,
                                             "messaging": true,
@@ -604,7 +622,7 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                 // Global Quick Action for Incident Reporting
                 if !is_client {
                     button {
-                        class: "yntra-btn secondary flex items-center gap-2 border border-border bg-transparent text-xs text-foreground hover:bg-white/[0.04] px-3 py-1.5 rounded-lg font-semibold cursor-pointer mr-2",
+                        class: "flex h-8 items-center gap-2 border border-border/60 bg-muted/30 hover:bg-muted/60 text-xs text-foreground px-3 py-1.5 rounded-lg font-semibold cursor-pointer transition-all mr-2 shadow-2xs select-none whitespace-nowrap shrink-0 flex-row",
                         onclick: move |_| {
                             report_subject.set(String::new());
                             report_description.set(String::new());
@@ -613,8 +631,8 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                             report_date.set(chrono::Local::now().format("%Y-%m-%d").to_string());
                             show_reporting_modal.set(true);
                         },
-                        components::LucideIcon { name: "shield", size: "14", class: "text-red-400" }
-                        span { "Report Incident" }
+                        components::LucideIcon { name: "shield", size: "14", class: "text-red-400 shrink-0" }
+                        span { class: "whitespace-nowrap", "Report Incident" }
                     }
                 }
 

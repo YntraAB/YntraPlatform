@@ -1,15 +1,15 @@
 :root {
-    --bg-main: hsl(240, 10%, 3.9%);
-    --sidebar-bg: hsl(240, 10%, 3.9%);
-    --card-bg: hsl(240, 10%, 3.9%);
-    --card-hover: hsl(240, 5.9%, 10%);
-    --border-color: hsl(240, 3.7%, 15.9%);
-    --text-primary: hsl(0, 0%, 98%);
-    --text-secondary: hsl(240, 5%, 64.9%);
-    --text-muted: hsl(240, 3.8%, 46.1%);
-    --accent-color: hsl(250, 95%, 77%);
-    --accent-color-hover: hsl(250, 89%, 65%);
-    --accent-color-soft: hsla(250, 95%, 77%, 0.1);
+    --bg-main: hsl(var(--background, 240 10% 3.9%));
+    --sidebar-bg: hsl(var(--sidebar-background, var(--background, 240 10% 3.9%)));
+    --card-bg: hsl(var(--card, 240 10% 3.9%));
+    --card-hover: hsl(var(--accent, 240 5.9% 10%));
+    --border-color: hsl(var(--border, 240 3.7% 15.9%));
+    --text-primary: hsl(var(--foreground, 0 0% 98%));
+    --text-secondary: hsl(var(--muted-foreground, 240 5% 64.9%));
+    --text-muted: hsl(var(--muted-foreground, 240 3.8% 46.1%));
+    --accent-color: hsl(var(--primary, 250 95% 77%));
+    --accent-color-hover: var(--accent-color);
+    --accent-color-soft: var(--accent-color-soft, hsla(250, 95%, 77%, 0.1));
     --success: hsl(142.1, 76.2%, 36.3%);
     --success-soft: hsla(142.1, 76.2%, 36.3%, 0.1);
     --danger: hsl(0, 84.2%, 60.2%);

@@ -58,12 +58,12 @@ pub fn LayoutSidebar(props: LayoutSidebarProps) -> Element {
     let get_nav_item_class = |sec: &str| {
         let active = *active_section.read() == sec;
         let theme_class = if active {
-            "bg-muted text-foreground active"
+            "bg-primary/10 text-primary font-semibold shadow-xs active"
         } else {
-            "text-muted-foreground hover:bg-muted hover:text-foreground"
+            "text-muted-foreground hover:bg-primary/10 hover:text-primary"
         };
         format!(
-            "sidebar-item relative flex cursor-pointer items-center justify-between px-3 py-2 rounded-md transition-all duration-150 text-sm font-medium mb-1 {}",
+            "sidebar-item relative flex cursor-pointer items-center justify-between px-3 py-2 rounded-lg transition-all duration-150 text-sm font-medium mb-1 {}",
             theme_class
         )
     };
@@ -195,6 +195,30 @@ pub fn LayoutSidebar(props: LayoutSidebarProps) -> Element {
                                 "reporting" => props.reporting_enabled,
                                 "jobs" => props.jobs_enabled,
                                 "todos" => props.todos_enabled,
+                                "dispatch" | "live_map" | "fleet" | "rut_exports" | "booking_widget" => {
+                                    modules_active_val
+                                        .get(block_id)
+                                        .and_then(|v| v.as_bool())
+                                        .unwrap_or(props.jobs_enabled)
+                                },
+                                "academics" | "attendance" | "finance" | "library" | "timetable" | "health_clinic" | "report_cards" => {
+                                    modules_active_val
+                                        .get(block_id)
+                                        .and_then(|v| v.as_bool())
+                                        .unwrap_or(false)
+                                },
+                                "assistance" | "medications" | "journals" => {
+                                    modules_active_val
+                                        .get(block_id)
+                                        .and_then(|v| v.as_bool())
+                                        .unwrap_or(false)
+                                },
+                                "moving_company" | "hvac_plumbing" => {
+                                    modules_active_val
+                                        .get(block_id)
+                                        .and_then(|v| v.as_bool())
+                                        .unwrap_or(false)
+                                },
                                 id => modules_active_val
                                     .get(id)
                                     .and_then(|v| v.as_bool())
@@ -348,7 +372,7 @@ pub fn LayoutSidebar(props: LayoutSidebarProps) -> Element {
                                         let b_name = b.name.clone();
                                         let b_icon = b.icon.clone();
                                         let active = *active_section.read() == b_id;
-                                        let theme_class = if active { "bg-muted text-foreground active" } else { "text-muted-foreground hover:bg-muted hover:text-foreground" };
+                                        let theme_class = if active { "bg-primary/10 text-primary font-semibold shadow-xs active" } else { "text-muted-foreground hover:bg-primary/10 hover:text-primary" };
                                         let b_id_click = b_id.clone();
                                         rsx! {
                                             div {

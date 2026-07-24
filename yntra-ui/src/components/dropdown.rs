@@ -40,18 +40,18 @@ pub fn Dropdown(props: DropdownProps) -> Element {
     rsx! {
         div {
             class: "dx-dropdown-menu {props.class}",
-            style: "width: 100%; {props.style}",
+            style: "width: auto; {props.style}",
             button {
                 class: "dx-dropdown-menu-trigger {props.trigger_class}",
-                style: "display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 1rem; box-sizing: border-box; {props.trigger_style}",
+                style: "display: flex; justify-content: space-between; align-items: center; width: auto; gap: 0.75rem; box-sizing: border-box; white-space: nowrap; {props.trigger_style}",
                 onclick: move |_| ontoggle.call(()),
                 div {
-                    style: "display: flex; align-items: center; gap: 0.5rem;",
+                    style: "display: flex; align-items: center; gap: 0.5rem; white-space: nowrap;",
                     if let Some(icon_name) = icon_name {
                         crate::components::LucideIcon {
                             name: icon_name,
                             size: "16",
-                            class: "yntra-dropdown-icon",
+                            class: "yntra-dropdown-icon shrink-0",
                         }
                     } else if let Some(url) = icon_url.as_ref() {
                         img {
@@ -59,12 +59,12 @@ pub fn Dropdown(props: DropdownProps) -> Element {
                             style: "width: 18px; height: auto; border-radius: 2px; margin-right: 0.25rem;",
                         }
                     }
-                    span { "{label}" }
+                    span { class: "whitespace-nowrap", "{label}" }
                 }
                 crate::components::LucideIcon {
                     name: "chevron-down",
                     size: "14",
-                    class: format!("opacity-60 transition-transform duration-200 {}", if open { "rotate-180" } else { "" }),
+                    class: format!("opacity-60 transition-transform duration-200 shrink-0 {}", if open { "rotate-180" } else { "" }),
                 }
             }
             if open {

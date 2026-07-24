@@ -2,94 +2,84 @@
 @config "../tailwind.config.js";
 
 /**
- * This file contains the global CSS variables and styles for the application.
- * It defines the dark theme color palette used throughout the app.
+ * Global theme definitions for Yntra Platform
+ * Supports light, dark, midnight, slate, and forest theme modes.
  */
 
 @layer base {
-  :root {
-    /* Light Theme - Primary Color Palette */
+  :root,
+  .light {
     --background: 0 0% 100%;
-    /* White background */
     --foreground: 220 15% 6%;
-    /* Dark text */
     --card: 0 0% 100%;
     --card-foreground: 220 15% 6%;
     --popover: 0 0% 100%;
     --popover-foreground: 220 15% 6%;
-    --primary: 250 85% 65%;
-    /* purple accent */
+    --primary: var(--user-accent-primary, 221.2 83.2% 53.3%);
     --primary-foreground: 0 0% 100%;
     --secondary: 210 20% 96%;
-    /* Very light gray for backgrounds */
     --secondary-foreground: 222 47% 11%;
     --muted: 210 20% 96%;
     --muted-foreground: 215 16% 40%;
-    /* Subtle gray text */
     --accent: 210 20% 96%;
     --accent-foreground: 222 47% 11%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
     --border: 214 31% 91%;
-    /* Light gray borders */
     --input: 214 31% 91%;
-    --ring: 250 85% 65%;
-    /* Focus ring color */
+    --ring: var(--user-accent-primary, 221.2 83.2% 53.3%);
     --radius: 0.5rem;
 
-    /* Sidebar specific colors */
     --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 220 15% 6%;
-    --sidebar-primary: 250 85% 65%;
+    --sidebar-primary: var(--user-accent-primary, 221.2 83.2% 53.3%);
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 210 20% 92%;
     --sidebar-accent-foreground: 220 15% 6%;
     --sidebar-border: 214 31% 91%;
-    --sidebar-ring: 250 85% 65%;
+    --sidebar-ring: var(--user-accent-primary, 221.2 83.2% 53.3%);
+
+    --bg-sidebar: hsl(var(--sidebar-background));
+    --bg-card: hsl(var(--card));
+    --bg-background: hsl(var(--background));
+    --bg-main: hsl(var(--background));
   }
 
   .dark {
-    /* Dark Theme - Primary Color Palette */
     --background: 220 15% 6%;
-    /* Very dark blue-black background */
     --foreground: 0 0% 98%;
-    /* Near-white text */
     --card: 220 15% 8%;
-    /* Slightly lighter card background */
     --card-foreground: 0 0% 98%;
     --popover: 220 15% 8%;
     --popover-foreground: 0 0% 98%;
-    --primary: 250 85% 65%;
-    /* purple accent */
+    --primary: var(--user-accent-primary, 217.2 91.2% 59.8%);
     --primary-foreground: 0 0% 100%;
     --secondary: 220 12% 14%;
-    /* Dark secondary background */
     --secondary-foreground: 0 0% 98%;
     --muted: 220 12% 18%;
     --muted-foreground: 220 10% 55%;
-    /* Muted gray text */
     --accent: 220 12% 16%;
-    /* Subtle highlight background */
     --accent-foreground: 0 0% 98%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
     --border: 220 12% 18%;
-    /* Subtle border color */
     --input: 220 12% 14%;
-    /* Input field background */
-    --ring: 250 85% 65%;
-    /* Focus ring color */
+    --ring: var(--user-accent-primary, 217.2 91.2% 59.8%);
     --radius: 0.5rem;
 
-    /* Sidebar specific colors */
     --sidebar-background: 220 15% 8%;
     --sidebar-foreground: 0 0% 98%;
-    --sidebar-primary: 250 85% 65%;
+    --sidebar-primary: var(--user-accent-primary, 217.2 91.2% 59.8%);
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 220 12% 14%;
     --sidebar-accent-foreground: 0 0% 98%;
     --sidebar-border: 220 12% 18%;
-    --sidebar-ring: 250 85% 65%;
+    --sidebar-ring: var(--user-accent-primary, 217.2 91.2% 59.8%);
+
+    --bg-sidebar: hsl(var(--sidebar-background));
+    --bg-card: hsl(var(--card));
+    --bg-background: hsl(var(--background));
+    --bg-main: hsl(var(--background));
   }
 
   .midnight {
@@ -99,7 +89,7 @@
     --card-foreground: 210 40% 98%;
     --popover: 222 47% 6%;
     --popover-foreground: 210 40% 98%;
-    --primary: 250 85% 65%;
+    --primary: var(--user-accent-primary, 217.2 91.2% 59.8%);
     --primary-foreground: 210 40% 98%;
     --secondary: 222 47% 12%;
     --secondary-foreground: 210 40% 98%;
@@ -111,7 +101,22 @@
     --destructive-foreground: 210 40% 98%;
     --border: 222 47% 15%;
     --input: 222 47% 12%;
-    --ring: 250 85% 65%;
+    --ring: var(--user-accent-primary, 217.2 91.2% 59.8%);
+    --radius: 0.5rem;
+
+    --sidebar-background: 222 47% 6%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: var(--user-accent-primary, 217.2 91.2% 59.8%);
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 222 47% 12%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 222 47% 15%;
+    --sidebar-ring: var(--user-accent-primary, 217.2 91.2% 59.8%);
+
+    --bg-sidebar: hsl(var(--sidebar-background));
+    --bg-card: hsl(var(--card));
+    --bg-background: hsl(var(--background));
+    --bg-main: hsl(var(--background));
   }
 
   .slate {
@@ -121,7 +126,7 @@
     --card-foreground: 210 40% 98%;
     --popover: 215 25% 12%;
     --popover-foreground: 210 40% 98%;
-    --primary: 250 85% 65%;
+    --primary: var(--user-accent-primary, 217.2 91.2% 59.8%);
     --primary-foreground: 210 40% 98%;
     --secondary: 215 20% 18%;
     --secondary-foreground: 210 40% 98%;
@@ -133,7 +138,22 @@
     --destructive-foreground: 210 40% 98%;
     --border: 215 20% 22%;
     --input: 215 20% 18%;
-    --ring: 250 85% 65%;
+    --ring: var(--user-accent-primary, 217.2 91.2% 59.8%);
+    --radius: 0.5rem;
+
+    --sidebar-background: 215 25% 12%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: var(--user-accent-primary, 217.2 91.2% 59.8%);
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 215 20% 18%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 215 20% 22%;
+    --sidebar-ring: var(--user-accent-primary, 217.2 91.2% 59.8%);
+
+    --bg-sidebar: hsl(var(--sidebar-background));
+    --bg-card: hsl(var(--card));
+    --bg-background: hsl(var(--background));
+    --bg-main: hsl(var(--background));
   }
 
   .forest {
@@ -143,7 +163,7 @@
     --card-foreground: 150 10% 98%;
     --popover: 150 20% 8%;
     --popover-foreground: 150 10% 98%;
-    --primary: 150 80% 60%;
+    --primary: var(--user-accent-primary, 150 80% 60%);
     --primary-foreground: 150 10% 5%;
     --secondary: 150 15% 14%;
     --secondary-foreground: 150 10% 98%;
@@ -155,19 +175,34 @@
     --destructive-foreground: 150 10% 98%;
     --border: 150 15% 18%;
     --input: 150 15% 14%;
-    --ring: 150 80% 60%;
+    --ring: var(--user-accent-primary, 150 80% 60%);
+    --radius: 0.5rem;
+
+    --sidebar-background: 150 20% 8%;
+    --sidebar-foreground: 150 10% 98%;
+    --sidebar-primary: var(--user-accent-primary, 150 80% 60%);
+    --sidebar-primary-foreground: 150 10% 5%;
+    --sidebar-accent: 150 15% 14%;
+    --sidebar-accent-foreground: 150 10% 98%;
+    --sidebar-border: 150 15% 18%;
+    --sidebar-ring: var(--user-accent-primary, 150 80% 60%);
+
+    --bg-sidebar: hsl(var(--sidebar-background));
+    --bg-card: hsl(var(--card));
+    --bg-background: hsl(var(--background));
+    --bg-main: hsl(var(--background));
   }
 }
 
 @layer base {
   * {
     @apply border-border;
-    caret-color: var(--accent-color, hsl(250 85% 65%));
+    caret-color: var(--accent-color, hsl(217.2 91.2% 59.8%));
   }
 
   html {
     scroll-behavior: smooth;
-    accent-color: var(--accent-color, hsl(250 85% 65%));
+    accent-color: var(--accent-color, hsl(217.2 91.2% 59.8%));
   }
 
   body {
@@ -182,7 +217,7 @@
   }
 
   ::selection {
-    background: color-mix(in srgb, var(--accent-color, hsl(250 85% 65%)) 30%, transparent) !important;
+    background: color-mix(in srgb, var(--accent-color, hsl(217.2 91.2% 59.8%)) 30%, transparent) !important;
   }
 }
 
@@ -190,56 +225,81 @@
   /* Gradient text utility for branding */
   .text-gradient-yntra {
     @apply bg-clip-text text-transparent;
-    background-image: linear-gradient(135deg, hsl(250 85% 65%) 0%, hsl(270 85% 70%) 100%);
+    background-image: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--primary)) 100%);
   }
 
-  /* Custom scrollbar styling for dark theme */
+  /* Custom scrollbar styling without any track background behind the thumb */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent !important;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+    background: transparent !important;
+  }
+
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-track-piece,
+  ::-webkit-scrollbar-corner {
+    background: transparent !important;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2) !important;
+    border-radius: 9999px !important;
+    border: none !important;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-color, hsl(var(--primary))) !important;
+  }
+
   .scrollbar-dark {
     scrollbar-width: thin;
-    scrollbar-color: hsl(220 12% 25%) transparent;
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent !important;
   }
 
-  .scrollbar-dark::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+  /* Dynamic theme utilities */
+  .bg-sidebar {
+    background-color: hsl(var(--sidebar-background)) !important;
+    color: hsl(var(--sidebar-foreground));
   }
 
-  .scrollbar-dark::-webkit-scrollbar-track {
-    background: transparent;
+  .bg-background {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
   }
 
-  .scrollbar-dark::-webkit-scrollbar-thumb {
-    background: hsl(220 12% 25%);
-    border-radius: 4px;
-  }
-
-  .scrollbar-dark::-webkit-scrollbar-thumb:hover {
-    background: hsl(220 12% 35%);
+  .bg-card {
+    background-color: hsl(var(--card));
+    color: hsl(var(--card-foreground));
   }
 
   /* Glass morphism effect for overlays */
   .glass {
     @apply backdrop-blur-md;
-    background: rgba(15, 17, 23, 0.8);
+    background: color-mix(in srgb, hsl(var(--sidebar-background)) 85%, transparent);
   }
 
   /* Input field styling for dark theme */
   .input-yntra {
-    @apply rounded-lg border border-[hsl(220,12%,20%)] bg-[hsl(220,12%,14%)] text-white transition-all duration-200 placeholder:text-[hsl(220,10%,45%)] focus:border-[hsl(250,85%,65%)] focus:outline-none focus:ring-1 focus:ring-[hsl(250,85%,65%)];
+    @apply rounded-lg border border-[hsl(220,12%,20%)] bg-[hsl(220,12%,14%)] text-white transition-all duration-200 placeholder:text-[hsl(220,10%,45%)] focus:border-[hsl(var(--primary))] focus:outline-none focus:ring-1 focus:ring-[hsl(var(--primary))];
   }
 
   /* Button primary styling */
   .btn-yntra-primary {
-    @apply flex items-center justify-center gap-2 rounded-lg bg-[hsl(220,12%,22%)] font-medium text-white transition-all duration-200 hover:bg-[hsl(220,12%,28%)];
+    @apply flex items-center justify-center gap-2 rounded-lg bg-primary font-medium text-primary-foreground transition-all duration-200 hover:bg-primary/90;
   }
 
   /* Sidebar item styling */
   .sidebar-item {
-    @apply flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-[hsl(220,10%,65%)] transition-all duration-150 hover:bg-[hsl(220,12%,16%)] hover:text-white;
+    @apply flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all duration-150 hover:bg-primary/10 hover:text-primary;
   }
 
   .sidebar-item.active {
-    @apply bg-[hsl(220,12%,18%)] text-white;
+    @apply bg-primary/10 text-primary font-semibold shadow-xs;
   }
 
   /* Calendar grid lines */
@@ -286,11 +346,11 @@
 @keyframes pulse-glow {
   0%,
   100% {
-    box-shadow: 0 0 0 0 hsl(250 85% 65% / 0.4);
+    box-shadow: 0 0 0 0 hsl(var(--primary) / 0.4);
   }
 
   50% {
-    box-shadow: 0 0 20px 4px hsl(250 85% 65% / 0.2);
+    box-shadow: 0 0 20px 4px hsl(var(--primary) / 0.2);
   }
 }
 
@@ -298,26 +358,10 @@
   animation: fadeIn 0.3s ease-out forwards;
 }
 
-.animate-slide-in-left {
+.animate-slide-left {
   animation: slideInLeft 0.3s ease-out forwards;
 }
 
-.animate-pulse-glow {
-  animation: pulse-glow 2s ease-in-out infinite;
-}
-
-@keyframes caret-blink {
-  0%,
-  70%,
-  100% {
-    opacity: 1;
-  }
-  20%,
-  50% {
-    opacity: 0;
-  }
-}
-
-.animate-caret-blink {
-  animation: caret-blink 1.2s ease-in-out infinite;
+.pulse-glow {
+  animation: pulse-glow 2s infinite;
 }

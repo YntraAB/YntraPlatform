@@ -165,7 +165,7 @@ pub fn ClientLayout() -> Element {
             // Right Content Area
             div { class: "flex min-w-0 flex-1 flex-col bg-background/50",
                 // Header Bar
-                header { class: "sticky top-0 z-10 flex h-14 items-center justify-between border-b border-border bg-background/80 px-4 backdrop-blur-sm",
+                header { class: "sticky top-0 z-10 flex h-14 items-center justify-between border-b border-border bg-sidebar px-4 backdrop-blur-sm",
                     div { class: "flex items-center gap-2 text-sm font-medium capitalize text-foreground animate-in fade-in slide-in-from-left-2",
                         {
                             let current_sec = active_section.read().clone();

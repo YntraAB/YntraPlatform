@@ -62,11 +62,12 @@ fn hex_to_hsl(hex: &str) -> Option<(u16, u8, u8)> {
 
 #[component]
 pub fn VisualEffectHandler(props: VisualEffectHandlerProps) -> Element {
+    let brand_color_effect = props.workspace_brand_color.clone();
     use_effect(move || {
         let prefs_str = props.account_preferences.read();
 
         // Parse preferences
-        let mut accent_color = props.workspace_brand_color.clone();
+        let mut accent_color = brand_color_effect.clone();
         let mut theme_mode = "dark".to_string();
 
         if let Ok(val) = serde_json::from_str::<Value>(&prefs_str) {
@@ -75,8 +76,17 @@ pub fn VisualEffectHandler(props: VisualEffectHandlerProps) -> Element {
                 .or_else(|| val.get("accent_color"))
                 .and_then(|v| v.as_str());
             if let Some(color) = accent_key {
-                if color != "primary" && !color.is_empty() {
-                    accent_color = color.to_string();
+                if !color.is_empty() {
+                    accent_color = match color {
+                        "primary" | "blue" | "azure" => "#3b82f6".to_string(),
+                        "emerald" => "#10b981".to_string(),
+                        "violet" | "purple" => "#8b5cf6".to_string(),
+                        "amber" => "#f59e0b".to_string(),
+                        "crimson" | "red" => "#ef4444".to_string(),
+                        "slate" => "#64748b".to_string(),
+                        "midnight" => "#0f172a".to_string(),
+                        other => other.to_string(),
+                    };
                 }
             }
             if let Some(theme) = val.get("theme").and_then(|v| v.as_str()) {
@@ -84,12 +94,20 @@ pub fn VisualEffectHandler(props: VisualEffectHandlerProps) -> Element {
             }
         }
 
+        if accent_color.is_empty() {
+            accent_color = "#3b82f6".to_string();
+        }
+
         let mut js = format!(
             r#"
-            document.documentElement.className = "{}";
-            document.documentElement.setAttribute("data-theme", "{}");
+            let targetTheme = "{}";
+            if (targetTheme === "system") {{
+                targetTheme = (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
+            }}
+            document.documentElement.className = targetTheme;
+            document.documentElement.setAttribute("data-theme", targetTheme);
             "#,
-            theme_mode, theme_mode
+            theme_mode
         );
 
         if let Some((h, s, l)) = hex_to_hsl(&accent_color) {
@@ -114,6 +132,8 @@ pub fn VisualEffectHandler(props: VisualEffectHandlerProps) -> Element {
                 r#"
                 document.documentElement.style.setProperty('--primary', '{}');
                 document.documentElement.style.setProperty('--ring', '{}');
+                document.documentElement.style.setProperty('--sidebar-primary', '{}');
+                document.documentElement.style.setProperty('--sidebar-ring', '{}');
                 document.documentElement.style.setProperty('--primary-foreground', '{}');
                 document.documentElement.style.setProperty('--primary-foreground-color', '{}');
                 document.documentElement.style.setProperty('--accent-color', '{}');
@@ -121,6 +141,8 @@ pub fn VisualEffectHandler(props: VisualEffectHandlerProps) -> Element {
                 document.documentElement.style.setProperty('--accent-color-soft', '{}');
                 document.documentElement.style.setProperty('--focused-border-color', '{}');
                 "#,
+                primary_coords,
+                primary_coords,
                 primary_coords,
                 primary_coords,
                 foreground_coords,
@@ -135,7 +157,7 @@ pub fn VisualEffectHandler(props: VisualEffectHandlerProps) -> Element {
                 r#"
                 document.documentElement.style.setProperty('--accent-color', '{}');
                 document.documentElement.style.setProperty('--accent-color-hover', '{}');
-                document.documentElement.style.setProperty('--accent-color-soft', 'rgba(99, 102, 241, 0.15)');
+                document.documentElement.style.setProperty('--accent-color-soft', 'rgba(59, 130, 246, 0.15)');
                 document.documentElement.style.setProperty('--focused-border-color', '{}');
                 "#,
                 accent_color, accent_color, accent_color
@@ -148,6 +170,7 @@ pub fn VisualEffectHandler(props: VisualEffectHandlerProps) -> Element {
     let prefs_str = props.account_preferences.read();
     let mut font_scale = 100.0f32;
     let mut theme_mode = "dark".to_string();
+    let mut accent_color = if props.workspace_brand_color.is_empty() { "#3b82f6".to_string() } else { props.workspace_brand_color.clone() };
 
     if let Ok(val) = serde_json::from_str::<Value>(&prefs_str) {
         if let Some(scale) = val.get("font_scale").and_then(|v| v.as_f64()) {
@@ -161,21 +184,89 @@ pub fn VisualEffectHandler(props: VisualEffectHandlerProps) -> Element {
         if let Some(theme) = val.get("theme").and_then(|v| v.as_str()) {
             theme_mode = theme.to_string();
         }
+        let accent_key = val
+            .get("accent")
+            .or_else(|| val.get("accent_color"))
+            .and_then(|v| v.as_str());
+        if let Some(color) = accent_key {
+            if !color.is_empty() {
+                accent_color = match color {
+                    "primary" | "blue" | "azure" => "#3b82f6".to_string(),
+                    "emerald" => "#10b981".to_string(),
+                    "violet" | "purple" => "#8b5cf6".to_string(),
+                    "amber" => "#f59e0b".to_string(),
+                    "crimson" | "red" => "#ef4444".to_string(),
+                    "slate" => "#64748b".to_string(),
+                    "midnight" => "#0f172a".to_string(),
+                    other => other.to_string(),
+                };
+            }
+        }
     }
+
+    if accent_color.is_empty() {
+        accent_color = "#3b82f6".to_string();
+    }
+
+    let css_vars = if let Some((h, s, l)) = hex_to_hsl(&accent_color) {
+        let primary_coords = format!("{} {}% {}%", h, s, l);
+        let foreground_coords = if l > 60 { "0 0% 0%" } else { "0 0% 100%" };
+        let accent_color_str = format!("hsl({} {}% {}%)", h, s, l);
+        let hover_l = if l > 50 { l.saturating_sub(10) } else { l.saturating_add(10) };
+        let accent_color_hover_str = format!("hsl({} {}% {}%)", h, s, hover_l);
+        let accent_color_soft_str = format!("hsla({}, {}%, {}%, 0.15)", h, s, l);
+
+        format!(
+            r#"
+            --user-accent-primary: {} !important;
+            --primary: {} !important;
+            --ring: {} !important;
+            --sidebar-primary: {} !important;
+            --sidebar-ring: {} !important;
+            --primary-foreground: {} !important;
+            --accent-color: {} !important;
+            --accent-color-hover: {} !important;
+            --accent-color-soft: {} !important;
+            --focused-border-color: {} !important;
+            "#,
+            primary_coords,
+            primary_coords,
+            primary_coords,
+            primary_coords,
+            primary_coords,
+            foreground_coords,
+            accent_color_str,
+            accent_color_hover_str,
+            accent_color_soft_str,
+            accent_color_str
+        )
+    } else {
+        format!(
+            r#"
+            --accent-color: {} !important;
+            --accent-color-hover: {} !important;
+            --accent-color-soft: rgba(59, 130, 246, 0.15) !important;
+            --focused-border-color: {} !important;
+            "#,
+            accent_color, accent_color, accent_color
+        )
+    };
 
     rsx! {
         style {
             {
                 format!(
                     r#"
-                    :root {{
+                    :root, html, body, .dark, .midnight, .slate, .forest {{
                         font-size: {}%;
+                        {}
                     }}
                     body {{
                         color-scheme: {};
                     }}
                     "#,
                     font_scale,
+                    css_vars,
                     theme_mode,
                 )
             }
