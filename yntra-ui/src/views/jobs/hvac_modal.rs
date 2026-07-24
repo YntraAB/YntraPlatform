@@ -18,6 +18,7 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
     let region = state.current_locale();
     let mut show = props.show;
     let runner = use_action_runner();
+    let toast = dioxus_primitives::toast::use_toast();
 
     let mut active_tab = use_signal(|| 0usize); // 0: Diagnostic, 1: Parts, 2: ROT Split, 3: History
     let mut unit_system = use_signal(|| "METRIC".to_string()); // "METRIC" or "IMPERIAL"
@@ -36,12 +37,25 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
     let mut amp_draw_a = use_signal(String::new);
     let mut asset_id = use_signal(String::new);
     let mut diag_notes = use_signal(String::new);
+    let mut static_flow_pressure_bar = use_signal(String::new);
+    let mut dynamic_flow_pressure_bar = use_signal(String::new);
+    let mut pipe_material = use_signal(|| "PEX".to_string());
+    let mut backflow_preventer_status = use_signal(|| "PASS_TESTED".to_string());
+    let mut water_heater_temp_c = use_signal(String::new);
+    let mut leak_test_duration_min = use_signal(String::new);
+    let mut leak_test_pressure_drop_bar = use_signal(String::new);
     let mut form_baseline_initialized = use_signal(|| false);
+
+    // Custom / Unlisted Equipment input signals
+    let mut custom_asset_model = use_signal(String::new);
+    let mut custom_asset_serial = use_signal(String::new);
+    let mut custom_asset_tag = use_signal(String::new);
+    let mut custom_asset_loc = use_signal(String::new);
 
     // New Part input signals
     let mut part_name_input = use_signal(String::new);
     let mut part_qty_input = use_signal(|| "1.0".to_string());
-    let mut part_unit_cost_input = use_signal(|| "450.0".to_string());
+    let mut part_unit_cost_input = use_signal(String::new);
     let mut part_rot_eligible = use_signal(|| false);
 
     // ROT Split Calculator signals
@@ -92,69 +106,74 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
     let diagnostics_history: Vec<HvacSystemDiagnostic> = diagnostics_res.read().clone().unwrap_or_default();
     let job_parts: Vec<JobPartItem> = parts_res.read().clone().unwrap_or_default();
 
-    // Retrieve last recorded baseline readings for the active work order if available
-    if !*form_baseline_initialized.read() && !diagnostics_history.is_empty() {
-        if let Some(latest) = diagnostics_history.first() {
-            system_type.set(latest.system_type.clone());
-            if let Some(ref mode) = latest.operating_mode {
-                operating_mode.set(mode.clone());
-            }
-            refrigerant_type.set(latest.refrigerant_type.clone());
-            charge_level.set(latest.refrigerant_charge_level.clone());
-            if let Some(ref asset) = latest.asset_id {
-                asset_id.set(asset.clone());
-            }
-            let is_m = *unit_system.read() == "METRIC";
-            if is_m {
-                high_side_psi.set(format!("{:.2}", latest.high_side_psi / 14.5038));
-                low_side_psi.set(format!("{:.2}", latest.low_side_psi / 14.5038));
-                water_pressure_bar.set(format!("{:.2}", latest.water_pressure_bar));
-                temp_diff_c.set(format!("{:.1}", latest.temp_differential_c));
-                if let Some(amb) = latest.ambient_temp_c {
-                    ambient_temp_c.set(format!("{:.1}", amb));
+    // Retrieve last recorded baseline readings for the active work order if available using a reactive effect
+    use_effect(move || {
+        let history_opt = diagnostics_res.read();
+        if let Some(history) = history_opt.as_ref() {
+            if !*form_baseline_initialized.read() && !history.is_empty() {
+                if let Some(latest) = history.first() {
+                    system_type.set(latest.system_type.clone());
+                    if let Some(ref mode) = latest.operating_mode {
+                        operating_mode.set(mode.clone());
+                    }
+                    refrigerant_type.set(latest.refrigerant_type.clone());
+                    charge_level.set(latest.refrigerant_charge_level.clone());
+                    if let Some(ref asset) = latest.asset_id {
+                        asset_id.set(asset.clone());
+                    }
+                    let is_m = *unit_system.read() == "METRIC";
+                    if let Some(h) = latest.high_side_psi {
+                        high_side_psi.set(if is_m { format!("{:.2}", h / 14.503773773) } else { format!("{:.1}", h) });
+                    }
+                    if let Some(l) = latest.low_side_psi {
+                        low_side_psi.set(if is_m { format!("{:.2}", l / 14.503773773) } else { format!("{:.1}", l) });
+                    }
+                    if let Some(w) = latest.water_pressure_bar {
+                        water_pressure_bar.set(if is_m { format!("{:.2}", w) } else { format!("{:.1}", w * 14.503773773) });
+                    }
+                    if let Some(td) = latest.temp_differential_c {
+                        temp_diff_c.set(if is_m { format!("{:.1}", td) } else { format!("{:.1}", td * 1.8) });
+                    }
+                    if let Some(amb) = latest.ambient_temp_c {
+                        ambient_temp_c.set(if is_m { format!("{:.1}", amb) } else { format!("{:.1}", amb * 1.8 + 32.0) });
+                    }
+                    if let Some(v) = latest.voltage_v {
+                        voltage_v.set(format!("{:.1}", v));
+                    }
+                    if let Some(a) = latest.amp_draw_a {
+                        amp_draw_a.set(format!("{:.1}", a));
+                    }
+                    form_baseline_initialized.set(true);
                 }
-            } else {
-                high_side_psi.set(format!("{:.1}", latest.high_side_psi));
-                low_side_psi.set(format!("{:.1}", latest.low_side_psi));
-                water_pressure_bar.set(format!("{:.1}", latest.water_pressure_bar * 14.5038));
-                temp_diff_c.set(format!("{:.1}", latest.temp_differential_c * 1.8));
-                if let Some(amb) = latest.ambient_temp_c {
-                    ambient_temp_c.set(format!("{:.1}", amb * 1.8 + 32.0));
-                }
             }
-            voltage_v.set(format!("{:.1}", latest.voltage_v));
-            amp_draw_a.set(format!("{:.1}", latest.amp_draw_a));
-            form_baseline_initialized.set(true);
         }
-    }
+    });
 
     if !*show.read() {
         return rsx! {};
     }
 
-    // Auto calculate parts totals split by ROT eligibility
-    let eligible_parts_cost_total: f64 = job_parts.iter().filter(|p| p.rot_eligible).map(|p| p.quantity * p.unit_cost_sek).sum();
-    let non_eligible_parts_cost_total: f64 = job_parts.iter().filter(|p| !p.rot_eligible).map(|p| p.quantity * p.unit_cost_sek).sum();
+    // Calculate parts total (under Skatteverket rules, materials and parts are 100% non-eligible for ROT tax credit)
+    let parts_cost_total: f64 = job_parts.iter().map(|p| p.quantity * p.unit_cost_sek).sum();
 
     // Calculate ROT split reactively without blocking UI thread
     let rot_breakdown = use_memo(move || {
         let labor_val = labor_cost_input.read().parse::<f64>().unwrap_or(0.0);
         let travel_val = travel_fee_input.read().parse::<f64>().unwrap_or(0.0);
         let eligible_labor = labor_val.max(0.0);
-        let eligible_parts = eligible_parts_cost_total.max(0.0);
-        let rot_base = eligible_labor + eligible_parts;
-        let non_eligible = non_eligible_parts_cost_total.max(0.0) + travel_val.max(0.0);
-        let gross = rot_base + non_eligible;
-        let deduction = (rot_base * 0.30).min(50000.0);
+        let non_eligible_parts_and_travel = parts_cost_total.max(0.0) + travel_val.max(0.0);
+        let gross = eligible_labor + non_eligible_parts_and_travel;
+        // ROT Deduction is strictly 30% of eligible labor in Sweden (capped at 50,000 SEK per person per year)
+        let deduction = (eligible_labor * 0.30).min(50000.0);
         RotInvoiceSplitBreakdown {
             total_gross_amount_sek: gross,
             eligible_labor_sek: eligible_labor,
-            eligible_parts_sek: eligible_parts,
-            non_eligible_parts_sek: non_eligible,
+            eligible_parts_sek: 0.0,
+            non_eligible_parts_sek: non_eligible_parts_and_travel,
             rot_deduction_30_percent_sek: deduction,
             net_customer_payable_sek: gross - deduction,
             max_annual_rot_cap_remaining_sek: (50000.0 - deduction).max(0.0),
-            rot_eligible_flag: rot_base > 0.0,
+            rot_eligible_flag: eligible_labor > 0.0,
         }
     });
     let rot_info = rot_breakdown.read().clone();
@@ -191,12 +210,12 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                             button {
                                 class: if *unit_system.read() == "METRIC" { "px-2 py-0.5 bg-primary text-primary-foreground font-bold rounded shadow-xs" } else { "px-2 py-0.5 text-muted-foreground hover:text-foreground font-medium" },
                                 onclick: move |_| unit_system.set("METRIC".to_string()),
-                                "🌐 Metric (Bar/°C)"
+                                "{t(\"hvac-unit-metric\", &region)}"
                             }
                             button {
                                 class: if *unit_system.read() == "IMPERIAL" { "px-2 py-0.5 bg-primary text-primary-foreground font-bold rounded shadow-xs" } else { "px-2 py-0.5 text-muted-foreground hover:text-foreground font-medium" },
                                 onclick: move |_| unit_system.set("IMPERIAL".to_string()),
-                                "🇺🇸 Imperial (PSI/°F)"
+                                "{t(\"hvac-unit-imperial\", &region)}"
                             }
                         }
                         button {
@@ -249,17 +268,66 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                 div { class: "flex flex-col gap-1",
                                     label { class: "font-semibold text-foreground flex items-center justify-between",
                                         span { "{t(\"hvac-asset-id\", &region)}" }
-                                        span { class: "text-[10px] text-muted-foreground font-normal", "📍 Location Assets" }
+                                        span { class: "text-[10px] text-muted-foreground font-normal", "{t(\"hvac-asset-header-badge\", &region)}" }
                                     }
                                     select {
                                         class: "yntra-input py-1.5 px-3 bg-background border border-border text-foreground rounded text-xs",
                                         value: "{asset_id}",
                                         onchange: move |e: Event<FormData>| asset_id.set(e.value()),
-                                        option { value: "", "-- Select Registered Location Equipment --" }
+                                        option { value: "", "{t(\"hvac-asset-select-placeholder\", &region)}" }
                                         for asset in location_assets.iter() {
                                             option { value: "{asset.asset_tag} - {asset.model_name} ({asset.serial_number})", "[{asset.asset_tag}] {asset.model_name} ({asset.serial_number})" }
                                         }
                                         option { value: "UNLISTED_EQUIPMENT", "➕ Custom / Unlisted Equipment" }
+                                    }
+                                }
+                            }
+
+                            if *asset_id.read() == "UNLISTED_EQUIPMENT" {
+                                div { class: "flex flex-col gap-2.5 p-3 bg-primary/5 border border-primary/20 rounded-lg animate-in fade-in duration-200",
+                                    div { class: "text-[11px] font-bold text-primary flex items-center gap-1.5",
+                                        span { "🛠️" }
+                                        span { "{t(\"hvac-custom-asset-title\", &region)}" }
+                                    }
+                                    div { class: "grid grid-cols-2 gap-2.5",
+                                        div { class: "flex flex-col gap-1",
+                                            label { class: "font-semibold text-foreground text-[10px]", "{t(\"hvac-custom-asset-model\", &region)}" }
+                                            input {
+                                                class: "yntra-input py-1 px-2 bg-background border border-border text-foreground rounded text-xs",
+                                                placeholder: "e.g. NIBE F2120-12 / Grundfos Scala2",
+                                                value: "{custom_asset_model}",
+                                                oninput: move |e: Event<FormData>| custom_asset_model.set(e.value()),
+                                            }
+                                        }
+                                        div { class: "flex flex-col gap-1",
+                                            label { class: "font-semibold text-foreground text-[10px]", "{t(\"hvac-custom-asset-serial\", &region)}" }
+                                            input {
+                                                class: "yntra-input py-1 px-2 bg-background border border-border text-foreground rounded text-xs",
+                                                placeholder: "e.g. SN-88391029",
+                                                value: "{custom_asset_serial}",
+                                                oninput: move |e: Event<FormData>| custom_asset_serial.set(e.value()),
+                                            }
+                                        }
+                                    }
+                                    div { class: "grid grid-cols-2 gap-2.5",
+                                        div { class: "flex flex-col gap-1",
+                                            label { class: "font-semibold text-foreground text-[10px]", "{t(\"hvac-custom-asset-tag\", &region)}" }
+                                            input {
+                                                class: "yntra-input py-1 px-2 bg-background border border-border text-foreground rounded text-xs",
+                                                placeholder: "e.g. HP-001 or PLUMB-02",
+                                                value: "{custom_asset_tag}",
+                                                oninput: move |e: Event<FormData>| custom_asset_tag.set(e.value()),
+                                            }
+                                        }
+                                        div { class: "flex flex-col gap-1",
+                                            label { class: "font-semibold text-foreground text-[10px]", "{t(\"hvac-custom-asset-loc\", &region)}" }
+                                            input {
+                                                class: "yntra-input py-1 px-2 bg-background border border-border text-foreground rounded text-xs",
+                                                placeholder: "e.g. Basement Boiler Room",
+                                                value: "{custom_asset_loc}",
+                                                oninput: move |e: Event<FormData>| custom_asset_loc.set(e.value()),
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -287,22 +355,103 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                             }
 
                             if *system_type.read() == "HYDRONIC_HEATING" || *system_type.read() == "HYDRONIC_PLUMBING" || *system_type.read() == "POTABLE_WATER" || *system_type.read() == "POTABLE_PLUMBING" {
-                                div { class: "grid grid-cols-2 gap-3 p-3 bg-muted/20 border border-border rounded-lg",
-                                    div { class: "flex flex-col gap-1",
-                                        label { class: "font-semibold text-foreground", "{water_press_label}" }
-                                        input {
-                                            class: "yntra-input py-1.5 px-3 bg-background border border-border text-foreground rounded text-xs",
-                                            placeholder: if is_metric { "1.8 Bar" } else { "26.1 PSI" },
-                                            value: "{water_pressure_bar}",
-                                            oninput: move |e: Event<FormData>| water_pressure_bar.set(e.value()),
+                                div { class: "flex flex-col gap-3 p-3 bg-muted/20 border border-border rounded-lg",
+                                    div { class: "grid grid-cols-2 gap-3",
+                                        div { class: "flex flex-col gap-1",
+                                            label { class: "font-semibold text-foreground", "{water_press_label}" }
+                                            input {
+                                                class: "yntra-input py-1.5 px-3 bg-background border border-border text-foreground rounded text-xs",
+                                                placeholder: if is_metric { "1.8 Bar" } else { "26.1 PSI" },
+                                                value: "{water_pressure_bar}",
+                                                oninput: move |e: Event<FormData>| water_pressure_bar.set(e.value()),
+                                            }
+                                        }
+                                        div { class: "flex flex-col gap-1",
+                                            label { class: "font-semibold text-foreground", "{delta_t_label}" }
+                                            input {
+                                                class: "yntra-input py-1.5 px-3 bg-background border border-border text-foreground rounded text-xs",
+                                                value: "{temp_diff_c}",
+                                                oninput: move |e: Event<FormData>| temp_diff_c.set(e.value()),
+                                            }
                                         }
                                     }
-                                    div { class: "flex flex-col gap-1",
-                                        label { class: "font-semibold text-foreground", "{delta_t_label}" }
-                                        input {
-                                            class: "yntra-input py-1.5 px-3 bg-background border border-border text-foreground rounded text-xs",
-                                            value: "{temp_diff_c}",
-                                            oninput: move |e: Event<FormData>| temp_diff_c.set(e.value()),
+
+                                    div { class: "border-t border-border/50 pt-2 grid grid-cols-2 gap-3",
+                                        div { class: "flex flex-col gap-1",
+                                            label { class: "font-semibold text-foreground text-[11px]", "{t(\"hvac-static-flow-pressure\", &region)}" }
+                                            input {
+                                                class: "yntra-input py-1 px-2.5 bg-background border border-border text-foreground rounded text-xs",
+                                                placeholder: if is_metric { "e.g. 4.5 Bar" } else { "e.g. 65.3 PSI" },
+                                                value: "{static_flow_pressure_bar}",
+                                                oninput: move |e: Event<FormData>| static_flow_pressure_bar.set(e.value()),
+                                            }
+                                        }
+                                        div { class: "flex flex-col gap-1",
+                                            label { class: "font-semibold text-foreground text-[11px]", "{t(\"hvac-dynamic-flow-pressure\", &region)}" }
+                                            input {
+                                                class: "yntra-input py-1 px-2.5 bg-background border border-border text-foreground rounded text-xs",
+                                                placeholder: if is_metric { "e.g. 4.1 Bar" } else { "e.g. 59.5 PSI" },
+                                                value: "{dynamic_flow_pressure_bar}",
+                                                oninput: move |e: Event<FormData>| dynamic_flow_pressure_bar.set(e.value()),
+                                            }
+                                        }
+                                    }
+
+                                    div { class: "grid grid-cols-3 gap-3",
+                                        div { class: "flex flex-col gap-1",
+                                            label { class: "font-semibold text-foreground text-[11px]", "{t(\"hvac-pipe-material\", &region)}" }
+                                            select {
+                                                class: "yntra-input py-1 px-2 bg-background border border-border text-foreground rounded text-xs",
+                                                value: "{pipe_material}",
+                                                onchange: move |e: Event<FormData>| pipe_material.set(e.value()),
+                                                option { value: "PEX", "{t(\"hvac-mat-pex\", &region)}" }
+                                                option { value: "COPPER", "{t(\"hvac-mat-copper\", &region)}" }
+                                                option { value: "STAINLESS", "{t(\"hvac-mat-stainless\", &region)}" }
+                                                option { value: "GALVANIZED", "{t(\"hvac-mat-galvanized\", &region)}" }
+                                                option { value: "PVC", "{t(\"hvac-mat-pvc\", &region)}" }
+                                            }
+                                        }
+                                        div { class: "flex flex-col gap-1",
+                                            label { class: "font-semibold text-foreground text-[11px]", "{t(\"hvac-backflow-preventer\", &region)}" }
+                                            select {
+                                                class: "yntra-input py-1 px-2 bg-background border border-border text-foreground rounded text-xs",
+                                                value: "{backflow_preventer_status}",
+                                                onchange: move |e: Event<FormData>| backflow_preventer_status.set(e.value()),
+                                                option { value: "PASS_TESTED", "{t(\"hvac-backflow-pass\", &region)}" }
+                                                option { value: "FAIL_LEAKING", "{t(\"hvac-backflow-fail\", &region)}" }
+                                                option { value: "NOT_TESTED", "{t(\"hvac-backflow-untested\", &region)}" }
+                                                option { value: "N_A", "{t(\"hvac-backflow-na\", &region)}" }
+                                            }
+                                        }
+                                        div { class: "flex flex-col gap-1",
+                                            label { class: "font-semibold text-foreground text-[11px]", "{t(\"hvac-water-heater-temp\", &region)}" }
+                                            input {
+                                                class: "yntra-input py-1 px-2 bg-background border border-border text-foreground rounded text-xs",
+                                                placeholder: if is_metric { "e.g. 58.0 °C" } else { "e.g. 136.4 °F" },
+                                                value: "{water_heater_temp_c}",
+                                                oninput: move |e: Event<FormData>| water_heater_temp_c.set(e.value()),
+                                            }
+                                        }
+                                    }
+
+                                    div { class: "grid grid-cols-2 gap-3 border-t border-border/50 pt-2",
+                                        div { class: "flex flex-col gap-1",
+                                            label { class: "font-semibold text-foreground text-[11px]", "{t(\"hvac-leak-test-duration\", &region)}" }
+                                            input {
+                                                class: "yntra-input py-1 px-2.5 bg-background border border-border text-foreground rounded text-xs",
+                                                placeholder: "e.g. 30",
+                                                value: "{leak_test_duration_min}",
+                                                oninput: move |e: Event<FormData>| leak_test_duration_min.set(e.value()),
+                                            }
+                                        }
+                                        div { class: "flex flex-col gap-1",
+                                            label { class: "font-semibold text-foreground text-[11px]", "{t(\"hvac-leak-test-drop\", &region)}" }
+                                            input {
+                                                class: "yntra-input py-1 px-2.5 bg-background border border-border text-foreground rounded text-xs",
+                                                placeholder: if is_metric { "0.0 Bar" } else { "0.0 PSI" },
+                                                value: "{leak_test_pressure_drop_bar}",
+                                                oninput: move |e: Event<FormData>| leak_test_pressure_drop_bar.set(e.value()),
+                                            }
                                         }
                                     }
                                 }
@@ -386,7 +535,7 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                 label { class: "font-semibold text-foreground", "{t(\"hvac-tech-notes\", &region)}" }
                                 textarea {
                                     class: "yntra-input p-3 bg-background border border-border text-foreground rounded text-xs h-20 resize-none",
-                                    placeholder: "Enter technical observations, leak detector results, valve status...",
+                                    placeholder: "{t(\"hvac-tech-notes-placeholder\", &region)}",
                                     value: "{diag_notes}",
                                     oninput: move |e: Event<FormData>| diag_notes.set(e.value()),
                                 }
@@ -395,29 +544,44 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                             button {
                                 class: "yntra-btn py-2 text-xs font-semibold mt-2",
                                 onclick: {
+                                    let toast_c = toast.clone();
                                     let runner_c = runner.clone();
                                     let requester_uid = uid.clone();
                                     let job_ticket_id = jid.clone();
                                     let s_type = system_type.read().clone();
                                     let r_type = refrigerant_type.read().clone();
                                     let c_level = charge_level.read().clone();
-                                    let raw_h = high_side_psi.read().parse::<f64>().unwrap_or(if is_metric { 22.0 } else { 320.0 });
-                                    let raw_l = low_side_psi.read().parse::<f64>().unwrap_or(if is_metric { 7.9 } else { 115.0 });
-                                    let raw_w = water_pressure_bar.read().parse::<f64>().unwrap_or(if is_metric { 1.8 } else { 26.1 });
-                                    let raw_td = temp_diff_c.read().parse::<f64>().unwrap_or(if is_metric { 12.5 } else { 22.5 });
-                                    let volt = voltage_v.read().parse::<f64>().unwrap_or(230.0);
-                                    let amps = amp_draw_a.read().parse::<f64>().unwrap_or(14.2);
+
+                                    let raw_high_str = high_side_psi.read().trim().to_string();
+                                    let raw_low_str = low_side_psi.read().trim().to_string();
+                                    let raw_water_str = water_pressure_bar.read().trim().to_string();
+                                    let raw_temp_str = temp_diff_c.read().trim().to_string();
+                                    let raw_volt_str = voltage_v.read().trim().to_string();
+                                    let raw_amp_str = amp_draw_a.read().trim().to_string();
+                                    let raw_amb_str = ambient_temp_c.read().trim().to_string();
+
+                                    let raw_static_str = static_flow_pressure_bar.read().trim().to_string();
+                                    let raw_dynamic_str = dynamic_flow_pressure_bar.read().trim().to_string();
+                                    let p_material_val = pipe_material.read().clone();
+                                    let backflow_val = backflow_preventer_status.read().clone();
+                                    let raw_heater_temp_str = water_heater_temp_c.read().trim().to_string();
+                                    let raw_leak_dur_str = leak_test_duration_min.read().trim().to_string();
+                                    let raw_leak_drop_str = leak_test_pressure_drop_bar.read().trim().to_string();
+
+                                    let c_model_val = custom_asset_model.read().trim().to_string();
+                                    let c_serial_val = custom_asset_serial.read().trim().to_string();
+                                    let c_tag_val = custom_asset_tag.read().trim().to_string();
+                                    let c_loc_val = custom_asset_loc.read().trim().to_string();
+
+                                    let mut custom_asset_model_c = custom_asset_model;
+                                    let mut custom_asset_serial_c = custom_asset_serial;
+                                    let mut custom_asset_tag_c = custom_asset_tag;
+                                    let mut custom_asset_loc_c = custom_asset_loc;
+
                                     let a_id_opt = if asset_id.read().trim().is_empty() { None } else { Some(asset_id.read().clone()) };
                                     let notes_opt = if diag_notes.read().trim().is_empty() { None } else { Some(diag_notes.read().clone()) };
                                     let op_mode_opt = Some(operating_mode.read().clone());
-                                    let raw_amb = ambient_temp_c.read().parse::<f64>().ok();
                                     let mut db_trig_c = db_trig;
-
-                                    let h_psi = if is_metric { raw_h * 14.5038 } else { raw_h };
-                                    let l_psi = if is_metric { raw_l * 14.5038 } else { raw_l };
-                                    let w_press = if is_metric { raw_w } else { raw_w / 14.5038 };
-                                    let t_diff = if is_metric { raw_td } else { raw_td / 1.8 };
-                                    let amb_temp = raw_amb.map(|a| if is_metric { a } else { (a - 32.0) * 5.0 / 9.0 });
 
                                     let mut high_side_psi_c = high_side_psi;
                                     let mut low_side_psi_c = low_side_psi;
@@ -429,7 +593,123 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                     let mut asset_id_c = asset_id;
                                     let mut diag_notes_c = diag_notes;
 
+                                    let mut static_flow_pressure_bar_c = static_flow_pressure_bar;
+                                    let mut dynamic_flow_pressure_bar_c = dynamic_flow_pressure_bar;
+                                    let mut water_heater_temp_c_c = water_heater_temp_c;
+                                    let mut leak_test_duration_min_c = leak_test_duration_min;
+                                    let mut leak_test_pressure_drop_bar_c = leak_test_pressure_drop_bar;
+
                                     move |_| {
+                                        if a_id_opt == Some("UNLISTED_EQUIPMENT".to_string()) {
+                                            if c_model_val.is_empty() || c_serial_val.is_empty() {
+                                                toast_c.error("Equipment Validation Error".to_string(), dioxus_primitives::toast::ToastOptions::new().description("Please provide at least a Model Name and Serial Number for unlisted equipment."));
+                                                return;
+                                            }
+                                        }
+                                        // Numeric field validation
+                                        let parsed_high = if raw_high_str.is_empty() { None } else {
+                                            match raw_high_str.parse::<f64>() {
+                                                Ok(val) => Some(val),
+                                                Err(_) => {
+                                                    toast_c.error("Validation Error".to_string(), dioxus_primitives::toast::ToastOptions::new().description("High side pressure must be a valid number."));
+                                                    return;
+                                                }
+                                            }
+                                        };
+
+                                        let parsed_low = if raw_low_str.is_empty() { None } else {
+                                            match raw_low_str.parse::<f64>() {
+                                                Ok(val) => Some(val),
+                                                Err(_) => {
+                                                    toast_c.error("Validation Error".to_string(), dioxus_primitives::toast::ToastOptions::new().description("Low side pressure must be a valid number."));
+                                                    return;
+                                                }
+                                            }
+                                        };
+
+                                        let parsed_water = if raw_water_str.is_empty() { None } else {
+                                            match raw_water_str.parse::<f64>() {
+                                                Ok(val) => Some(val),
+                                                Err(_) => {
+                                                    toast_c.error("Validation Error".to_string(), dioxus_primitives::toast::ToastOptions::new().description("Water pressure must be a valid number."));
+                                                    return;
+                                                }
+                                            }
+                                        };
+
+                                        // Required metric validation per system type
+                                        if s_type == "REFRIGERANT_HVAC" {
+                                            if parsed_high.is_none() || parsed_low.is_none() {
+                                                toast_c.error("Required Metric Missing".to_string(), dioxus_primitives::toast::ToastOptions::new().description("Both High Side and Low Side pressure readings are required for Refrigerant HVAC diagnostics."));
+                                                return;
+                                            }
+                                        } else if s_type.starts_with("HYDRONIC") || s_type.starts_with("POTABLE") {
+                                            if parsed_water.is_none() {
+                                                toast_c.error("Required Metric Missing".to_string(), dioxus_primitives::toast::ToastOptions::new().description("Water / Hydronic Pressure reading is required for plumbing & heating diagnostics."));
+                                                return;
+                                            }
+                                        }
+
+                                        let parsed_td = if raw_temp_str.is_empty() { None } else {
+                                            match raw_temp_str.parse::<f64>() {
+                                                Ok(val) => Some(val),
+                                                Err(_) => {
+                                                    toast_c.error("Validation Error".to_string(), dioxus_primitives::toast::ToastOptions::new().description("Delta T differential must be a valid number."));
+                                                    return;
+                                                }
+                                            }
+                                        };
+
+                                        let parsed_volt = if raw_volt_str.is_empty() { None } else {
+                                            match raw_volt_str.parse::<f64>() {
+                                                Ok(val) => Some(val),
+                                                Err(_) => {
+                                                    toast_c.error("Validation Error".to_string(), dioxus_primitives::toast::ToastOptions::new().description("Voltage must be a valid number."));
+                                                    return;
+                                                }
+                                            }
+                                        };
+
+                                        let parsed_amps = if raw_amp_str.is_empty() { None } else {
+                                            match raw_amp_str.parse::<f64>() {
+                                                Ok(val) => Some(val),
+                                                Err(_) => {
+                                                    toast_c.error("Validation Error".to_string(), dioxus_primitives::toast::ToastOptions::new().description("Amp draw must be a valid number."));
+                                                    return;
+                                                }
+                                            }
+                                        };
+
+                                        let parsed_amb = if raw_amb_str.is_empty() { None } else {
+                                            match raw_amb_str.parse::<f64>() {
+                                                Ok(val) => Some(val),
+                                                Err(_) => {
+                                                    toast_c.error("Validation Error".to_string(), dioxus_primitives::toast::ToastOptions::new().description("Outdoor ambient temp must be a valid number."));
+                                                    return;
+                                                }
+                                            }
+                                        };
+
+                                        let parsed_static = if raw_static_str.is_empty() { None } else { raw_static_str.parse::<f64>().ok() };
+                                        let parsed_dynamic = if raw_dynamic_str.is_empty() { None } else { raw_dynamic_str.parse::<f64>().ok() };
+                                        let parsed_heater_temp = if raw_heater_temp_str.is_empty() { None } else { raw_heater_temp_str.parse::<f64>().ok() };
+                                        let parsed_leak_dur = if raw_leak_dur_str.is_empty() { None } else { raw_leak_dur_str.parse::<f64>().ok() };
+                                        let parsed_leak_drop = if raw_leak_drop_str.is_empty() { None } else { raw_leak_drop_str.parse::<f64>().ok() };
+
+                                        let opt_h_psi = parsed_high.map(|h| if is_metric { h * 14.503773773 } else { h });
+                                        let opt_l_psi = parsed_low.map(|l| if is_metric { l * 14.503773773 } else { l });
+                                        let opt_w_press = parsed_water.map(|w| if is_metric { w } else { w / 14.503773773 });
+                                        let opt_t_diff = parsed_td.map(|td| if is_metric { td } else { td / 1.8 });
+                                        let opt_amb_temp = parsed_amb.map(|a| if is_metric { a } else { (a - 32.0) / 1.8 });
+
+                                        let opt_static_bar = parsed_static.map(|s| if is_metric { s } else { s / 14.503773773 });
+                                        let opt_dynamic_bar = parsed_dynamic.map(|d| if is_metric { d } else { d / 14.503773773 });
+                                        let opt_heater_temp_c = parsed_heater_temp.map(|ht| if is_metric { ht } else { (ht - 32.0) / 1.8 });
+                                        let opt_leak_drop_bar = parsed_leak_drop.map(|ld| if is_metric { ld } else { ld / 14.503773773 });
+
+                                        let pipe_mat_opt = if s_type.starts_with("HYDRONIC") || s_type.starts_with("POTABLE") { Some(p_material_val.clone()) } else { None };
+                                        let backflow_opt = if s_type.starts_with("HYDRONIC") || s_type.starts_with("POTABLE") { Some(backflow_val.clone()) } else { None };
+
                                         let runner_inner = runner_c.clone();
                                         let uid_inner = requester_uid.clone();
                                         let jid_inner = job_ticket_id.clone();
@@ -439,25 +719,57 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                         let a_id_inner = a_id_opt.clone();
                                         let notes_inner = notes_opt.clone();
                                         let op_mode_inner = op_mode_opt.clone();
-                                        let amb_temp_inner = amb_temp;
+
+                                        let c_model_inner = c_model_val.clone();
+                                        let c_serial_inner = c_serial_val.clone();
+                                        let c_tag_inner = c_tag_val.clone();
+                                        let c_loc_inner = c_loc_val.clone();
 
                                         runner_inner.run(async move {
+                                            let final_asset_id = if a_id_inner == Some("UNLISTED_EQUIPMENT".to_string()) {
+                                                let tag = if c_tag_inner.is_empty() { "UNLISTED".to_string() } else { c_tag_inner.clone() };
+                                                let loc = if c_loc_inner.is_empty() { "Site Location".to_string() } else { c_loc_inner.clone() };
+                                                let cat = s_type_inner.clone();
+
+                                                let _ = yntra_core::add_hvac_location_asset(
+                                                    uid_inner.clone(),
+                                                    Some(jid_inner.clone()),
+                                                    None,
+                                                    tag.clone(),
+                                                    c_model_inner.clone(),
+                                                    c_serial_inner.clone(),
+                                                    cat,
+                                                    loc,
+                                                ).await;
+
+                                                Some(format!("[{}] {} ({})", tag, c_model_inner, c_serial_inner))
+                                            } else {
+                                                a_id_inner
+                                            };
+
                                             yntra_core::log_hvac_system_diagnostic(
                                                 uid_inner,
                                                 jid_inner,
                                                 s_type_inner,
                                                 r_type_inner,
                                                 c_level_inner,
-                                                h_psi,
-                                                l_psi,
-                                                w_press,
-                                                t_diff,
-                                                volt,
-                                                amps,
-                                                a_id_inner,
+                                                opt_h_psi,
+                                                opt_l_psi,
+                                                opt_w_press,
+                                                opt_t_diff,
+                                                parsed_volt,
+                                                parsed_amps,
+                                                final_asset_id,
                                                 notes_inner,
                                                 op_mode_inner,
-                                                amb_temp_inner,
+                                                opt_amb_temp,
+                                                opt_static_bar,
+                                                opt_dynamic_bar,
+                                                pipe_mat_opt,
+                                                backflow_opt,
+                                                opt_heater_temp_c,
+                                                parsed_leak_dur,
+                                                opt_leak_drop_bar,
                                             ).await?;
 
                                             // Form Reset Routine upon successful resolution
@@ -469,7 +781,16 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                             voltage_v_c.set(String::new());
                                             amp_draw_a_c.set(String::new());
                                             asset_id_c.set(String::new());
+                                            custom_asset_model_c.set(String::new());
+                                            custom_asset_serial_c.set(String::new());
+                                            custom_asset_tag_c.set(String::new());
+                                            custom_asset_loc_c.set(String::new());
                                             diag_notes_c.set(String::new());
+                                            static_flow_pressure_bar_c.set(String::new());
+                                            dynamic_flow_pressure_bar_c.set(String::new());
+                                            water_heater_temp_c_c.set(String::new());
+                                            leak_test_duration_min_c.set(String::new());
+                                            leak_test_pressure_drop_bar_c.set(String::new());
 
                                             let cur = *db_trig_c.read();
                                             db_trig_c.set(cur + 1);
@@ -513,6 +834,7 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                 label { class: "font-semibold text-foreground text-[11px]", "{t(\"hvac-part-unit-cost\", &region)}" }
                                 input {
                                     class: "yntra-input py-1 px-2 bg-background border border-border text-foreground rounded text-xs",
+                                    placeholder: "e.g. 450.0",
                                     value: "{part_unit_cost_input}",
                                     oninput: move |e: Event<FormData>| part_unit_cost_input.set(e.value()),
                                 }
@@ -521,19 +843,37 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                 button {
                                     class: "yntra-btn py-1 px-2 text-[11px] font-semibold w-full",
                                     onclick: {
+                                        let toast_c = toast.clone();
                                         let runner_c = runner.clone();
                                         let requester_uid = uid.clone();
                                         let job_ticket_id = jid.clone();
                                         let p_name = part_name_input.read().clone();
-                                        let p_qty = part_qty_input.read().parse::<f64>().unwrap_or(1.0);
-                                        let p_cost = part_unit_cost_input.read().parse::<f64>().unwrap_or(0.0);
+                                        let raw_qty_str = part_qty_input.read().clone();
+                                        let raw_cost_str = part_unit_cost_input.read().clone();
                                         let p_rot = *part_rot_eligible.read();
                                         let mut db_trig_c = db_trig;
 
                                         let mut part_name_input_c = part_name_input;
+                                        let mut part_unit_cost_input_c = part_unit_cost_input;
 
                                         move |_| {
-                                            if p_name.trim().is_empty() { return; }
+                                            if p_name.trim().is_empty() {
+                                                toast_c.error("Validation Error".to_string(), dioxus_primitives::toast::ToastOptions::new().description("Please enter a part or material name."));
+                                                return;
+                                            }
+                                            if raw_cost_str.trim().is_empty() {
+                                                toast_c.error("Validation Error".to_string(), dioxus_primitives::toast::ToastOptions::new().description("Unit cost is required. Please enter an explicit unit cost."));
+                                                return;
+                                            }
+                                            let p_cost = match raw_cost_str.trim().parse::<f64>() {
+                                                Ok(val) => val,
+                                                Err(_) => {
+                                                    toast_c.error("Validation Error".to_string(), dioxus_primitives::toast::ToastOptions::new().description("Please enter a valid numeric unit cost."));
+                                                    return;
+                                                }
+                                            };
+                                            let p_qty = raw_qty_str.trim().parse::<f64>().unwrap_or(1.0);
+
                                             let runner_inner = runner_c.clone();
                                             let uid_inner = requester_uid.clone();
                                             let jid_inner = job_ticket_id.clone();
@@ -549,6 +889,7 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                                     p_rot,
                                                 ).await?;
                                                 part_name_input_c.set(String::new());
+                                                part_unit_cost_input_c.set(String::new());
                                                 let cur = *db_trig_c.read();
                                                 db_trig_c.set(cur + 1);
                                                 Ok(())
@@ -629,8 +970,8 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                     div { class: "flex flex-col gap-4 text-xs animate-in fade-in duration-200",
                         div { class: "flex items-center justify-between bg-muted/20 p-2.5 rounded-lg border border-border",
                             div { class: "flex flex-col gap-0.5",
-                                span { class: "font-semibold text-foreground", "Work Order Labor & Travel Calculation" }
-                                span { class: "text-[11px] text-muted-foreground", "Auto-populate labor and travel from recorded parts and default service rates." }
+                                span { class: "font-semibold text-foreground", "{t(\"hvac-rot-calc-title\", &region)}" }
+                                span { class: "text-[11px] text-muted-foreground", "{t(\"hvac-rot-calc-subtitle\", &region)}" }
                             }
                             button {
                                 class: "yntra-btn py-1.5 px-3 text-[11px] font-bold flex items-center gap-1.5 bg-primary/20 text-primary border border-primary/30 hover:bg-primary/30",
@@ -648,7 +989,7 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
 
                         div { class: "grid grid-cols-2 gap-3",
                             div { class: "flex flex-col gap-1",
-                                label { class: "font-semibold text-foreground", "Labor Cost (SEK)" }
+                                label { class: "font-semibold text-foreground", "{t(\"hvac-rot-labor-cost-label\", &region)}" }
                                 input {
                                     class: "yntra-input py-1.5 px-3 bg-background border border-border text-foreground rounded text-xs",
                                     placeholder: "e.g. 6500.0",
@@ -657,7 +998,7 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                 }
                             }
                             div { class: "flex flex-col gap-1",
-                                label { class: "font-semibold text-foreground", "Travel Fee (SEK)" }
+                                label { class: "font-semibold text-foreground", "{t(\"hvac-rot-travel-fee-label\", &region)}" }
                                 input {
                                     class: "yntra-input py-1.5 px-3 bg-background border border-border text-foreground rounded text-xs",
                                     placeholder: "e.g. 450.0",
@@ -680,10 +1021,6 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                 div { class: "flex justify-between border-b border-border/40 pb-1.5",
                                     span { class: "text-muted-foreground", "{t(\"hvac-rot-eligible-label\", &region)}" }
                                     span { class: "font-bold text-foreground", "{rot_info.eligible_labor_sek:.2} SEK" }
-                                }
-                                div { class: "flex justify-between border-b border-border/40 pb-1.5",
-                                    span { class: "text-muted-foreground", "{t(\"hvac-rot-eligible-parts-label\", &region)}" }
-                                    span { class: "font-bold text-emerald-400", "{rot_info.eligible_parts_sek:.2} SEK" }
                                 }
                                 div { class: "flex justify-between border-b border-border/40 pb-1.5",
                                     span { class: "text-muted-foreground", "{t(\"hvac-rot-non-eligible-label\", &region)}" }
@@ -730,10 +1067,10 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                         "MAINTENANCE_WARNING" => t("hvac-status-warning", &region),
                                         _ => t("hvac-status-normal", &region),
                                     };
-                                    let high_val_str = if is_metric { format!("{:.2} Bar", diag.high_side_psi / 14.5038) } else { format!("{:.1} PSI", diag.high_side_psi) };
-                                    let low_val_str = if is_metric { format!("{:.2} Bar", diag.low_side_psi / 14.5038) } else { format!("{:.1} PSI", diag.low_side_psi) };
-                                    let water_val_str = if is_metric { format!("{:.2} Bar", diag.water_pressure_bar) } else { format!("{:.1} PSI", diag.water_pressure_bar * 14.5038) };
-                                    let delta_t_str = if is_metric { format!("{:.1}°C", diag.temp_differential_c) } else { format!("{:.1}°F", diag.temp_differential_c * 1.8) };
+                                    let high_val_str = diag.high_side_psi.map(|h| if is_metric { format!("{:.2} Bar", h / 14.503773773) } else { format!("{:.1} PSI", h) }).unwrap_or_else(|| "N/A".to_string());
+                                    let low_val_str = diag.low_side_psi.map(|l| if is_metric { format!("{:.2} Bar", l / 14.503773773) } else { format!("{:.1} PSI", l) }).unwrap_or_else(|| "N/A".to_string());
+                                    let water_val_str = diag.water_pressure_bar.map(|w| if is_metric { format!("{:.2} Bar", w) } else { format!("{:.1} PSI", w * 14.503773773) }).unwrap_or_else(|| "N/A".to_string());
+                                    let delta_t_str = diag.temp_differential_c.map(|td| if is_metric { format!("{:.1}°C", td) } else { format!("{:.1}°F", td * 1.8) }).unwrap_or_else(|| "N/A".to_string());
 
                                     let date_str = {
                                         let ts = diag.created_at;
@@ -752,38 +1089,90 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                             div { class: "flex items-center justify-between border-b border-border/40 pb-1.5 mb-1",
                                                 div { class: "flex items-center gap-2",
                                                     span { class: "{status_badge_class}", "{status_label}" }
-                                                    span { class: "px-2 py-0.5 bg-secondary/30 text-secondary-foreground rounded text-[10px] font-medium flex items-center gap-1",
-                                                        "👤 Tech: {diag.technician_id}"
+                                                    {
+                                                        let tech_str = diag.technician_id.as_str();
+                                                        let tech_label = t_with_args("hvac-history-tech-label", &region, &[("tech", tech_str)]);
+                                                        rsx! {
+                                                            span { class: "px-2 py-0.5 bg-secondary/30 text-secondary-foreground rounded text-[10px] font-medium flex items-center gap-1",
+                                                                "{tech_label}"
+                                                            }
+                                                        }
                                                     }
                                                     if let Some(ref mode) = diag.operating_mode {
                                                         span { class: "px-2 py-0.5 bg-primary/10 text-primary rounded text-[10px] font-semibold", "{mode}" }
                                                     }
                                                     if let Some(ref asset) = diag.asset_id {
-                                                        span { class: "text-[11px] font-semibold text-primary", "Asset: {asset}" }
+                                                        {
+                                                            let asset_str = asset.as_str();
+                                                            let asset_label = t_with_args("hvac-history-asset-label", &region, &[("asset", asset_str)]);
+                                                            rsx! { span { class: "text-[11px] font-semibold text-primary", "{asset_label}" } }
+                                                        }
                                                     }
                                                 }
                                                 div { class: "flex items-center gap-3 text-xs text-muted-foreground",
                                                     span { class: "text-[11px] font-mono text-muted-foreground/80", "📅 {date_str}" }
-                                                    span { "Medium: {diag.refrigerant_type}" }
+                                                    {
+                                                        let med_str = diag.refrigerant_type.as_str();
+                                                        let med_label = t_with_args("hvac-history-medium", &region, &[("medium", med_str)]);
+                                                        rsx! { span { "{med_label}" } }
+                                                    }
                                                 }
                                             }
-                                            if diag.system_type == "HYDRONIC_HEATING" || diag.system_type == "HYDRONIC_PLUMBING" || diag.system_type == "POTABLE_WATER" || diag.system_type == "POTABLE_PLUMBING" {
-                                                div { class: "grid grid-cols-2 gap-2 text-muted-foreground text-[11px]",
-                                                    span { "Water Pressure: {water_val_str}" }
-                                                    span { "ΔT: {delta_t_str}" }
-                                                }
-                                            } else {
-                                                div { class: "grid grid-cols-3 gap-2 text-muted-foreground text-[11px]",
-                                                    span { "High Side: {high_val_str}" }
-                                                    span { "Low Side: {low_val_str}" }
-                                                    span { "ΔT: {delta_t_str}" }
+                                            {
+                                                if diag.system_type == "HYDRONIC_HEATING" || diag.system_type == "HYDRONIC_PLUMBING" || diag.system_type == "POTABLE_WATER" || diag.system_type == "POTABLE_PLUMBING" {
+                                                    let static_str = diag.static_flow_pressure_bar.map(|s| if is_metric { format!("{:.2} Bar", s) } else { format!("{:.1} PSI", s * 14.503773773) }).unwrap_or_else(|| "N/A".to_string());
+                                                    let dynamic_str = diag.dynamic_flow_pressure_bar.map(|d| if is_metric { format!("{:.2} Bar", d) } else { format!("{:.1} PSI", d * 14.503773773) }).unwrap_or_else(|| "N/A".to_string());
+                                                    let heater_temp_str = diag.water_heater_temp_c.map(|ht| if is_metric { format!("{:.1}°C", ht) } else { format!("{:.1}°F", ht * 1.8 + 32.0) }).unwrap_or_else(|| "N/A".to_string());
+                                                    let leak_drop_str = diag.leak_test_pressure_drop_bar.map(|ld| if is_metric { format!("{:.2} Bar", ld) } else { format!("{:.1} PSI", ld * 14.503773773) }).unwrap_or_else(|| "N/A".to_string());
+                                                    let pipe_mat = diag.pipe_material.as_deref().unwrap_or("N/A");
+                                                    let backflow_st = diag.backflow_preventer_status.as_deref().unwrap_or("N/A");
+
+                                                    let h_wp = t_with_args("hvac-history-water-press", &region, &[("val", water_val_str.as_str())]);
+                                                    let h_static = t_with_args("hvac-history-static", &region, &[("val", static_str.as_str())]);
+                                                    let h_dynamic = t_with_args("hvac-history-dynamic", &region, &[("val", dynamic_str.as_str())]);
+                                                    let h_pipe = t_with_args("hvac-history-pipe", &region, &[("mat", pipe_mat)]);
+                                                    let h_backflow = t_with_args("hvac-history-backflow", &region, &[("status", backflow_st)]);
+                                                    let h_heater = t_with_args("hvac-history-heater", &region, &[("temp", heater_temp_str.as_str())]);
+                                                    let h_dt = t_with_args("hvac-history-delta-t", &region, &[("delta", delta_t_str.as_str())]);
+
+                                                    rsx! {
+                                                        div { class: "grid grid-cols-3 gap-2 text-muted-foreground text-[11px] bg-background/30 p-2 rounded border border-border/30",
+                                                            span { "{h_wp}" }
+                                                            span { "{h_static}" }
+                                                            span { "{h_dynamic}" }
+                                                            span { "{h_pipe}" }
+                                                            span { "{h_backflow}" }
+                                                            span { "{h_heater}" }
+                                                            if let Some(dur) = diag.leak_test_duration_min {
+                                                                {
+                                                                    let dur_s = dur.to_string();
+                                                                    let h_leak = t_with_args("hvac-history-leak-test", &region, &[("dur", dur_s.as_str()), ("drop", leak_drop_str.as_str())]);
+                                                                    rsx! { span { "{h_leak}" } }
+                                                                }
+                                                            }
+                                                            span { "{h_dt}" }
+                                                        }
+                                                    }
+                                                } else {
+                                                    let h_high = t_with_args("hvac-history-high-side", &region, &[("val", high_val_str.as_str())]);
+                                                    let h_low = t_with_args("hvac-history-low-side", &region, &[("val", low_val_str.as_str())]);
+                                                    let h_dt = t_with_args("hvac-history-delta-t", &region, &[("delta", delta_t_str.as_str())]);
+
+                                                    rsx! {
+                                                        div { class: "grid grid-cols-3 gap-2 text-muted-foreground text-[11px]",
+                                                            span { "{h_high}" }
+                                                            span { "{h_low}" }
+                                                            span { "{h_dt}" }
+                                                        }
+                                                    }
                                                 }
                                             }
                                             if let Some(amb) = diag.ambient_temp_c {
                                                 {
                                                     let amb_str = if is_metric { format!("{:.1}°C", amb) } else { format!("{:.1}°F", amb * 1.8 + 32.0) };
+                                                    let amb_label = t_with_args("hvac-history-ambient-label", &region, &[("temp", amb_str.as_str())]);
                                                     rsx! {
-                                                        div { class: "text-[11px] text-muted-foreground italic", "Outdoor Ambient Temp: {amb_str}" }
+                                                        div { class: "text-[11px] text-muted-foreground italic", "{amb_label}" }
                                                     }
                                                 }
                                             }

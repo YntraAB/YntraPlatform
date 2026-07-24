@@ -132,6 +132,16 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
     });
 
     let workspace_opt = state.workspace.read().clone();
+    let modules_val: serde_json::Value = if let Some(ref ws) = workspace_opt {
+        serde_json::from_str(&ws.modules_active).unwrap_or_default()
+    } else {
+        serde_json::Value::Null
+    };
+    let is_hvac_plumbing = modules_val
+        .get("hvac_plumbing")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
     let settings_json: serde_json::Value = if let Some(ref ws) = workspace_opt {
         serde_json::from_str(&ws.settings).unwrap_or_default()
     } else {
@@ -428,11 +438,13 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                         components::LucideIcon { name: "message-square", size: "14" }
                         "Dispatch SMS & Omdömen 💬"
                     }
-                    button {
-                        class: "px-3 py-1 text-xs font-semibold rounded bg-teal-600/10 text-teal-400 hover:bg-teal-600/20 border border-teal-500/30 cursor-pointer flex items-center gap-1.5 transition-colors",
-                        onclick: move |_| show_hvac_modal.set(true),
-                        components::LucideIcon { name: "zap", size: "14" }
-                        "{t(\"hvac-btn-title\", &region)}"
+                    if is_hvac_plumbing {
+                        button {
+                            class: "px-3 py-1 text-xs font-semibold rounded bg-teal-600/10 text-teal-400 hover:bg-teal-600/20 border border-teal-500/30 cursor-pointer flex items-center gap-1.5 transition-colors",
+                            onclick: move |_| show_hvac_modal.set(true),
+                            components::LucideIcon { name: "zap", size: "14" }
+                            "{t(\"hvac-btn-title\", &region)}"
+                        }
                     }
                 }
                 h2 { class: "m-0 font-extrabold",
