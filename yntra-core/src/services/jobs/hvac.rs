@@ -30,6 +30,9 @@ pub struct HvacSystemDiagnostic {
     pub water_heater_temp_c: Option<f64>,
     pub leak_test_duration_min: Option<f64>,
     pub leak_test_pressure_drop_bar: Option<f64>,
+    pub refrigerant_added_kg: Option<f64>,
+    pub refrigerant_recovered_kg: Option<f64>,
+    pub reclaim_cylinder_id: Option<String>,
     pub created_at: i64,
 }
 
@@ -91,6 +94,9 @@ pub async fn log_hvac_system_diagnostic(
     water_heater_temp_c: Option<f64>,
     leak_test_duration_min: Option<f64>,
     leak_test_pressure_drop_bar: Option<f64>,
+    refrigerant_added_kg: Option<f64>,
+    refrigerant_recovered_kg: Option<f64>,
+    reclaim_cylinder_id: Option<String>,
 ) -> Result<HvacSystemDiagnostic, YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
@@ -244,8 +250,9 @@ pub async fn log_hvac_system_diagnostic(
             refrigerant_charge_level, high_side_psi, low_side_psi, water_pressure_bar, temp_differential_c,
             voltage_v, amp_draw_a, diagnostic_status, asset_id, notes, operating_mode, ambient_temp_c,
             static_flow_pressure_bar, dynamic_flow_pressure_bar, pipe_material, backflow_preventer_status,
-            water_heater_temp_c, leak_test_duration_min, leak_test_pressure_drop_bar, created_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
+            water_heater_temp_c, leak_test_duration_min, leak_test_pressure_drop_bar,
+            refrigerant_added_kg, refrigerant_recovered_kg, reclaim_cylinder_id, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29)",
         crate::params![
             id.clone(),
             auth.workspace_id.clone(),
@@ -272,6 +279,9 @@ pub async fn log_hvac_system_diagnostic(
             water_heater_temp_c,
             leak_test_duration_min,
             leak_test_pressure_drop_bar,
+            refrigerant_added_kg,
+            refrigerant_recovered_kg,
+            reclaim_cylinder_id.clone(),
             now_ms,
         ],
     ).await?;
@@ -304,6 +314,9 @@ pub async fn log_hvac_system_diagnostic(
         water_heater_temp_c,
         leak_test_duration_min,
         leak_test_pressure_drop_bar,
+        refrigerant_added_kg,
+        refrigerant_recovered_kg,
+        reclaim_cylinder_id,
         created_at: now_ms,
     })
 }
@@ -325,7 +338,8 @@ pub async fn get_hvac_job_diagnostics(
                 refrigerant_charge_level, high_side_psi, low_side_psi, water_pressure_bar, temp_differential_c,
                 voltage_v, amp_draw_a, diagnostic_status, asset_id, notes, operating_mode, ambient_temp_c,
                 static_flow_pressure_bar, dynamic_flow_pressure_bar, pipe_material, backflow_preventer_status,
-                water_heater_temp_c, leak_test_duration_min, leak_test_pressure_drop_bar, created_at
+                water_heater_temp_c, leak_test_duration_min, leak_test_pressure_drop_bar,
+                refrigerant_added_kg, refrigerant_recovered_kg, reclaim_cylinder_id, created_at
          FROM hvac_diagnostics
          WHERE job_ticket_id = ?1 AND workspace_id = ?2
          ORDER BY created_at DESC"
@@ -359,7 +373,10 @@ pub async fn get_hvac_job_diagnostics(
                 water_heater_temp_c: row.get(22).ok(),
                 leak_test_duration_min: row.get(23).ok(),
                 leak_test_pressure_drop_bar: row.get(24).ok(),
-                created_at: row.get(25)?,
+                refrigerant_added_kg: row.get(25).ok(),
+                refrigerant_recovered_kg: row.get(26).ok(),
+                reclaim_cylinder_id: row.get(27).ok(),
+                created_at: row.get(28)?,
             })
         })
         .await?;
@@ -491,13 +508,31 @@ pub async fn calculate_hvac_rot_invoice_breakdown(
         return Err(YntraError::AuthError("Access denied".to_string()));
     }
 
+    let (deduction_rate, annual_cap) = {
+        let settings_str: String = conn
+            .query_row(
+                "SELECT settings FROM workspaces WHERE id = ?1",
+                crate::params![auth.workspace_id],
+                |r| r.get(0),
+            )
+            .await
+            .unwrap_or_else(|_| "{}".to_string());
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&settings_str) {
+            let rate = json.get("rot_deduction_rate").and_then(|v| v.as_f64()).unwrap_or(0.30);
+            let cap = json.get("rot_annual_cap_sek").and_then(|v| v.as_f64()).unwrap_or(75000.0);
+            (rate, cap)
+        } else {
+            (0.30, 75000.0)
+        }
+    };
+
     let eligible_labor_sek = labor_cost_sek.max(0.0);
     let non_eligible_parts_sek = parts_cost_sek.max(0.0) + travel_fee_sek.max(0.0);
     let total_gross_amount_sek = eligible_labor_sek + non_eligible_parts_sek;
 
-    // ROT Deduction is strictly 30% of eligible labor in Sweden (capped at 50,000 SEK per person per year).
-    // Under Skatteverket regulations, materials, parts, and travel fees are 100% non-eligible.
-    let rot_deduction_30_percent_sek = (eligible_labor_sek * 0.30).min(50000.0);
+    // ROT / Tax Deduction is configurable per workspace settings (defaulting to 30% rate and updated 75,000 SEK limit).
+    // Materials, parts, and travel fees remain 100% non-eligible under standard tax authority rules.
+    let rot_deduction_30_percent_sek = (eligible_labor_sek * deduction_rate).min(annual_cap);
     let net_customer_payable_sek = total_gross_amount_sek - rot_deduction_30_percent_sek;
 
     Ok(RotInvoiceSplitBreakdown {
@@ -507,7 +542,7 @@ pub async fn calculate_hvac_rot_invoice_breakdown(
         non_eligible_parts_sek,
         rot_deduction_30_percent_sek,
         net_customer_payable_sek,
-        max_annual_rot_cap_remaining_sek: (50000.0 - rot_deduction_30_percent_sek).max(0.0),
+        max_annual_rot_cap_remaining_sek: (annual_cap - rot_deduction_30_percent_sek).max(0.0),
         rot_eligible_flag: eligible_labor_sek > 0.0,
     })
 }
@@ -635,15 +670,21 @@ mod tests {
             None,
             None,
             None,
+            Some(0.5),
+            None,
+            Some("CYL-8821".to_string()),
         ).await.unwrap();
 
         assert_eq!(diag.diagnostic_status, "SYSTEM_NORMAL");
         assert_eq!(diag.asset_id.as_deref(), Some("NIBE-HEAT-PUMP-001"));
         assert_eq!(diag.operating_mode.as_deref(), Some("COOLING_MODE"));
+        assert_eq!(diag.refrigerant_added_kg, Some(0.5));
+        assert_eq!(diag.reclaim_cylinder_id.as_deref(), Some("CYL-8821"));
 
         let list = get_hvac_job_diagnostics("u-hvac-tech".to_string(), "ticket-101".to_string()).await.unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].refrigerant_type, "R-410A");
+        assert_eq!(list[0].refrigerant_added_kg, Some(0.5));
 
         // Log Hydronic & Potable Plumbing diagnostic with leak test and backflow check
         let hyd_diag = log_hvac_system_diagnostic(
@@ -669,6 +710,9 @@ mod tests {
             Some(58.0), // 58°C safe water heater temp
             Some(30.0), // 30 min test duration
             Some(0.0),  // 0 bar pressure drop
+            None,
+            None,
+            None,
         ).await.unwrap();
 
         assert_eq!(hyd_diag.diagnostic_status, "SYSTEM_NORMAL");

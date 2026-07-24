@@ -340,6 +340,9 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             water_heater_temp_c REAL,
             leak_test_duration_min REAL,
             leak_test_pressure_drop_bar REAL,
+            refrigerant_added_kg REAL,
+            refrigerant_recovered_kg REAL,
+            reclaim_cylinder_id TEXT,
             created_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_hvac_diagnostics_ticket ON hvac_diagnostics(job_ticket_id, workspace_id);
