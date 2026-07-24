@@ -1414,6 +1414,17 @@ block-delete-record = Slet post
 block-copy-json = Kopier JSON-data
 block-no-schema-title = Intet skema konfigureret
 block-no-schema-desc = Dynamiske blokke kræver et feltskema i JSON for at vise formularer og lister. Konfigurer et skema i Indstillinger eller initialiser et eksempelskema nu.
+
+
+
+
+
+
+# Inventory Preset Categories & Items
+
+
+
+# Dynamic Blocks & Dynamic Forms
 block-init-sample-schema = Initialiser eksempelskema
 block-confirm-deletion-title = Bekræft sletning
 block-confirm-deletion-desc = Er du sikker på, at du vil slette denne post? Denne handling kan ikke fortrydes. Posten vil blive permanent fjernet fra dit arbejdsområde.
@@ -1431,61 +1442,61 @@ validation-min-number = { $label } skal være mindst { $min }.
 validation-max-number = { $label } må højst være { $max }.
 
 # HVAC & Plumbing Module Keys
-hvac-btn-title = HVAC & Plumbing Diagnostics ⚡
-hvac-drawer-title = HVAC & Plumbing System Diagnostic Drawer
-hvac-work-order-subtitle = Work Order #{ $id } • Heat Pump, Hydronic & Plumbing Log
-hvac-tab-diagnostic = 🔧 System Diagnostic
-hvac-tab-parts = 🔩 Parts & Materials Tracker
-hvac-tab-rot = 🇸🇪 ROT 30% Tax Credit Split
-hvac-tab-history = 📜 Inspection History ({ $count })
-hvac-system-type = System Category
-hvac-type-refrigerant = Refrigerant Heat Pump / AC
-hvac-type-hydronic = Hydronic Heating / Radiator Circuit
-hvac-type-potable = Potable Water / Plumbing
-hvac-op-mode = System Operating Mode
-hvac-mode-cooling = ❄️ Cooling Mode (Air Conditioning)
-hvac-mode-heating = 🔥 Heating Mode (Heat Pump)
-hvac-ambient-temp = Outdoor Ambient Temp (°C)
-hvac-water-pressure = Water / Hydronic Pressure (Bar)
-hvac-refrigerant-type = Refrigerant / System Medium
-hvac-charge-level = Refrigerant Charge Level
-hvac-high-psi = High Side Pressure (PSI)
-hvac-low-psi = Low Side Pressure (PSI)
-hvac-delta-t = Delta T Differential (ΔT °C)
-hvac-voltage = Electrical Voltage (V)
-hvac-amps = Compressor Amp Draw (A)
-hvac-asset-id = Equipment Asset Tag / Serial #
-hvac-tech-notes = Technician Diagnostic Notes
-hvac-log-btn = 💾 Log Diagnostic Inspection
-hvac-parts-title = On-Site Materials & Parts Log
-hvac-parts-desc = Record parts used on-site for customer job billing and ROT labor separation.
-hvac-part-name = Part Name / Fitting
-hvac-part-qty = Qty
-hvac-part-unit-cost = Unit Cost (SEK)
-hvac-part-rot = ROT Eligible
-hvac-part-add = ➕ Add Material / Part
-hvac-rot-title = Skatteverket ROT 30% Deduction Split
+hvac-btn-title = HVAC & VVS Diagnostik
+hvac-drawer-title = HVAC & VVS Feltdiagnostik Panel
+hvac-work-order-subtitle = Arbejdsseddel #{ $id } • Varmepumpe, Hydronisk & VVS Log
+hvac-tab-diagnostic = Systemdiagnostik
+hvac-tab-parts = Materiale- & Reservedelslog
+hvac-tab-rot = ROT Skattefradrag
+hvac-tab-history = Inspektionshistorik ({ $count })
+hvac-system-type = Systemkategori
+hvac-type-refrigerant = Varmepumpe / Køling (Kølemiddel)
+hvac-type-hydronic = Varmeanlæg (Vandbåren varme)
+hvac-type-potable = Brugsvand (VVS / Drikkevand)
+hvac-op-mode = Driftstilstand
+hvac-mode-cooling = Køling (Kondensator / AC)
+hvac-mode-heating = Varme (Varmepumpe)
+hvac-ambient-temp = Udetemperatur (°C)
+hvac-water-pressure = Vandtryk / Hydronisk tryk (Bar)
+hvac-refrigerant-type = Kølemiddel / Systemmedium
+hvac-charge-level = Kølemiddelmængde / Fyldningsgrad
+hvac-high-psi = Højtryk (PSI)
+hvac-low-psi = Lavtryk (PSI)
+hvac-delta-t = Temperaturdifferens (ΔT °C)
+hvac-voltage = Spænding (V)
+hvac-amps = Kompressorstrøm (A)
+hvac-asset-id = Serienummer / Udstyrs-ID
+hvac-tech-notes = Teknikerens noter & observationer
+hvac-log-btn = Gem HVAC & VVS Diagnostik
+hvac-parts-title = Anvendte materialer & reservedele på stedet
+hvac-parts-desc = Registrer materialer til kundefakturering og opdeling af ROT-berettiget arbejde.
+hvac-part-name = Materiale- / Delnavn
+hvac-part-qty = Antal
+hvac-part-unit-cost = Enhedspris
+hvac-part-rot = ROT-Berettiget
+hvac-part-add = Tilføj materiale / reservedel
+hvac-rot-title = Skatteverket ROT 30% Fradragsberegning
 hvac-status-normal = Normal
-hvac-status-warning = Warning
-hvac-status-critical = Critical
-hvac-part-total-cost = Total (SEK)
-hvac-actions-col = Actions
-hvac-no-parts-msg = No parts recorded for this work order yet. Add items using the form above.
-hvac-part-delete-btn = Delete
-hvac-rot-valid-badge = Skatteverket ROT Valid
-hvac-rot-gross-label = Total Gross Service Invoice:
-hvac-rot-eligible-label = ROT Eligible Labor Amount:
-hvac-rot-eligible-parts-label = ROT Eligible Materials:
-hvac-rot-non-eligible-label = Parts & Travel (Non-Eligible):
-hvac-rot-credit-label = Customer ROT 30% Credit:
-hvac-rot-net-label = Net Customer Amount Due On-Site:
-hvac-rot-autofill-btn = ⚡ Auto-fill from Job Parts & Work Log
-hvac-rot-cap-label = Est. Single Invoice Deduction (Subject to Customer's YTD Skatteverket Limit)
-hvac-rot-cap-warning = ⚠️ Skatteverket caps total annual ROT tax deductions at SEK 50,000 per individual taxpayer per calendar year across all service providers combined. Verify customer's remaining YTD limit prior to final invoice submission.
-hvac-no-history-msg = No previous diagnostic inspections recorded for this work order.
+hvac-status-warning = Advarsel
+hvac-status-critical = Kritisk
+hvac-part-total-cost = I alt
+hvac-actions-col = Handlinger
+hvac-no-parts-msg = Ingen reservedele registreret for denne arbejdsseddel endnu. Tilføj materialer via formularen ovenfor.
+hvac-part-delete-btn = Slet
+hvac-rot-valid-badge = Skatteverket ROT Gyldig
+hvac-rot-gross-label = Samlet fakturabeløb (Brutto):
+hvac-rot-eligible-label = ROT-Berettiget arbejdsomkostning (30% fradrag):
+hvac-rot-eligible-parts-label = Materialer & Reservedele (Ej ROT):
+hvac-rot-non-eligible-label = Materialer, Reservedele & Kørsel (Ej ROT):
+hvac-rot-credit-label = Kundens ROT 30% Skattefradrag (Kun Arbejde):
+hvac-rot-net-label = Kundens nettobeløb til betaling på stedet:
+hvac-rot-autofill-btn = Hent automatisk fra materialer & timer
+hvac-rot-cap-label = Beregnet ROT-fradrag (forbehold for kundens årlige Skatteverket-loft)
+hvac-rot-cap-warning = Skatteverket anvender et maksimalt ROT-fradrag på 50.000 kr pr. person pr. kalenderår samlet for alle leverandører. Kontroller kundens resterende beløb hos Skatteverket før endelig fakturering.
+hvac-no-history-msg = Ingen tidligere feltdiagnostik registreret for denne arbejdsseddel.
 hvac-charge-optimal = Optimal (95-100%)
-hvac-charge-under = Undercharged (<80% - Leak Risk)
-hvac-charge-over = Overcharged (>110% - High Pressure)
+hvac-charge-under = Underfyldt (<80% - Lækagerisiko)
+hvac-charge-over = Overfyldt (>110% - Højt tryk)
 hvac-static-flow-pressure = Statisk Flowtryk
 hvac-dynamic-flow-pressure = Dynamisk Flowtryk
 hvac-pipe-material = Rørmateriale
@@ -1495,9 +1506,9 @@ hvac-mat-stainless = Rustfrit stål
 hvac-mat-galvanized = Galvaniseret stål
 hvac-mat-pvc = PVC / CPVC
 hvac-backflow-preventer = Tilbageløbssikring (K kontraventil)
-hvac-backflow-pass = ✅ Godkendt / Testet OK
-hvac-backflow-fail = 🚨 Fejl / Tjek Lækage
-hvac-backflow-untested = ⚠️ Ikke Testet
+hvac-backflow-pass = Godkendt / Testet OK
+hvac-backflow-fail = Fejl / Tjek Lækage
+hvac-backflow-untested = Ikke Testet
 hvac-backflow-na = N/A (Ingen ventil)
 hvac-water-heater-temp = Vandvarmer Setpunkt
 hvac-leak-test-duration = Lækagetest Varighed (min)
@@ -1534,3 +1545,67 @@ hvac-history-water-press = Vandtryk: { $val }
 
 
 
+
+# Todos section
+todos-status-completed = Gennemført
+todos-status-active = Aktiv
+todos-action-mark-active = Marker som aktiv
+todos-action-mark-completed = Marker som gennemført
+todos-action-copy-text = Kopier tekst
+
+# Care section
+care-frequency-prefix = Frekvens: 
+care-medication-name = Lægemiddelnavn
+care-frequency = Frekvens
+
+# Client Portal section
+client-portal-active-jobs = Aktive Opgaver
+client-portal-active-jobs-desc = Aktuelle service- og arbejdsordrer.
+client-portal-no-active-jobs = Ingen aktive opgaver.
+client-portal-origin-label = Fra (Oprindelse)
+client-portal-required = Kræves
+client-portal-not-required = Ikke et krav
+client-portal-destination-label = Til (Destination)
+client-portal-jobs-overview = Opgaveoversigt
+client-portal-jobs-overview-desc = Resumé af dine sager.
+client-portal-active-cases = Aktive sager
+client-portal-completed-cases = Gennemførte sager
+client-portal-member-tier = Medlemsniveau
+client-portal-business-client = Erhvervskunde
+client-portal-my-jobs = Mine Opgaver
+client-portal-support-contact = Support & Kontakt
+client-portal-no-jobs-listed = Ingen opgaver opført.
+client-portal-no-checklist-items = Ingen tjeklistepunkter for denne opgave.
+client-portal-support-title = Kundesupport & Kontaktinformation
+client-portal-support-desc = Vi er her for at hjælpe dig hverdage 08:00 - 17:00.
+
+# Time section
+time-kpi-attested-approved-hours = Godkendte Godkendte Timer
+time-kpi-attested-shifts-logged-locally = Godkendte vagter registreret lokalt
+time-kpi-awaiting-attestation = Afventer Godkendelse
+time-kpi-requires-employee-revision = Kræver revision af medarbejder
+time-kpi-resolution-rate = Løsningsgrad
+time-kpi-resolved-vs-open-records = Løste vs åbne poster
+time-team-members = Teammedlemmer
+time-no-members-found = Ingen medlemmer fundet.
+time-status-not-submitted = Ikke indsendt
+time-status-pending-attest = Afventer godkendelse
+time-status-attested = Godkendt
+time-my-teams-shifts = Mine teams & vagter
+time-no-registered-teams = Du tilhører ingen registrerede teams lige nu.
+time-organizations = Organisationer
+time-no-registered-organizations = Der er ingen registrerede organisationer i systemet i øjeblikket.
+time-all-done = ALT GENNEMFØRT
+time-current-shifts = Aktuelle vagter
+time-previous-months = Tidligere måneder
+time-no-approved-history = Der er ingen historik for godkendte vagter.
+time-work-time = Arbejdstid
+time-absence = Fravær
+time-all-reports-count = Alle rapporter ({ $count })
+time-attest-selected-count = Godkend valgte ({ $count })
+time-reject-selected = Afvis valgte
+time-no-shifts-reported = Der er ingen vagter rapporteret for denne visning.
+time-action-approve-shift = Godkend vagt
+time-action-reject-shift = Afvis vagt
+time-action-delete-report = Slet tidsrapport
+time-action-copy-details = Kopier detaljer
