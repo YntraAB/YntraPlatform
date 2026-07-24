@@ -70,7 +70,7 @@ pub fn StudentDashboardTab(
                             }
                         }
                         if is_avid_reader {
-                            div { class: "flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-purple-500/10 text-purple-600 border border-purple-500/20 text-[10px] font-bold uppercase tracking-wider",
+                            div { class: "flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary border border-primary/20 text-[10px] font-bold uppercase tracking-wider",
                                 LucideIcon { name: "book-open", class: "h-3.5 w-3.5" }
                                 {t("school-badge-reader", &locale)}
                             }

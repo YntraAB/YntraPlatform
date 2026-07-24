@@ -162,7 +162,7 @@ pub fn MedicationsView(props: CareViewProps) -> Element {
                                                     }
                                                     if let Some(fq) = &m.frequency {
                                                         div { class: "text-[10px] text-muted-foreground mt-0.5",
-                                                            span { class: "font-semibold", "Frequency: " }
+                                                            span { class: "font-semibold", "{t(\"care-frequency-prefix\", &region)}" }
                                                             "{fq}"
                                                         }
                                                     }
@@ -198,7 +198,7 @@ pub fn MedicationsView(props: CareViewProps) -> Element {
                             }
                         }
                         div { class: "grid gap-1.5",
-                            label { class: "font-bold text-muted-foreground uppercase", "Medication Name" }
+                            label { class: "font-bold text-muted-foreground uppercase", "{t(\"care-medication-name\", &region)}" }
                             Input {
                                 placeholder: t("assistance-medication-name-placeholder", &region),
                                 value: new_med_name.read().clone(),
@@ -215,7 +215,7 @@ pub fn MedicationsView(props: CareViewProps) -> Element {
                                 }
                             }
                             div { class: "grid gap-1.5",
-                                label { class: "font-bold text-muted-foreground uppercase", "Frequency" }
+                                label { class: "font-bold text-muted-foreground uppercase", "{t(\"care-frequency\", &region)}" }
                                 Input {
                                     placeholder: t("assistance-medication-frequency-placeholder", &region),
                                     value: new_med_frequency.read().clone(),

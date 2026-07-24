@@ -135,7 +135,7 @@ pub fn ErpSyncModal(props: ErpSyncModalProps) -> Element {
                         div {
                             class: "bg-slate-800/60 border border-slate-700/60 rounded-xl p-4",
                             span { class: "text-xs text-slate-400 block", "Beräknade Löneskulder" }
-                            span { class: "text-lg font-extrabold text-indigo-400 mt-1 block", "{pay_str}" }
+                            span { class: "text-lg font-extrabold text-primary mt-1 block", "{pay_str}" }
                             span { class: "text-[10px] text-slate-400", "Konto 5000 / 2710" }
                         }
                     } else {
@@ -268,7 +268,7 @@ pub fn ErpSyncModal(props: ErpSyncModalProps) -> Element {
                                     }
                                 }
                                 button {
-                                    class: "w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors mt-2",
+                                    class: "w-full py-2 bg-primary hover:bg-primary/90 text-white text-xs font-semibold rounded-lg transition-colors mt-2",
                                     onclick: {
                                         let active_uid = active_user_id.clone();
                                         move |_| {
@@ -365,7 +365,7 @@ pub fn ErpSyncModal(props: ErpSyncModalProps) -> Element {
                                     p { class: "text-xs text-slate-400 mt-1", "Exportera månadens arbetade timmar, övertid, förarlön, traktamenten och dricks till ERP Huvudbok (Konto 5000 & 2710)." }
                                 }
                                 button {
-                                    class: "px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-semibold rounded-xl shadow-lg shadow-indigo-600/20 transition-all flex items-center gap-2",
+                                    class: "px-5 py-2.5 bg-primary hover:bg-primary/90 disabled:opacity-50 text-white text-sm font-semibold rounded-xl shadow-lg shadow-primary/20 transition-all flex items-center gap-2",
                                     disabled: *is_syncing.read(),
                                     onclick: {
                                         let active_uid = active_user_id.clone();

@@ -23,7 +23,7 @@ impl PartialEq for AccountSettingsProps {
 }
 
 const ACCENT_COLORS: &[(&str, &str)] = &[
-    ("Yntra Blue", "primary"),
+    ("Yntra Blue", "#2563eb"),
     ("Azure", "#3b82f6"),
     ("Emerald", "#10b981"),
     ("Violet", "#8b5cf6"),
@@ -322,7 +322,7 @@ pub fn AccountSettings(props: AccountSettingsProps) -> Element {
 
                                         rsx! {
                                             button {
-                                                key: "{c_val}",
+                                                key: "{c_name}",
                                                 class: if is_active {
                                                     "group relative flex items-center gap-3 rounded-2xl border-2 p-3 text-left transition-all duration-300 hover:scale-[1.02] active:scale-95 border-primary bg-primary/5 shadow-md shadow-primary/5"
                                                 } else {

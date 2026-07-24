@@ -140,7 +140,7 @@ pub fn InteractiveSelfServiceInventoryBuilder(props: InventoryBuilderProps) -> E
                     }
                     div { class: "bg-slate-900 border border-slate-800 p-3 rounded-lg",
                         div { class: "text-[10px] font-bold text-slate-400 uppercase tracking-widest", "TOTAL VOLYM" }
-                        div { class: "text-xl font-black text-indigo-400 mt-1", "{total_volume_m3:.1} m³" }
+                        div { class: "text-xl font-black text-primary mt-1", "{total_volume_m3:.1} m³" }
                     }
                     div { class: "bg-slate-900 border border-slate-800 p-3 rounded-lg",
                         div { class: "text-[10px] font-bold text-slate-400 uppercase tracking-widest", "VIKTUPPSKATTNING" }
@@ -160,7 +160,7 @@ pub fn InteractiveSelfServiceInventoryBuilder(props: InventoryBuilderProps) -> E
 
                 // Recommended Vehicle Banner
                 if total_items > 0 {
-                    div { class: "p-3 bg-indigo-950/60 border border-indigo-500/30 rounded-lg text-xs font-mono text-indigo-300 flex items-center justify-between",
+                    div { class: "p-3 bg-primary/10 border border-primary/30 rounded-lg text-xs font-mono text-primary flex items-center justify-between",
                         span { class: "font-bold", "REKOMMENDERAD FLYTTLASTBIL:" }
                         span { class: "font-black text-white", "{truck_recommendation}" }
                     }
@@ -181,7 +181,7 @@ pub fn InteractiveSelfServiceInventoryBuilder(props: InventoryBuilderProps) -> E
                     button {
                         key: "{room_key}",
                         class: if *selected_room.read() == *room_key {
-                            "px-4 py-2 bg-indigo-600 text-white font-bold text-xs rounded-xl shadow border border-indigo-400 transition-all cursor-pointer"
+                            "px-4 py-2 bg-primary text-white font-bold text-xs rounded-xl shadow border border-primary/40 transition-all cursor-pointer"
                         } else {
                             "px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs rounded-xl border border-slate-700 transition-all cursor-pointer"
                         },
@@ -207,7 +207,7 @@ pub fn InteractiveSelfServiceInventoryBuilder(props: InventoryBuilderProps) -> E
                             div {
                                 key: "{item.id}",
                                 class: if curr_qty > 0 {
-                                    "bg-slate-950 border-2 border-indigo-500 rounded-xl p-4 flex flex-col justify-between shadow-lg transition-all"
+                                    "bg-slate-950 border-2 border-primary rounded-xl p-4 flex flex-col justify-between shadow-lg transition-all"
                                 } else {
                                     "bg-slate-950/60 border border-slate-800 rounded-xl p-4 flex flex-col justify-between hover:border-slate-700 transition-all"
                                 },
@@ -215,7 +215,7 @@ pub fn InteractiveSelfServiceInventoryBuilder(props: InventoryBuilderProps) -> E
                                 div { class: "space-y-1 mb-3",
                                     div { class: "flex items-center justify-between",
                                         h4 { class: "text-sm font-extrabold text-white m-0", "{item.name}" }
-                                        span { class: "text-xs font-mono font-bold text-indigo-400 bg-indigo-950 px-2 py-0.5 rounded border border-indigo-800",
+                                        span { class: "text-xs font-mono font-bold text-primary bg-primary/10 px-2 py-0.5 rounded border border-primary/30",
                                             "{item.default_volume_m3} m³"
                                         }
                                     }
@@ -250,7 +250,7 @@ pub fn InteractiveSelfServiceInventoryBuilder(props: InventoryBuilderProps) -> E
                                     }
 
                                     button {
-                                        class: "h-9 w-9 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-black text-lg rounded-md flex items-center justify-center transition-all cursor-pointer shadow-md",
+                                        class: "h-9 w-9 bg-primary hover:bg-primary/90 active:scale-95 text-white font-black text-lg rounded-md flex items-center justify-center transition-all cursor-pointer shadow-md",
                                         onclick: move |_| {
                                             let mut map = item_quantities.read().clone();
                                             let q = map.entry(item_id_inc.clone()).or_insert(0);

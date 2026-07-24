@@ -1,4 +1,5 @@
 use crate::components;
+use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::TimeReport;
 
@@ -20,6 +21,9 @@ impl PartialEq for AssistantTeamsListProps {
 
 #[component]
 pub fn AssistantTeamsList(props: AssistantTeamsListProps) -> Element {
+    let state = use_context::<crate::state::AppState>();
+    let region = state.auth_region.read();
+
     let active_user_id = props.active_user_id.clone();
     let assistant_teams_list = props.assistant_teams_list.clone();
     let time_reports = props.time_reports.clone();
@@ -34,14 +38,14 @@ pub fn AssistantTeamsList(props: AssistantTeamsListProps) -> Element {
                     div { class: "rounded-md bg-primary/10 p-1.5",
                         components::LucideIcon { name: "calendar", class: "h-4 w-4 text-primary" }
                     }
-                    "Mina team & pass"
+                    "{t(\"time-my-teams-shifts\", &region)}"
                 }
             }
             div { class: "scrollbar-dark w-full flex-1 overflow-y-auto flex flex-col",
                 if assistant_teams_list.is_empty() {
                     div { class: "text-center text-muted-foreground/60 py-16",
                         components::LucideIcon { name: "calendar", class: "h-12 w-12 mx-auto mb-3 opacity-20" }
-                        p { class: "text-sm m-0", "Du tillhör inga registrerade team just nu." }
+                        p { class: "text-sm m-0", "{t(\"time-no-registered-teams\", &region)}" }
                     }
                 } else {
                     for team in assistant_teams_list.iter() {
@@ -77,17 +81,17 @@ pub fn AssistantTeamsList(props: AssistantTeamsListProps) -> Element {
                                             span { class: "text-lg font-bold text-foreground", "{total_hours}" }
                                             span { class: "text-[11px] font-medium uppercase text-muted-foreground", "h" }
                                         }
-                                        span { class: "text-[10px] font-medium uppercase tracking-tighter text-muted-foreground/60", "Rapporterat" }
+                                        span { class: "text-[10px] font-medium uppercase tracking-tighter text-muted-foreground/60", "{t(\"timereports-attested\", &region)}" }
                                     }
 
                                     div { class: "flex w-40 shrink-0 items-center justify-end pr-4",
                                         if has_pending {
                                             span { class: "inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide uppercase bg-amber-500/10 border border-amber-500/20 text-amber-400",
-                                                "Väntar attest"
+                                                "{t(\"time-status-pending-attest\", &region)}"
                                             }
                                         } else {
                                             span { class: "inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide uppercase bg-emerald-500/10 border border-emerald-500/20 text-emerald-400",
-                                                "Klart"
+                                                "{t(\"time-all-done\", &region)}"
                                             }
                                         }
                                     }

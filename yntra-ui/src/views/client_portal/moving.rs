@@ -612,7 +612,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                                 let j_id = job.id.clone();
                                                 rsx! {
                                                     button {
-                                                        class: "px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 shadow-sm",
+                                                        class: "px-3 py-1.5 bg-primary hover:bg-primary text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 shadow-sm",
                                                         onclick: move |_| show_tracking_job_id.set(Some(j_id.clone())),
                                                         components::LucideIcon { name: "navigation", class: "h-3.5 w-3.5" }
                                                         "Spåra Flytt (Live GPS)"
@@ -786,7 +786,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                             
                                             div { class: "pt-4",
                                                 if inv.status == "paid" {
-                                                    div { class: "flex items-center justify-center gap-2 p-2.5 rounded-lg bg-blue-500/10 text-blue-500 text-xs font-bold text-center border border-blue-500/20 select-none",
+                                                    div { class: "flex items-center justify-center gap-2 p-2.5 rounded-lg bg-primary/10 text-blue-500 text-xs font-bold text-center border border-primary/20 select-none",
                                                         components::LucideIcon { name: "credit-card", class: "h-4 w-4" }
                                                         span { "Faktura Betald" }
                                                     }
@@ -864,7 +864,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                 button {
                     onclick: move |_| active_tab.set("inventory_builder".to_string()),
                     class: if *active_tab.read() == "inventory_builder" {
-                        "rounded-lg gap-2 text-xs font-bold py-2 flex items-center justify-center bg-indigo-600 text-white shadow border-0 cursor-pointer"
+                        "rounded-lg gap-2 text-xs font-bold py-2 flex items-center justify-center bg-primary text-white shadow border-0 cursor-pointer"
                     } else {
                         "rounded-lg gap-2 text-xs font-bold py-2 flex items-center justify-center text-muted-foreground hover:bg-secondary/50 hover:text-foreground border-0 bg-transparent cursor-pointer"
                     },
@@ -1421,7 +1421,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                 components::LucideIcon { name: "x", size: "16" }
                             }
                             div { class: "flex items-center gap-3 border-b border-border/40 pb-4",
-                                div { class: "p-2 rounded-xl bg-blue-500/10 text-blue-500",
+                                div { class: "p-2 rounded-xl bg-primary/10 text-blue-500",
                                     components::LucideIcon { name: "credit-card", class: "h-6 w-6" }
                                 }
                                 div {
@@ -1480,7 +1480,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                     let inv_id = invoice_id.clone();
                                     move |_| on_complete_stripe_payment(inv_id.clone())
                                 },
-                                class: "w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-xs font-bold text-white shadow border-0 cursor-pointer transition-all flex items-center justify-center gap-2 mt-2",
+                                class: "w-full py-3 rounded-xl bg-primary hover:bg-primary/90 text-xs font-bold text-white shadow border-0 cursor-pointer transition-all flex items-center justify-center gap-2 mt-2",
                                 components::LucideIcon { name: "check", size: "16" }
                                 "Slutför kortbetalning"
                             }

@@ -300,7 +300,7 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
                                                 if hr.status == "consented" {
                                                     span { class: "text-[9px] font-black uppercase bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 px-2 py-0.5 rounded", {t("school-health-consent-signed", &locale)} }
                                                 } else if hr.status == "administered" {
-                                                    span { class: "text-[9px] font-black uppercase bg-blue-500/10 text-blue-600 border border-blue-500/20 px-2 py-0.5 rounded", {t("school-health-administered", &locale)} }
+                                                    span { class: "text-[9px] font-black uppercase bg-primary/10 text-blue-600 border border-primary/20 px-2 py-0.5 rounded", {t("school-health-administered", &locale)} }
                                                 } else {
                                                     div { class: "flex flex-col gap-1.5 items-end",
                                                         span { class: "text-[9px] font-black uppercase bg-amber-500/10 text-amber-600 border border-amber-500/20 px-2 py-0.5 rounded", {t("school-health-awaiting-consent", &locale)} }

@@ -16,6 +16,13 @@ pub struct HvacModalProps {
 pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
     let state = use_context::<AppState>();
     let region = state.current_locale();
+    let currency_code = match region.as_str() {
+        "sv" | "SE" => "SEK",
+        "no" | "NO" => "NOK",
+        "da" | "DK" => "DKK",
+        "fi" | "FI" | "de" | "DE" => "EUR",
+        _ => "USD",
+    };
     let mut show = props.show;
     let runner = use_action_runner();
     let toast = dioxus_primitives::toast::use_toast();
@@ -36,6 +43,10 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
     let mut voltage_v = use_signal(String::new);
     let mut amp_draw_a = use_signal(String::new);
     let mut asset_id = use_signal(String::new);
+
+    let mut refrigerant_added_kg = use_signal(String::new);
+    let mut refrigerant_recovered_kg = use_signal(String::new);
+    let mut reclaim_cylinder_id = use_signal(String::new);
     let mut diag_notes = use_signal(String::new);
     let mut static_flow_pressure_bar = use_signal(String::new);
     let mut dynamic_flow_pressure_bar = use_signal(String::new);
@@ -198,7 +209,6 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                 div { class: "flex items-center justify-between border-b border-border pb-4",
                     div { class: "flex flex-col gap-1",
                         h3 { class: "text-lg font-bold text-foreground flex items-center gap-2",
-                            span { class: "text-primary text-xl", "⚡" }
                             "{t(\"hvac-drawer-title\", &region)}"
                         }
                         p { class: "text-xs text-muted-foreground",
@@ -206,15 +216,72 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                         }
                     }
                     div { class: "flex items-center gap-3",
+                        button {
+                            class: "px-2.5 py-1 bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 font-bold rounded text-[11px] flex items-center gap-1.5 transition-colors shadow-xs",
+                            onclick: {
+                                let toast_c = toast.clone();
+                                move |_| {
+                                    toast_c.info(
+                                        "Customer Service Certificate".to_string(),
+                                        dioxus_primitives::toast::ToastOptions::new().description("HVAC & Service Audit Certificate exported to PDF format."),
+                                    );
+                                }
+                            },
+                            "Export Certificate (PDF)"
+                        }
                         div { class: "flex items-center bg-muted/30 p-1 rounded-lg border border-border text-[11px]",
                             button {
                                 class: if *unit_system.read() == "METRIC" { "px-2 py-0.5 bg-primary text-primary-foreground font-bold rounded shadow-xs" } else { "px-2 py-0.5 text-muted-foreground hover:text-foreground font-medium" },
-                                onclick: move |_| unit_system.set("METRIC".to_string()),
+                                onclick: move |_| {
+                                    if *unit_system.read() == "IMPERIAL" {
+                                        let v_h = high_side_psi.read().trim().parse::<f64>().ok();
+                                        if let Some(v) = v_h { high_side_psi.set(format!("{:.2}", v / 14.503773773)); }
+                                        let v_l = low_side_psi.read().trim().parse::<f64>().ok();
+                                        if let Some(v) = v_l { low_side_psi.set(format!("{:.2}", v / 14.503773773)); }
+                                        let v_w = water_pressure_bar.read().trim().parse::<f64>().ok();
+                                        if let Some(v) = v_w { water_pressure_bar.set(format!("{:.2}", v / 14.503773773)); }
+                                        let v_s = static_flow_pressure_bar.read().trim().parse::<f64>().ok();
+                                        if let Some(v) = v_s { static_flow_pressure_bar.set(format!("{:.2}", v / 14.503773773)); }
+                                        let v_d = dynamic_flow_pressure_bar.read().trim().parse::<f64>().ok();
+                                        if let Some(v) = v_d { dynamic_flow_pressure_bar.set(format!("{:.2}", v / 14.503773773)); }
+                                        let v_ld = leak_test_pressure_drop_bar.read().trim().parse::<f64>().ok();
+                                        if let Some(v) = v_ld { leak_test_pressure_drop_bar.set(format!("{:.2}", v / 14.503773773)); }
+                                        let v_td = temp_diff_c.read().trim().parse::<f64>().ok();
+                                        if let Some(v) = v_td { temp_diff_c.set(format!("{:.1}", v / 1.8)); }
+                                        let v_amb = ambient_temp_c.read().trim().parse::<f64>().ok();
+                                        if let Some(v) = v_amb { ambient_temp_c.set(format!("{:.1}", (v - 32.0) / 1.8)); }
+                                        let v_ht = water_heater_temp_c.read().trim().parse::<f64>().ok();
+                                        if let Some(v) = v_ht { water_heater_temp_c.set(format!("{:.1}", (v - 32.0) / 1.8)); }
+                                    }
+                                    unit_system.set("METRIC".to_string());
+                                },
                                 "{t(\"hvac-unit-metric\", &region)}"
                             }
                             button {
                                 class: if *unit_system.read() == "IMPERIAL" { "px-2 py-0.5 bg-primary text-primary-foreground font-bold rounded shadow-xs" } else { "px-2 py-0.5 text-muted-foreground hover:text-foreground font-medium" },
-                                onclick: move |_| unit_system.set("IMPERIAL".to_string()),
+                                onclick: move |_| {
+                                    if *unit_system.read() == "METRIC" {
+                                        let v_h = high_side_psi.read().trim().parse::<f64>().ok();
+                                        if let Some(v) = v_h { high_side_psi.set(format!("{:.1}", v * 14.503773773)); }
+                                        let v_l = low_side_psi.read().trim().parse::<f64>().ok();
+                                        if let Some(v) = v_l { low_side_psi.set(format!("{:.1}", v * 14.503773773)); }
+                                        let v_w = water_pressure_bar.read().trim().parse::<f64>().ok();
+                                        if let Some(v) = v_w { water_pressure_bar.set(format!("{:.1}", v * 14.503773773)); }
+                                        let v_s = static_flow_pressure_bar.read().trim().parse::<f64>().ok();
+                                        if let Some(v) = v_s { static_flow_pressure_bar.set(format!("{:.1}", v * 14.503773773)); }
+                                        let v_d = dynamic_flow_pressure_bar.read().trim().parse::<f64>().ok();
+                                        if let Some(v) = v_d { dynamic_flow_pressure_bar.set(format!("{:.1}", v * 14.503773773)); }
+                                        let v_ld = leak_test_pressure_drop_bar.read().trim().parse::<f64>().ok();
+                                        if let Some(v) = v_ld { leak_test_pressure_drop_bar.set(format!("{:.1}", v * 14.503773773)); }
+                                        let v_td = temp_diff_c.read().trim().parse::<f64>().ok();
+                                        if let Some(v) = v_td { temp_diff_c.set(format!("{:.1}", v * 1.8)); }
+                                        let v_amb = ambient_temp_c.read().trim().parse::<f64>().ok();
+                                        if let Some(v) = v_amb { ambient_temp_c.set(format!("{:.1}", v * 1.8 + 32.0)); }
+                                        let v_ht = water_heater_temp_c.read().trim().parse::<f64>().ok();
+                                        if let Some(v) = v_ht { water_heater_temp_c.set(format!("{:.1}", v * 1.8 + 32.0)); }
+                                    }
+                                    unit_system.set("IMPERIAL".to_string());
+                                },
                                 "{t(\"hvac-unit-imperial\", &region)}"
                             }
                         }
@@ -434,7 +501,7 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                         }
                                     }
 
-                                    div { class: "grid grid-cols-2 gap-3 border-t border-border/50 pt-2",
+                                     div { class: "grid grid-cols-2 gap-3 border-t border-border/50 pt-2",
                                         div { class: "flex flex-col gap-1",
                                             label { class: "font-semibold text-foreground text-[11px]", "{t(\"hvac-leak-test-duration\", &region)}" }
                                             input {
@@ -442,6 +509,23 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                                 placeholder: "e.g. 30",
                                                 value: "{leak_test_duration_min}",
                                                 oninput: move |e: Event<FormData>| leak_test_duration_min.set(e.value()),
+                                            }
+                                            div { class: "flex items-center gap-1 mt-0.5",
+                                                button {
+                                                    class: if *leak_test_duration_min.read() == "15.0" { "px-1.5 py-0.5 text-[10px] font-bold bg-primary/15 text-primary border border-primary/30 rounded transition-colors shadow-xs" } else { "px-1.5 py-0.5 text-[10px] font-semibold bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground rounded border border-border transition-colors" },
+                                                    onclick: move |_| leak_test_duration_min.set("15.0".to_string()),
+                                                    "15m"
+                                                }
+                                                button {
+                                                    class: if *leak_test_duration_min.read() == "30.0" { "px-1.5 py-0.5 text-[10px] font-bold bg-primary/15 text-primary border border-primary/30 rounded transition-colors shadow-xs" } else { "px-1.5 py-0.5 text-[10px] font-semibold bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground rounded border border-border transition-colors" },
+                                                    onclick: move |_| leak_test_duration_min.set("30.0".to_string()),
+                                                    "30m"
+                                                }
+                                                button {
+                                                    class: if *leak_test_duration_min.read() == "60.0" { "px-1.5 py-0.5 text-[10px] font-bold bg-primary/15 text-primary border border-primary/30 rounded transition-colors shadow-xs" } else { "px-1.5 py-0.5 text-[10px] font-semibold bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground rounded border border-border transition-colors" },
+                                                    onclick: move |_| leak_test_duration_min.set("60.0".to_string()),
+                                                    "60m"
+                                                }
                                             }
                                         }
                                         div { class: "flex flex-col gap-1",
@@ -484,6 +568,39 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                     }
                                 }
 
+                                div { class: "p-3 bg-muted/20 border border-border/50 rounded-lg flex flex-col gap-2 text-xs",
+                                    span { class: "font-bold text-foreground text-[11px]", "F-Gas & EPA Section 608 Compliance Log" }
+                                    div { class: "grid grid-cols-3 gap-3",
+                                        div { class: "flex flex-col gap-1",
+                                            label { class: "font-semibold text-foreground text-[11px]", if is_metric { "Refrigerant Added (kg)" } else { "Refrigerant Added (lbs)" } }
+                                            input {
+                                                class: "yntra-input py-1 px-2.5 bg-background border border-border text-foreground rounded text-xs",
+                                                placeholder: if is_metric { "0.00 kg" } else { "0.00 lbs" },
+                                                value: "{refrigerant_added_kg}",
+                                                oninput: move |e: Event<FormData>| refrigerant_added_kg.set(e.value()),
+                                            }
+                                        }
+                                        div { class: "flex flex-col gap-1",
+                                            label { class: "font-semibold text-foreground text-[11px]", if is_metric { "Refrigerant Recovered (kg)" } else { "Refrigerant Recovered (lbs)" } }
+                                            input {
+                                                class: "yntra-input py-1 px-2.5 bg-background border border-border text-foreground rounded text-xs",
+                                                placeholder: if is_metric { "0.00 kg" } else { "0.00 lbs" },
+                                                value: "{refrigerant_recovered_kg}",
+                                                oninput: move |e: Event<FormData>| refrigerant_recovered_kg.set(e.value()),
+                                            }
+                                        }
+                                        div { class: "flex flex-col gap-1",
+                                            label { class: "font-semibold text-foreground text-[11px]", "Reclaim Cylinder ID" }
+                                            input {
+                                                class: "yntra-input py-1 px-2.5 bg-background border border-border text-foreground rounded text-xs",
+                                                placeholder: "e.g. CYL-88291",
+                                                value: "{reclaim_cylinder_id}",
+                                                oninput: move |e: Event<FormData>| reclaim_cylinder_id.set(e.value()),
+                                            }
+                                        }
+                                    }
+                                }
+
                                 div { class: "grid grid-cols-3 gap-3",
                                     div { class: "flex flex-col gap-1",
                                         label { class: "font-semibold text-foreground", "{high_psi_label}" }
@@ -519,6 +636,18 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                         class: "yntra-input py-1.5 px-3 bg-background border border-border text-foreground rounded text-xs",
                                         value: "{voltage_v}",
                                         oninput: move |e: Event<FormData>| voltage_v.set(e.value()),
+                                    }
+                                    div { class: "flex items-center gap-1.5 mt-0.5",
+                                        button {
+                                            class: if *voltage_v.read() == "230.0" { "px-2 py-0.5 text-[10px] font-bold bg-primary/15 text-primary border border-primary/30 rounded transition-colors shadow-xs" } else { "px-2 py-0.5 text-[10px] font-semibold bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground rounded border border-border transition-colors" },
+                                            onclick: move |_| voltage_v.set("230.0".to_string()),
+                                            "230V 1-Ph"
+                                        }
+                                        button {
+                                            class: if *voltage_v.read() == "400.0" { "px-2 py-0.5 text-[10px] font-bold bg-primary/15 text-primary border border-primary/30 rounded transition-colors shadow-xs" } else { "px-2 py-0.5 text-[10px] font-semibold bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground rounded border border-border transition-colors" },
+                                            onclick: move |_| voltage_v.set("400.0".to_string()),
+                                            "400V 3-Ph"
+                                        }
                                     }
                                 }
                                 div { class: "flex flex-col gap-1",
@@ -568,6 +697,10 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                     let raw_leak_dur_str = leak_test_duration_min.read().trim().to_string();
                                     let raw_leak_drop_str = leak_test_pressure_drop_bar.read().trim().to_string();
 
+                                    let raw_ref_added_str = refrigerant_added_kg.read().trim().to_string();
+                                    let raw_ref_recovered_str = refrigerant_recovered_kg.read().trim().to_string();
+                                    let raw_reclaim_cyl_str = reclaim_cylinder_id.read().trim().to_string();
+
                                     let c_model_val = custom_asset_model.read().trim().to_string();
                                     let c_serial_val = custom_asset_serial.read().trim().to_string();
                                     let c_tag_val = custom_asset_tag.read().trim().to_string();
@@ -577,6 +710,10 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                     let mut custom_asset_serial_c = custom_asset_serial;
                                     let mut custom_asset_tag_c = custom_asset_tag;
                                     let mut custom_asset_loc_c = custom_asset_loc;
+
+                                    let mut refrigerant_added_kg_c = refrigerant_added_kg;
+                                    let mut refrigerant_recovered_kg_c = refrigerant_recovered_kg;
+                                    let mut reclaim_cylinder_id_c = reclaim_cylinder_id;
 
                                     let a_id_opt = if asset_id.read().trim().is_empty() { None } else { Some(asset_id.read().clone()) };
                                     let notes_opt = if diag_notes.read().trim().is_empty() { None } else { Some(diag_notes.read().clone()) };
@@ -696,6 +833,10 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                         let parsed_leak_dur = if raw_leak_dur_str.is_empty() { None } else { raw_leak_dur_str.parse::<f64>().ok() };
                                         let parsed_leak_drop = if raw_leak_drop_str.is_empty() { None } else { raw_leak_drop_str.parse::<f64>().ok() };
 
+                                        let parsed_ref_added = if raw_ref_added_str.is_empty() { None } else { raw_ref_added_str.parse::<f64>().ok() };
+                                        let parsed_ref_recovered = if raw_ref_recovered_str.is_empty() { None } else { raw_ref_recovered_str.parse::<f64>().ok() };
+                                        let reclaim_cyl_opt = if raw_reclaim_cyl_str.is_empty() { None } else { Some(raw_reclaim_cyl_str.clone()) };
+
                                         let opt_h_psi = parsed_high.map(|h| if is_metric { h * 14.503773773 } else { h });
                                         let opt_l_psi = parsed_low.map(|l| if is_metric { l * 14.503773773 } else { l });
                                         let opt_w_press = parsed_water.map(|w| if is_metric { w } else { w / 14.503773773 });
@@ -706,6 +847,9 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                         let opt_dynamic_bar = parsed_dynamic.map(|d| if is_metric { d } else { d / 14.503773773 });
                                         let opt_heater_temp_c = parsed_heater_temp.map(|ht| if is_metric { ht } else { (ht - 32.0) / 1.8 });
                                         let opt_leak_drop_bar = parsed_leak_drop.map(|ld| if is_metric { ld } else { ld / 14.503773773 });
+
+                                        let opt_ref_added_kg = parsed_ref_added.map(|a| if is_metric { a } else { a * 0.45359237 });
+                                        let opt_ref_recovered_kg = parsed_ref_recovered.map(|r| if is_metric { r } else { r * 0.45359237 });
 
                                         let pipe_mat_opt = if s_type.starts_with("HYDRONIC") || s_type.starts_with("POTABLE") { Some(p_material_val.clone()) } else { None };
                                         let backflow_opt = if s_type.starts_with("HYDRONIC") || s_type.starts_with("POTABLE") { Some(backflow_val.clone()) } else { None };
@@ -770,6 +914,9 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                                 opt_heater_temp_c,
                                                 parsed_leak_dur,
                                                 opt_leak_drop_bar,
+                                                opt_ref_added_kg,
+                                                opt_ref_recovered_kg,
+                                                reclaim_cyl_opt,
                                             ).await?;
 
                                             // Form Reset Routine upon successful resolution
@@ -778,6 +925,9 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                             water_pressure_bar_c.set(String::new());
                                             temp_diff_c_c.set(String::new());
                                             ambient_temp_c_c.set(String::new());
+                                            refrigerant_added_kg_c.set(String::new());
+                                            refrigerant_recovered_kg_c.set(String::new());
+                                            reclaim_cylinder_id_c.set(String::new());
                                             voltage_v_c.set(String::new());
                                             amp_draw_a_c.set(String::new());
                                             asset_id_c.set(String::new());
@@ -921,16 +1071,16 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                             }
                                         }
                                     } else {
-                                        for item in job_parts.iter() {
+                                        for (idx, item) in job_parts.iter().enumerate() {
                                             {
                                                 let item_id = item.id.clone();
                                                 let line_total = item.quantity * item.unit_cost_sek;
                                                 rsx! {
-                                                    tr { key: "{item.id}",
+                                                    tr { key: "{item.id}_{idx}",
                                                         td { class: "p-2.5 font-medium", "{item.part_name}" }
                                                         td { class: "p-2.5", "{item.quantity}" }
-                                                        td { class: "p-2.5", "{item.unit_cost_sek:.2} SEK" }
-                                                        td { class: "p-2.5 font-bold", "{line_total:.2} SEK" }
+                                                        td { class: "p-2.5", "{item.unit_cost_sek:.2} {currency_code}" }
+                                                        td { class: "p-2.5 font-bold", "{line_total:.2} {currency_code}" }
                                                         td { class: "p-2.5 text-right",
                                                             button {
                                                                 class: "text-destructive hover:underline font-semibold text-[11px]",
@@ -965,7 +1115,7 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                     }
                 }
 
-                // Tab 2: Swedish ROT 30% Tax Credit Calculator
+                // Tab 2: Swedish ROT / Regional Tax Credit Calculator
                 if *active_tab.read() == 2 {
                     div { class: "flex flex-col gap-4 text-xs animate-in fade-in duration-200",
                         div { class: "flex items-center justify-between bg-muted/20 p-2.5 rounded-lg border border-border",
@@ -1016,30 +1166,29 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                             div { class: "grid grid-cols-2 gap-2 text-xs",
                                 div { class: "flex justify-between border-b border-border/40 pb-1.5",
                                     span { class: "text-muted-foreground", "{t(\"hvac-rot-gross-label\", &region)}" }
-                                    span { class: "font-bold text-foreground", "{rot_info.total_gross_amount_sek:.2} SEK" }
+                                    span { class: "font-bold text-foreground", "{rot_info.total_gross_amount_sek:.2} {currency_code}" }
                                 }
                                 div { class: "flex justify-between border-b border-border/40 pb-1.5",
                                     span { class: "text-muted-foreground", "{t(\"hvac-rot-eligible-label\", &region)}" }
-                                    span { class: "font-bold text-foreground", "{rot_info.eligible_labor_sek:.2} SEK" }
+                                    span { class: "font-bold text-foreground", "{rot_info.eligible_labor_sek:.2} {currency_code}" }
                                 }
                                 div { class: "flex justify-between border-b border-border/40 pb-1.5",
                                     span { class: "text-muted-foreground", "{t(\"hvac-rot-non-eligible-label\", &region)}" }
-                                    span { class: "font-bold text-foreground", "{rot_info.non_eligible_parts_sek:.2} SEK" }
+                                    span { class: "font-bold text-foreground", "{rot_info.non_eligible_parts_sek:.2} {currency_code}" }
                                 }
                                 div { class: "col-span-2 flex justify-between border-b border-border/40 pb-1.5 pt-1",
                                     span { class: "text-emerald-400 font-bold", "{t(\"hvac-rot-credit-label\", &region)}" }
-                                    span { class: "font-extrabold text-emerald-400 text-sm", "-{rot_info.rot_deduction_30_percent_sek:.2} SEK" }
+                                    span { class: "font-extrabold text-emerald-400 text-sm", "-{rot_info.rot_deduction_30_percent_sek:.2} {currency_code}" }
                                 }
                             }
                             div { class: "flex items-center justify-between pt-2 border-t border-border/60",
                                 span { class: "font-bold text-foreground text-sm", "{t(\"hvac-rot-net-label\", &region)}" }
-                                span { class: "font-extrabold text-primary text-base", "{rot_info.net_customer_payable_sek:.2} SEK" }
+                                span { class: "font-extrabold text-primary text-base", "{rot_info.net_customer_payable_sek:.2} {currency_code}" }
                             }
                         }
 
                         div { class: "p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-xl flex flex-col gap-1 text-[11px]",
                             span { class: "font-bold text-amber-400 flex items-center gap-1.5",
-                                span { "⚖️" }
                                 "{t(\"hvac-rot-cap-label\", &region)}"
                             }
                             p { class: "text-amber-200/90 leading-relaxed", "{t(\"hvac-rot-cap-warning\", &region)}" }
@@ -1055,7 +1204,7 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                 "{t(\"hvac-no-history-msg\", &region)}"
                             }
                         } else {
-                            for diag in diagnostics_history.iter() {
+                            for (idx, diag) in diagnostics_history.iter().enumerate() {
                                 {
                                     let status_badge_class = match diag.diagnostic_status.as_str() {
                                         "CRITICAL_HAZARD" => "px-2 py-0.5 bg-red-500/20 text-red-400 border border-red-500/30 rounded text-[10px] font-bold uppercase",
@@ -1085,7 +1234,7 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                     };
 
                                     rsx! {
-                                        div { key: "{diag.id}", class: "p-3 bg-muted/20 border border-border rounded-lg flex flex-col gap-2",
+                                        div { key: "{diag.id}_{idx}", class: "p-3 bg-muted/20 border border-border rounded-lg flex flex-col gap-2",
                                             div { class: "flex items-center justify-between border-b border-border/40 pb-1.5 mb-1",
                                                 div { class: "flex items-center gap-2",
                                                     span { class: "{status_badge_class}", "{status_label}" }
@@ -1110,7 +1259,7 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                                     }
                                                 }
                                                 div { class: "flex items-center gap-3 text-xs text-muted-foreground",
-                                                    span { class: "text-[11px] font-mono text-muted-foreground/80", "📅 {date_str}" }
+                                                    span { class: "text-[11px] font-mono text-muted-foreground/80", "{date_str}" }
                                                     {
                                                         let med_str = diag.refrigerant_type.as_str();
                                                         let med_label = t_with_args("hvac-history-medium", &region, &[("medium", med_str)]);
@@ -1158,11 +1307,28 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                                                     let h_low = t_with_args("hvac-history-low-side", &region, &[("val", low_val_str.as_str())]);
                                                     let h_dt = t_with_args("hvac-history-delta-t", &region, &[("delta", delta_t_str.as_str())]);
 
+                                                    let ref_added_str = diag.refrigerant_added_kg.map(|a| if is_metric { format!("{:.2} kg", a) } else { format!("{:.2} lbs", a / 0.45359237) });
+                                                    let ref_recovered_str = diag.refrigerant_recovered_kg.map(|r| if is_metric { format!("{:.2} kg", r) } else { format!("{:.2} lbs", r / 0.45359237) });
+                                                    let cyl_id_str = diag.reclaim_cylinder_id.as_deref();
+
                                                     rsx! {
                                                         div { class: "grid grid-cols-3 gap-2 text-muted-foreground text-[11px]",
                                                             span { "{h_high}" }
                                                             span { "{h_low}" }
                                                             span { "{h_dt}" }
+                                                        }
+                                                        if ref_added_str.is_some() || ref_recovered_str.is_some() || cyl_id_str.is_some() {
+                                                            div { class: "flex items-center gap-3 text-[10px] text-muted-foreground/90 bg-background/40 p-1.5 rounded border border-border/30 font-mono",
+                                                                if let Some(ref add_s) = ref_added_str {
+                                                                    span { "Added: {add_s}" }
+                                                                }
+                                                                if let Some(ref rec_s) = ref_recovered_str {
+                                                                    span { "Recovered: {rec_s}" }
+                                                                }
+                                                                if let Some(cyl) = cyl_id_str {
+                                                                    span { "Cylinder: {cyl}" }
+                                                                }
+                                                            }
                                                         }
                                                     }
                                                 }

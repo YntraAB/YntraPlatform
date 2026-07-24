@@ -1,4 +1,5 @@
 use crate::components;
+use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::TimeReport;
 use yntra_core::WorkspaceUser;
@@ -22,6 +23,9 @@ impl PartialEq for MemberListProps {
 
 #[component]
 pub fn MemberList(props: MemberListProps) -> Element {
+    let state = use_context::<crate::state::AppState>();
+    let region = state.auth_region.read();
+
     let active_user_role = props.active_user_role.clone();
     let filtered_users = props.filtered_users.clone();
     let time_reports = props.time_reports.clone();
@@ -42,14 +46,14 @@ pub fn MemberList(props: MemberListProps) -> Element {
                                 current_level.set("platform_overview".to_string());
                             },
                             components::LucideIcon { name: "arrow-left", class: "h-3.5 w-3.5" }
-                            "Tillbaka"
+                            "{t(\"common-back\", &region)}"
                         }
                     }
                     h2 { class: "flex items-center gap-2.5 text-base font-semibold text-foreground m-0",
                         div { class: "rounded-md bg-primary/10 p-1.5",
                             components::LucideIcon { name: "users", class: "h-4 w-4 text-primary" }
                         }
-                        "Team Members"
+                        "{t(\"time-team-members\", &region)}"
                     }
                 }
             }
@@ -57,7 +61,7 @@ pub fn MemberList(props: MemberListProps) -> Element {
                 if filtered_users.is_empty() {
                     div { class: "text-center text-muted-foreground/60 py-16",
                         components::LucideIcon { name: "users", class: "h-12 w-12 mx-auto mb-3 opacity-20" }
-                        p { class: "text-sm m-0", "Inga medlemmar hittades." }
+                        p { class: "text-sm m-0", "{t(\"time-no-members-found\", &region)}" }
                     }
                 } else {
                     for u in filtered_users.iter() {
@@ -71,13 +75,13 @@ pub fn MemberList(props: MemberListProps) -> Element {
                             let has_rejected = u_shifts.iter().any(|s| s.status == "rejected");
 
                             let (status_text, status_color, status_bg) = if u_shifts.is_empty() {
-                                ("Not Submitted", "var(--text-muted)", "rgba(255,255,255,0.03)")
+                                (t("time-status-not-submitted", &region), "var(--text-muted)", "rgba(255,255,255,0.03)")
                             } else if has_pending {
-                                ("Pending Attest", "var(--warning)", "rgba(245,158,11,0.1)")
+                                (t("time-status-pending-attest", &region), "var(--warning)", "rgba(245,158,11,0.1)")
                             } else if has_rejected {
-                                ("Rejected/Disputed", "var(--danger)", "rgba(239,68,68,0.1)")
+                                ("Rejected/Disputed".to_string(), "var(--danger)", "rgba(239,68,68,0.1)")
                             } else {
-                                ("Approved", "var(--success)", "rgba(16,185,129,0.1)")
+                                (t("time-status-attested", &region), "var(--success)", "rgba(16,185,129,0.1)")
                             };
 
                             rsx! {

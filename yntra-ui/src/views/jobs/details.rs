@@ -397,7 +397,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                         "Condition & Pre-Move Waiver"
                     }
                     button {
-                        class: "px-3 py-1 text-xs font-semibold rounded bg-blue-600/10 text-blue-400 hover:bg-blue-600/20 border border-blue-500/30 cursor-pointer flex items-center gap-1.5 transition-colors",
+                        class: "px-3 py-1 text-xs font-semibold rounded bg-primary/10 text-primary hover:bg-primary/20 border border-primary/30 cursor-pointer flex items-center gap-1.5 transition-colors",
                         onclick: move |_| show_sit_modal.set(true),
                         components::LucideIcon { name: "warehouse", size: "14" }
                         "SIT & Lagermagasin"
@@ -409,34 +409,34 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                         "Tips & Förarlön"
                     }
                     button {
-                        class: "px-3 py-1 text-xs font-semibold rounded bg-indigo-600/10 text-indigo-400 hover:bg-indigo-600/20 border border-indigo-500/30 cursor-pointer flex items-center gap-1.5 transition-colors",
+                        class: "px-3 py-1 text-xs font-semibold rounded bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 cursor-pointer flex items-center gap-1.5 transition-colors",
                         onclick: move |_| show_erp_modal.set(true),
                         components::LucideIcon { name: "refresh-cw", size: "14" }
                         "Bokföring & ERP"
                     }
                     button {
-                        class: "px-3 py-1 text-xs font-semibold rounded bg-sky-600/10 text-sky-400 hover:bg-sky-600/20 border border-sky-500/30 cursor-pointer flex items-center gap-1.5 transition-colors",
+                        class: "px-3 py-1 text-xs font-semibold rounded bg-primary/10 text-primary hover:bg-primary/20 border border-primary/30 cursor-pointer flex items-center gap-1.5 transition-colors",
                         onclick: move |_| show_live_tracking_modal.set(true),
                         components::LucideIcon { name: "navigation", size: "14" }
                         "Live GPS Spårning"
                     }
                     button {
-                        class: "px-3 py-1 text-xs font-bold rounded bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/50 cursor-pointer flex items-center gap-1.5 transition-colors shadow-sm",
+                        class: "px-3 py-1 text-xs font-bold rounded bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/50 cursor-pointer flex items-center gap-1.5 transition-colors shadow-xs",
                         onclick: move |_| show_field_crew_view.set(true),
                         components::LucideIcon { name: "smartphone", size: "14" }
-                        "Fältläge (Handske-UI 🧤)"
+                        "Fältläge (Touch-UI)"
                     }
                     button {
-                        class: "px-3 py-1 text-xs font-semibold rounded bg-purple-600/10 text-purple-400 hover:bg-purple-600/20 border border-purple-500/30 cursor-pointer flex items-center gap-1.5 transition-colors",
+                        class: "px-3 py-1 text-xs font-semibold rounded bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 cursor-pointer flex items-center gap-1.5 transition-colors",
                         onclick: move |_| show_eld_modal.set(true),
                         components::LucideIcon { name: "truck", size: "14" }
-                        "ELD & DOT Efterlevnad 🚚"
+                        "ELD & DOT Efterlevnad"
                     }
                     button {
-                        class: "px-3 py-1 text-xs font-semibold rounded bg-cyan-600/10 text-cyan-400 hover:bg-cyan-600/20 border border-cyan-500/30 cursor-pointer flex items-center gap-1.5 transition-colors",
+                        class: "px-3 py-1 text-xs font-semibold rounded bg-primary/10 text-primary hover:bg-primary/20 border border-primary/30 cursor-pointer flex items-center gap-1.5 transition-colors",
                         onclick: move |_| show_dispatch_alerts_modal.set(true),
                         components::LucideIcon { name: "message-square", size: "14" }
-                        "Dispatch SMS & Omdömen 💬"
+                        "Dispatch SMS & Omdömen"
                     }
                     if is_hvac_plumbing {
                         button {

@@ -143,8 +143,7 @@ pub fn ShiftList(props: ShiftListProps) -> Element {
 
 
     let state = use_context::<crate::state::AppState>();
-
-
+    let region = state.auth_region.read();
 
     let requester_id = state.active_user_id.read().clone();
 
@@ -1834,7 +1833,7 @@ Note: {}",
                                             context_menu_open.set(false);
                                         },
                                         components::LucideIcon { name: "check", size: "14" }
-                                        "Approve Shift"
+                                        "{t(\"time-action-approve-shift\", &region)}"
                                     }
                                 }
                                 if !is_rejected {
@@ -1853,7 +1852,7 @@ Note: {}",
                                             context_menu_open.set(false);
                                         },
                                         components::LucideIcon { name: "x", size: "14" }
-                                        "Reject Shift"
+                                        "{t(\"time-action-reject-shift\", &region)}"
                                     }
                                 }
                                 button {
@@ -1871,7 +1870,7 @@ Note: {}",
                                         context_menu_open.set(false);
                                     },
                                     components::LucideIcon { name: "trash", size: "14" }
-                                    "Delete Time Report"
+                                    "{t(\"time-action-delete-report\", &region)}"
                                 }
                             }
                             button {
@@ -1882,7 +1881,7 @@ Note: {}",
                                     context_menu_open.set(false);
                                 },
                                 components::LucideIcon { name: "copy", size: "14" }
-                                "Copy Details"
+                                "{t(\"time-action-copy-details\", &region)}"
                             }
                         }
                     }

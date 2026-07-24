@@ -167,9 +167,9 @@ pub fn FieldCrewView(props: FieldCrewViewProps) -> Element {
 
                             button {
                                 class: if *current_status.read() == "ANLÄNT" {
-                                    "h-20 bg-blue-500 text-white font-black text-xl rounded-xl border-4 border-white shadow-xl active:scale-95 transition-all flex items-center justify-center"
+                                    "h-20 bg-primary text-white font-black text-xl rounded-xl border-4 border-white shadow-xl active:scale-95 transition-all flex items-center justify-center"
                                 } else {
-                                    "h-20 bg-slate-900 text-blue-300 font-bold text-lg rounded-xl border-2 border-blue-500/60 hover:bg-slate-800 active:scale-95 transition-all flex items-center justify-center"
+                                    "h-20 bg-slate-900 text-primary font-bold text-lg rounded-xl border-2 border-primary/60 hover:bg-slate-800 active:scale-95 transition-all flex items-center justify-center"
                                 },
                                 onclick: move |_| {
                                     current_status.set("ANLÄNT".to_string());
@@ -257,7 +257,7 @@ pub fn FieldCrewView(props: FieldCrewViewProps) -> Element {
 
                         if let Some(cb) = on_open_pos {
                             button {
-                                class: "h-16 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-extrabold text-lg rounded-xl border-2 border-white shadow-xl flex items-center justify-center transition-all",
+                                class: "h-16 bg-primary hover:bg-primary/90 active:scale-95 text-white font-extrabold text-lg rounded-xl border-2 border-white shadow-xl flex items-center justify-center transition-all",
                                 onclick: move |_| cb.call(()),
                                 "💳 FÄLT-KORTLÄSARE"
                             }

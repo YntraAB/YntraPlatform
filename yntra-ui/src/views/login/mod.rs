@@ -608,7 +608,7 @@ pub fn LoginView(props: LoginViewProps) -> Element {
                 style: "position: absolute; top: 1.5rem; right: 1.5rem; z-index: 150;",
                 if cfg!(debug_assertions) {
                     button {
-                        class: "text-xs text-white border-0 font-semibold px-2.5 py-1 rounded bg-indigo-600 hover:bg-indigo-700 transition-colors cursor-pointer mr-2",
+                        class: "text-xs text-white border-0 font-semibold px-2.5 py-1 rounded bg-primary hover:bg-primary/90 transition-colors cursor-pointer mr-2",
                         onclick: handle_dev_login,
                         "Dev Login"
                     }
@@ -757,7 +757,7 @@ pub fn LoginView(props: LoginViewProps) -> Element {
                                         class: "flex w-full items-center justify-between rounded-xl border border-border bg-secondary/80 px-4 py-4 text-left transition-all duration-200 hover:border-primary/60 hover:bg-secondary cursor-pointer",
                                         div { class: "flex items-center gap-4",
                                             div { class: "flex h-10 w-10 items-center justify-center rounded-full bg-background text-foreground shadow-inner",
-                                                components::LucideIcon { name: "smartphone", class: "h-5 w-5 text-indigo-500" }
+                                                components::LucideIcon { name: "smartphone", class: "h-5 w-5 text-primary" }
                                             }
                                             div {
                                                 div { class: "text-sm font-medium text-foreground", "{bankid_label}" }
@@ -786,7 +786,7 @@ pub fn LoginView(props: LoginViewProps) -> Element {
                                         class: "flex w-full items-center justify-between rounded-xl border border-border bg-secondary/80 px-4 py-4 text-left transition-all duration-200 hover:border-primary/60 hover:bg-secondary cursor-pointer",
                                         div { class: "flex items-center gap-4",
                                             div { class: "flex h-10 w-10 items-center justify-center rounded-full bg-background text-foreground shadow-inner",
-                                                components::LucideIcon { name: "credit-card", class: "h-5 w-5 text-indigo-500" }
+                                                components::LucideIcon { name: "credit-card", class: "h-5 w-5 text-primary" }
                                             }
                                             div {
                                                 div { class: "text-sm font-medium text-foreground", "{hw_label}" }

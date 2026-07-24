@@ -423,25 +423,25 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
             display: flex;
             align-items: center;
             gap: 6px;
-            background: #312e81;
-            border: 1.5px solid #6366f1;
+            background: var(--accent-color-soft, rgba(59, 130, 246, 0.25));
+            border: 1.5px solid var(--accent-color, #3b82f6);
             border-radius: 20px;
             padding: 3px 9px 3px 4px;
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+            box-shadow: 0 4px 12px var(--accent-color-soft, rgba(59, 130, 246, 0.4));
             white-space: nowrap;
             box-sizing: border-box;
             transition: all 0.2s ease;
         }}
         .enterprise-personnel-pin:hover {{
             transform: scale(1.08);
-            border-color: #818cf8;
-            box-shadow: 0 0 14px rgba(129, 140, 248, 0.5);
+            border-color: var(--accent-color-hover, #2563eb);
+            box-shadow: 0 0 14px var(--accent-color-soft, rgba(59, 130, 246, 0.5));
         }}
         .avatar-badge {{
             width: 18px;
             height: 18px;
             border-radius: 50%;
-            background: #4f46e5;
+            background: var(--accent-color, #3b82f6);
             color: #ffffff;
             font-size: 9px;
             font-weight: 800;
@@ -732,8 +732,9 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
                 }}
 
                 if (origin && dest) {{
+                    var lineColor = getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim() || '#3b82f6';
                     var line = L.polyline([origin, dest], {{
-                        color: '#6366f1',
+                        color: lineColor,
                         weight: 3.5,
                         opacity: 0.85,
                         dashArray: '6, 6'
@@ -761,7 +762,7 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
 
             // Floating Clean Top Control Bar
             div { 
-                style: "position: absolute; top: 16px; left: 16px; right: 16px; z-index: 1000; pointer-events: auto; background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 20px; padding: 0.55rem 0.9rem; box-shadow: 0 15px 35px -10px rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;",
+                style: "position: absolute; top: 16px; left: 16px; right: 16px; z-index: 10; pointer-events: auto; background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 20px; padding: 0.55rem 0.9rem; box-shadow: 0 15px 35px -10px rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;",
                 
                 // Real-Time Search Bar
                 div { class: "flex-1 max-w-xs relative min-w-[180px]",
@@ -827,19 +828,19 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
                         button {
                             onclick: move |_| tile_style.set("dark".to_string()),
                             title: "Mörkt karttema",
-                            class: format!("p-1.5 rounded-lg text-xs font-bold transition-all border-0 cursor-pointer flex items-center justify-center {}", if *tile_style.read() == "dark" { "bg-indigo-600 text-white shadow-xs" } else { "text-slate-400 hover:text-white" }),
+                            class: format!("p-1.5 rounded-lg text-xs font-bold transition-all border-0 cursor-pointer flex items-center justify-center {}", if *tile_style.read() == "dark" { "bg-primary text-white shadow-xs" } else { "text-slate-400 hover:text-white" }),
                             components::LucideIcon { name: "moon", size: "13" }
                         }
                         button {
                             onclick: move |_| tile_style.set("light".to_string()),
                             title: "Ljust karttema",
-                            class: format!("p-1.5 rounded-lg text-xs font-bold transition-all border-0 cursor-pointer flex items-center justify-center {}", if *tile_style.read() == "light" { "bg-indigo-600 text-white shadow-xs" } else { "text-slate-400 hover:text-white" }),
+                            class: format!("p-1.5 rounded-lg text-xs font-bold transition-all border-0 cursor-pointer flex items-center justify-center {}", if *tile_style.read() == "light" { "bg-primary text-white shadow-xs" } else { "text-slate-400 hover:text-white" }),
                             components::LucideIcon { name: "sun", size: "13" }
                         }
                         button {
                             onclick: move |_| tile_style.set("satellite".to_string()),
                             title: "Satellitvy",
-                            class: format!("p-1.5 rounded-lg text-xs font-bold transition-all border-0 cursor-pointer flex items-center justify-center {}", if *tile_style.read() == "satellite" { "bg-indigo-600 text-white shadow-xs" } else { "text-slate-400 hover:text-white" }),
+                            class: format!("p-1.5 rounded-lg text-xs font-bold transition-all border-0 cursor-pointer flex items-center justify-center {}", if *tile_style.read() == "satellite" { "bg-primary text-white shadow-xs" } else { "text-slate-400 hover:text-white" }),
                             components::LucideIcon { name: "globe", size: "13" }
                         }
                     }
@@ -937,7 +938,7 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
                                     {
                                         let is_selected = selected_unit_id.read().as_ref() == Some(&v.id);
                                         let card_class = if is_selected {
-                                            "p-2.5 rounded-xl bg-sky-500/20 border border-sky-400 flex items-center gap-3 transition-all cursor-pointer mb-1.5 shadow-md ring-1 ring-sky-400/50"
+                                            "p-2.5 rounded-xl bg-primary/20 border border-primary/40 flex items-center gap-3 transition-all cursor-pointer mb-1.5 shadow-md ring-1 ring-primary/40"
                                         } else {
                                             "p-2.5 rounded-xl bg-white/5 border border-white/5 flex items-center gap-3 transition-all hover:bg-white/15 hover:border-white/20 cursor-pointer mb-1.5 shadow-xs group"
                                         };
@@ -971,7 +972,7 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
                                                     class: format!("w-2.5 h-2.5 rounded-full flex-shrink-0 {}", if v.status == "active" { "bg-emerald-400 shadow-[0_0_8px_#34d399]" } else { "bg-slate-500" })
                                                 }
                                                 div { class: "flex-1 min-w-0",
-                                                    p { class: "text-xs font-bold text-white m-0 truncate group-hover:text-sky-300 transition-colors", "{v.name}" }
+                                                    p { class: "text-xs font-bold text-white m-0 truncate group-hover:text-primary transition-colors", "{v.name}" }
                                                     p { class: "text-[9px] text-slate-400 m-0 flex items-center gap-1 mt-0.5",
                                                         components::LucideIcon { name: "credit-card", size: "9" }
                                                         "{v.license_plate} • {v.capacity_m3}m³"
@@ -995,15 +996,15 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
                             if !drawer_personnel.read().is_empty() {
                                 div { class: "text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-1 mt-3 flex items-center justify-between",
                                     span { "{t(\"live-map-team-section\", &region)}" }
-                                    span { class: "bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded text-[9px]", "{drawer_personnel.read().len()}" }
+                                    span { class: "bg-primary/20 text-primary px-1.5 py-0.5 rounded text-[9px]", "{drawer_personnel.read().len()}" }
                                 }
                                 for p in drawer_personnel.read().iter().cloned() {
                                     {
                                         let is_selected = selected_unit_id.read().as_ref() == Some(&p.id);
                                         let card_class = if is_selected {
-                                            "p-2.5 rounded-xl bg-indigo-500/30 border border-indigo-400 flex items-center gap-3 transition-all cursor-pointer mb-1.5 shadow-md ring-1 ring-indigo-400/50"
+                                            "p-2.5 rounded-xl bg-primary/30 border border-primary/40 flex items-center gap-3 transition-all cursor-pointer mb-1.5 shadow-md ring-1 ring-primary/40"
                                         } else {
-                                            "p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center gap-3 transition-all hover:bg-indigo-500/25 hover:border-indigo-500/40 cursor-pointer mb-1.5 shadow-xs group"
+                                            "p-2.5 rounded-xl bg-primary/10 border border-primary/20 flex items-center gap-3 transition-all hover:bg-primary/20 hover:border-primary/40 cursor-pointer mb-1.5 shadow-xs group"
                                         };
 
                                         rsx! {
@@ -1030,17 +1031,17 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
                                                 },
                                                 class: "{card_class}",
                                                 div {
-                                                    class: "w-6 h-6 rounded-full bg-indigo-600 text-white text-[9px] font-extrabold flex items-center justify-center shrink-0 shadow",
+                                                    class: "w-6 h-6 rounded-full bg-primary text-white text-[9px] font-extrabold flex items-center justify-center shrink-0 shadow",
                                                     "{p.initials}"
                                                 }
                                                 div { class: "flex-1 min-w-0",
-                                                    p { class: "text-xs font-bold text-white m-0 truncate group-hover:text-indigo-200 transition-colors", "{p.name}" }
-                                                    p { class: "text-[9px] text-indigo-300 m-0 flex items-center gap-1 mt-0.5",
+                                                    p { class: "text-xs font-bold text-white m-0 truncate group-hover:text-primary-foreground transition-colors", "{p.name}" }
+                                                    p { class: "text-[9px] text-primary m-0 flex items-center gap-1 mt-0.5",
                                                         components::LucideIcon { name: "user-check", size: "9" }
                                                         "{p.role}"
                                                     }
                                                 }
-                                                div { class: "text-[8px] font-mono text-indigo-300 text-right flex-shrink-0 bg-indigo-500/20 px-1.5 py-0.5 rounded border border-indigo-500/20 group-hover:bg-indigo-500/30 transition-all",
+                                                div { class: "text-[8px] font-mono text-primary text-right flex-shrink-0 bg-primary/20 px-1.5 py-0.5 rounded border border-primary/20 group-hover:bg-primary/20 transition-all",
                                                     div { "{p.latitude:.4}°N" }
                                                     div { "{p.longitude:.4}°E" }
                                                 }

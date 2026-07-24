@@ -287,7 +287,7 @@ pub fn CrewPayrollModal(
                                     }
                                 }
                                 if bd.per_diem_allowance_sek > 0.0 {
-                                    div { class: "flex justify-between text-blue-400 font-semibold",
+                                    div { class: "flex justify-between text-primary font-semibold",
                                         span { "Traktamente (Per Diem):" }
                                         span { class: "font-mono font-bold", "{bd.per_diem_allowance_sek:.2} SEK" }
                                     }

@@ -115,7 +115,7 @@ pub fn StudentClassworkTab(
                                             }
                                         }
                                         if a.max_points == 0 {
-                                            span { class: "text-[10px] font-bold bg-purple-500/10 text-purple-600 border border-purple-500/20 px-2.5 py-0.5 rounded-full uppercase tracking-wider",
+                                            span { class: "text-[10px] font-bold bg-primary/10 text-primary border border-primary/20 px-2.5 py-0.5 rounded-full uppercase tracking-wider",
                                                 "Material"
                                             }
                                         } else {
@@ -179,7 +179,7 @@ pub fn StudentClassworkTab(
                                             }
                                         }
                                     } else if a.max_points == 0 {
-                                        div { class: "p-3.5 rounded-xl border border-purple-200/50 bg-purple-500/5 text-xs text-purple-600 flex items-center gap-2 font-medium",
+                                        div { class: "p-3.5 rounded-xl border border-primary/20 bg-primary/10 text-xs text-primary flex items-center gap-2 font-medium",
                                             LucideIcon { name: "info", size: "14" }
                                             span { "This is a study material provided for reference. No submission is required." }
                                         }

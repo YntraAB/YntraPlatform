@@ -106,7 +106,7 @@ pub fn WarehouseSitModal(
                 // Header
                 div { class: "p-4 border-b border-border bg-muted/40 flex justify-between items-center",
                     div { class: "flex items-center gap-2",
-                        div { class: "p-2 rounded-lg bg-blue-500/10 text-blue-500 border border-blue-500/20",
+                        div { class: "p-2 rounded-lg bg-primary/10 text-blue-500 border border-primary/20",
                             components::LucideIcon { name: "warehouse", size: "18" }
                         }
                         div {
@@ -126,14 +126,14 @@ pub fn WarehouseSitModal(
                     
                     // SIT Recurring Billing Summary Banner
                     if let Some(ref billing) = sit_billing {
-                        div { class: "bg-blue-500/10 border border-blue-500/20 rounded-xl p-3.5 space-y-2",
+                        div { class: "bg-primary/10 border border-primary/20 rounded-xl p-3.5 space-y-2",
                             div { class: "flex justify-between items-center",
-                                div { class: "text-[10px] font-bold text-blue-400 uppercase tracking-wider", "Ackumulerad Magasineringshyra (SIT)" }
-                                span { class: "text-[10px] font-bold bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded border border-blue-500/30",
+                                div { class: "text-[10px] font-bold text-primary uppercase tracking-wider", "Ackumulerad Magasineringshyra (SIT)" }
+                                span { class: "text-[10px] font-bold bg-primary/20 text-primary px-2 py-0.5 rounded border border-primary/30",
                                     "{billing.days_in_storage} dagar i lager"
                                 }
                             }
-                            div { class: "grid grid-cols-3 gap-2 text-left pt-1 border-t border-blue-500/20",
+                            div { class: "grid grid-cols-3 gap-2 text-left pt-1 border-t border-primary/20",
                                 div {
                                     div { class: "text-[9px] text-muted-foreground", "Totalt Volym" }
                                     div { class: "font-black text-sm text-foreground", "{billing.total_volume_m3:.1} m³" }

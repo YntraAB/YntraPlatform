@@ -64,14 +64,14 @@ pub fn CustomerLiveTrackingModal(props: CustomerLiveTrackingModalProps) -> Eleme
                     div {
                         class: "flex items-center gap-3",
                         div {
-                            class: "w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-bold text-lg",
+                            class: "w-10 h-10 rounded-xl bg-primary/20 border border-primary/30 flex items-center justify-center text-primary font-bold text-lg",
                             "GPS"
                         }
                         div {
                             h3 { class: "font-bold text-white text-lg tracking-tight", "Live Lastbilspårning & Rutt" }
                             p { class: "text-xs text-slate-400 flex items-center gap-2 mt-0.5",
                                 span { class: "font-medium text-slate-300", "Uppdrag ID:" }
-                                span { class: "font-mono text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded text-[11px]", "{props.job_id}" }
+                                span { class: "font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded text-[11px]", "{props.job_id}" }
                             }
                         }
                     }
@@ -88,10 +88,10 @@ pub fn CustomerLiveTrackingModal(props: CustomerLiveTrackingModalProps) -> Eleme
 
                         // ETA & Status Header Card
                         div {
-                            class: "p-4 bg-gradient-to-r from-indigo-950/60 via-slate-800/80 to-slate-900 border border-indigo-500/30 rounded-xl flex items-center justify-between shadow-lg",
+                            class: "p-4 bg-gradient-to-r from-primary/20 via-slate-800/80 to-slate-900 border border-primary/30 rounded-xl flex items-center justify-between shadow-lg",
                             div {
                                 class: "space-y-1",
-                                div { class: "text-[11px] font-bold uppercase tracking-wider text-indigo-400", "Beräknad Ankomst (ETA)" }
+                                div { class: "text-[11px] font-bold uppercase tracking-wider text-primary", "Beräknad Ankomst (ETA)" }
                                 div { class: "text-3xl font-extrabold text-white flex items-baseline gap-2",
                                     if portal.estimated_arrival_mins > 0 {
                                         "{portal.estimated_arrival_mins} min"
@@ -119,12 +119,12 @@ pub fn CustomerLiveTrackingModal(props: CustomerLiveTrackingModalProps) -> Eleme
                                 class: "p-3 bg-slate-800/50 border border-slate-700/60 rounded-xl space-y-2",
                                 div { class: "text-[10px] font-bold text-slate-400 uppercase tracking-wider", "Tilldelad Förare" }
                                 div { class: "font-semibold text-white text-sm flex items-center gap-2",
-                                    span { class: "w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center text-[10px] font-bold text-indigo-400", "F" }
+                                    span { class: "w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center text-[10px] font-bold text-primary", "F" }
                                     "{portal.driver_name}"
                                 }
                                 if let Some(ref phone) = portal.driver_phone {
                                     a {
-                                        class: "inline-flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 font-semibold bg-indigo-500/10 px-2.5 py-1 rounded-lg transition-colors border border-indigo-500/20 mt-1",
+                                        class: "inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary font-semibold bg-primary/10 px-2.5 py-1 rounded-lg transition-colors border border-primary/20 mt-1",
                                         href: "tel:{phone}",
                                         "Ring Förare ({phone})"
                                     }
@@ -149,7 +149,7 @@ pub fn CustomerLiveTrackingModal(props: CustomerLiveTrackingModalProps) -> Eleme
                                 class: "p-3 bg-slate-800/50 border border-slate-700/60 rounded-xl space-y-1.5",
                                 div { class: "text-[10px] font-bold text-slate-400 uppercase tracking-wider", "Rutt" }
                                 div { class: "text-slate-300 font-medium truncate", "Från: {portal.origin_address}" }
-                                div { class: "text-indigo-300 font-semibold truncate", "Till: {portal.destination_address}" }
+                                div { class: "text-primary font-semibold truncate", "Till: {portal.destination_address}" }
                             }
                         }
 
@@ -217,7 +217,7 @@ pub fn CustomerLiveTrackingModal(props: CustomerLiveTrackingModalProps) -> Eleme
                                     class: if *is_simulating.read() {
                                         "px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-semibold rounded-lg transition-colors flex items-center gap-1.5"
                                     } else {
-                                        "px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-lg transition-colors flex items-center gap-1.5"
+                                        "px-3 py-1.5 bg-primary hover:bg-primary/90 text-white font-semibold rounded-lg transition-colors flex items-center gap-1.5"
                                     },
                                     onclick: move |_| {
                                         let curr = *is_simulating.read();
@@ -239,7 +239,7 @@ pub fn CustomerLiveTrackingModal(props: CustomerLiveTrackingModalProps) -> Eleme
                 } else {
                     div {
                         class: "py-12 text-center text-slate-400 space-y-2",
-                        div { class: "w-8 h-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin mx-auto" }
+                        div { class: "w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin mx-auto" }
                         p { class: "text-sm", "Hämtar live GPS telemetridata för flyttuppdrag..." }
                     }
                 }

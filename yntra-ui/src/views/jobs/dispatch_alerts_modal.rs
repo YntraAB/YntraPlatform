@@ -57,7 +57,7 @@ pub fn DispatchAlertsModal(
                     div { class: "px-2 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded font-semibold", "✓ PLIVO SMS" }
                     div { class: "px-2 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded font-semibold", "✓ TWILIO SMS" }
                     div { class: "px-2 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded font-semibold", "✓ WHATSAPP META" }
-                    div { class: "px-2 py-0.5 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded font-semibold", "✓ SENDGRID EMAIL" }
+                    div { class: "px-2 py-0.5 bg-primary/20 text-primary border border-primary/30 rounded font-semibold", "✓ SENDGRID EMAIL" }
                 }
 
                 // Feedback Banner
@@ -76,7 +76,7 @@ pub fn DispatchAlertsModal(
                     div {
                         label { class: "block text-xs text-slate-400 mb-1 font-medium", "Beräknad Ankomsttid / ETA (Minuter)" }
                         input {
-                            class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-indigo-500 outline-none",
+                            class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-primary outline-none",
                             value: "{eta_input}",
                             oninput: move |e| eta_input.set(e.value())
                         }
@@ -110,7 +110,7 @@ pub fn DispatchAlertsModal(
                         }
 
                         button {
-                            class: "w-full py-3.5 bg-sky-600 hover:bg-sky-500 active:scale-[0.99] text-white font-bold text-sm rounded-xl shadow-lg transition-all border border-sky-400 flex items-center justify-center gap-3",
+                            class: "w-full py-3.5 bg-primary hover:bg-primary active:scale-[0.99] text-white font-bold text-sm rounded-xl shadow-lg transition-all border border-primary/40 flex items-center justify-center gap-3",
                             disabled: *is_sending.read(),
                             onclick: move |_| {
                                 let j_id = j_id_2.clone();

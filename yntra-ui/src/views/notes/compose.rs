@@ -159,7 +159,7 @@ pub fn NoteCompose(props: NoteComposeProps) -> Element {
                             r#type: "checkbox",
                             checked: *encrypt_zero_copy.read(),
                             onchange: move |e| encrypt_zero_copy.set(e.value().parse().unwrap_or(false)),
-                            class: "h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer",
+                            class: "h-4 w-4 rounded border-gray-300 text-primary focus:ring-indigo-500 cursor-pointer",
                         }
                     }
                     if *encrypt_zero_copy.read() {

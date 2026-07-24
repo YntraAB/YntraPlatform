@@ -97,22 +97,22 @@ pub fn EldDotComplianceModal(
                 div {
                     class: "flex border-b border-slate-800 bg-slate-950/40 px-6 pt-2 gap-2 text-sm font-semibold",
                     button {
-                        class: if *active_tab.read() == "HOS" { "px-4 py-2.5 bg-indigo-600 text-white rounded-t-xl font-bold border-t border-x border-indigo-500 shadow-lg" } else { "px-4 py-2.5 text-slate-400 hover:text-slate-200 rounded-t-xl hover:bg-slate-800/40 transition-all" },
+                        class: if *active_tab.read() == "HOS" { "px-4 py-2.5 bg-primary text-white rounded-t-xl font-bold border-t border-x border-primary shadow-lg" } else { "px-4 py-2.5 text-slate-400 hover:text-slate-200 rounded-t-xl hover:bg-slate-800/40 transition-all" },
                         onclick: move |_| active_tab.set("HOS".to_string()),
                         "⏱️ ELD HOS Logg"
                     }
                     button {
-                        class: if *active_tab.read() == "DVIR" { "px-4 py-2.5 bg-indigo-600 text-white rounded-t-xl font-bold border-t border-x border-indigo-500 shadow-lg" } else { "px-4 py-2.5 text-slate-400 hover:text-slate-200 rounded-t-xl hover:bg-slate-800/40 transition-all" },
+                        class: if *active_tab.read() == "DVIR" { "px-4 py-2.5 bg-primary text-white rounded-t-xl font-bold border-t border-x border-primary shadow-lg" } else { "px-4 py-2.5 text-slate-400 hover:text-slate-200 rounded-t-xl hover:bg-slate-800/40 transition-all" },
                         onclick: move |_| active_tab.set("DVIR".to_string()),
                         "📋 DVIR Inspektion"
                     }
                     button {
-                        class: if *active_tab.read() == "GVWR" { "px-4 py-2.5 bg-indigo-600 text-white rounded-t-xl font-bold border-t border-x border-indigo-500 shadow-lg" } else { "px-4 py-2.5 text-slate-400 hover:text-slate-200 rounded-t-xl hover:bg-slate-800/40 transition-all" },
+                        class: if *active_tab.read() == "GVWR" { "px-4 py-2.5 bg-primary text-white rounded-t-xl font-bold border-t border-x border-primary shadow-lg" } else { "px-4 py-2.5 text-slate-400 hover:text-slate-200 rounded-t-xl hover:bg-slate-800/40 transition-all" },
                         onclick: move |_| active_tab.set("GVWR".to_string()),
                         "⚖️ GVWR Viktkontroll"
                     }
                     button {
-                        class: if *active_tab.read() == "IFTA" { "px-4 py-2.5 bg-indigo-600 text-white rounded-t-xl font-bold border-t border-x border-indigo-500 shadow-lg" } else { "px-4 py-2.5 text-slate-400 hover:text-slate-200 rounded-t-xl hover:bg-slate-800/40 transition-all" },
+                        class: if *active_tab.read() == "IFTA" { "px-4 py-2.5 bg-primary text-white rounded-t-xl font-bold border-t border-x border-primary shadow-lg" } else { "px-4 py-2.5 text-slate-400 hover:text-slate-200 rounded-t-xl hover:bg-slate-800/40 transition-all" },
                         onclick: move |_| active_tab.set("IFTA".to_string()),
                         "🌐 IFTA Drivmedel & Gräns"
                     }
@@ -142,7 +142,7 @@ pub fn EldDotComplianceModal(
                                 div {
                                     label { class: "block text-xs text-slate-400 mb-1 font-medium", "Förare ID" }
                                     input {
-                                        class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-indigo-500 outline-none",
+                                        class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-primary outline-none",
                                         value: "{driver_id_input}",
                                         readonly: true
                                     }
@@ -150,7 +150,7 @@ pub fn EldDotComplianceModal(
                                 div {
                                     label { class: "block text-xs text-slate-400 mb-1 font-medium", "Förare Namn" }
                                     input {
-                                        class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-indigo-500 outline-none",
+                                        class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-primary outline-none",
                                         value: "{driver_name_input}",
                                         readonly: true
                                     }
@@ -160,12 +160,12 @@ pub fn EldDotComplianceModal(
                             div {
                                 class: "grid grid-cols-2 sm:grid-cols-4 gap-3",
                                 button {
-                                    class: if *hos_status_input.read() == "OFF_DUTY" { "py-3 bg-slate-700 border-2 border-indigo-400 text-white rounded-xl font-bold text-xs uppercase shadow-md" } else { "py-3 bg-slate-950 border border-slate-800 text-slate-400 hover:text-white rounded-xl text-xs uppercase" },
+                                    class: if *hos_status_input.read() == "OFF_DUTY" { "py-3 bg-slate-700 border-2 border-primary/40 text-white rounded-xl font-bold text-xs uppercase shadow-md" } else { "py-3 bg-slate-950 border border-slate-800 text-slate-400 hover:text-white rounded-xl text-xs uppercase" },
                                     onclick: move |_| hos_status_input.set("OFF_DUTY".to_string()),
                                     "☕ Ej i Tjänst (Off Duty)"
                                 }
                                 button {
-                                    class: if *hos_status_input.read() == "SLEEPER_BERTH" { "py-3 bg-indigo-700 border-2 border-indigo-400 text-white rounded-xl font-bold text-xs uppercase shadow-md" } else { "py-3 bg-slate-950 border border-slate-800 text-slate-400 hover:text-white rounded-xl text-xs uppercase" },
+                                    class: if *hos_status_input.read() == "SLEEPER_BERTH" { "py-3 bg-primary border-2 border-primary/40 text-white rounded-xl font-bold text-xs uppercase shadow-md" } else { "py-3 bg-slate-950 border border-slate-800 text-slate-400 hover:text-white rounded-xl text-xs uppercase" },
                                     onclick: move |_| hos_status_input.set("SLEEPER_BERTH".to_string()),
                                     "🛌 Sovhytt (Sleeper)"
                                 }
@@ -186,7 +186,7 @@ pub fn EldDotComplianceModal(
                                 div {
                                     label { class: "block text-xs text-slate-400 mb-1 font-medium", "Körtid Idag (max 11h)" }
                                     input {
-                                        class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-indigo-500 outline-none",
+                                        class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-primary outline-none",
                                         value: "{driving_hours_input}",
                                         oninput: move |e| driving_hours_input.set(e.value())
                                     }
@@ -194,7 +194,7 @@ pub fn EldDotComplianceModal(
                                 div {
                                     label { class: "block text-xs text-slate-400 mb-1 font-medium", "Arbetstid Idag (max 14h fönster)" }
                                     input {
-                                        class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-indigo-500 outline-none",
+                                        class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-primary outline-none",
                                         value: "{on_duty_hours_input}",
                                         oninput: move |e| on_duty_hours_input.set(e.value())
                                     }
@@ -202,7 +202,7 @@ pub fn EldDotComplianceModal(
                                 div {
                                     label { class: "block text-xs text-slate-400 mb-1 font-medium", "7-Dagars Cykeltid (max 70h)" }
                                     input {
-                                        class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-indigo-500 outline-none",
+                                        class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-primary outline-none",
                                         value: "{cycle_hours_input}",
                                         oninput: move |e| cycle_hours_input.set(e.value())
                                     }
@@ -210,7 +210,7 @@ pub fn EldDotComplianceModal(
                             }
 
                             button {
-                                class: "w-full py-3 bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] text-white font-bold text-sm rounded-xl shadow-lg transition-all border border-indigo-400 flex items-center justify-center gap-2",
+                                class: "w-full py-3 bg-primary hover:bg-primary/90 active:scale-[0.99] text-white font-bold text-sm rounded-xl shadow-lg transition-all border border-primary/40 flex items-center justify-center gap-2",
                                 onclick: move |_| {
                                     let v_id = vehicle_id.clone();
                                     let drv_id = driver_id_input.read().clone();
@@ -253,12 +253,12 @@ pub fn EldDotComplianceModal(
                             div {
                                 class: "flex items-center gap-4 bg-slate-950 p-3 border border-slate-800 rounded-xl",
                                 button {
-                                    class: if *inspection_type_input.read() == "PRE_TRIP" { "px-4 py-2 bg-indigo-600 text-white font-bold text-xs rounded-lg uppercase" } else { "px-4 py-2 bg-slate-900 text-slate-400 text-xs rounded-lg uppercase" },
+                                    class: if *inspection_type_input.read() == "PRE_TRIP" { "px-4 py-2 bg-primary text-white font-bold text-xs rounded-lg uppercase" } else { "px-4 py-2 bg-slate-900 text-slate-400 text-xs rounded-lg uppercase" },
                                     onclick: move |_| inspection_type_input.set("PRE_TRIP".to_string()),
                                     "🔍 Före Körning (Pre-Trip)"
                                 }
                                 button {
-                                    class: if *inspection_type_input.read() == "POST_TRIP" { "px-4 py-2 bg-indigo-600 text-white font-bold text-xs rounded-lg uppercase" } else { "px-4 py-2 bg-slate-900 text-slate-400 text-xs rounded-lg uppercase" },
+                                    class: if *inspection_type_input.read() == "POST_TRIP" { "px-4 py-2 bg-primary text-white font-bold text-xs rounded-lg uppercase" } else { "px-4 py-2 bg-slate-900 text-slate-400 text-xs rounded-lg uppercase" },
                                     onclick: move |_| inspection_type_input.set("POST_TRIP".to_string()),
                                     "🏁 Efter Körning (Post-Trip)"
                                 }
@@ -320,7 +320,7 @@ pub fn EldDotComplianceModal(
                             div {
                                 label { class: "block text-xs text-slate-400 mb-1 font-medium", "Anmärkningar & Defektbeskrivning" }
                                 textarea {
-                                    class: "w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-sm text-white font-mono focus:border-indigo-500 outline-none h-20",
+                                    class: "w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-sm text-white font-mono focus:border-primary outline-none h-20",
                                     placeholder: "Beskriv ev. brister, slitna däck eller luftläckage...",
                                     value: "{defect_details}",
                                     oninput: move |e| defect_details.set(e.value())
@@ -328,7 +328,7 @@ pub fn EldDotComplianceModal(
                             }
 
                             button {
-                                class: "w-full py-3 bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] text-white font-bold text-sm rounded-xl shadow-lg transition-all border border-indigo-400 flex items-center justify-center gap-2",
+                                class: "w-full py-3 bg-primary hover:bg-primary/90 active:scale-[0.99] text-white font-bold text-sm rounded-xl shadow-lg transition-all border border-primary/40 flex items-center justify-center gap-2",
                                 onclick: move |_| {
                                     let v_id = vehicle_id.clone();
                                     let drv_id = driver_id_input.read().clone();
@@ -373,7 +373,7 @@ pub fn EldDotComplianceModal(
                                 div {
                                     label { class: "block text-xs text-slate-400 mb-1 font-medium", "Lastvikt / Gods (kg)" }
                                     input {
-                                        class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-indigo-500 outline-none",
+                                        class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-primary outline-none",
                                         value: "{cargo_weight_input}",
                                         oninput: move |e| cargo_weight_input.set(e.value())
                                     }
@@ -381,7 +381,7 @@ pub fn EldDotComplianceModal(
                                 div {
                                     label { class: "block text-xs text-slate-400 mb-1 font-medium", "Tjänstevikt / Fordon (kg)" }
                                     input {
-                                        class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-indigo-500 outline-none",
+                                        class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-primary outline-none",
                                         value: "{tare_weight_input}",
                                         oninput: move |e| tare_weight_input.set(e.value())
                                     }
@@ -389,7 +389,7 @@ pub fn EldDotComplianceModal(
                                 div {
                                     label { class: "block text-xs text-slate-400 mb-1 font-medium", "Tillåten Totalvikt / GVWR (kg)" }
                                     input {
-                                        class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-indigo-500 outline-none",
+                                        class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-primary outline-none",
                                         value: "{gvwr_input}",
                                         oninput: move |e| gvwr_input.set(e.value())
                                     }
@@ -397,7 +397,7 @@ pub fn EldDotComplianceModal(
                             }
 
                             button {
-                                class: "w-full py-3 bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] text-white font-bold text-sm rounded-xl shadow-lg transition-all border border-indigo-400 flex items-center justify-center gap-2",
+                                class: "w-full py-3 bg-primary hover:bg-primary/90 active:scale-[0.99] text-white font-bold text-sm rounded-xl shadow-lg transition-all border border-primary/40 flex items-center justify-center gap-2",
                                 onclick: move |_| {
                                     let v_id = vehicle_id.clone();
                                     let c_w = cargo_weight_input.read().parse::<f64>().unwrap_or(0.0);
@@ -435,7 +435,7 @@ pub fn EldDotComplianceModal(
                                 div {
                                     label { class: "block text-xs text-slate-400 mb-1 font-medium", "Från Region / Län" }
                                     input {
-                                        class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-indigo-500 outline-none",
+                                        class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-primary outline-none",
                                         value: "{from_jurisdiction_input}",
                                         oninput: move |e| from_jurisdiction_input.set(e.value())
                                     }
@@ -443,7 +443,7 @@ pub fn EldDotComplianceModal(
                                 div {
                                     label { class: "block text-xs text-slate-400 mb-1 font-medium", "Till Region / Län" }
                                     input {
-                                        class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-indigo-500 outline-none",
+                                        class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-primary outline-none",
                                         value: "{to_jurisdiction_input}",
                                         oninput: move |e| to_jurisdiction_input.set(e.value())
                                     }
@@ -451,7 +451,7 @@ pub fn EldDotComplianceModal(
                                 div {
                                     label { class: "block text-xs text-slate-400 mb-1 font-medium", "Mätarställning Vid Gräns (km)" }
                                     input {
-                                        class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-indigo-500 outline-none",
+                                        class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-primary outline-none",
                                         value: "{odometer_input}",
                                         oninput: move |e| odometer_input.set(e.value())
                                     }
@@ -459,7 +459,7 @@ pub fn EldDotComplianceModal(
                                 div {
                                     label { class: "block text-xs text-slate-400 mb-1 font-medium", "Tankat Drivmedel (Liter)" }
                                     input {
-                                        class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-indigo-500 outline-none",
+                                        class: "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-primary outline-none",
                                         value: "{fuel_liters_input}",
                                         oninput: move |e| fuel_liters_input.set(e.value())
                                     }
@@ -467,7 +467,7 @@ pub fn EldDotComplianceModal(
                             }
 
                             button {
-                                class: "w-full py-3 bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] text-white font-bold text-sm rounded-xl shadow-lg transition-all border border-indigo-400 flex items-center justify-center gap-2",
+                                class: "w-full py-3 bg-primary hover:bg-primary/90 active:scale-[0.99] text-white font-bold text-sm rounded-xl shadow-lg transition-all border border-primary/40 flex items-center justify-center gap-2",
                                 onclick: move |_| {
                                     let v_id = vehicle_id.clone();
                                     let drv_id = driver_id_input.read().clone();
