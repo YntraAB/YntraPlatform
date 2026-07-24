@@ -1050,7 +1050,7 @@ pub async fn run_schema_migrations(
                  rot_eligible INTEGER NOT NULL DEFAULT 0,
                  created_at INTEGER NOT NULL
              );
-             CREATE INDEX IF NOT EXISTS idx_job_parts_used_ticket ON job_parts_used(job_ticket_id);",
+              CREATE INDEX IF NOT EXISTS idx_job_parts_used_ticket ON job_parts_used(job_ticket_id, workspace_id);",
         )
         .await?;
         version = 26;
@@ -1063,6 +1063,30 @@ pub async fn run_schema_migrations(
         )
         .await?;
         version = 27;
+    }
+    if version < 28 {
+        execute_migration_batch(
+            conn,
+            "ALTER TABLE hvac_diagnostics ADD COLUMN static_flow_pressure_bar REAL;
+             ALTER TABLE hvac_diagnostics ADD COLUMN dynamic_flow_pressure_bar REAL;
+             ALTER TABLE hvac_diagnostics ADD COLUMN pipe_material TEXT;
+             ALTER TABLE hvac_diagnostics ADD COLUMN backflow_preventer_status TEXT;
+             ALTER TABLE hvac_diagnostics ADD COLUMN water_heater_temp_c REAL;
+             ALTER TABLE hvac_diagnostics ADD COLUMN leak_test_duration_min REAL;
+             ALTER TABLE hvac_diagnostics ADD COLUMN leak_test_pressure_drop_bar REAL;
+             CREATE INDEX IF NOT EXISTS idx_hvac_diagnostics_ticket ON hvac_diagnostics(job_ticket_id, workspace_id);",
+        )
+        .await?;
+        version = 28;
+    }
+    if version < 29 {
+        execute_migration_batch(
+            conn,
+            "DROP INDEX IF EXISTS idx_job_parts_used_ticket;
+             CREATE INDEX IF NOT EXISTS idx_job_parts_used_ticket ON job_parts_used(job_ticket_id, workspace_id);",
+        )
+        .await?;
+        version = 29;
     }
     Ok(version)
 }
@@ -1093,7 +1117,7 @@ mod tests {
         conn.execute("PRAGMA user_version = 0", ()).await.unwrap();
 
         let migrated_version = run_schema_migrations(&conn, 0).await.unwrap();
-        assert_eq!(migrated_version, 27);
+        assert_eq!(migrated_version, 29);
 
         let has_oauth_sessions = conn.query_row(
             "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='oauth_auth_sessions'",

@@ -322,19 +322,27 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             system_type TEXT DEFAULT 'REFRIGERANT_HVAC',
             refrigerant_type TEXT NOT NULL,
             refrigerant_charge_level TEXT NOT NULL,
-            high_side_psi REAL NOT NULL,
-            low_side_psi REAL NOT NULL,
+            high_side_psi REAL,
+            low_side_psi REAL,
             water_pressure_bar REAL DEFAULT 0.0,
-            temp_differential_c REAL NOT NULL,
-            voltage_v REAL NOT NULL,
-            amp_draw_a REAL NOT NULL,
+            temp_differential_c REAL,
+            voltage_v REAL,
+            amp_draw_a REAL,
             diagnostic_status TEXT NOT NULL,
             asset_id TEXT,
             notes TEXT,
             operating_mode TEXT DEFAULT 'COOLING_MODE',
             ambient_temp_c REAL,
+            static_flow_pressure_bar REAL,
+            dynamic_flow_pressure_bar REAL,
+            pipe_material TEXT,
+            backflow_preventer_status TEXT,
+            water_heater_temp_c REAL,
+            leak_test_duration_min REAL,
+            leak_test_pressure_drop_bar REAL,
             created_at INTEGER NOT NULL
         );
+        CREATE INDEX IF NOT EXISTS idx_hvac_diagnostics_ticket ON hvac_diagnostics(job_ticket_id, workspace_id);
 
         CREATE TABLE IF NOT EXISTS job_parts_used (
             id TEXT PRIMARY KEY,
@@ -346,7 +354,22 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             rot_eligible INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_job_parts_used_ticket ON job_parts_used(job_ticket_id);
+        CREATE INDEX IF NOT EXISTS idx_job_parts_used_ticket ON job_parts_used(job_ticket_id, workspace_id);
+
+        CREATE TABLE IF NOT EXISTS location_assets (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            job_ticket_id TEXT,
+            customer_id TEXT,
+            asset_tag TEXT NOT NULL,
+            model_name TEXT NOT NULL,
+            serial_number TEXT NOT NULL,
+            equipment_category TEXT NOT NULL,
+            location_address TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_location_assets_ticket ON location_assets(job_ticket_id, workspace_id);
+        CREATE INDEX IF NOT EXISTS idx_location_assets_customer ON location_assets(customer_id, workspace_id);
 
         CREATE TABLE IF NOT EXISTS job_tickets (
             id TEXT PRIMARY KEY,
