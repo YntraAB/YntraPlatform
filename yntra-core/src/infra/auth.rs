@@ -35,7 +35,7 @@ const CACHE_LIMIT: usize = 1000;
 
 static AUTH_CONTEXT_CACHE: OnceLock<RwLock<BoundedAuthCache>> = OnceLock::new();
 
-pub(crate) fn is_production() -> bool {
+fn compute_is_production() -> bool {
     // Compile-time check: release profiles (without debug assertions) are production
     if !cfg!(debug_assertions) && !cfg!(test) {
         return true;
@@ -95,7 +95,19 @@ pub(crate) fn is_production() -> bool {
     false
 }
 
-fn check_insecure_dev_bypass() -> bool {
+pub(crate) fn is_production() -> bool {
+    #[cfg(test)]
+    {
+        compute_is_production()
+    }
+    #[cfg(not(test))]
+    {
+        static IS_PROD_CACHE: OnceLock<bool> = OnceLock::new();
+        *IS_PROD_CACHE.get_or_init(compute_is_production)
+    }
+}
+
+fn compute_insecure_dev_bypass() -> bool {
     if is_production() {
         return false;
     }
@@ -119,6 +131,18 @@ fn check_insecure_dev_bypass() -> bool {
         }
     }
     false
+}
+
+fn check_insecure_dev_bypass() -> bool {
+    #[cfg(test)]
+    {
+        compute_insecure_dev_bypass()
+    }
+    #[cfg(not(test))]
+    {
+        static BYPASS_CACHE: OnceLock<bool> = OnceLock::new();
+        *BYPASS_CACHE.get_or_init(compute_insecure_dev_bypass)
+    }
 }
 
 static WORKSPACE_LOCKS: OnceLock<std::sync::Mutex<HashMap<String, std::sync::Arc<futures_util::lock::Mutex<()>>>>> = OnceLock::new();
