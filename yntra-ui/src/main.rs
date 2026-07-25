@@ -58,43 +58,48 @@ fn App() -> Element {
     let db_trigger = state.db_trigger;
     let account_preferences = state.account_preferences;
 
-    // Handle section changes with guards
-    let active_role = state.active_user_role.read();
-    let is_client = *active_role == "client";
-    let is_student = *active_role == "student" || *active_role == "role-school-student";
-    let is_parent = *active_role == "parent" || *active_role == "role-school-parent";
+    let active_role = state.active_user_role;
+    let is_client = *active_role.read() == "client";
 
-    if is_client
-        && *active_section.read() != "messaging"
-        && *active_section.read() != "client_portal"
-        && *active_section.read() != "directory"
-    {
-        active_section.set("client_portal".to_string());
-    }
+    use_effect(move || {
+        let role = active_role.read().clone();
+        let current_sec = active_section.read().clone();
+        let is_c = role == "client";
+        let is_s = role == "student" || role == "role-school-student";
+        let is_p = role == "parent" || role == "role-school-parent";
 
-    if is_student
-        && *active_section.read() != "academics"
-        && *active_section.read() != "report_cards"
-        && *active_section.read() != "library"
-        && *active_section.read() != "finance"
-        && *active_section.read() != "health_clinic"
-        && *active_section.read() != "dashboard"
-        && *active_section.read() != "settings"
-    {
-        active_section.set("academics".to_string());
-    }
+        if is_c
+            && current_sec != "messaging"
+            && current_sec != "client_portal"
+            && current_sec != "directory"
+        {
+            active_section.set("client_portal".to_string());
+        }
 
-    if is_parent
-        && *active_section.read() != "academics"
-        && *active_section.read() != "finance"
-        && *active_section.read() != "library"
-        && *active_section.read() != "messaging"
-        && *active_section.read() != "directory"
-        && *active_section.read() != "dashboard"
-        && *active_section.read() != "settings"
-    {
-        active_section.set("academics".to_string());
-    }
+        if is_s
+            && current_sec != "academics"
+            && current_sec != "report_cards"
+            && current_sec != "library"
+            && current_sec != "finance"
+            && current_sec != "health_clinic"
+            && current_sec != "dashboard"
+            && current_sec != "settings"
+        {
+            active_section.set("academics".to_string());
+        }
+
+        if is_p
+            && current_sec != "academics"
+            && current_sec != "finance"
+            && current_sec != "library"
+            && current_sec != "messaging"
+            && current_sec != "directory"
+            && current_sec != "dashboard"
+            && current_sec != "settings"
+        {
+            active_section.set("academics".to_string());
+        }
+    });
 
     let workspace_val = state.workspace.read().clone().unwrap_or_else(|| yntra_core::Workspace {
         id: "workspace-1".to_string(),
