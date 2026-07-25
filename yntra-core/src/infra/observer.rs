@@ -81,14 +81,11 @@ pub fn notify_observers() {
         Vec::new()
     };
 
-    if !records.is_empty() {
+    if !records.is_empty() || !tables.is_empty() {
         for observer in &observers {
             for (table, id) in &records {
                 observer.on_record_changed(table.clone(), id.clone());
             }
-        }
-    } else if !tables.is_empty() {
-        for observer in &observers {
             for table in &tables {
                 observer.on_table_changed(table.clone());
             }
@@ -112,5 +109,58 @@ pub fn discard_observers_dirty_state() {
         .lock()
     {
         lock.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    struct TestObserver {
+        record_called: AtomicBool,
+        table_called: AtomicBool,
+        db_called: AtomicBool,
+    }
+
+    impl DatabaseObserver for TestObserver {
+        fn on_database_changed(&self) {
+            self.db_called.store(true, Ordering::SeqCst);
+        }
+        fn on_table_changed(&self, _table: String) {
+            self.table_called.store(true, Ordering::SeqCst);
+        }
+        fn on_record_changed(&self, _table: String, _id: String) {
+            self.record_called.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn test_simultaneous_record_and_table_notifications() {
+        clear_observers();
+        discard_observers_dirty_state();
+
+        let obs = Arc::new(TestObserver {
+            record_called: AtomicBool::new(false),
+            table_called: AtomicBool::new(false),
+            db_called: AtomicBool::new(false),
+        });
+
+        // Register observer manually
+        if let Ok(mut observers) = get_observers().lock() {
+            observers.push(obs.clone());
+        }
+
+        // Set both a modified record and a modified table
+        set_last_modified_record("todos", "todo-123");
+        set_last_modified_table("users");
+
+        notify_observers();
+
+        assert!(obs.record_called.load(Ordering::SeqCst), "Record notification should be fired");
+        assert!(obs.table_called.load(Ordering::SeqCst), "Table notification should be fired even when records exist");
+        assert!(!obs.db_called.load(Ordering::SeqCst), "DB fallback notification should not fire when specific events exist");
+
+        clear_observers();
     }
 }
