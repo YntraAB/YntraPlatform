@@ -662,29 +662,11 @@ pub fn use_init_app_state() -> AppState {
                                             "audit_logs" => {},
                                             "bankid_auth_sessions" => {},
                                             _ => {
-                                                update_todos = true;
-                                                update_users = true;
-                                                update_teams = true;
-                                                update_events = true;
-                                                update_messages = true;
-                                                update_notes = true;
-                                                update_time = true;
-                                                update_clients = true;
-                                                update_school = true;
-                                                update_school_academics = true;
-                                                update_school_directory = true;
-                                                update_school_attendance = true;
-                                                update_school_health = true;
-                                                update_school_report_cards = true;
-                                                update_school_finance = true;
-                                                update_school_library = true;
-                                                update_reports = true;
-                                                update_workspaces = true;
-                                                update_jobs = true;
+                                                update_db = true;
                                             }
                                         }
                                     }
-                                    if table != "audit_logs" {
+                                    if table == "all" {
                                         update_db = true;
                                     }
                                 }
