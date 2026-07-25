@@ -815,7 +815,7 @@ pub async fn complete_auth_session(
 
     // Check expiry (10 minutes)
     let created_dt = chrono::NaiveDateTime::parse_from_str(&created_at, "%Y-%m-%d %H:%M:%S")
-        .map(|dt| dt.and_local_timezone(chrono::Utc).unwrap())
+        .map(|dt| dt.and_utc())
         .map_err(|e| {
             YntraError::AuthError(format!("Failed to parse session creation time: {}", e))
         })?;

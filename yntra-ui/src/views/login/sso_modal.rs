@@ -60,40 +60,41 @@ pub fn SsoModal(props: SsoModalProps) -> Element {
                         match get_oauth_login_status(session_id.clone()).await {
                             Ok(Some(session)) => {
                                 match session.status.as_str() {
-                                    "success" => {
-                                        let uid = session.authenticated_user_id.unwrap();
-                                        if let Some(user) = users_list.iter().find(|u| u.id == uid) {
-                                            let prefs: serde_json::Value =
-                                                serde_json::from_str(&user.preferences)
-                                                    .unwrap_or_default();
-                                            let mfa_enabled = prefs
-                                                .get("two_factor_enabled")
-                                                .and_then(|v| v.as_bool())
-                                                .unwrap_or(false);
-                                            if mfa_enabled {
-                                                tf_user.set(Some(user.clone()));
-                                            } else {
-                                                active_uid.set(user.id.clone());
-                                                if user.role == "client" {
-                                                    active_sec.set("client_portal".to_string());
-                                                } else {
-                                                    active_sec.set("dashboard".to_string());
-                                                }
-                                                let is_new_invite = user.phone.is_none()
-                                                    || user
-                                                        .phone
-                                                        .as_ref()
-                                                        .map(|p| p.is_empty())
-                                                        .unwrap_or(true);
-                                                setup_needed.set(is_new_invite);
-                                                is_logged_in.set(true);
-                                            }
-                                        }
-                                        show_modal.set(false);
-                                        email_input.set(String::new());
-                                        err_sig.set(None);
-                                        break;
-                                    }
+                                     "success" => {
+                                         if let Some(uid) = session.authenticated_user_id {
+                                             if let Some(user) = users_list.iter().find(|u| u.id == uid) {
+                                                 let prefs: serde_json::Value =
+                                                     serde_json::from_str(&user.preferences)
+                                                         .unwrap_or_default();
+                                                 let mfa_enabled = prefs
+                                                     .get("two_factor_enabled")
+                                                     .and_then(|v| v.as_bool())
+                                                     .unwrap_or(false);
+                                                 if mfa_enabled {
+                                                     tf_user.set(Some(user.clone()));
+                                                 } else {
+                                                     active_uid.set(user.id.clone());
+                                                     if user.role == "client" {
+                                                         active_sec.set("client_portal".to_string());
+                                                     } else {
+                                                         active_sec.set("dashboard".to_string());
+                                                     }
+                                                     let is_new_invite = user.phone.is_none()
+                                                         || user
+                                                             .phone
+                                                             .as_ref()
+                                                             .map(|p| p.is_empty())
+                                                             .unwrap_or(true);
+                                                     setup_needed.set(is_new_invite);
+                                                     is_logged_in.set(true);
+                                                 }
+                                             }
+                                         }
+                                         show_modal.set(false);
+                                         email_input.set(String::new());
+                                         err_sig.set(None);
+                                         break;
+                                     }
                                     "error" => {
                                         let err_msg = session
                                             .error_message

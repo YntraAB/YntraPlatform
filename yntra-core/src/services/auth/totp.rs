@@ -73,7 +73,7 @@ fn verify_totp(secret: String, code: &str, timestamp: u64) -> bool {
         let mut cache = LAST_VERIFIED_STEPS
             .get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
             .lock()
-            .unwrap();
+            .unwrap_or_else(|e| e.into_inner());
 
         // Periodic pruning of the entire cache every 60 seconds
         let now = chrono::Utc::now();
