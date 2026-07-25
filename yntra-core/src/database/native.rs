@@ -116,17 +116,9 @@ where
     F::Output: Send + 'static,
 {
     if let Ok(_handle) = tokio::runtime::Handle::try_current() {
-        // We are already inside a Tokio runtime. To prevent deadlocks on single-threaded
-        // runtimes (such as WASM or certain UI runners), we spawn the future on our
-        // dedicated multithreaded runtime and wait for the result via an mpsc channel.
-        let (tx, rx) = std::sync::mpsc::channel();
-        let rt = get_runtime();
-        rt.spawn(async move {
-            let res = future.await;
-            let _ = tx.send(res);
-        });
-        rx.recv()
-            .expect("Failed to receive output from block_on task")
+        // We are already inside a Tokio runtime. Using futures_executor::block_on directly
+        // polls the future to completion on the current thread without triggering OS thread allocations.
+        futures_executor::block_on(future)
     } else {
         // No runtime is currently active. We can directly block_on the dedicated runtime.
         let rt = get_runtime();
@@ -233,19 +225,45 @@ pub fn get_database() -> &'static libsql::Database {
     DATABASE.get().unwrap()
 }
 
-pub const MAX_POOL_SIZE: usize = 64;
+pub fn get_max_pool_size() -> usize {
+    static MAX_POOL_SIZE_INIT: OnceLock<usize> = OnceLock::new();
+    *MAX_POOL_SIZE_INIT.get_or_init(|| {
+        std::env::var("YNTRA_MAX_POOL_SIZE")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(128)
+    })
+}
+
+pub const MAX_POOL_SIZE: usize = 128;
 static SEMAPHORE: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
 
 fn get_semaphore() -> &'static tokio::sync::Semaphore {
-    SEMAPHORE.get_or_init(|| tokio::sync::Semaphore::new(MAX_POOL_SIZE))
+    SEMAPHORE.get_or_init(|| tokio::sync::Semaphore::new(get_max_pool_size()))
+}
+
+fn get_pool_timeout_secs() -> u64 {
+    static TIMEOUT_INIT: OnceLock<u64> = OnceLock::new();
+    *TIMEOUT_INIT.get_or_init(|| {
+        std::env::var("YNTRA_DB_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(15)
+    })
 }
 
 pub async fn acquire_connection() -> Result<DbConnection, YntraError> {
     let sem = get_semaphore();
-    let permit = match tokio::time::timeout(std::time::Duration::from_secs(5), sem.acquire()).await
+    let timeout_secs = get_pool_timeout_secs();
+    let permit = match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), sem.acquire()).await
     {
         Ok(Ok(p)) => p,
         _ => {
+            tracing::error!(
+                "Database connection pool exhausted after {}s timeout (max pool size: {}).",
+                timeout_secs,
+                get_max_pool_size()
+            );
             return Err(YntraError::DbError(
                 "Database connection pool exhausted".to_string(),
             ));

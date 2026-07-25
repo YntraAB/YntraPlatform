@@ -9563,6 +9563,7 @@ dependencies = [
  "curve25519-dalek",
  "diff",
  "ed25519-dalek",
+ "futures-executor",
  "futures-util",
  "getrandom 0.3.4",
  "hmac",

@@ -193,35 +193,6 @@ mod tests {
         // Clear store first to be safe
         let _ = get_todo_store("ws-todo-test").write_todos(Vec::new());
 
-        struct Cleanup {
-            ws_id: String,
-        }
-        impl Drop for Cleanup {
-            fn drop(&mut self) {
-                let ws_id = self.ws_id.clone();
-                crate::database::native::block_on(async move {
-                    if let Ok(c) = crate::database::acquire_connection().await {
-                        let _ = get_todo_store(&ws_id).write_todos(Vec::new());
-                        let _ = c
-                            .execute(
-                                "DELETE FROM users WHERE workspace_id = ?1",
-                                crate::params![ws_id],
-                            )
-                            .await;
-                        let _ = c
-                            .execute(
-                                "DELETE FROM workspaces WHERE id = ?1",
-                                crate::params![ws_id],
-                            )
-                            .await;
-                    }
-                });
-            }
-        }
-        let _cleanup = Cleanup {
-            ws_id: "ws-todo-test".to_string(),
-        };
-
         // 1. Add todo
         let ws_id = "ws-todo-test";
         let todo = add_todo(
@@ -255,5 +226,10 @@ mod tests {
             .unwrap();
         assert_eq!(list_updated.len(), 1);
         assert_eq!(list_updated[0].completed, true);
+
+        // Cleanup
+        let _ = get_todo_store(ws_id).write_todos(Vec::new());
+        let _ = conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await;
+        let _ = conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await;
     }
 }

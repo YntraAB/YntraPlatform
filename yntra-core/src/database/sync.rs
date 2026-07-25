@@ -13,6 +13,7 @@ struct DbConfig {
 
 static DB_CONFIG: OnceLock<Mutex<Option<DbConfig>>> = OnceLock::new();
 static SYNC_ROLE_PROOF: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+static SYNC_ACTIVE_USER_ID: OnceLock<Mutex<Option<String>>> = OnceLock::new();
 
 #[uniffi::export]
 pub fn configure_database_sync(url: String, token: String) {
@@ -39,6 +40,21 @@ pub fn set_sync_role_proof(proof: Option<String>) {
 
 pub fn get_sync_role_proof() -> Option<String> {
     if let Ok(lock) = SYNC_ROLE_PROOF.get_or_init(|| Mutex::new(None)).lock() {
+        lock.clone()
+    } else {
+        None
+    }
+}
+
+#[uniffi::export]
+pub fn set_sync_active_user_id(user_id: Option<String>) {
+    if let Ok(mut lock) = SYNC_ACTIVE_USER_ID.get_or_init(|| Mutex::new(None)).lock() {
+        *lock = user_id;
+    }
+}
+
+pub fn get_sync_active_user_id() -> Option<String> {
+    if let Ok(lock) = SYNC_ACTIVE_USER_ID.get_or_init(|| Mutex::new(None)).lock() {
         lock.clone()
     } else {
         None
@@ -133,14 +149,29 @@ async fn sync_database_row_level(url: String, token: String) -> Result<(), Yntra
     let conn = crate::database::acquire_connection().await?;
 
     // 1. Get logged-in user ID, role, and workspace ID
-    let (user_id, role, _workspace_id): (String, String, String) = match conn
-        .query_row("SELECT id, role, workspace_id FROM users LIMIT 1", (), |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-        })
-        .await
-    {
-        Ok(res) => res,
-        Err(_) => return Ok(()), // No user logged in, nothing to sync
+    let active_user_id = get_sync_active_user_id();
+    let (user_id, role, _workspace_id): (String, String, String) = if let Some(target_uid) = active_user_id {
+        match conn
+            .query_row(
+                "SELECT id, role, workspace_id FROM users WHERE id = ?1",
+                crate::params![&target_uid],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .await
+        {
+            Ok(res) => res,
+            Err(_) => return Ok(()),
+        }
+    } else {
+        match conn
+            .query_row("SELECT id, role, workspace_id FROM users LIMIT 1", (), |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
+            .await
+        {
+            Ok(res) => res,
+            Err(_) => return Ok(()), // No user logged in, nothing to sync
+        }
     };
 
     // Get ZK role proof from memory config
@@ -393,7 +424,7 @@ pub async fn sync_database() -> Result<(), YntraError> {
     if !url.is_empty() {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let db = super::native::get_database();
+            let db = super::native::get_database_async().await?;
             match tokio::time::timeout(std::time::Duration::from_secs(15), db.sync()).await {
                 Ok(sync_res) => {
                     sync_res.map_err(|e| YntraError::SyncError(e.to_string()))?;
@@ -528,5 +559,13 @@ mod tests {
             }
         }
         assert!(ok, "Sync loop did not stop running after cancellation");
+    }
+
+    #[test]
+    fn test_sync_active_user_id_configuration() {
+        set_sync_active_user_id(Some("user-target-123".to_string()));
+        assert_eq!(get_sync_active_user_id(), Some("user-target-123".to_string()));
+        set_sync_active_user_id(None);
+        assert_eq!(get_sync_active_user_id(), None);
     }
 }
