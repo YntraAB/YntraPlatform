@@ -27,21 +27,24 @@ fn derive_scalar_from_seed(passkey_seed: &zeroize::Zeroizing<String>) -> Result<
 
 #[allow(non_snake_case)]
 fn get_generator_h() -> EdwardsPoint {
-    let g_bytes = ED25519_BASEPOINT_POINT.compress().to_bytes();
-    let mut counter = 0u64;
-    loop {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(b"YNTRA_PEDERSEN_GENERATOR_H");
-        hasher.update(&g_bytes);
-        hasher.update(&counter.to_le_bytes());
-        let hash = hasher.finalize();
-        let mut bytes = [0u8; 32];
-        bytes.copy_from_slice(hash.as_bytes());
-        if let Some(point) = CompressedEdwardsY(bytes).decompress() {
-            return point.mul_by_cofactor();
+    static GENERATOR_H: std::sync::OnceLock<EdwardsPoint> = std::sync::OnceLock::new();
+    *GENERATOR_H.get_or_init(|| {
+        let g_bytes = ED25519_BASEPOINT_POINT.compress().to_bytes();
+        let mut counter = 0u64;
+        loop {
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(b"YNTRA_PEDERSEN_GENERATOR_H");
+            hasher.update(&g_bytes);
+            hasher.update(&counter.to_le_bytes());
+            let hash = hasher.finalize();
+            let mut bytes = [0u8; 32];
+            bytes.copy_from_slice(hash.as_bytes());
+            if let Some(point) = CompressedEdwardsY(bytes).decompress() {
+                return point.mul_by_cofactor();
+            }
+            counter += 1;
         }
-        counter += 1;
-    }
+    })
 }
 
 #[allow(non_snake_case)]

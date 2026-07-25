@@ -696,6 +696,30 @@ pub fn decrypt_workspace_key_with_password(
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn encrypt_workspace_key_with_password_async(
+    password: String,
+    workspace_key: Vec<u8>,
+) -> Result<String, YntraError> {
+    tokio::task::spawn_blocking(move || {
+        encrypt_workspace_key_with_password(password, workspace_key)
+    })
+    .await
+    .map_err(|e| YntraError::CryptoError(e.to_string()))?
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn decrypt_workspace_key_with_password_async(
+    password: String,
+    encrypted_envelope: String,
+) -> Result<Vec<u8>, YntraError> {
+    tokio::task::spawn_blocking(move || {
+        decrypt_workspace_key_with_password(password, &encrypted_envelope)
+    })
+    .await
+    .map_err(|e| YntraError::CryptoError(e.to_string()))?
+}
+
 #[cfg(test)]
 mod keychain_tests {
     use super::*;
@@ -829,6 +853,18 @@ mod keychain_tests {
         assert!(envelope.starts_with("envelope:v3:"));
 
         let decrypted = decrypt_workspace_key_with_password(password.to_string(), &envelope).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[tokio::test]
+    async fn test_argon2id_async_spawn_blocking() {
+        let password = "my-secure-async-password";
+        let plaintext = b"workspace-async-secret-key-bytes";
+
+        let envelope = encrypt_workspace_key_with_password_async(password.to_string(), plaintext.to_vec()).await.unwrap();
+        assert!(envelope.starts_with("envelope:v3:"));
+
+        let decrypted = decrypt_workspace_key_with_password_async(password.to_string(), envelope).await.unwrap();
         assert_eq!(decrypted, plaintext);
     }
 

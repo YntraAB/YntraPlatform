@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 // Reactive Database Observer callback trait
 #[uniffi::export(callback_interface)]
@@ -34,22 +34,22 @@ pub fn set_last_modified_record(table: &str, id: &str) {
 }
 
 // Store observers inside Arc to allow thread-safe, lock-free callback invocation
-static OBSERVERS: OnceLock<Mutex<Vec<Arc<dyn DatabaseObserver>>>> = OnceLock::new();
+static OBSERVERS: OnceLock<RwLock<Vec<Arc<dyn DatabaseObserver>>>> = OnceLock::new();
 
-fn get_observers() -> &'static Mutex<Vec<Arc<dyn DatabaseObserver>>> {
-    OBSERVERS.get_or_init(|| Mutex::new(Vec::new()))
+fn get_observers() -> &'static RwLock<Vec<Arc<dyn DatabaseObserver>>> {
+    OBSERVERS.get_or_init(|| RwLock::new(Vec::new()))
 }
 
 #[uniffi::export]
 pub fn register_observer(observer: Box<dyn DatabaseObserver>) {
-    if let Ok(mut observers) = get_observers().lock() {
+    if let Ok(mut observers) = get_observers().write() {
         observers.push(Arc::from(observer));
     }
 }
 
 #[uniffi::export]
 pub fn clear_observers() {
-    if let Ok(mut observers) = get_observers().lock() {
+    if let Ok(mut observers) = get_observers().write() {
         observers.clear();
     }
 }
@@ -73,9 +73,9 @@ pub fn notify_observers() {
         Vec::new()
     };
 
-    // Clone the list of observers while holding the lock, then release it immediately
+    // Clone the list of observers while holding the read lock, then release it immediately
     // to prevent reentrancy deadlocks when invoking external FFI callback code.
-    let observers = if let Ok(lock) = get_observers().lock() {
+    let observers = if let Ok(lock) = get_observers().read() {
         lock.clone()
     } else {
         Vec::new()
@@ -147,7 +147,7 @@ mod tests {
         });
 
         // Register observer manually
-        if let Ok(mut observers) = get_observers().lock() {
+        if let Ok(mut observers) = get_observers().write() {
             observers.push(obs.clone());
         }
 
