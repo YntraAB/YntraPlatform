@@ -233,15 +233,16 @@ pub fn get_database() -> &'static libsql::Database {
     DATABASE.get().unwrap()
 }
 
+pub const MAX_POOL_SIZE: usize = 64;
 static SEMAPHORE: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
 
 fn get_semaphore() -> &'static tokio::sync::Semaphore {
-    SEMAPHORE.get_or_init(|| tokio::sync::Semaphore::new(16))
+    SEMAPHORE.get_or_init(|| tokio::sync::Semaphore::new(MAX_POOL_SIZE))
 }
 
 pub async fn acquire_connection() -> Result<DbConnection, YntraError> {
     let sem = get_semaphore();
-    let permit = match tokio::time::timeout(std::time::Duration::from_secs(1), sem.acquire()).await
+    let permit = match tokio::time::timeout(std::time::Duration::from_secs(5), sem.acquire()).await
     {
         Ok(Ok(p)) => p,
         _ => {
@@ -295,29 +296,40 @@ impl Drop for DbConnection {
     fn drop(&mut self) {
         if let Some(conn) = self.inner.take() {
             let permit = self._permit.take();
-            let rt = get_runtime();
-            rt.spawn(async move {
-                let mut is_clean = true;
-                if let Err(e) = conn.execute("ROLLBACK", ()).await {
-                    let err_str = e.to_string();
-                    if !err_str.contains("no transaction is active") {
-                        tracing::warn!("Failed to rollback database connection on drop: {}. Discarding connection.", err_str);
-                        is_clean = false;
-                    }
-                }
-                
-                if is_clean {
-                    let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
-                    let mut conns = pool.lock().unwrap_or_else(|e| {
-                        tracing::error!("Database connection pool lock is poisoned on release. Recovering by clearing the pool.");
-                        let mut guard = e.into_inner();
-                        guard.clear();
-                        guard
-                    });
+            let is_in_tx = self
+                .in_transaction
+                .load(std::sync::atomic::Ordering::SeqCst);
+
+            if !is_in_tx {
+                // If connection was not left in an active transaction, recycle connection
+                // and drop permit synchronously without queuing tasks on Tokio.
+                let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
+                if let Ok(mut conns) = pool.lock() {
                     conns.push_back(conn);
-                    drop(permit);
                 }
-            });
+                drop(permit);
+            } else {
+                // Connection was dropped with an open uncommitted transaction: execute ROLLBACK asynchronously.
+                let rt = get_runtime();
+                rt.spawn(async move {
+                    let mut is_clean = true;
+                    if let Err(e) = conn.execute("ROLLBACK", ()).await {
+                        let err_str = e.to_string();
+                        if !err_str.contains("no transaction is active") {
+                            tracing::warn!("Failed to rollback database connection on drop: {}. Discarding connection.", err_str);
+                            is_clean = false;
+                        }
+                    }
+
+                    if is_clean {
+                        let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
+                        if let Ok(mut conns) = pool.lock() {
+                            conns.push_back(conn);
+                        }
+                    }
+                    drop(permit);
+                });
+            }
         }
     }
 }
@@ -698,18 +710,18 @@ mod tests {
     async fn test_connection_pool_limits() {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
 
-        // Acquire 16 connections (this should consume all semaphore permits)
+        // Acquire MAX_POOL_SIZE connections (this should consume all semaphore permits)
         let mut connections = Vec::new();
-        for _ in 0..16 {
+        for _ in 0..MAX_POOL_SIZE {
             let conn = acquire_connection().await;
             assert!(conn.is_ok());
             connections.push(conn.unwrap());
         }
 
-        // The 17th acquisition should time out and return a pool exhaustion error
-        let conn_17 = acquire_connection().await;
-        assert!(conn_17.is_err());
-        if let Err(YntraError::DbError(msg)) = conn_17 {
+        // The (MAX_POOL_SIZE + 1)th acquisition should time out and return a pool exhaustion error
+        let conn_overflow = acquire_connection().await;
+        assert!(conn_overflow.is_err());
+        if let Err(YntraError::DbError(msg)) = conn_overflow {
             assert!(
                 msg.contains("Database connection pool exhausted"),
                 "Got unexpected error msg: {}",
