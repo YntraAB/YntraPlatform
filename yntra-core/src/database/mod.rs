@@ -46,6 +46,20 @@ impl DbTestLock {
     }
 }
 
+fn contains_word_ignore_ascii_case(sql: &str, word: &str) -> bool {
+    let bytes = sql.as_bytes();
+    let needle = word.as_bytes();
+    if bytes.len() < needle.len() {
+        return false;
+    }
+    for i in 0..=(bytes.len() - needle.len()) {
+        if bytes[i..i + needle.len()].eq_ignore_ascii_case(needle) {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn track_write(sql: &str) {
     if let Some(table) = self::parser::extract_table_name(sql) {
         if table == "users" || table == "workspaces" {
@@ -54,10 +68,8 @@ pub fn track_write(sql: &str) {
         crate::infra::observer::set_last_modified_table(&table);
     } else {
         if self::parser::has_write_keyword(sql) {
-            let sql_upper = sql.to_uppercase();
-            let sql_clean = self::parser::clean_sql(&sql_upper);
-            let has_users = sql_clean.contains("USERS") || sql_clean.contains("`USERS`") || sql_clean.contains("\"USERS\"");
-            let has_workspaces = sql_clean.contains("WORKSPACES") || sql_clean.contains("`WORKSPACES`") || sql_clean.contains("\"WORKSPACES\"");
+            let has_users = contains_word_ignore_ascii_case(sql, "users");
+            let has_workspaces = contains_word_ignore_ascii_case(sql, "workspaces");
             if has_users || has_workspaces {
                 tracing::warn!("SQL write parser failed to extract table name. Invalidating entire auth context cache to ensure security.");
                 crate::infra::auth::invalidate_auth_context_cache();
@@ -75,10 +87,8 @@ pub fn track_write_batch(sql: &str) {
             crate::infra::observer::set_last_modified_table(&table);
         } else {
             if self::parser::has_write_keyword(stmt) {
-                let sql_upper = stmt.to_uppercase();
-                let sql_clean = self::parser::clean_sql(&sql_upper);
-                let has_users = sql_clean.contains("USERS") || sql_clean.contains("`USERS`") || sql_clean.contains("\"USERS\"");
-                let has_workspaces = sql_clean.contains("WORKSPACES") || sql_clean.contains("`WORKSPACES`") || sql_clean.contains("\"WORKSPACES\"");
+                let has_users = contains_word_ignore_ascii_case(stmt, "users");
+                let has_workspaces = contains_word_ignore_ascii_case(stmt, "workspaces");
                 if has_users || has_workspaces {
                     tracing::warn!("SQL batch write parser failed to extract table name. Invalidating entire auth context cache to ensure security.");
                     crate::infra::auth::invalidate_auth_context_cache();

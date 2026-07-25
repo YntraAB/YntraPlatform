@@ -144,9 +144,6 @@ fn check_insecure_dev_bypass() -> bool {
         *BYPASS_CACHE.get_or_init(compute_insecure_dev_bypass)
     }
 }
-
-static WORKSPACE_LOCKS: OnceLock<std::sync::Mutex<HashMap<String, std::sync::Arc<futures_util::lock::Mutex<()>>>>> = OnceLock::new();
-
 pub fn invalidate_auth_context_cache() {
     if let Ok(mut cache) = AUTH_CONTEXT_CACHE
         .get_or_init(|| RwLock::new(BoundedAuthCache {
@@ -222,14 +219,13 @@ pub fn get_auth_context_cache(user_id: &str) -> Option<AuthContext> {
 }
 
 pub fn invalidate_auth_context_cache_for_sql(sql: &str, table: &str) {
-    if let Ok(mut cache) = AUTH_CONTEXT_CACHE
+    if let Ok(mut cache_guard) = AUTH_CONTEXT_CACHE
         .get_or_init(|| RwLock::new(BoundedAuthCache {
             map: HashMap::new(),
             order: VecDeque::new(),
         }))
         .write()
     {
-        let has_placeholders = sql.contains('?');
         let mut literals = Vec::new();
         let mut chars = sql.chars().peekable();
         let mut in_quote = false;
@@ -253,19 +249,23 @@ pub fn invalidate_auth_context_cache_for_sql(sql: &str, table: &str) {
             }
         }
 
-        if has_placeholders || literals.is_empty() {
-            cache.map.clear();
-            cache.order.clear();
-        } else {
+        let BoundedAuthCache { map, order } = &mut *cache_guard;
+
+        if !literals.is_empty() {
             if table == "users" {
-                for lit in literals {
-                    cache.map.remove(&lit);
+                for lit in &literals {
+                    map.remove(lit);
                 }
+                order.retain(|id| !literals.contains(id));
             } else if table == "workspaces" {
-                cache.map.retain(|_, context| {
+                map.retain(|_, context| {
                     !literals.iter().any(|lit| lit == &context.workspace_id)
                 });
+                order.retain(|id| map.contains_key(id));
             }
+        } else {
+            map.clear();
+            order.clear();
         }
     }
 }
@@ -382,16 +382,6 @@ impl AuthContext {
             };
 
             if is_signature_required {
-                let lock = {
-                    let locks_map = WORKSPACE_LOCKS.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
-                    let mut guard = locks_map.lock().unwrap_or_else(|e| e.into_inner());
-                    guard.retain(|_, arc| std::sync::Arc::strong_count(arc) > 1);
-                    guard.entry(ws_id.clone())
-                        .or_insert_with(|| std::sync::Arc::new(futures_util::lock::Mutex::new(())))
-                        .clone()
-                };
-                let _guard = lock.lock().await;
-
                 let pk = creator_pk.ok_or_else(|| {
                     YntraError::AuthError(format!("Cryptographic signature verification is required for role '{}', but workspace public key is not configured", role))
                 })?;
@@ -1091,40 +1081,6 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_workspace_lock_concurrency() {
-        // Verify that workspace locks are created and managed correctly
-        let ws1 = "test-ws-lock-1".to_string();
-        let ws2 = "test-ws-lock-2".to_string();
-
-        let lock1 = {
-            let locks_map = WORKSPACE_LOCKS.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
-            let mut guard = locks_map.lock().unwrap_or_else(|e| e.into_inner());
-            guard.entry(ws1.clone())
-                .or_insert_with(|| std::sync::Arc::new(futures_util::lock::Mutex::new(())))
-                .clone()
-        };
-
-        let lock2 = {
-            let locks_map = WORKSPACE_LOCKS.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
-            let mut guard = locks_map.lock().unwrap_or_else(|e| e.into_inner());
-            guard.entry(ws2.clone())
-                .or_insert_with(|| std::sync::Arc::new(futures_util::lock::Mutex::new(())))
-                .clone()
-        };
-
-        // Acquire lock 1
-        let _g1 = lock1.lock().await;
-
-        // Try lock 2 - should succeed immediately as it is a different workspace
-        let try_lock2 = tokio::time::timeout(std::time::Duration::from_millis(50), lock2.lock()).await;
-        assert!(try_lock2.is_ok(), "Lock 2 should not be blocked by lock 1");
-
-        // Try lock 1 again - should timeout/block
-        let try_lock1_again = tokio::time::timeout(std::time::Duration::from_millis(50), lock1.lock()).await;
-        assert!(try_lock1_again.is_err(), "Lock 1 should be blocked while guard is held");
-    }
-
     #[test]
     fn test_validate_id_scenarios() {
         assert!(validate_id("valid-user-128_id", "User ID").is_ok());
@@ -1150,5 +1106,43 @@ mod tests {
         } else {
             panic!("Expected ValidationError");
         }
+    }
+
+    #[test]
+    fn test_invalidate_auth_context_cache_for_sql_targeted() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        invalidate_auth_context_cache();
+
+        let u1 = "user-target-1".to_string();
+        let u2 = "user-target-2".to_string();
+        let ws1 = "workspace-target-1".to_string();
+
+        insert_auth_context_cache(&u1, AuthContext {
+            user_id: u1.clone(),
+            workspace_id: ws1.clone(),
+            role: "admin".to_string(),
+            is_admin: true,
+            workspace_settings: None,
+        });
+
+        insert_auth_context_cache(&u2, AuthContext {
+            user_id: u2.clone(),
+            workspace_id: ws1.clone(),
+            role: "user".to_string(),
+            is_admin: false,
+            workspace_settings: None,
+        });
+
+        assert!(get_auth_context_cache(&u1).is_some());
+        assert!(get_auth_context_cache(&u2).is_some());
+
+        // Parameterized write query targeting user-target-1 specifically with literal and placeholder
+        invalidate_auth_context_cache_for_sql("UPDATE users SET name = ? WHERE id = 'user-target-1'", "users");
+
+        // user-target-1 should be invalidated, but user-target-2 should stay cached!
+        assert!(get_auth_context_cache(&u1).is_none(), "Targeted user-target-1 should be invalidated");
+        assert!(get_auth_context_cache(&u2).is_some(), "Non-targeted user-target-2 should remain cached");
+
+        invalidate_auth_context_cache();
     }
 }

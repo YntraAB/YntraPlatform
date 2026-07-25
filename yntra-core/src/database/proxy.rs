@@ -2,6 +2,24 @@ use crate::database;
 use crate::{YntraError, ZkCryptoTrust, ZeroCopyStore};
 use std::sync::Arc;
 
+fn find_ignore_ascii_case(haystack: &str, needle: &str) -> Option<usize> {
+    let h_bytes = haystack.as_bytes();
+    let n_bytes = needle.as_bytes();
+    if n_bytes.is_empty() || h_bytes.len() < n_bytes.len() {
+        return None;
+    }
+    for i in 0..=(h_bytes.len() - n_bytes.len()) {
+        if h_bytes[i..i + n_bytes.len()].eq_ignore_ascii_case(n_bytes) {
+            return Some(i);
+        }
+    }
+    None
+}
+
+fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
+    find_ignore_ascii_case(haystack, needle).is_some()
+}
+
 fn parse_insert_columns_and_values(
     sql: &str,
     params: &[serde_json::Value],
@@ -10,13 +28,10 @@ fn parse_insert_columns_and_values(
     if let Some(start_cols) = sql.find('(') {
         if let Some(end_cols) = sql[start_cols..].find(')') {
             let cols_str = &sql[start_cols + 1..start_cols + end_cols];
-            let cols: Vec<String> = cols_str
-                .split(',')
-                .map(|s| s.trim().trim_matches('`').trim_matches('"').trim_matches('\'').to_lowercase())
-                .collect();
-            for (idx, col) in cols.iter().enumerate() {
+            for (idx, col) in cols_str.split(',').enumerate() {
+                let col_clean = col.trim().trim_matches(|c| c == '`' || c == '"' || c == '\'').to_lowercase();
                 if idx < params.len() {
-                    map.insert(col.clone(), params[idx].clone());
+                    map.insert(col_clean, params[idx].clone());
                 }
             }
         }
@@ -29,17 +44,15 @@ fn normalize_clock_skew(
     params: &mut [serde_json::Value],
 ) {
     let now_ms = crate::infra::time::get_current_time_ms();
-    let lower_sql = sql.to_lowercase();
 
     // 1. Handle INSERT / REPLACE statements
-    if lower_sql.contains("insert") || lower_sql.contains("replace") {
+    if contains_ignore_ascii_case(sql, "insert") || contains_ignore_ascii_case(sql, "replace") {
         if let Some(start_cols) = sql.find('(') {
             if let Some(end_cols) = sql[start_cols..].find(')') {
                 let cols_str = &sql[start_cols + 1..start_cols + end_cols];
-                let cols: Vec<&str> = cols_str.split(',').map(|s| s.trim()).collect();
-                for (idx, col) in cols.iter().enumerate() {
-                    let col_clean = col.trim_matches('`').trim_matches('"').trim_matches('\'').to_lowercase();
-                    if col_clean == "updated_at" && idx < params.len() {
+                for (idx, col) in cols_str.split(',').enumerate() {
+                    let col_clean = col.trim().trim_matches(|c| c == '`' || c == '"' || c == '\'');
+                    if col_clean.eq_ignore_ascii_case("updated_at") && idx < params.len() {
                         if let Some(client_time) = params[idx].as_i64() {
                             // If client timestamp is in the future (plus a small 5-second tolerance for delays)
                             if client_time > now_ms + 5000 {
@@ -52,8 +65,8 @@ fn normalize_clock_skew(
         }
     }
     // 2. Handle UPDATE statements
-    else if lower_sql.contains("update") {
-        if let Some(pos) = lower_sql.find("updated_at") {
+    else if contains_ignore_ascii_case(sql, "update") {
+        if let Some(pos) = find_ignore_ascii_case(sql, "updated_at") {
             let search_slice = &sql[pos..];
             if let Some(q_pos) = search_slice.find('?') {
                 let start_digits = pos + q_pos + 1;
