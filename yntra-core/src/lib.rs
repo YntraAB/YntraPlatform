@@ -200,13 +200,13 @@ pub mod rusqlite {
 
     impl ToWasmValue for Vec<u8> {
         fn to_value(&self) -> serde_json::Value {
-            serde_json::Value::Array(self.iter().map(|b| serde_json::Value::Number(serde_json::value::Number::from(*b))).collect())
+            serde_json::Value::String(const_hex::encode(self))
         }
     }
 
     impl ToWasmValue for [u8] {
         fn to_value(&self) -> serde_json::Value {
-            serde_json::Value::Array(self.iter().map(|b| serde_json::Value::Number(serde_json::value::Number::from(*b))).collect())
+            serde_json::Value::String(const_hex::encode(self))
         }
     }
 
