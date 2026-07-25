@@ -5,9 +5,22 @@ use std::sync::{Mutex, OnceLock};
 
 static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 static DATABASE: OnceLock<libsql::Database> = OnceLock::new();
-static POOL: OnceLock<Mutex<std::collections::VecDeque<libsql::Connection>>> = OnceLock::new();
-
 static DATABASE_DIR: OnceLock<String> = OnceLock::new();
+static POOL_TX: OnceLock<tokio::sync::mpsc::UnboundedSender<libsql::Connection>> = OnceLock::new();
+static POOL_RX: OnceLock<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<libsql::Connection>>> = OnceLock::new();
+
+fn get_pool_channels() -> (
+    &'static tokio::sync::mpsc::UnboundedSender<libsql::Connection>,
+    &'static tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<libsql::Connection>>,
+) {
+    let tx = POOL_TX.get_or_init(|| {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let _ = POOL_RX.set(tokio::sync::Mutex::new(rx));
+        tx
+    });
+    let rx = POOL_RX.get().unwrap();
+    (tx, rx)
+}
 
 #[uniffi::export]
 pub fn set_database_directory(dir_path: String) -> Result<(), YntraError> {
@@ -116,9 +129,9 @@ where
     F::Output: Send + 'static,
 {
     if let Ok(_handle) = tokio::runtime::Handle::try_current() {
-        // We are already inside a Tokio runtime. Using futures_executor::block_on directly
-        // polls the future to completion on the current thread without triggering OS thread allocations.
-        futures_executor::block_on(future)
+        // Inform Tokio runtime that current worker thread will block,
+        // allowing Tokio to migrate active tasks to another worker thread.
+        tokio::task::block_in_place(move || futures_executor::block_on(future))
     } else {
         // No runtime is currently active. We can directly block_on the dedicated runtime.
         let rt = get_runtime();
@@ -270,18 +283,12 @@ pub async fn acquire_connection() -> Result<DbConnection, YntraError> {
         }
     };
 
-    let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
+    let (_tx, rx) = get_pool_channels();
 
-    // Try to pop a connection from the pool and return it immediately
-    // (A SELECT 1 query is redundant for local SQLite connections)
+    // Try to pop a connection from the pool channel and return it immediately
     let conn_opt = {
-        let mut conns = pool.lock().unwrap_or_else(|e| {
-            tracing::error!("Database connection pool lock is poisoned. Recovering by clearing the pool.");
-            let mut guard = e.into_inner();
-            guard.clear();
-            guard
-        });
-        conns.pop_front()
+        let mut rx_guard = rx.lock().await;
+        rx_guard.try_recv().ok()
     };
 
     if let Some(conn) = conn_opt {
@@ -296,7 +303,7 @@ pub async fn acquire_connection() -> Result<DbConnection, YntraError> {
     let conn = db
         .connect()
         .map_err(|e| YntraError::DbError(e.to_string()))?;
-    let _ = conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;").await;
+    let _ = conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;").await;
     Ok(DbConnection {
         inner: Some(conn),
         in_transaction: std::sync::atomic::AtomicBool::new(false),
@@ -318,16 +325,15 @@ impl Drop for DbConnection {
                 .in_transaction
                 .load(std::sync::atomic::Ordering::SeqCst);
 
+            let (tx, _) = get_pool_channels();
+
             if !is_in_tx {
-                // If connection was not left in an active transaction, recycle connection
-                // and drop permit synchronously without queuing tasks on Tokio.
-                let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
-                if let Ok(mut conns) = pool.lock() {
-                    conns.push_back(conn);
-                }
+                // Recycle connection via lock-free channel send
+                let _ = tx.send(conn);
                 drop(permit);
             } else {
                 // Connection was dropped with an open uncommitted transaction: execute ROLLBACK asynchronously.
+                let tx_clone = tx.clone();
                 let rt = get_runtime();
                 rt.spawn(async move {
                     let mut is_clean = true;
@@ -340,10 +346,7 @@ impl Drop for DbConnection {
                     }
 
                     if is_clean {
-                        let pool = POOL.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
-                        if let Ok(mut conns) = pool.lock() {
-                            conns.push_back(conn);
-                        }
+                        let _ = tx_clone.send(conn);
                     }
                     drop(permit);
                 });

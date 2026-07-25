@@ -265,11 +265,17 @@ pub async fn wait_for_js_bridge() {
         let sql_key = wasm_bindgen::JsValue::from_str("yntra_execute_sql");
         let load_key = wasm_bindgen::JsValue::from_str("yntra_load_store_bin");
         let save_key = wasm_bindgen::JsValue::from_str("yntra_save_store_bin");
+        let mut attempts = 0;
         loop {
             let sql_ready = js_sys::Reflect::has(&window, &sql_key).unwrap_or(false);
             let load_ready = js_sys::Reflect::has(&window, &load_key).unwrap_or(false);
             let save_ready = js_sys::Reflect::has(&window, &save_key).unwrap_or(false);
             if sql_ready && load_ready && save_ready {
+                break;
+            }
+            attempts += 1;
+            if attempts > 500 {
+                tracing::warn!("Timeout waiting for JS bridge bindings (5 seconds exceeded).");
                 break;
             }
             crate::infra::time::sleep_ms(10).await;

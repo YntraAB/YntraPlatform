@@ -151,7 +151,7 @@ pub struct WsConnection;
 // --- Pillar 2: Geo-Distributed Edge Replicas + P2P Mesh Sync ---
 
 struct PeerRelayQueue {
-    updates: Vec<Vec<u8>>,
+    updates: std::collections::VecDeque<Vec<u8>>,
     catchup_doc: Option<loro::LoroDoc>,
     last_active: i64,
 }
@@ -159,7 +159,7 @@ struct PeerRelayQueue {
 impl Default for PeerRelayQueue {
     fn default() -> Self {
         Self {
-            updates: Vec::new(),
+            updates: std::collections::VecDeque::new(),
             catchup_doc: None,
             last_active: chrono::Utc::now().timestamp(),
         }
@@ -178,11 +178,12 @@ fn in_memory_broadcast(from_peer: &str, data: Vec<u8>, peers: &[String]) {
         if peer != from_peer {
             let q = relay.entry(peer.clone()).or_default();
             if q.updates.len() >= 100 {
-                let oldest = q.updates.remove(0);
-                let doc = q.catchup_doc.get_or_insert_with(loro::LoroDoc::new);
-                let _ = doc.import(&oldest);
+                if let Some(oldest) = q.updates.pop_front() {
+                    let doc = q.catchup_doc.get_or_insert_with(loro::LoroDoc::new);
+                    let _ = doc.import(&oldest);
+                }
             }
-            q.updates.push(data.clone());
+            q.updates.push_back(data.clone());
         }
     }
 }
@@ -191,14 +192,15 @@ fn in_memory_broadcast(from_peer: &str, data: Vec<u8>, peers: &[String]) {
 pub(crate) fn in_memory_poll(peer_id: &str) -> Vec<Vec<u8>> {
     let mut relay = IN_MEMORY_RELAY.lock_poison_safe();
     if let Some(q) = relay.remove(peer_id) {
+        let updates_vec: Vec<Vec<u8>> = q.updates.into();
         if let Some(doc) = q.catchup_doc {
             if let Ok(snapshot) = doc.export(loro::ExportMode::Snapshot) {
                 let mut all = vec![snapshot];
-                all.extend(q.updates);
+                all.extend(updates_vec);
                 return all;
             }
         }
-        q.updates
+        updates_vec
     } else {
         Vec::new()
     }

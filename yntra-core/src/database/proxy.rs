@@ -159,13 +159,27 @@ impl RemoteSyncCoordinator {
                 YntraError::AuthError("Zero-Knowledge Role Proof is required for write operations".to_string())
             })?;
 
-            let trust = ZkCryptoTrust::new();
-            if !trust.verify_proof(
-                proof,
-                requester_user_id.clone(),
-                role.clone(),
-                public_key_hex,
-            ) {
+            #[cfg(not(target_arch = "wasm32"))]
+            let is_valid = {
+                let proof_c = proof.clone();
+                let uid_c = requester_user_id.clone();
+                let role_c = role.clone();
+                let pk_c = public_key_hex.clone();
+                tokio::task::spawn_blocking(move || {
+                    let trust = ZkCryptoTrust::new();
+                    trust.verify_proof(proof_c, uid_c, role_c, pk_c)
+                })
+                .await
+                .unwrap_or(false)
+            };
+
+            #[cfg(target_arch = "wasm32")]
+            let is_valid = {
+                let trust = ZkCryptoTrust::new();
+                trust.verify_proof(proof, requester_user_id.clone(), role.clone(), public_key_hex.clone())
+            };
+
+            if !is_valid {
                 return Err(YntraError::CryptoError(
                     "Zero-Knowledge Role Proof verification failed: privilege escalation or local database tampering suspected".to_string(),
                 ));

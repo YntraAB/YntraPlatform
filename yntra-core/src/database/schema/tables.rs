@@ -899,29 +899,52 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
         CREATE INDEX IF NOT EXISTS idx_move_quotes_job ON move_quotes(job_ticket_id);
         CREATE INDEX IF NOT EXISTS idx_move_inventory_job_ticket ON move_inventory(job_ticket_id);
         CREATE INDEX IF NOT EXISTS idx_move_quotes_job_ticket ON move_quotes(job_ticket_id);
-        CREATE INDEX IF NOT EXISTS idx_move_invoices_quote ON move_invoices(quote_id);"
+        CREATE INDEX IF NOT EXISTS idx_move_invoices_quote ON move_invoices(quote_id);
+
+        CREATE INDEX IF NOT EXISTS idx_client_medications_client ON client_medications(client_id);
+        CREATE INDEX IF NOT EXISTS idx_client_journals_client ON client_journals(client_id);
+        CREATE INDEX IF NOT EXISTS idx_move_signatures_job ON move_signatures(job_ticket_id);
+        CREATE INDEX IF NOT EXISTS idx_warehouse_vaults_job ON warehouse_vaults(job_ticket_id);
+        CREATE INDEX IF NOT EXISTS idx_job_tips_job ON job_tips(job_ticket_id);
+        CREATE INDEX IF NOT EXISTS idx_fuel_receipts_vehicle ON fuel_receipts(vehicle_id);
+        CREATE INDEX IF NOT EXISTS idx_fuel_receipts_driver ON fuel_receipts(driver_user_id);
+        CREATE INDEX IF NOT EXISTS idx_job_packaging_items_job ON job_packaging_items(job_ticket_id);
+        CREATE INDEX IF NOT EXISTS idx_damage_inspections_job ON damage_inspections(job_ticket_id);
+        CREATE INDEX IF NOT EXISTS idx_offline_media_blobs_job ON offline_media_blobs(job_ticket_id);
+        CREATE INDEX IF NOT EXISTS idx_student_parents_parent ON student_parents(parent_user_id);"
     )
     .await
     .map_err(|e| YntraError::DbError(e.to_string()))?;
 
-    // Defensive column assertions for job_tickets
-    let job_ticket_cols = [
-        "ALTER TABLE job_tickets ADD COLUMN origin_address TEXT",
-        "ALTER TABLE job_tickets ADD COLUMN destination_address TEXT",
-        "ALTER TABLE job_tickets ADD COLUMN origin_floor INTEGER DEFAULT 0",
-        "ALTER TABLE job_tickets ADD COLUMN destination_floor INTEGER DEFAULT 0",
-        "ALTER TABLE job_tickets ADD COLUMN origin_has_elevator INTEGER DEFAULT 0",
-        "ALTER TABLE job_tickets ADD COLUMN destination_has_elevator INTEGER DEFAULT 0",
-        "ALTER TABLE job_tickets ADD COLUMN origin_parking_permit_needed INTEGER DEFAULT 0",
-        "ALTER TABLE job_tickets ADD COLUMN destination_parking_permit_needed INTEGER DEFAULT 0",
-        "ALTER TABLE job_tickets ADD COLUMN assigned_vehicle_id TEXT",
-        "ALTER TABLE job_tickets ADD COLUMN route_stops_json TEXT",
-        "ALTER TABLE job_tickets ADD COLUMN long_carry_meters INTEGER DEFAULT 0",
-        "ALTER TABLE job_tickets ADD COLUMN toll_fees REAL DEFAULT 0.0",
-    ];
+    // Conditional migration for job_tickets columns if they do not exist
+    let has_col: Option<i64> = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('job_tickets') WHERE name = 'origin_address'",
+            (),
+            |r| r.get(0),
+        )
+        .await
+        .ok();
 
-    for col_sql in job_ticket_cols {
-        let _ = conn.execute(col_sql, ()).await;
+    if has_col.is_none() {
+        let job_ticket_cols = [
+            "ALTER TABLE job_tickets ADD COLUMN origin_address TEXT",
+            "ALTER TABLE job_tickets ADD COLUMN destination_address TEXT",
+            "ALTER TABLE job_tickets ADD COLUMN origin_floor INTEGER DEFAULT 0",
+            "ALTER TABLE job_tickets ADD COLUMN destination_floor INTEGER DEFAULT 0",
+            "ALTER TABLE job_tickets ADD COLUMN origin_has_elevator INTEGER DEFAULT 0",
+            "ALTER TABLE job_tickets ADD COLUMN destination_has_elevator INTEGER DEFAULT 0",
+            "ALTER TABLE job_tickets ADD COLUMN origin_parking_permit_needed INTEGER DEFAULT 0",
+            "ALTER TABLE job_tickets ADD COLUMN destination_parking_permit_needed INTEGER DEFAULT 0",
+            "ALTER TABLE job_tickets ADD COLUMN assigned_vehicle_id TEXT",
+            "ALTER TABLE job_tickets ADD COLUMN route_stops_json TEXT",
+            "ALTER TABLE job_tickets ADD COLUMN long_carry_meters INTEGER DEFAULT 0",
+            "ALTER TABLE job_tickets ADD COLUMN toll_fees REAL DEFAULT 0.0",
+        ];
+
+        for col_sql in job_ticket_cols {
+            let _ = conn.execute(col_sql, ()).await;
+        }
     }
 
     Ok(())
