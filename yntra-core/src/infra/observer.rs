@@ -85,43 +85,72 @@ pub fn notify_observers() {
         return;
     }
 
-    if !records.is_empty() || !tables.is_empty() {
-        // 1. Deduplicate records and count updates per table
-        let mut unique_records: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
-        let mut record_counts_per_table: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let dispatch_fn = move || {
+        if !records.is_empty() || !tables.is_empty() {
+            // 1. Deduplicate records and count updates per table
+            let mut unique_records: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
+            let mut record_counts_per_table: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
 
-        for (table, id) in records {
-            if unique_records.insert((table.clone(), id)) {
-                *record_counts_per_table.entry(table).or_insert(0) += 1;
+            for (table, id) in records {
+                if unique_records.insert((table.clone(), id)) {
+                    *record_counts_per_table.entry(table).or_insert(0) += 1;
+                }
+            }
+
+            // 2. Coalesce bulk updates (> 5 records per table) or existing table-level flags into table notifications
+            let mut tables_to_notify = tables;
+            for (table, count) in &record_counts_per_table {
+                if *count > 5 {
+                    tables_to_notify.insert(table.clone());
+                }
+            }
+
+            // 3. Filter individual records: fire on_record_changed only if table is not already receiving a full table notification
+            let filtered_records: Vec<(String, String)> = unique_records
+                .into_iter()
+                .filter(|(table, _)| !tables_to_notify.contains(table))
+                .collect();
+
+            // 4. Dispatch notifications to observers
+            for observer in &observers {
+                for (table, id) in &filtered_records {
+                    observer.on_record_changed(table.clone(), id.clone());
+                }
+                for table in &tables_to_notify {
+                    observer.on_table_changed(table.clone());
+                }
+            }
+        } else {
+            for observer in observers {
+                observer.on_database_changed();
+            }
+        }
+    };
+
+    #[cfg(test)]
+    {
+        dispatch_fn();
+    }
+
+    #[cfg(not(test))]
+    {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                handle.spawn(async move {
+                    dispatch_fn();
+                });
+            } else {
+                let rt = crate::database::native::get_runtime();
+                rt.spawn(async move {
+                    dispatch_fn();
+                });
             }
         }
 
-        // 2. Coalesce bulk updates (> 5 records per table) or existing table-level flags into table notifications
-        let mut tables_to_notify = tables;
-        for (table, count) in &record_counts_per_table {
-            if *count > 5 {
-                tables_to_notify.insert(table.clone());
-            }
-        }
-
-        // 3. Filter individual records: fire on_record_changed only if table is not already receiving a full table notification
-        let filtered_records: Vec<(String, String)> = unique_records
-            .into_iter()
-            .filter(|(table, _)| !tables_to_notify.contains(table))
-            .collect();
-
-        // 4. Dispatch notifications to observers
-        for observer in &observers {
-            for (table, id) in &filtered_records {
-                observer.on_record_changed(table.clone(), id.clone());
-            }
-            for table in &tables_to_notify {
-                observer.on_table_changed(table.clone());
-            }
-        }
-    } else {
-        for observer in observers {
-            observer.on_database_changed();
+        #[cfg(target_arch = "wasm32")]
+        {
+            dispatch_fn();
         }
     }
 }
