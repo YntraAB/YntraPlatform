@@ -59,6 +59,9 @@ pub(crate) fn verify_update_signature(
     verifying_key.verify(&msg, &signature).is_ok()
 }
 
+static PEER_AUTH_CACHE: LazyLock<Mutex<HashMap<(String, String), (bool, i64)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 pub(crate) async fn is_peer_authorized(local_peer: &str, remote_peer: &str) -> bool {
     if local_peer == remote_peer {
         return true;
@@ -70,19 +73,42 @@ pub(crate) async fn is_peer_authorized(local_peer: &str, remote_peer: &str) -> b
         }
     }
 
-    if let Ok(conn) = crate::database::acquire_connection().await {
-        if let Ok(row) = conn.query_row(
-            "SELECT 1 FROM users u1 JOIN users u2 ON u1.workspace_id = u2.workspace_id WHERE u1.id = ?1 AND u2.id = ?2",
-            crate::params![local_peer, remote_peer],
-            |r| {
-                let val: i32 = r.get(0)?;
-                Ok(val)
+    let now = chrono::Utc::now().timestamp();
+    let cache_key = (local_peer.to_string(), remote_peer.to_string());
+
+    if let Ok(cache) = PEER_AUTH_CACHE.lock() {
+        if let Some((is_auth, ts)) = cache.get(&cache_key) {
+            if (now - ts) < 60 {
+                return *is_auth;
             }
-        ).await {
-            return row == 1;
         }
     }
-    false
+
+    let is_authorized = if let Ok(conn) = crate::database::acquire_connection().await {
+        if let Ok(row) = conn
+            .query_row(
+                "SELECT 1 FROM users u1 JOIN users u2 ON u1.workspace_id = u2.workspace_id WHERE u1.id = ?1 AND u2.id = ?2",
+                crate::params![local_peer, remote_peer],
+                |r| {
+                    let val: i32 = r.get(0)?;
+                    Ok(val)
+                },
+            )
+            .await
+        {
+            row == 1
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    if let Ok(mut cache) = PEER_AUTH_CACHE.lock() {
+        cache.insert(cache_key, (is_authorized, now));
+    }
+
+    is_authorized
 }
 
 async fn process_incoming_updates<F>(
