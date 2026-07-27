@@ -72,3 +72,18 @@ pub fn copy_to_clipboard(text: String, toast: Option<Toasts>) {
     });
 }
 
+pub fn get_anon_report_ids() -> Vec<String> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(win) = web_sys::window() {
+            if let Ok(Some(storage)) = win.local_storage() {
+                if let Ok(Some(json)) = storage.get_item("yntra_anon_report_ids") {
+                    if let Ok(ids) = serde_json::from_str::<Vec<String>>(&json) {
+                        return ids;
+                    }
+                }
+            }
+        }
+    }
+    Vec::new()
+}

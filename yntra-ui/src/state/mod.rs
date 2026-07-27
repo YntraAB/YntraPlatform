@@ -602,8 +602,8 @@ pub fn use_init_app_state() -> AppState {
                                                         update_school_library = true;
                                                     }
                                                     "reports" => update_reports = true,
-                                                    "workspaces" => update_workspaces = true,
-                                                    "job_tickets" | "move_inventory" | "move_quotes" => update_jobs = true,
+                                                    "workspaces" | "passkeys" | "workspace_ciphers" | "workspace_members" => update_workspaces = true,
+                                                    "job_tickets" | "move_inventory" | "move_quotes" | "fleet_vehicles" | "crew_assignments" | "job_pricing" | "billing_invoices" | "storage_units" | "storage_contracts" => update_jobs = true,
                                                     _ => {}
                                                 }
                                             }
@@ -657,12 +657,14 @@ pub fn use_init_app_state() -> AppState {
                                                 update_school_library = true;
                                             }
                                             "reports" => update_reports = true,
-                                            "workspaces" => update_workspaces = true,
-                                            "job_tickets" | "move_inventory" | "move_quotes" => update_jobs = true,
-                                            "audit_logs" => {},
-                                            "bankid_auth_sessions" => {},
+                                            "workspaces" | "workspace_ciphers" | "workspace_members" => {
+                                                update_workspaces = true;
+                                                update_users = true;
+                                            }
+                                            "job_tickets" | "move_inventory" | "move_quotes" | "fleet_vehicles" | "crew_assignments" | "job_pricing" | "billing_invoices" | "storage_units" | "storage_contracts" => update_jobs = true,
+                                            "audit_logs" | "bankid_auth_sessions" | "sync_checkpoints" | "loro_snapshots" => {},
                                             _ => {
-                                                update_db = true;
+                                                dioxus_logger::tracing::debug!("Unmapped DB table notification: {}", table);
                                             }
                                         }
                                     }
@@ -671,72 +673,87 @@ pub fn use_init_app_state() -> AppState {
                                     }
                                 }
 
-                                if todo_record_updates.len() > 3 {
-                                    update_todos = true;
-                                } else {
-                                    for record_id in todo_record_updates {
+                                if !todo_record_updates.is_empty() {
+                                    if todo_record_updates.len() > 25 {
+                                        update_todos = true;
+                                    } else {
                                         let ws_id = workspace.read().as_ref().map(|w| w.id.clone()).unwrap_or_else(|| "workspace-1".to_string());
                                         let uid = active_user_id.read().clone();
-                                        spawn({
-                                            let record_id = record_id.clone();
-                                            async move {
-                                                if let Ok(Some(item)) = yntra_core::get_todo_by_id(uid, ws_id, record_id).await {
-                                                    if let Some(list) = todos.write().as_mut() {
+                                        spawn(async move {
+                                            let mut items_to_upsert = Vec::new();
+                                            for record_id in todo_record_updates {
+                                                if let Ok(Some(item)) = yntra_core::get_todo_by_id(uid.clone(), ws_id.clone(), record_id).await {
+                                                    items_to_upsert.push(item);
+                                                }
+                                            }
+                                            if !items_to_upsert.is_empty() {
+                                                if let Some(list) = todos.write().as_mut() {
+                                                    for item in items_to_upsert {
                                                         if let Some(pos) = list.iter().position(|x| x.id == item.id) {
                                                             list[pos] = item;
                                                         } else {
                                                             list.push(item);
-                                                            list.sort_by(|a, b| a.id.cmp(&b.id));
                                                         }
                                                     }
+                                                    list.sort_by(|a, b| a.id.cmp(&b.id));
                                                 }
                                             }
                                         });
                                     }
                                 }
 
-                                if message_record_updates.len() > 3 {
-                                    update_messages = true;
-                                } else {
-                                    for record_id in message_record_updates {
+                                if !message_record_updates.is_empty() {
+                                    if message_record_updates.len() > 25 {
+                                        update_messages = true;
+                                    } else {
                                         let ws_id = workspace.read().as_ref().map(|w| w.id.clone()).unwrap_or_else(|| "workspace-1".to_string());
                                         let uid = active_user_id.read().clone();
-                                        spawn({
-                                            let record_id = record_id.clone();
-                                            async move {
-                                                if let Ok(Some(item)) = yntra_core::get_message_by_id(uid, ws_id, record_id).await {
-                                                    if let Some(list) = messages.write().as_mut() {
+                                        spawn(async move {
+                                            let mut items_to_upsert = Vec::new();
+                                            for record_id in message_record_updates {
+                                                if let Ok(Some(item)) = yntra_core::get_message_by_id(uid.clone(), ws_id.clone(), record_id).await {
+                                                    items_to_upsert.push(item);
+                                                }
+                                            }
+                                            if !items_to_upsert.is_empty() {
+                                                if let Some(list) = messages.write().as_mut() {
+                                                    for item in items_to_upsert {
                                                         if let Some(pos) = list.iter().position(|x| x.id == item.id) {
                                                             list[pos] = item;
                                                         } else {
                                                             list.push(item);
-                                                            list.sort_by(|a, b| a.created_at.cmp(&b.created_at));
                                                         }
                                                     }
+                                                    list.sort_by(|a, b| a.created_at.cmp(&b.created_at));
                                                 }
                                             }
                                         });
                                     }
                                 }
 
-                                if note_record_updates.len() > 3 {
-                                    update_notes = true;
-                                } else {
-                                    for record_id in note_record_updates {
+                                if !note_record_updates.is_empty() {
+                                    if note_record_updates.len() > 25 {
+                                        update_notes = true;
+                                    } else {
                                         let ws_id = workspace.read().as_ref().map(|w| w.id.clone()).unwrap_or_else(|| "workspace-1".to_string());
                                         let uid = active_user_id.read().clone();
-                                        spawn({
-                                            let record_id = record_id.clone();
-                                            async move {
-                                                if let Ok(Some(item)) = yntra_core::get_note_by_id(uid, ws_id, record_id).await {
-                                                    if let Some(list) = notes.write().as_mut() {
+                                        spawn(async move {
+                                            let mut items_to_upsert = Vec::new();
+                                            for record_id in note_record_updates {
+                                                if let Ok(Some(item)) = yntra_core::get_note_by_id(uid.clone(), ws_id.clone(), record_id).await {
+                                                    items_to_upsert.push(item);
+                                                }
+                                            }
+                                            if !items_to_upsert.is_empty() {
+                                                if let Some(list) = notes.write().as_mut() {
+                                                    for item in items_to_upsert {
                                                         if let Some(pos) = list.iter().position(|x| x.id == item.id) {
                                                             list[pos] = item;
                                                         } else {
                                                             list.push(item);
-                                                            list.sort_by(|a, b| a.created_at.cmp(&b.created_at));
                                                         }
                                                     }
+                                                    list.sort_by(|a, b| a.created_at.cmp(&b.created_at));
                                                 }
                                             }
                                         });

@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 use dioxus_primitives::toast::{ToastOptions, use_toast};
 use std::future::Future;
+use std::time::Duration;
 
 pub struct UserFriendlyError {
     pub title: String,
@@ -111,10 +112,65 @@ impl ActionRunner {
                 let user_err = map_error(&e);
                 toast.error(
                     user_err.title,
-                    ToastOptions::new().description(user_err.description),
+                    ToastOptions::new()
+                        .description(user_err.description)
+                        .duration(Duration::from_secs(4)),
                 );
             }
         });
+    }
+
+    pub fn run_with_success<F>(&self, fut: F, success_title: impl Into<String>, success_desc: impl Into<String>)
+    where
+        F: Future<Output = Result<(), yntra_core::YntraError>> + 'static,
+    {
+        let toast = self.toast.clone();
+        let title = success_title.into();
+        let desc = success_desc.into();
+        spawn(async move {
+            match fut.await {
+                Ok(()) => {
+                    toast.success(
+                        title,
+                        ToastOptions::new()
+                            .description(desc)
+                            .duration(Duration::from_secs(3)),
+                    );
+                }
+                Err(e) => {
+                    let user_err = map_error(&e);
+                    toast.error(
+                        user_err.title,
+                        ToastOptions::new()
+                            .description(user_err.description)
+                            .duration(Duration::from_secs(4)),
+                    );
+                }
+            }
+        });
+    }
+
+    pub fn run_exclusive<F>(&self, task_signal: &mut Signal<Option<dioxus::core::Task>>, fut: F)
+    where
+        F: Future<Output = Result<(), yntra_core::YntraError>> + 'static,
+    {
+        if let Some(existing_task) = task_signal.read().as_ref() {
+            existing_task.cancel();
+        }
+
+        let toast = self.toast.clone();
+        let task = spawn(async move {
+            if let Err(e) = fut.await {
+                let user_err = map_error(&e);
+                toast.error(
+                    user_err.title,
+                    ToastOptions::new()
+                        .description(user_err.description)
+                        .duration(Duration::from_secs(4)),
+                );
+            }
+        });
+        task_signal.set(Some(task));
     }
 }
 

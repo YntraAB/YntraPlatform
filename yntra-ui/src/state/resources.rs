@@ -294,20 +294,7 @@ pub fn init_resources(
             if !initialized || !is_login || !enabled {
                 return Vec::new();
             }
-            let mut eval = dioxus::document::eval(
-                r#"
-                try {
-                    let ids = JSON.parse(localStorage.getItem("yntra_anon_report_ids") || "[]");
-                    dioxus.send(ids);
-                } catch(e) {
-                    dioxus.send([]);
-                }
-                "#,
-            );
-            let anon_ids = match eval.recv::<Vec<String>>().await {
-                Ok(ids) => ids,
-                Err(_) => Vec::new(),
-            };
+            let anon_ids = crate::utils::browser::get_anon_report_ids();
             match get_reports(uid, anon_ids).await {
                 Ok(list) => list,
                 Err(e) => {
