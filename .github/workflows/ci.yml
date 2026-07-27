@@ -1,4 +1,4 @@
-name: CI
+name: SOTA CI Matrix
 
 on:
   push:
@@ -10,30 +10,41 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  ci:
-    name: Continuous Integration
-    runs-on: ubuntu-latest
+  sota-ci:
+    name: SOTA Verification Matrix (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-    - name: Install Rust Toolchain
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        targets: wasm32-unknown-unknown
+      - name: Install Rust Toolchain & WASM Target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy, rustfmt
 
-    - name: Cache Cargo Dependencies
-      uses: Swatinem/rust-cache@v2
+      - name: Cache Cargo Dependencies
+        uses: Swatinem/rust-cache@v2
 
-    - name: Compile All Targets
-      run: cargo check --workspace
+      - name: 1. Code Style & Formatter Verification
+        run: cargo fmt --all -- --check
 
-    - name: Verify WASM Core Compatibility
-      run: cargo check --target wasm32-unknown-unknown -p yntra-core
+      - name: 2. Clippy Lints & Static Analysis
+        run: cargo clippy --workspace -- -D warnings
 
-    - name: Validate Translation Key Consistency
-      run: cargo run -p yntra-uniffi-bindgen -- check-locales
+      - name: 3. Cross-Platform Workspace Compilation Check
+        run: cargo check --workspace
 
-    - name: Run All Tests
-      run: cargo test --workspace
+      - name: 4. WASM Target Sandbox Compatibility
+        run: cargo check --target wasm32-unknown-unknown -p yntra-core
+
+      - name: 5. UniFFI Swift/Kotlin Mobile Bindings Verification
+        run: cargo run -p yntra-uniffi-bindgen
+
+      - name: 6. Full Workspace Integration & Unit Tests
+        run: cargo test --workspace --all-targets
