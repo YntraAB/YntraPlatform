@@ -1731,7 +1731,7 @@ pub async fn get_move_quote_revisions(
     quote_id: String,
 ) -> Result<Vec<MoveQuoteRevision>, YntraError> {
     let conn = database::acquire_connection().await?;
-    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     let mut stmt = conn.prepare(
         "SELECT id, workspace_id, quote_id, job_ticket_id, actor_user_id, previous_total, new_total, revision_reason, created_at FROM move_quote_revisions WHERE quote_id = ?1 ORDER BY created_at DESC",

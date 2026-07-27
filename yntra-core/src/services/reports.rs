@@ -43,7 +43,7 @@ pub async fn get_reports(
 
     let mut stmt = conn.prepare(&query).await?;
 
-    let mut ciphers: std::collections::HashMap<String, crate::infra::crypto::WorkspaceCipher> =
+    let _ciphers: std::collections::HashMap<String, crate::infra::crypto::WorkspaceCipher> =
         std::collections::HashMap::new();
 
     let list = stmt

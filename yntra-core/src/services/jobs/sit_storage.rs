@@ -219,7 +219,7 @@ async fn calculate_sit_recurring_billing_summary_inner(
     job_ticket_id: String,
 ) -> Result<SitBillingSummary, YntraError> {
     let conn = database::acquire_connection().await?;
-    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     let vaults = get_job_warehouse_vaults_inner(requester_user_id.clone(), job_ticket_id.clone()).await?;
 

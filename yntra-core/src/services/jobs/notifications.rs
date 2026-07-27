@@ -367,7 +367,7 @@ pub async fn get_customer_live_tracking_portal(
     let mut vehicle_plate: Option<String> = None;
     let mut current_lat = 59.3293;
     let mut current_lon = 18.0686;
-    let mut speed_kmh = 42.0;
+    let speed_kmh = 42.0;
 
     if let Some(ref vid) = assigned_vehicle_id {
         if let Ok((plate, lat, lon)) = conn.query_row(

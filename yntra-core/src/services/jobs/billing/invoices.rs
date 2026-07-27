@@ -13,7 +13,7 @@ pub async fn calculate_eligible_labor_cost(
         "SELECT quantity, item_name, item_category, handling_notes FROM move_inventory WHERE job_ticket_id = ?1",
     ).await?;
     let mut inv_rows = inv_stmt.query(crate::params![job_ticket_id]).await?;
-    let mut specialty_surcharge = 0.0;
+    let mut _specialty_surcharge = 0.0;
 
     let surcharge_piano = crate::services::workspaces::get_setting_f64(settings_json, "surcharge_piano");
     let surcharge_safe = crate::services::workspaces::get_setting_f64(settings_json, "surcharge_safe");
@@ -41,7 +41,7 @@ pub async fn calculate_eligible_labor_cost(
             surcharge_fitness_equipment,
             surcharge_marble_glass,
         );
-        specialty_surcharge += item_fee * (quantity as f64);
+        _specialty_surcharge += item_fee * (quantity as f64);
     }
 
     let pricing_model_str = crate::services::workspaces::get_setting_str(settings_json, "moving_pricing_model", "volume");

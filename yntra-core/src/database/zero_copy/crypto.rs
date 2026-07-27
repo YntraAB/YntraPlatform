@@ -295,7 +295,7 @@ impl ZkCryptoTrust {
         let signature = signing_key.sign(commitment.as_bytes());
 
         // 5. Generate Schema Validity ZKP using the Schnorr-like sigma protocol
-        let (C_comp, schema_e, schema_s) = generate_schema_zkp(is_valid_schema, commitment.as_bytes())?;
+        let (c_comp, schema_e, schema_s) = generate_schema_zkp(is_valid_schema, commitment.as_bytes())?;
 
         let mut proof_builder = Vec::new();
         proof_builder.extend_from_slice(b"ZKP_PROOF_V3:");
@@ -303,7 +303,7 @@ impl ZkCryptoTrust {
         proof_builder.extend_from_slice(&salt_bytes); // 32 bytes
         proof_builder.extend_from_slice(&signature.to_bytes()); // 64 bytes
         proof_builder.extend_from_slice(public_key.as_bytes()); // 32 bytes
-        proof_builder.extend_from_slice(&C_comp.to_bytes()); // 32 bytes
+        proof_builder.extend_from_slice(&c_comp.to_bytes()); // 32 bytes
         proof_builder.extend_from_slice(&schema_e.to_bytes()); // 32 bytes
         proof_builder.extend_from_slice(&schema_s.to_bytes()); // 32 bytes
 
@@ -343,20 +343,20 @@ impl ZkCryptoTrust {
             let signature_bytes = &proof_bytes[77..141];
             let proof_public_key = &proof_bytes[141..173];
 
-            let schema_C_bytes = &proof_bytes[173..205];
+            let schema_c_bytes = &proof_bytes[173..205];
             let schema_e_bytes = &proof_bytes[205..237];
             let schema_s_bytes = &proof_bytes[237..269];
 
             let mut arr = [0u8; 32];
-            arr.copy_from_slice(schema_C_bytes);
-            let schema_C = CompressedEdwardsY(arr);
+            arr.copy_from_slice(schema_c_bytes);
+            let schema_c = CompressedEdwardsY(arr);
             let schema_e = Scalar::from_bytes_mod_order(schema_e_bytes.try_into().unwrap());
             let schema_s = Scalar::from_bytes_mod_order(schema_s_bytes.try_into().unwrap());
 
             let mut actual_commitment_arr = [0u8; 32];
             actual_commitment_arr.copy_from_slice(actual_commitment);
             // Verify schema ZKP using verify_schema_zkp
-            let is_schema_valid = verify_schema_zkp(schema_C, schema_e, schema_s, &actual_commitment_arr);
+            let is_schema_valid = verify_schema_zkp(schema_c, schema_e, schema_s, &actual_commitment_arr);
 
             let registered_public_key = const_hex::decode(&public_key_hex)
                 .map_err(|e| YntraError::CryptoError(e.to_string()))?;
@@ -798,16 +798,16 @@ impl ZkCryptoTrust {
 
         // 5. Generate Schema Validity ZKP
         let is_valid_len = !data_bytes.is_empty() && data_bytes.len() < 10_000_000;
-        let (C_comp, schema_e, schema_s) = generate_schema_zkp(is_valid_len, data_hash_bytes)?;
+        let (c_comp, schema_e, schema_s) = generate_schema_zkp(is_valid_len, data_hash_bytes)?;
 
-        // 6. Serialize proof: c_0 || s_0 || s_1 || ... || s_{n-1} || C_comp || schema_e || schema_s
+        // 6. Serialize proof: c_0 || s_0 || s_1 || ... || s_{n-1} || c_comp || schema_e || schema_s
         let mut proof = Vec::new();
         proof.extend_from_slice(b"ZKP_RING_PROOF_V1:");
         proof.extend_from_slice(&c[0].to_bytes());
         for i in 0..n {
             proof.extend_from_slice(&s[i].to_bytes());
         }
-        proof.extend_from_slice(&C_comp.to_bytes());
+        proof.extend_from_slice(&c_comp.to_bytes());
         proof.extend_from_slice(&schema_e.to_bytes());
         proof.extend_from_slice(&schema_s.to_bytes());
 
@@ -878,14 +878,14 @@ impl ZkCryptoTrust {
         }
 
         let offset = 32 + 32 * n;
-        let mut C_bytes = [0u8; 32];
-        C_bytes.copy_from_slice(&payload[offset..offset + 32]);
+        let mut c_bytes = [0u8; 32];
+        c_bytes.copy_from_slice(&payload[offset..offset + 32]);
         let mut e_bytes = [0u8; 32];
         e_bytes.copy_from_slice(&payload[offset + 32..offset + 64]);
         let mut s_schema_bytes = [0u8; 32];
         s_schema_bytes.copy_from_slice(&payload[offset + 64..offset + 96]);
 
-        let schema_C = CompressedEdwardsY(C_bytes);
+        let schema_c = CompressedEdwardsY(c_bytes);
         let schema_e = Scalar::from_bytes_mod_order(e_bytes);
         let schema_s = Scalar::from_bytes_mod_order(s_schema_bytes);
 
@@ -893,7 +893,7 @@ impl ZkCryptoTrust {
             Ok(arr) => arr,
             Err(_) => return Ok(false),
         };
-        if !verify_schema_zkp(schema_C, schema_e, schema_s, &data_hash_arr) {
+        if !verify_schema_zkp(schema_c, schema_e, schema_s, &data_hash_arr) {
             return Ok(false);
         }
 

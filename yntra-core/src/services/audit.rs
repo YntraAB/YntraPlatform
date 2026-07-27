@@ -228,7 +228,7 @@ pub async fn log_action_with_conn(
     };
 
     let store = get_audit_store(&ws_id);
-    let mut all_entries = store.read_all_audit_logs()?;
+    let all_entries = store.read_all_audit_logs()?;
 
     // Find previous hash and seq for this workspace
     let mut prev_hash = "genesis".to_string();

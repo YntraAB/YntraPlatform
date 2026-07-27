@@ -172,7 +172,7 @@ async fn calculate_mover_job_payroll_split_inner(
 
     let total_hours = driving_hours + loading_hours;
     let overtime_hours = (total_hours - 8.0).max(0.0);
-    let regular_hours = total_hours - overtime_hours;
+    let _regular_hours = total_hours - overtime_hours;
 
     // Driving pay vs Loading pay split
     let driving_pay = driving_hours * driving_rate;
