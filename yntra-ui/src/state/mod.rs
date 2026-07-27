@@ -512,10 +512,7 @@ pub fn use_init_app_state() -> AppState {
                             if let Some(table) = val {
                                 pending_tables.insert(table);
 
-                                // Coalescing window: sleep first to let subsequent table changes pool in the channel
-                                crate::utils::sleep_ms(50).await;
-
-                                // Now drain all accumulated changes from the channel in a single batch
+                                // Immediately drain all accumulated changes from the channel in a single batch
                                 while let Ok(table) = rx.try_recv() {
                                     pending_tables.insert(table);
                                 }
