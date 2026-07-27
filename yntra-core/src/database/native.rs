@@ -143,8 +143,6 @@ where
     }
 }
 
-static INIT_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 async fn build_and_setup_database() -> Result<libsql::Database, YntraError> {
     let db_path = if cfg!(test) {
         "file:memdb1?mode=memory&cache=shared".to_string()
@@ -224,22 +222,9 @@ pub async fn get_database_async() -> Result<&'static libsql::Database, YntraErro
 }
 
 pub fn get_database() -> &'static libsql::Database {
-    if let Some(db) = DATABASE.get() {
-        return db;
-    }
-
-    let _guard = INIT_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-
-    if let Some(db) = DATABASE.get() {
-        return db;
-    }
-
-    tracing::warn!("get_database() called synchronously before async initialization! Falling back to block_on.");
-    let db = block_on(async {
-        build_and_setup_database().await.expect("Failed to initialize database")
-    });
-    let _ = DATABASE.set(db);
-    DATABASE.get().unwrap()
+    DATABASE
+        .get()
+        .expect("Database is not initialized. Call init_database_async() before accessing the database.")
 }
 
 pub fn get_max_pool_size() -> usize {
@@ -248,11 +233,11 @@ pub fn get_max_pool_size() -> usize {
         std::env::var("YNTRA_MAX_POOL_SIZE")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(128)
+            .unwrap_or(16)
     })
 }
 
-pub const MAX_POOL_SIZE: usize = 128;
+pub const MAX_POOL_SIZE: usize = 16;
 static SEMAPHORE: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
 
 fn get_semaphore() -> &'static tokio::sync::Semaphore {
@@ -749,9 +734,9 @@ mod tests {
     async fn test_connection_pool_limits() {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
 
-        // Acquire MAX_POOL_SIZE connections (this should consume all semaphore permits)
+        let pool_size = get_max_pool_size();
         let mut connections = Vec::new();
-        for _ in 0..MAX_POOL_SIZE {
+        for _ in 0..pool_size {
             let conn = acquire_connection().await;
             assert!(conn.is_ok());
             connections.push(conn.unwrap());

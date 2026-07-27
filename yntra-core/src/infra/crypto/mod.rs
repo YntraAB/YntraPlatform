@@ -158,7 +158,6 @@ fn ensure_system_salt_initialized() -> Result<(), YntraError> {
         #[cfg(not(target_arch = "wasm32"))]
         {
             if salt_buf.is_empty() {
-                let _ = crate::database::native::get_database();
                 if SYSTEM_SALT.get().is_some() {
                     salt_buf.zeroize();
                     return Ok(());

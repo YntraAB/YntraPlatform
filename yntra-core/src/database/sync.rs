@@ -15,6 +15,11 @@ static DB_CONFIG: OnceLock<Mutex<Option<DbConfig>>> = OnceLock::new();
 static SYNC_ROLE_PROOF: OnceLock<Mutex<Option<String>>> = OnceLock::new();
 static SYNC_ACTIVE_USER_ID: OnceLock<Mutex<Option<String>>> = OnceLock::new();
 
+fn get_sync_http_client() -> &'static reqwest::Client {
+    static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    HTTP_CLIENT.get_or_init(reqwest::Client::new)
+}
+
 #[uniffi::export]
 pub fn configure_database_sync(url: String, token: String) {
     if let Ok(mut lock) = DB_CONFIG.get_or_init(|| Mutex::new(None)).lock() {
@@ -125,21 +130,31 @@ async fn check_is_unprivileged() -> bool {
         Ok(c) => c,
         Err(_) => return false,
     };
-    let mut stmt = match conn.prepare("SELECT role FROM users").await {
-        Ok(s) => s,
-        Err(_) => return false,
+    let active_user_id = get_sync_active_user_id();
+    let role: Option<String> = if let Some(ref target_uid) = active_user_id {
+        conn.query_row(
+            "SELECT role FROM users WHERE id = ?1",
+            crate::params![target_uid],
+            |r| r.get(0),
+        )
+        .await
+        .ok()
+    } else {
+        conn.query_row(
+            "SELECT role FROM users LIMIT 1",
+            (),
+            |r| r.get(0),
+        )
+        .await
+        .ok()
     };
-    let mut rows = match stmt.query(()).await {
-        Ok(r) => r,
-        Err(_) => return false,
-    };
-    while let Ok(Some(row)) = rows.next().await {
-        if let Ok(role) = row.get::<String>(0) {
-            let r_lower = role.to_lowercase();
-            if r_lower == "student" || r_lower == "role-school-student" || r_lower == "parent" || r_lower == "role-school-parent" {
-                return true;
-            }
-        }
+
+    if let Some(role) = role {
+        let r_lower = role.to_lowercase();
+        return r_lower == "student"
+            || r_lower == "role-school-student"
+            || r_lower == "parent"
+            || r_lower == "role-school-parent";
     }
     false
 }
@@ -264,7 +279,7 @@ async fn sync_database_row_level(url: String, token: String) -> Result<(), Yntra
                     "sql": sql,
                     "params_json": params_json,
                 });
-                let req = reqwest::Client::new()
+                let req = get_sync_http_client()
                     .post(&endpoint)
                     .json(&body);
                 let req = if !token.is_empty() {
@@ -311,7 +326,7 @@ async fn sync_database_row_level(url: String, token: String) -> Result<(), Yntra
                 "role_proof": role_proof,
                 "table_name": table,
             });
-            let req = reqwest::Client::new()
+            let req = get_sync_http_client()
                 .post(&endpoint)
                 .json(&body);
             let req = if !token.is_empty() {
@@ -410,8 +425,9 @@ pub async fn sync_database() -> Result<(), YntraError> {
     #[cfg(not(target_arch = "wasm32"))]
     {
         let is_unprivileged = check_is_unprivileged().await;
+        let is_remote_replica = url.starts_with("http://") || url.starts_with("https://");
 
-        if is_unprivileged {
+        if is_unprivileged || !is_remote_replica {
             if !url.is_empty() {
                 sync_database_row_level(url, token).await?;
                 let _ = crate::services::notes::merge_unmerged_notes().await;
