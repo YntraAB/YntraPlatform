@@ -1,7 +1,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use crate::YntraError;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 
 static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 static DATABASE: OnceLock<libsql::Database> = OnceLock::new();
@@ -239,6 +239,72 @@ pub fn get_max_pool_size() -> usize {
 
 pub const MAX_POOL_SIZE: usize = 16;
 static SEMAPHORE: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
+static ACTIVE_CHECKED_OUT_CONNS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static TOTAL_ACQUIRE_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static TOTAL_EXHAUSTION_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static PEAK_ACTIVE_CONNS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+#[uniffi::export]
+pub fn get_pool_metrics() -> crate::models::DbPoolMetrics {
+    let active = ACTIVE_CHECKED_OUT_CONNS.load(std::sync::atomic::Ordering::Relaxed);
+    let peak = PEAK_ACTIVE_CONNS.load(std::sync::atomic::Ordering::Relaxed);
+    let total_acq = TOTAL_ACQUIRE_COUNT.load(std::sync::atomic::Ordering::Relaxed);
+    let total_exh = TOTAL_EXHAUSTION_COUNT.load(std::sync::atomic::Ordering::Relaxed);
+    let sem = get_semaphore();
+    let available = sem.available_permits() as u32;
+    let max_size = get_max_pool_size() as u32;
+
+    crate::models::DbPoolMetrics {
+        active_connections: active,
+        max_pool_size: max_size,
+        available_permits: available,
+        total_acquisitions: total_acq,
+        total_exhaustions: total_exh,
+        peak_active_connections: peak,
+    }
+}
+
+#[uniffi::export]
+pub async fn check_opfs_storage_quota() -> Result<crate::models::OpfsStorageQuota, YntraError> {
+    Ok(crate::models::OpfsStorageQuota {
+        quota_bytes: 1_000_000_000_000,
+        usage_bytes: 0,
+        remaining_bytes: 1_000_000_000_000,
+        usage_percent: 0.0,
+        is_storage_low: false,
+    })
+}
+
+fn track_checkout_success() {
+    let current_active = ACTIVE_CHECKED_OUT_CONNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    let mut peak = PEAK_ACTIVE_CONNS.load(std::sync::atomic::Ordering::Relaxed);
+    while current_active > peak {
+        match PEAK_ACTIVE_CONNS.compare_exchange_weak(
+            peak,
+            current_active,
+            std::sync::atomic::Ordering::SeqCst,
+            std::sync::atomic::Ordering::Relaxed,
+        ) {
+            Ok(_) => break,
+            Err(actual) => peak = actual,
+        }
+    }
+}
+
+fn track_checkin_success() {
+    let mut current = ACTIVE_CHECKED_OUT_CONNS.load(std::sync::atomic::Ordering::Relaxed);
+    while current > 0 {
+        match ACTIVE_CHECKED_OUT_CONNS.compare_exchange_weak(
+            current,
+            current - 1,
+            std::sync::atomic::Ordering::SeqCst,
+            std::sync::atomic::Ordering::Relaxed,
+        ) {
+            Ok(_) => break,
+            Err(actual) => current = actual,
+        }
+    }
+}
 
 fn get_semaphore() -> &'static tokio::sync::Semaphore {
     SEMAPHORE.get_or_init(|| tokio::sync::Semaphore::new(get_max_pool_size()))
@@ -255,12 +321,14 @@ fn get_pool_timeout_secs() -> u64 {
 }
 
 pub async fn acquire_connection() -> Result<DbConnection, YntraError> {
+    TOTAL_ACQUIRE_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let sem = get_semaphore();
     let timeout_secs = get_pool_timeout_secs();
     let permit = match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), sem.acquire()).await
     {
         Ok(Ok(p)) => p,
         _ => {
+            TOTAL_EXHAUSTION_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             tracing::error!(
                 "Database connection pool exhausted after {}s timeout (max pool size: {}).",
                 timeout_secs,
@@ -281,6 +349,7 @@ pub async fn acquire_connection() -> Result<DbConnection, YntraError> {
     };
 
     if let Some(conn) = conn_opt {
+        track_checkout_success();
         return Ok(DbConnection {
             inner: Some(conn),
             in_transaction: std::sync::atomic::AtomicBool::new(false),
@@ -293,6 +362,7 @@ pub async fn acquire_connection() -> Result<DbConnection, YntraError> {
         .connect()
         .map_err(|e| YntraError::DbError(e.to_string()))?;
     let _ = conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;").await;
+    track_checkout_success();
     Ok(DbConnection {
         inner: Some(conn),
         in_transaction: std::sync::atomic::AtomicBool::new(false),
@@ -310,6 +380,7 @@ impl Drop for DbConnection {
     fn drop(&mut self) {
         if let Some(conn) = self.inner.take() {
             let permit = self._permit.take();
+            let has_permit = permit.is_some();
             let is_in_tx = self
                 .in_transaction
                 .load(std::sync::atomic::Ordering::SeqCst);
@@ -320,6 +391,9 @@ impl Drop for DbConnection {
                 // Recycle connection via lock-free channel send
                 let _ = tx.send(conn);
                 drop(permit);
+                if has_permit {
+                    track_checkin_success();
+                }
             } else {
                 // Connection was dropped with an open uncommitted transaction: execute ROLLBACK asynchronously.
                 let tx_clone = tx.clone();
@@ -338,6 +412,9 @@ impl Drop for DbConnection {
                         let _ = tx_clone.send(conn);
                     }
                     drop(permit);
+                    if has_permit {
+                        track_checkin_success();
+                    }
                 });
             }
         }
@@ -800,5 +877,25 @@ mod tests {
             let res = block_on(async { 42 });
             assert_eq!(res, 42);
         });
+    }
+
+    #[tokio::test]
+    async fn test_database_pool_metrics_tracking() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let initial_metrics = get_pool_metrics();
+        assert!(initial_metrics.max_pool_size >= 1);
+
+        let conn1 = acquire_connection().await.expect("Failed to acquire conn1");
+        let active_after_conn1 = get_pool_metrics();
+        assert!(active_after_conn1.active_connections >= 1);
+        assert!(active_after_conn1.total_acquisitions > 0);
+        assert!(active_after_conn1.peak_active_connections >= 1);
+
+        drop(conn1);
+        let active_after_drop = get_pool_metrics();
+        assert_eq!(
+            active_after_drop.active_connections,
+            active_after_conn1.active_connections - 1
+        );
     }
 }

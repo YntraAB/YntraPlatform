@@ -40,6 +40,49 @@ pub struct Workspace {
     serde::Serialize,
     serde::Deserialize,
     Clone,
+    Debug,
+    PartialEq,
+    Default,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct DbPoolMetrics {
+    pub active_connections: u32,
+    pub max_pool_size: u32,
+    pub available_permits: u32,
+    pub total_acquisitions: u64,
+    pub total_exhaustions: u64,
+    pub peak_active_connections: u32,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Default,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct OpfsStorageQuota {
+    pub quota_bytes: u64,
+    pub usage_bytes: u64,
+    pub remaining_bytes: u64,
+    pub usage_percent: f64,
+    pub is_storage_low: bool,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
     PartialEq,
 )]
 #[rkyv(compare(PartialEq), derive(Debug))]

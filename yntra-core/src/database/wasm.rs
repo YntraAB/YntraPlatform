@@ -330,3 +330,78 @@ where
 {
     iter.into_iter().map(|x| x.to_value()).collect()
 }
+
+#[cfg(target_arch = "wasm32")]
+#[uniffi::export]
+pub fn get_pool_metrics() -> crate::models::DbPoolMetrics {
+    crate::models::DbPoolMetrics::default()
+}
+
+#[cfg(target_arch = "wasm32")]
+#[uniffi::export]
+pub async fn check_opfs_storage_quota() -> Result<crate::models::OpfsStorageQuota, YntraError> {
+    let fut = async move {
+        if let Some(window) = web_sys::window() {
+            let storage = window.navigator().storage();
+            let estimate_key = wasm_bindgen::JsValue::from_str("estimate");
+            let js_estimate_fn = js_sys::Reflect::get(&storage, &estimate_key).ok();
+
+            if let Some(estimate_fn) = js_estimate_fn.and_then(|v| v.dyn_into::<js_sys::Function>().ok()) {
+                let promise_val = estimate_fn.call0(&storage).map_err(|e| YntraError::DbError(format!("{:?}", e)))?;
+                let promise = js_sys::Promise::from(promise_val);
+                let result_val = wasm_bindgen_futures::JsFuture::from(promise).await
+                    .map_err(|e| YntraError::DbError(format!("{:?}", e)))?;
+
+                let quota_key = wasm_bindgen::JsValue::from_str("quota");
+                let usage_key = wasm_bindgen::JsValue::from_str("usage");
+
+                let quota = js_sys::Reflect::get(&result_val, &quota_key)
+                    .ok()
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(100_000_000.0) as u64;
+
+                let usage = js_sys::Reflect::get(&result_val, &usage_key)
+                    .ok()
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0) as u64;
+
+                let remaining = quota.saturating_sub(usage);
+                let percent = if quota > 0 { (usage as f64 / quota as f64) * 100.0 } else { 0.0 };
+                let is_low = percent >= 90.0 || remaining < 5_000_000;
+
+                return Ok(crate::models::OpfsStorageQuota {
+                    quota_bytes: quota,
+                    usage_bytes: usage,
+                    remaining_bytes: remaining,
+                    usage_percent: percent,
+                    is_storage_low: is_low,
+                });
+            }
+        }
+
+        Ok(crate::models::OpfsStorageQuota {
+            quota_bytes: 100_000_000,
+            usage_bytes: 0,
+            remaining_bytes: 100_000_000,
+            usage_percent: 0.0,
+            is_storage_low: false,
+        })
+    };
+    SendFuture::new(fut).await
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn ensure_storage_quota(required_bytes: u64) -> Result<(), YntraError> {
+    let quota_info = check_opfs_storage_quota().await?;
+    if quota_info.remaining_bytes < required_bytes {
+        tracing::error!(
+            "OPFS Storage Quota Exceeded: Requested {} bytes but only {} bytes remaining (usage: {:.1}%).",
+            required_bytes, quota_info.remaining_bytes, quota_info.usage_percent
+        );
+        return Err(YntraError::DbError(format!(
+            "Storage quota exceeded: required {} bytes but only {} bytes remaining",
+            required_bytes, quota_info.remaining_bytes
+        )));
+    }
+    Ok(())
+}
