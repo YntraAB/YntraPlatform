@@ -1179,6 +1179,79 @@ fn test_panic_zeroization_empirical() {
     assert!(all_zeroes, "Zeroizing failed to clear memory on panic/unwinding!");
 }
 
+#[test]
+fn test_loro_snapshot_compaction_prevents_log_bloat() {
+    let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+
+    let name_a = "note_compaction_test_a".to_string();
+    let name_b = "note_compaction_test_b".to_string();
+
+    let store_a = super::create_peer_note_store(name_a.clone()).unwrap();
+
+    // Perform 20 sequential updates to the same note
+    for i in 0..20 {
+        let note = DailyNote {
+            id: "note_compact_1".to_string(),
+            workspace_id: "ws_abc".to_string(),
+            team_id: "team_1".to_string(),
+            author_id: Some("user_1".to_string()),
+            subject: format!("Subject V{}", i),
+            content: format!("Content iteration {}", i),
+            edit_history: "[]".to_string(),
+            created_at: "2026-07-26".to_string(),
+            updated_at: 1000 + i,
+            sync_status: "synced".to_string(),
+        };
+        store_a.write_notes(vec![note]).unwrap();
+    }
+
+    let snapshot_bytes = store_a.get_loro_changes().unwrap();
+    assert!(!snapshot_bytes.is_empty());
+
+    // Import snapshot into a fresh store instance and verify state integrity
+    let store_b = super::create_peer_note_store(name_b.clone()).unwrap();
+    store_b.apply_loro_update(snapshot_bytes).unwrap();
+
+    let notes_b = store_b.read_all_notes().unwrap();
+    assert_eq!(notes_b.len(), 1);
+    assert_eq!(notes_b[0].subject, "Subject V19");
+}
+
+#[test]
+fn test_compact_history_garbage_collection() {
+    let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+
+    let name = "store_compaction_unit_test".to_string();
+    let store = super::create_peer_note_store(name).unwrap();
+
+    for i in 0..50 {
+        let note = DailyNote {
+            id: "note_compact_test".to_string(),
+            workspace_id: "ws_compact".to_string(),
+            team_id: "team_compact".to_string(),
+            author_id: Some("author_1".to_string()),
+            subject: format!("Compaction Iteration {}", i),
+            content: format!("Content Payload Version {}", i),
+            edit_history: "[]".to_string(),
+            created_at: "2026-07-27".to_string(),
+            updated_at: 1000 + i,
+            sync_status: "synced".to_string(),
+        };
+        store.upsert_note(note).unwrap();
+    }
+
+    let before_notes = store.read_all_notes().unwrap();
+    assert_eq!(before_notes.len(), 1);
+    assert_eq!(before_notes[0].subject, "Compaction Iteration 49");
+
+    // Compact history
+    store.compact_history().unwrap();
+
+    let after_notes = store.read_all_notes().unwrap();
+    assert_eq!(after_notes.len(), 1);
+    assert_eq!(after_notes[0].subject, "Compaction Iteration 49");
+}
+
 
 
 

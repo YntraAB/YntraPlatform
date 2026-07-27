@@ -278,8 +278,7 @@ pub async fn log_action_with_conn(
         signature: signature.clone(),
     };
 
-    all_entries.push(entry.clone());
-    store.write_audit_logs(all_entries)?;
+    store.upsert_audit_log(entry.clone())?;
 
     Ok(entry)
 }

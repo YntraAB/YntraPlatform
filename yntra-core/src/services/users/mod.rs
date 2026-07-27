@@ -187,6 +187,7 @@ pub async fn update_user_role(
 
     match res {
         Ok(_) => {
+            crate::infra::auth::invalidate_auth_context_cache_for_user(&user_id);
             conn.commit().await?;
             notify_observers();
             Ok(())
@@ -234,9 +235,10 @@ pub async fn update_user_profile(
     let now_ms = crate::infra::time::get_current_time_ms();
     conn.execute(
         "UPDATE users SET full_name = ?1, phone = ?2, preferences = ?3, updated_at = ?4, sync_status = 'pending' WHERE id = ?5",
-        crate::params![full_name, phone, preferences, now_ms, user_id],
+        crate::params![full_name, phone, preferences, now_ms, &user_id],
     ).await?;
 
+    crate::infra::auth::invalidate_auth_context_cache_for_user(&user_id);
     notify_observers();
     Ok(())
 }
@@ -281,7 +283,7 @@ pub async fn update_user_via_directory(
     let res = async {
         conn.execute(
             "UPDATE users SET full_name = ?1, phone = ?2, role = ?3, updated_at = ?4, sync_status = 'pending' WHERE id = ?5",
-            crate::params![full_name, phone, role, now_ms, user_id],
+            crate::params![full_name, phone, role, now_ms, &user_id],
         ).await?;
         signatures::ensure_user_role_signature(&conn, &user_id, &role, &ws_id).await?;
         Ok(())
@@ -289,6 +291,7 @@ pub async fn update_user_via_directory(
 
     match res {
         Ok(_) => {
+            crate::infra::auth::invalidate_auth_context_cache_for_user(&user_id);
             conn.commit().await?;
             notify_observers();
             Ok(())

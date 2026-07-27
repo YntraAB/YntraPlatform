@@ -83,8 +83,6 @@ pub async fn add_todo(
     }
 
     let store = get_todo_store(&workspace_id);
-    let mut todos = store.read_all_todos()?;
-
     let id = uuid::Uuid::new_v4().to_string();
     let item = TodoItem {
         id: id.clone(),
@@ -95,9 +93,7 @@ pub async fn add_todo(
         sync_status: "pending".to_string(),
     };
 
-    todos.push(item.clone());
-    store.write_todos(todos)?;
-
+    store.upsert_todo(item.clone())?;
     Ok(item)
 }
 
@@ -106,37 +102,24 @@ pub async fn toggle_todo(requester_user_id: String, id: String) -> Result<(), Yn
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    // Find workspace_id from SQLite or use the user's workspace_id since todo is not globally registered
-    // We can query all stores or query the user's workspace_id store as default
     let workspace_id = auth.workspace_id.clone();
     let store = get_todo_store(&workspace_id);
-    let mut todos = store.read_all_todos()?;
 
-    let mut found = false;
-    let mut todo_ws = String::new();
-    for todo in todos.iter_mut() {
-        if todo.id == id {
-            todo.completed = !todo.completed;
-            todo.updated_at = crate::infra::time::get_current_time_ms();
-            todo.sync_status = "pending".to_string();
-            todo_ws = todo.workspace_id.clone();
-            found = true;
-            break;
-        }
-    }
+    let mut todo = store
+        .read_todo_zero_copy(id.clone())?
+        .ok_or_else(|| YntraError::NotFoundError("Todo not found".to_string()))?;
 
-    if !found {
-        return Err(YntraError::NotFoundError("Todo not found".to_string()));
-    }
-
-    if auth.role != "platform_admin" && auth.workspace_id != todo_ws {
+    if auth.role != "platform_admin" && auth.workspace_id != todo.workspace_id {
         return Err(YntraError::AuthError(
             "Access denied: workspace mismatch".to_string(),
         ));
     }
 
-    store.write_todos(todos)?;
+    todo.completed = !todo.completed;
+    todo.updated_at = crate::infra::time::get_current_time_ms();
+    todo.sync_status = "pending".to_string();
 
+    store.upsert_todo(todo)?;
     Ok(())
 }
 

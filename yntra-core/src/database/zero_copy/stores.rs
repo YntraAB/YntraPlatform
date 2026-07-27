@@ -840,6 +840,62 @@ macro_rules! impl_write_items {
     }};
 }
 
+macro_rules! impl_upsert_item {
+    ($self:expr, $item:expr, $sync_fn:path, $table_name:expr, $t:ty) => {{
+        {
+            let mut inner = $self.inner.lock_poison_safe();
+            let mut cache_guard = $self.cache.lock_poison_safe();
+
+            if cache_guard.is_none() {
+                let rkyv_slice = inner.get_rkyv_slice();
+                if !rkyv_slice.is_empty() {
+                    let required_align = std::cmp::max(
+                        std::mem::align_of::<rkyv::Archived<Vec<$t>>>(),
+                        std::mem::align_of::<rkyv::Archived<$t>>(),
+                    );
+                    let list: Vec<$t> = if (rkyv_slice.as_ptr() as usize) % required_align == 0 {
+                        let archived = rkyv::access::<rkyv::Archived<Vec<$t>>, rkyv::rancor::Error>(rkyv_slice)
+                            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                        rkyv::deserialize::<Vec<$t>, rkyv::rancor::Error>(archived)
+                            .map_err(|e| YntraError::SerializationError(e.to_string()))?
+                    } else {
+                        let mut aligned = rkyv::util::AlignedVec::<16>::new();
+                        aligned.extend_from_slice(rkyv_slice);
+                        let archived = rkyv::access::<rkyv::Archived<Vec<$t>>, rkyv::rancor::Error>(&aligned)
+                            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                        rkyv::deserialize::<Vec<$t>, rkyv::rancor::Error>(archived)
+                            .map_err(|e| YntraError::SerializationError(e.to_string()))?
+                    };
+                    *cache_guard = Some(list);
+                } else {
+                    *cache_guard = Some(Vec::new());
+                }
+            }
+
+            let cache = cache_guard.as_mut().unwrap();
+            let modified_id = $item.id.clone();
+            match cache.binary_search_by(|o| o.id.cmp(&$item.id)) {
+                Ok(idx) => {
+                    cache[idx] = $item;
+                }
+                Err(idx) => {
+                    cache.insert(idx, $item);
+                }
+            }
+
+            $sync_fn(inner.doc(), cache, &[modified_id.clone()])?;
+            let loro_bytes = inner.get_loro_changes()?;
+            let rkyv_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(cache)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+
+            inner.save_to_disk(&rkyv_bytes, &loro_bytes)?;
+            crate::infra::observer::set_last_modified_record($table_name, &modified_id);
+        }
+        crate::infra::observer::notify_observers();
+        Ok(())
+    }};
+}
+
 macro_rules! impl_get_count {
     ($self:expr, $t:ty) => {{
         let inner = $self.inner.lock_poison_safe();
@@ -1085,6 +1141,7 @@ macro_rules! define_zero_copy_store {
         $struct_name:ident,
         $item_ty:ty,
         $write_fn_name:ident,
+        $upsert_fn_name:ident,
         $read_zc_fn_name:ident,
         $read_all_fn_name:ident,
         $get_count_fn_name:ident,
@@ -1094,6 +1151,7 @@ macro_rules! define_zero_copy_store {
         $table_name:expr,
         $comment_struct:expr,
         $comment_write:expr,
+        $comment_upsert:expr,
         $comment_read_zc:expr,
         $comment_read_all:expr,
         $comment_count:expr,
@@ -1122,6 +1180,11 @@ macro_rules! define_zero_copy_store {
             #[doc = $comment_write]
             pub fn $write_fn_name(&self, items: Vec<$item_ty>) -> Result<(), YntraError> {
                 impl_write_items!(self, items, $sync_fn, $table_name)
+            }
+
+            #[doc = $comment_upsert]
+            pub fn $upsert_fn_name(&self, item: $item_ty) -> Result<(), YntraError> {
+                impl_upsert_item!(self, item, $sync_fn, $table_name, $item_ty)
             }
 
             #[doc = $comment_read_zc]
@@ -1180,6 +1243,15 @@ macro_rules! define_zero_copy_store {
                 let inner = self.inner.lock_poison_safe();
                 Ok(inner.get_rkyv_slice().to_vec())
             }
+
+            /// Compacts the store's Loro CRDT history, garbage-collecting historical change logs and bounding RAM footprint.
+            pub fn compact_history(&self) -> Result<(), YntraError> {
+                let mut inner = self.inner.lock_poison_safe();
+                let loro_bytes = inner.compact_loro_history()?;
+                let rkyv_bytes = inner.get_rkyv_slice().to_vec();
+                inner.save_to_disk(&rkyv_bytes, &loro_bytes)?;
+                Ok(())
+            }
         }
     };
 }
@@ -1188,6 +1260,7 @@ define_zero_copy_store!(
     ZeroCopyStore,
     TodoItem,
     write_todos,
+    upsert_todo,
     read_todo_zero_copy,
     read_all_todos,
     get_todos_count,
@@ -1197,6 +1270,7 @@ define_zero_copy_store!(
     "todos",
     "Zero-copy store for managing TodoItem entities.",
     "Writes a list of todo items to the database.",
+    "Upserts a single todo item efficiently using in-memory binary search and Loro delta sync.",
     "Reads a single todo item using binary search optimization.",
     "Reads all todo items from the database.",
     "Returns the total count of todo items.",
@@ -1219,6 +1293,7 @@ define_zero_copy_store!(
     ZeroCopyMessageStore,
     MessageItem,
     write_messages,
+    upsert_message,
     read_message_zero_copy,
     read_all_messages,
     get_messages_count,
@@ -1228,6 +1303,7 @@ define_zero_copy_store!(
     "messages",
     "Zero-copy store for managing MessageItem entities.",
     "Writes a list of message items to the database.",
+    "Upserts a single message item efficiently using in-memory binary search and Loro delta sync.",
     "Reads a single message item using binary search optimization.",
     "Reads all message items from the database.",
     "Returns the total count of message items.",
@@ -1272,6 +1348,7 @@ define_zero_copy_store!(
     ZeroCopyAuditStore,
     AuditLogEntry,
     write_audit_logs,
+    upsert_audit_log,
     read_audit_zero_copy,
     read_all_audit_logs,
     get_audits_count,
@@ -1281,6 +1358,7 @@ define_zero_copy_store!(
     "audits",
     "Zero-copy store for managing AuditLogEntry entities.",
     "Writes a list of audit logs to the database.",
+    "Upserts a single audit log efficiently using in-memory binary search and Loro delta sync.",
     "Reads a single audit log using binary search optimization.",
     "Reads all audit logs from the database.",
     "Returns the total count of audit logs.",
@@ -1291,6 +1369,7 @@ define_zero_copy_store!(
     ZeroCopyNoteStore,
     DailyNote,
     write_notes,
+    upsert_note,
     read_note_zero_copy,
     read_all_notes,
     get_notes_count,
@@ -1300,6 +1379,7 @@ define_zero_copy_store!(
     "notes",
     "Zero-copy store for managing DailyNote entities.",
     "Writes a list of daily notes to the database.",
+    "Upserts a single daily note efficiently using in-memory binary search and Loro delta sync.",
     "Reads a single daily note using binary search optimization.",
     "Reads all daily notes from the database.",
     "Returns the total count of daily notes.",

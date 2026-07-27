@@ -69,10 +69,11 @@ pub async fn update_workspace_modules(
         let default_settings = get_default_settings_for_modules(&modules_json);
         conn.execute(
             "UPDATE workspaces SET settings = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
-            crate::params![default_settings, now_ms, workspace_id],
+            crate::params![default_settings, now_ms, &workspace_id],
         ).await?;
     }
 
+    crate::infra::auth::invalidate_auth_context_cache_for_workspace(&workspace_id);
     notify_observers();
     Ok(())
 }
@@ -459,9 +460,10 @@ pub async fn update_workspace_general(
     let now_ms = crate::infra::time::get_current_time_ms();
     conn.execute(
         "UPDATE workspaces SET name = ?1, brand_color = ?2, logo_url = ?3, updated_at = ?4, sync_status = 'pending' WHERE id = ?5",
-        crate::params![name, brand_color, logo_url, now_ms, workspace_id],
+        crate::params![name, brand_color, logo_url, now_ms, &workspace_id],
     ).await?;
 
+    crate::infra::auth::invalidate_auth_context_cache_for_workspace(&workspace_id);
     notify_observers();
     Ok(())
 }
@@ -488,9 +490,10 @@ pub async fn update_workspace_settings(
     let now_ms = crate::infra::time::get_current_time_ms();
     conn.execute(
         "UPDATE workspaces SET settings = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
-        crate::params![settings_json, now_ms, workspace_id],
+        crate::params![settings_json, now_ms, &workspace_id],
     ).await?;
 
+    crate::infra::auth::invalidate_auth_context_cache_for_workspace(&workspace_id);
     notify_observers();
     Ok(())
 }
@@ -517,9 +520,10 @@ pub async fn update_workspace_block_settings(
     let now_ms = crate::infra::time::get_current_time_ms();
     conn.execute(
         "UPDATE workspaces SET block_settings = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
-        crate::params![block_settings_json, now_ms, workspace_id],
+        crate::params![block_settings_json, now_ms, &workspace_id],
     ).await?;
 
+    crate::infra::auth::invalidate_auth_context_cache_for_workspace(&workspace_id);
     notify_observers();
     Ok(())
 }

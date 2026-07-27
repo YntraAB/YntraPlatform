@@ -145,6 +145,32 @@ pub fn generate_workspace_keypair() -> Result<Arc<WorkspaceKeyPair>, YntraError>
     }))
 }
 
+use std::collections::HashMap;
+use std::sync::{OnceLock, RwLock};
+
+static VERIFYING_KEY_CACHE: OnceLock<RwLock<HashMap<String, ed25519_dalek::VerifyingKey>>> = OnceLock::new();
+
+pub fn get_parsed_verifying_key(public_key_hex: &str) -> Option<ed25519_dalek::VerifyingKey> {
+    let cache_lock = VERIFYING_KEY_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
+    if let Ok(cache) = cache_lock.read() {
+        if let Some(vk) = cache.get(public_key_hex) {
+            return Some(*vk);
+        }
+    }
+
+    if public_key_hex.len() != 64 {
+        return None;
+    }
+    let bytes = const_hex::decode(public_key_hex).ok()?;
+    let arr: [u8; 32] = bytes.try_into().ok()?;
+    let vk = ed25519_dalek::VerifyingKey::from_bytes(&arr).ok()?;
+
+    if let Ok(mut cache) = cache_lock.write() {
+        cache.insert(public_key_hex.to_string(), vk);
+    }
+    Some(vk)
+}
+
 /// Verifies a user's role signature against a given public key.
 #[uniffi::export]
 pub fn verify_role_signature(
@@ -182,32 +208,9 @@ pub fn verify_role_signature(
         }
     };
 
-    let pub_hex = if public_key_hex.len() == 64 {
-        public_key_hex
-    } else {
-        is_valid = false;
-        "0000000000000000000000000000000000000000000000000000000000000000"
-    };
-
-    let public_key_bytes = match const_hex::decode(pub_hex) {
-        Ok(b) => b,
-        Err(_) => {
-            is_valid = false;
-            vec![0u8; 32]
-        }
-    };
-
-    let public_key_array: [u8; 32] = match public_key_bytes.try_into() {
-        Ok(a) => a,
-        Err(_) => {
-            is_valid = false;
-            [0u8; 32]
-        }
-    };
-
-    let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(&public_key_array) {
-        Ok(k) => k,
-        Err(_) => {
+    let verifying_key = match get_parsed_verifying_key(public_key_hex) {
+        Some(k) => k,
+        None => {
             is_valid = false;
             ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]).verifying_key()
         }

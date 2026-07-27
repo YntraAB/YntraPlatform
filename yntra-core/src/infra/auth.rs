@@ -218,6 +218,55 @@ pub fn get_auth_context_cache(user_id: &str) -> Option<AuthContext> {
     }
 }
 
+fn extract_where_target_ids(sql: &str, table: &str) -> Option<Vec<String>> {
+    let sql_upper = sql.to_uppercase();
+    let where_idx = sql_upper.find("WHERE ")?;
+    let where_clause = &sql[where_idx + 6..];
+
+    let targets = if table == "users" {
+        &["id", "u.id", "user_id"][..]
+    } else if table == "workspaces" {
+        &["id", "w.id", "workspace_id", "u.workspace_id"][..]
+    } else {
+        &["id"][..]
+    };
+
+    let mut found_ids = Vec::new();
+    let mut chars = where_clause.chars().peekable();
+    let mut in_quote = false;
+    let mut current_lit = String::new();
+
+    while let Some(c) = chars.next() {
+        if c == '\'' {
+            if in_quote {
+                if chars.peek() == Some(&'\'') {
+                    chars.next(); // consume the escaped quote
+                    current_lit.push('\'');
+                } else {
+                    found_ids.push(current_lit.clone());
+                    current_lit.clear();
+                    in_quote = false;
+                }
+            } else {
+                in_quote = true;
+            }
+        } else if in_quote {
+            current_lit.push(c);
+        }
+    }
+
+    let contains_target_col = targets.iter().any(|&col| {
+        let col_upper = col.to_uppercase();
+        sql_upper[where_idx..].contains(&col_upper)
+    });
+
+    if contains_target_col {
+        Some(found_ids)
+    } else {
+        None
+    }
+}
+
 pub fn invalidate_auth_context_cache_for_sql(sql: &str, table: &str) {
     if let Ok(mut cache_guard) = AUTH_CONTEXT_CACHE
         .get_or_init(|| RwLock::new(BoundedAuthCache {
@@ -226,44 +275,29 @@ pub fn invalidate_auth_context_cache_for_sql(sql: &str, table: &str) {
         }))
         .write()
     {
-        let mut literals = Vec::new();
-        let mut chars = sql.chars().peekable();
-        let mut in_quote = false;
-        let mut current_lit = String::new();
-        while let Some(c) = chars.next() {
-            if c == '\'' {
-                if in_quote {
-                    if chars.peek() == Some(&'\'') {
-                        chars.next(); // consume the escaped quote
-                        current_lit.push('\'');
-                    } else {
-                        literals.push(current_lit.clone());
-                        current_lit.clear();
-                        in_quote = false;
-                    }
-                } else {
-                    in_quote = true;
-                }
-            } else if in_quote {
-                current_lit.push(c);
-            }
-        }
-
         let BoundedAuthCache { map, order } = &mut *cache_guard;
 
-        if !literals.is_empty() {
-            if table == "users" {
-                for lit in &literals {
-                    map.remove(lit);
+        if let Some(target_ids) = extract_where_target_ids(sql, table) {
+            if !target_ids.is_empty() {
+                if table == "users" {
+                    for id in &target_ids {
+                        map.remove(id);
+                    }
+                    order.retain(|id| !target_ids.contains(id));
+                } else if table == "workspaces" {
+                    map.retain(|_, context| {
+                        !target_ids.iter().any(|ws_id| ws_id == &context.workspace_id)
+                    });
+                    order.retain(|id| map.contains_key(id));
                 }
-                order.retain(|id| !literals.contains(id));
-            } else if table == "workspaces" {
-                map.retain(|_, context| {
-                    !literals.iter().any(|lit| lit == &context.workspace_id)
-                });
-                order.retain(|id| map.contains_key(id));
+            } else {
+                // Parameterized WHERE clause on users or workspaces (e.g. WHERE id = ?1):
+                // Parameter value is bound at runtime, clear cache to ensure security correctness.
+                map.clear();
+                order.clear();
             }
         } else {
+            // Un-targeted bulk write without WHERE clause: clear all cached auth contexts.
             map.clear();
             order.clear();
         }
@@ -393,16 +427,8 @@ impl AuthContext {
                     )));
                 }
 
-                // Validate public key format (SOTA)
-                let pk_bytes = const_hex::decode(&pk).map_err(|_| {
-                    YntraError::AuthError(
-                        "Workspace public key format is not valid hex".to_string(),
-                    )
-                })?;
-                let pk_array: [u8; 32] = pk_bytes.as_slice().try_into().map_err(|_| {
-                    YntraError::AuthError("Workspace public key length is invalid".to_string())
-                })?;
-                if ed25519_dalek::VerifyingKey::from_bytes(&pk_array).is_err() {
+                // Validate public key format using cached verifying key (SOTA)
+                if crate::infra::crypto::get_parsed_verifying_key(&pk).is_none() {
                     return Err(YntraError::AuthError(
                         "Workspace public key is not a valid Ed25519 key".to_string(),
                     ));
@@ -1022,11 +1048,11 @@ mod tests {
         };
         insert_auth_context_cache("user-cache-test-1", ctx1);
 
-        // 4. Perform a SQL write with placeholders (should fall back to clearing everything)
+        // 4. Perform a parameterized write query (should fall back to clearing cache for security)
         let sql_placeholder = "UPDATE users SET role = ?1 WHERE id = ?2";
         invalidate_auth_context_cache_for_sql(sql_placeholder, "users");
 
-        // Verify EVERYTHING is cleared
+        // Verify cache is cleared
         {
             let cache = AUTH_CONTEXT_CACHE.get().unwrap().read().unwrap();
             assert!(cache.map.is_empty());

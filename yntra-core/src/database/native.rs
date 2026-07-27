@@ -128,10 +128,14 @@ where
     F: std::future::Future + Send,
     F::Output: Send + 'static,
 {
-    if let Ok(_handle) = tokio::runtime::Handle::try_current() {
-        // Inform Tokio runtime that current worker thread will block,
-        // allowing Tokio to migrate active tasks to another worker thread.
-        tokio::task::block_in_place(move || futures_executor::block_on(future))
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::CurrentThread {
+            // On single-threaded CurrentThread runtimes, block_in_place panics.
+            // Execute future directly via futures_executor::block_on without block_in_place.
+            futures_executor::block_on(future)
+        } else {
+            tokio::task::block_in_place(move || handle.block_on(future))
+        }
     } else {
         // No runtime is currently active. We can directly block_on the dedicated runtime.
         let rt = get_runtime();
@@ -418,26 +422,39 @@ impl DbConnection {
 
     pub async fn execute_batch(&self, sql: &str) -> Result<(), YntraError> {
         let conn = self.get_conn()?;
+        let mut contains_begin = false;
         let mut last_tx_state = None;
         for stmt in super::parser::split_sql_statements(sql) {
             if let Some(in_tx) = super::check_transaction_sql(stmt) {
+                if in_tx {
+                    contains_begin = true;
+                }
                 last_tx_state = Some(in_tx);
             }
         }
-        conn.execute_batch(sql)
-            .await
-            .map_err(|e| YntraError::DbError(e.to_string()))?;
 
-        if let Some(in_tx) = last_tx_state {
+        if contains_begin {
             self.in_transaction
-                .store(in_tx, std::sync::atomic::Ordering::SeqCst);
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+
+        let res = conn
+            .execute_batch(sql)
+            .await
+            .map_err(|e| YntraError::DbError(e.to_string()));
+
+        if res.is_ok() {
+            if let Some(in_tx) = last_tx_state {
+                self.in_transaction
+                    .store(in_tx, std::sync::atomic::Ordering::SeqCst);
+            }
         }
 
         let is_rollback =
             sql.trim_start().len() >= 8 && sql.trim_start()[..8].eq_ignore_ascii_case("ROLLBACK");
         if is_rollback {
             crate::infra::observer::discard_observers_dirty_state();
-        } else {
+        } else if res.is_ok() {
             super::track_write_batch(sql);
             if !self
                 .in_transaction
@@ -446,7 +463,8 @@ impl DbConnection {
                 crate::infra::observer::notify_observers();
             }
         }
-        Ok(())
+
+        res.map(|_| ())
     }
 
     pub async fn prepare(&self, sql: &str) -> Result<Statement, YntraError> {
@@ -712,7 +730,7 @@ mod tests {
         }
 
         // Give the background task time to finalize dropping the connection
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
 
         // 3. Acquire a connection from the pool and try to start a new transaction.
         let conn_new = acquire_connection().await.unwrap();
@@ -762,6 +780,7 @@ mod tests {
 
     #[test]
     fn test_dynamic_database_directory_resolution() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         // Test resolution with no directory configured
         let path1 = get_database_path("test_file.db");
         let expected_default = resolve_default_database_dir().join("test_file.db");
@@ -782,5 +801,19 @@ mod tests {
         // Attempting to set directory again should fail
         let set_res2 = set_database_directory("/another/path".to_string());
         assert!(set_res2.is_err());
+    }
+
+    #[test]
+    fn test_current_thread_block_on_safety() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+
+        rt.block_on(async {
+            // Under a current_thread runtime, block_on must execute safely without panicking on block_in_place
+            let res = block_on(async { 42 });
+            assert_eq!(res, 42);
+        });
     }
 }

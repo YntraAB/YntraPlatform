@@ -81,12 +81,41 @@ pub fn notify_observers() {
         Vec::new()
     };
 
+    if observers.is_empty() {
+        return;
+    }
+
     if !records.is_empty() || !tables.is_empty() {
+        // 1. Deduplicate records and count updates per table
+        let mut unique_records: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
+        let mut record_counts_per_table: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+
+        for (table, id) in records {
+            if unique_records.insert((table.clone(), id)) {
+                *record_counts_per_table.entry(table).or_insert(0) += 1;
+            }
+        }
+
+        // 2. Coalesce bulk updates (> 5 records per table) or existing table-level flags into table notifications
+        let mut tables_to_notify = tables;
+        for (table, count) in &record_counts_per_table {
+            if *count > 5 {
+                tables_to_notify.insert(table.clone());
+            }
+        }
+
+        // 3. Filter individual records: fire on_record_changed only if table is not already receiving a full table notification
+        let filtered_records: Vec<(String, String)> = unique_records
+            .into_iter()
+            .filter(|(table, _)| !tables_to_notify.contains(table))
+            .collect();
+
+        // 4. Dispatch notifications to observers
         for observer in &observers {
-            for (table, id) in &records {
+            for (table, id) in &filtered_records {
                 observer.on_record_changed(table.clone(), id.clone());
             }
-            for table in &tables {
+            for table in &tables_to_notify {
                 observer.on_table_changed(table.clone());
             }
         }
@@ -137,6 +166,7 @@ mod tests {
 
     #[test]
     fn test_simultaneous_record_and_table_notifications() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         clear_observers();
         discard_observers_dirty_state();
 
@@ -160,6 +190,53 @@ mod tests {
         assert!(obs.record_called.load(Ordering::SeqCst), "Record notification should be fired");
         assert!(obs.table_called.load(Ordering::SeqCst), "Table notification should be fired even when records exist");
         assert!(!obs.db_called.load(Ordering::SeqCst), "DB fallback notification should not fire when specific events exist");
+
+        clear_observers();
+    }
+
+    #[test]
+    fn test_bulk_record_coalescing_and_deduplication() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        clear_observers();
+        discard_observers_dirty_state();
+
+        let record_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let table_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+        struct CounterObserver {
+            records: Arc<std::sync::atomic::AtomicUsize>,
+            tables: Arc<std::sync::atomic::AtomicUsize>,
+        }
+
+        impl DatabaseObserver for CounterObserver {
+            fn on_database_changed(&self) {}
+            fn on_table_changed(&self, _table: String) {
+                self.tables.fetch_add(1, Ordering::SeqCst);
+            }
+            fn on_record_changed(&self, _table: String, _id: String) {
+                self.records.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let obs = Arc::new(CounterObserver {
+            records: record_count.clone(),
+            tables: table_count.clone(),
+        });
+
+        if let Ok(mut observers) = get_observers().write() {
+            observers.push(obs.clone());
+        }
+
+        // Simulate 10 updates to the same table "messages" (above 5 threshold)
+        for i in 0..10 {
+            set_last_modified_record("messages", &format!("msg-{}", i));
+        }
+
+        notify_observers();
+
+        // 10 records for "messages" should collapse into 1 table-level notification
+        assert_eq!(record_count.load(Ordering::SeqCst), 0, "Per-record notifications should be suppressed during bulk updates");
+        assert_eq!(table_count.load(Ordering::SeqCst), 1, "Bulk updates should trigger exactly 1 table-level notification");
 
         clear_observers();
     }

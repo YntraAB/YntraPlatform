@@ -20,6 +20,25 @@ fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
     find_ignore_ascii_case(haystack, needle).is_some()
 }
 
+fn extract_public_key_from_metadata(meta: &str) -> String {
+    if meta.is_empty() {
+        return String::new();
+    }
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(meta) {
+        val.get("public_key")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .or_else(|| {
+                val.get("siths_public_key")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
+            .unwrap_or_default()
+    } else {
+        String::new()
+    }
+}
+
 fn parse_insert_columns_and_values(
     sql: &str,
     params: &[serde_json::Value],
@@ -43,6 +62,9 @@ fn normalize_clock_skew(
     sql: &str,
     params: &mut [serde_json::Value],
 ) {
+    if params.is_empty() || !contains_ignore_ascii_case(sql, "updated_at") {
+        return;
+    }
     let now_ms = crate::infra::time::get_current_time_ms();
 
     // 1. Handle INSERT / REPLACE statements
@@ -123,23 +145,10 @@ impl RemoteSyncCoordinator {
             .ok()
             .flatten();
 
-        let public_key_hex = if let Some(ref meta) = metadata_str {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(meta) {
-                val.get("public_key")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-                    .or_else(|| {
-                        val.get("siths_public_key")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string())
-                    })
-                    .unwrap_or_default()
-            } else {
-                String::new()
-            }
-        } else {
-            String::new()
-        };
+        let public_key_hex = metadata_str
+            .as_deref()
+            .map(extract_public_key_from_metadata)
+            .unwrap_or_default();
 
         if public_key_hex.is_empty() {
             return Err(YntraError::AuthError(
@@ -403,23 +412,10 @@ impl RemoteSyncCoordinator {
             .ok()
             .flatten();
 
-        let public_key_hex = if let Some(ref meta) = metadata_str {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(meta) {
-                val.get("public_key")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-                    .or_else(|| {
-                        val.get("siths_public_key")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string())
-                    })
-                    .unwrap_or_default()
-            } else {
-                String::new()
-            }
-        } else {
-            String::new()
-        };
+        let public_key_hex = metadata_str
+            .as_deref()
+            .map(extract_public_key_from_metadata)
+            .unwrap_or_default();
 
         if public_key_hex.is_empty() {
             return Err(YntraError::AuthError(
@@ -506,23 +502,10 @@ impl RemoteSyncCoordinator {
             .ok()
             .flatten();
 
-        let public_key_hex = if let Some(ref meta) = metadata_str {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(meta) {
-                val.get("public_key")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-                    .or_else(|| {
-                        val.get("siths_public_key")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string())
-                    })
-                    .unwrap_or_default()
-            } else {
-                String::new()
-            }
-        } else {
-            String::new()
-        };
+        let public_key_hex = metadata_str
+            .as_deref()
+            .map(extract_public_key_from_metadata)
+            .unwrap_or_default();
 
         if public_key_hex.is_empty() {
             return Err(YntraError::AuthError(

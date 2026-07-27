@@ -1064,7 +1064,7 @@ impl ZkCryptoTrust {
         vk_hex: String,
     ) -> Result<bool, YntraError> {
         use ark_bn254::{Bn254, Fr};
-        use ark_groth16::{Groth16, Proof, PreparedVerifyingKey, VerifyingKey};
+        use ark_groth16::{Groth16, Proof};
         use ark_serialize::CanonicalDeserialize;
         use ark_snark::SNARK;
 
@@ -1075,10 +1075,9 @@ impl ZkCryptoTrust {
 
         let proof = Proof::<Bn254>::deserialize_compressed(&proof_bytes[..])
             .map_err(|e| YntraError::CryptoError(e.to_string()))?;
-        let vk = VerifyingKey::<Bn254>::deserialize_compressed(&vk_bytes[..])
-            .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+        let pvk = get_cached_pvk(&vk_bytes)?;
 
-        let mut public_inputs = Vec::new();
+        let mut public_inputs = Vec::with_capacity(public_inputs_hex.len());
         for input_hex in &public_inputs_hex {
             let input_bytes = const_hex::decode(input_hex)
                 .map_err(|e| YntraError::CryptoError(e.to_string()))?;
@@ -1087,12 +1086,38 @@ impl ZkCryptoTrust {
             public_inputs.push(input_scalar);
         }
 
-        let pvk = PreparedVerifyingKey::<Bn254>::from(vk);
         let is_valid = Groth16::<Bn254>::verify_with_processed_vk(&pvk, &public_inputs, &proof)
             .map_err(|e| YntraError::CryptoError(e.to_string()))?;
 
         Ok(is_valid)
     }
+}
+
+type CachedPvk = std::sync::Arc<ark_groth16::PreparedVerifyingKey<ark_bn254::Bn254>>;
+
+pub fn get_cached_pvk(vk_bytes: &[u8]) -> Result<CachedPvk, YntraError> {
+    static VK_CACHE: std::sync::OnceLock<std::sync::RwLock<std::collections::HashMap<Vec<u8>, CachedPvk>>> = std::sync::OnceLock::new();
+    let cache = VK_CACHE.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()));
+    
+    if let Ok(guard) = cache.read() {
+        if let Some(pvk) = guard.get(vk_bytes) {
+            return Ok(pvk.clone());
+        }
+    }
+
+    use ark_bn254::Bn254;
+    use ark_groth16::{PreparedVerifyingKey, VerifyingKey};
+    use ark_serialize::CanonicalDeserialize;
+
+    let vk = VerifyingKey::<Bn254>::deserialize_compressed(vk_bytes)
+        .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+    let pvk = std::sync::Arc::new(PreparedVerifyingKey::<Bn254>::from(vk));
+
+    if let Ok(mut guard) = cache.write() {
+        guard.insert(vk_bytes.to_vec(), pvk.clone());
+    }
+
+    Ok(pvk)
 }
 
 #[inline(never)]

@@ -123,8 +123,6 @@ pub async fn send_message(
     }
 
     let store = get_message_store(&workspace_id);
-    let mut messages = store.read_all_messages()?;
-
     let id = uuid::Uuid::new_v4().to_string();
     let item = MessageItem {
         id: id.clone(),
@@ -140,8 +138,7 @@ pub async fn send_message(
         sync_status: "pending".to_string(),
     };
 
-    messages.push(item.clone());
-    store.write_messages(messages)?;
+    store.upsert_message(item.clone())?;
 
     Ok(item)
 }
@@ -154,19 +151,10 @@ pub async fn mark_message_read(requester_user_id: String, id: String) -> Result<
 
     let workspace_id = auth.workspace_id.clone();
     let store = get_message_store(&workspace_id);
-    let mut messages = store.read_all_messages()?;
 
-    let mut found_idx = None;
-    for (idx, msg) in messages.iter().enumerate() {
-        if msg.id == id {
-            found_idx = Some(idx);
-            break;
-        }
-    }
-
-    let idx =
-        found_idx.ok_or_else(|| YntraError::NotFoundError("Message not found".to_string()))?;
-    let msg = &messages[idx];
+    let mut msg = store
+        .read_message_zero_copy(id.clone())?
+        .ok_or_else(|| YntraError::NotFoundError("Message not found".to_string()))?;
 
     if auth.role != "platform_admin" && auth.workspace_id != msg.workspace_id {
         return Err(YntraError::AuthError(
@@ -194,12 +182,11 @@ pub async fn mark_message_read(requester_user_id: String, id: String) -> Result<
         ));
     }
 
-    // Mutate the message
-    messages[idx].is_read = true;
-    messages[idx].updated_at = now_ms;
-    messages[idx].sync_status = "pending".to_string();
+    msg.is_read = true;
+    msg.updated_at = now_ms;
+    msg.sync_status = "pending".to_string();
 
-    store.write_messages(messages)?;
+    store.upsert_message(msg)?;
 
     Ok(())
 }

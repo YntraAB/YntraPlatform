@@ -211,8 +211,25 @@ impl ZeroCopyEngine {
 
     pub fn get_loro_changes(&self) -> Result<Vec<u8>, YntraError> {
         self.loro
-            .export(loro::ExportMode::Updates { from: Default::default() })
+            .export(loro::ExportMode::Snapshot)
             .map_err(|e| YntraError::SerializationError(e.to_string()))
+    }
+
+    /// Compacts the Loro CRDT document history by re-exporting the latest state snapshot
+    /// into a fresh document, garbage-collecting historical change logs and bounding RAM footprint.
+    pub fn compact_loro_history(&mut self) -> Result<Vec<u8>, YntraError> {
+        let snapshot = self
+            .loro
+            .export(loro::ExportMode::Snapshot)
+            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+
+        let fresh_doc = loro::LoroDoc::new();
+        fresh_doc
+            .import(&snapshot)
+            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+
+        self.loro = fresh_doc;
+        Ok(snapshot)
     }
 
     pub fn get_rkyv_slice(&self) -> &[u8] {

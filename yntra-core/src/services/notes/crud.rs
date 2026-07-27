@@ -297,9 +297,7 @@ pub async fn add_note(
 
     // Persist to ZeroCopyNoteStore (source of truth)
     let note_store = get_note_store(&item.workspace_id);
-    let mut all_notes = note_store.read_all_notes().unwrap_or_default();
-    all_notes.push(item.clone());
-    note_store.write_notes(all_notes)?;
+    note_store.upsert_note(item.clone())?;
 
     conn.begin_transaction().await?;
     let res = async {
@@ -507,23 +505,7 @@ pub async fn update_note(
         Ok(note) => {
             // Update in ZeroCopyNoteStore (source of truth)
             let note_store = get_note_store(&note.workspace_id);
-            let mut all_notes = note_store.read_all_notes().unwrap_or_default();
-            let mut found = false;
-            for n in all_notes.iter_mut() {
-                if n.id == note.id {
-                    n.subject = note.subject.clone();
-                    n.content = note.content.clone();
-                    n.edit_history = note.edit_history.clone();
-                    n.updated_at = note.updated_at;
-                    n.sync_status = note.sync_status.clone();
-                    found = true;
-                    break;
-                }
-            }
-            if !found {
-                all_notes.push(note.clone());
-            }
-            let _ = note_store.write_notes(all_notes);
+            let _ = note_store.upsert_note(note.clone());
 
             conn.commit().await?;
             notify_observers();
