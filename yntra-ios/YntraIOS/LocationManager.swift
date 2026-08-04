@@ -79,4 +79,57 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         self.distanceFromTargetMeters = distance
         self.isWithinGeofence = distance <= maxRadiusMeters
     }
+    
+    func performGeofencedClockIn(
+        requesterUserId: String,
+        workspaceId: String,
+        userId: String,
+        teamId: String?,
+        date: String,
+        hours: Double,
+        note: String,
+        polygonCoordsJson: String? = nil,
+        completion: @escaping (Result<TimeReport, Error>) -> Void
+    ) {
+        guard let userLoc = userLocation else {
+            completion(.failure(NSError(domain: "YntraLocation", code: 400, userInfo: [NSLocalizedDescriptionKey: "User location not available"])))
+            return
+        }
+        
+        let isSpoofed: Bool
+        if #available(iOS 15.0, *) {
+            isSpoofed = userLoc.sourceInformation?.isSimulatedBySoftware ?? false
+        } else {
+            isSpoofed = false
+        }
+        
+        Task {
+            do {
+                let report = try await clockInGeofenced(
+                    requesterUserId: requesterUserId,
+                    workspaceId: workspaceId,
+                    userId: userId,
+                    teamId: teamId,
+                    date: date,
+                    hours: hours,
+                    note: note,
+                    latitude: userLoc.coordinate.latitude,
+                    longitude: userLoc.coordinate.longitude,
+                    targetLatitude: self.targetLatitude,
+                    targetLongitude: self.targetLongitude,
+                    maxRadiusMeters: self.maxRadiusMeters,
+                    isSpoofedLocation: isSpoofed,
+                    polygonCoordsJson: polygonCoordsJson
+                )
+                DispatchQueue.main.async {
+                    completion(.success(report))
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    completion(.failure(error))
+                }
+            }
+        }
+    }
 }
+

@@ -29,7 +29,7 @@ class BiometricAuthManager: ObservableObject {
         }
     }
     
-    func authenticate(reason: String = "Authenticate to access Yntra Secure Mobile Enclave", completion: @escaping (Bool, String?) -> Void) {
+    func authenticate(workspaceId: String = "workspace-1", reason: String = "Authenticate to access Yntra Secure Mobile Enclave", completion: @escaping (Bool, String?) -> Void) {
         let context = LAContext()
         context.touchIDAuthenticationAllowableReuseDuration = 10
         var error: NSError?
@@ -46,9 +46,20 @@ class BiometricAuthManager: ObservableObject {
         context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { success, authenticationError in
             DispatchQueue.main.async {
                 if success {
-                    // SOTA Enclave Binding: Generate / Access Secure Enclave key protected by user biometrics
-                    let keyReleased = self.releaseSecureEnclaveKey(context: context)
-                    if keyReleased {
+                    let account = "com.yntra.workspace.\(workspaceId).key"
+                    var keyData = KeychainVault.shared.retrieveEncryptionKey(account: account, context: context)
+                    if keyData == nil {
+                        // Generate initial workspace session key
+                        var rawBytes = [UInt8](repeating: 0, count: 32)
+                        _ = SecRandomCopyBytes(kSecRandomDefault, 32, &rawBytes)
+                        keyData = Data(rawBytes)
+                        _ = KeychainVault.shared.saveEncryptionKey(keyData: keyData!, account: account)
+                    }
+                    
+                    if let validKeyData = keyData {
+                        let keyBytes = Array(validKeyData)
+                        // Pass key bytes to Rust yntra-core via UniFFI
+                        _ = setSessionKey(keyBytes: keyBytes, workspaceId: workspaceId)
                         self.isAuthenticated = true
                         self.errorMessage = nil
                         completion(true, nil)
@@ -66,28 +77,5 @@ class BiometricAuthManager: ObservableObject {
             }
         }
     }
-    
-    private func releaseSecureEnclaveKey(context: LAContext) -> Bool {
-        var accessError: Unmanaged<CFError>?
-        guard let access = SecAccessControlCreateWithFlags(
-            kCFAllocatorDefault,
-            kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            .userPresence,
-            &accessError
-        ) else {
-            return false
-        }
-        
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrAccount as String: keyTag,
-            kSecUseAuthenticationContext as String: context,
-            kSecAttrAccessControl as String: access,
-            kSecReturnData as String: true
-        ]
-        
-        var dataTypeRef: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &dataTypeRef)
-        return status == errSecSuccess || status == errSecItemNotFound
-    }
 }
+
