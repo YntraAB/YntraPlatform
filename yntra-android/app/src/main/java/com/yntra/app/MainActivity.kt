@@ -106,7 +106,41 @@ fun AppNavigationShell() {
     if (!isLoggedIn) {
         AuthView(viewModel = authViewModel)
     } else {
+        var pendingSyncCount by remember { mutableStateOf(0) }
+        LaunchedEffect(Unit) {
+            try {
+                pendingSyncCount = uniffi.yntra_core.getMobileSyncQueueSummary(SessionManager.activeWorkspaceId)
+            } catch (e: Exception) {
+                // Ignore queue fetch error
+            }
+        }
+
         Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Row(
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("Yntra", fontWeight = FontWeight.Bold, color = Color.White)
+                            Surface(
+                                color = if (pendingSyncCount == 0) Color(0xFF10B981) else Color(0xFFF59E0B),
+                                shape = androidx.compose.foundation.shape.CircleShape
+                            ) {
+                                Text(
+                                    text = if (pendingSyncCount == 0) "Synced" else "Pending ($pendingSyncCount)",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF1E293B))
+                )
+            },
             bottomBar = {
                 NavigationBar(
                     containerColor = Color(0xFF1E293B)

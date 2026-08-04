@@ -4,14 +4,14 @@ import android.content.Context
 import java.io.File
 import java.security.MessageDigest
 import kotlin.math.ceil
-import kotlinx.coroutines.DispatchQueue
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import uniffi.yntra_core.enqueueOfflineMediaBlob
 import uniffi.yntra_core.uploadMediaChunk
 
 object MediaSandboxManager {
     private fun getBlobsDir(context: Context): File {
-        let dir = File(context.filesDir, "blobs")
+        val dir = File(context.filesDir, "blobs")
         if (!dir.exists()) {
             dir.mkdirs()
         }

@@ -7,30 +7,40 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
-import com.yntra.app.R
+import com.yntra.app.SessionManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import uniffi.yntra_core.performOsBackgroundSync
+import uniffi.yntra_core.registerDevicePushToken
 
 class PushSyncService : FirebaseMessagingService() {
     private val serviceScope = CoroutineScope(Dispatchers.IO)
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        // Store or register FCM token
+        serviceScope.launch {
+            try {
+                registerDevicePushToken(
+                    requesterUserId = SessionManager.activeUserId,
+                    deviceToken = token,
+                    platform = "android"
+                )
+            } catch (e: Exception) {
+                // Ignore token sync error
+            }
+        }
     }
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
 
         val workspaceId = remoteMessage.data["workspace_id"] ?: "workspace-1"
-        val pushType = remoteMessage.data["type"] ?: "silent_sync"
 
         // Trigger background libSQL database replication via UniFFI
         serviceScope.launch {
             try {
-                let syncResult = performOsBackgroundSync(workspaceId)
+                val syncResult = performOsBackgroundSync(workspaceId)
                 if (remoteMessage.notification != null) {
                     showLocalNotification(
                         title = remoteMessage.notification?.title ?: "Yntra Alert",
