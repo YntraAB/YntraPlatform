@@ -19,33 +19,40 @@ where
 }
 
 fn check_bankid_mock_bypass_allowed() -> bool {
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(any(debug_assertions, test)))]
     {
-        if let Ok(val) = std::env::var("YNTRA_ALLOW_BANKID_MOCK_PIN_BYPASS") {
-            return val == "1" || val.to_lowercase() == "true";
-        }
-        for path in &[".env", "../.env"] {
-            if let Ok(content) = std::fs::read_to_string(path) {
-                for line in content.lines() {
-                    if let Some(stripped) = line.strip_prefix("YNTRA_ALLOW_BANKID_MOCK_PIN_BYPASS=") {
-                        let val = stripped.trim().trim_matches('"').trim_matches('\'').to_lowercase();
-                        return val == "1" || val == "true";
+        return false;
+    }
+    #[cfg(any(debug_assertions, test))]
+    {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Ok(val) = std::env::var("YNTRA_ALLOW_BANKID_MOCK_PIN_BYPASS") {
+                return val == "1" || val.to_lowercase() == "true";
+            }
+            for path in &[".env", "../.env"] {
+                if let Ok(content) = std::fs::read_to_string(path) {
+                    for line in content.lines() {
+                        if let Some(stripped) = line.strip_prefix("YNTRA_ALLOW_BANKID_MOCK_PIN_BYPASS=") {
+                            let val = stripped.trim().trim_matches('"').trim_matches('\'').to_lowercase();
+                            return val == "1" || val == "true";
+                        }
                     }
                 }
             }
         }
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        if let Some(window) = web_sys::window() {
-            if let Ok(Some(storage)) = window.local_storage() {
-                if let Ok(Some(val)) = storage.get_item("YNTRA_ALLOW_BANKID_MOCK_PIN_BYPASS") {
-                    return val == "1" || val.to_lowercase() == "true";
+        #[cfg(target_arch = "wasm32")]
+        {
+            if let Some(window) = web_sys::window() {
+                if let Ok(Some(storage)) = window.local_storage() {
+                    if let Ok(Some(val)) = storage.get_item("YNTRA_ALLOW_BANKID_MOCK_PIN_BYPASS") {
+                        return val == "1" || val.to_lowercase() == "true";
+                    }
                 }
             }
         }
+        false
     }
-    false
 }
 
 fn verify_luhn(digits: &str) -> bool {

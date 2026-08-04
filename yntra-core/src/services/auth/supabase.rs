@@ -62,7 +62,7 @@ async fn get_supabase_config() -> Result<(String, String), YntraError> {
 
 #[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
 pub async fn get_supabase_user_email(mut token: String) -> Result<String, YntraError> {
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, test))]
     {
         if token.starts_with("mock_sso_email:") {
             let email = token.trim_start_matches("mock_sso_email:").to_string();
@@ -71,7 +71,7 @@ pub async fn get_supabase_user_email(mut token: String) -> Result<String, YntraE
             return Ok(email);
         }
     }
-    #[cfg(not(debug_assertions))]
+    #[cfg(not(any(debug_assertions, test)))]
     {
         if token.starts_with("mock_sso_email:") {
             use zeroize::Zeroize;
