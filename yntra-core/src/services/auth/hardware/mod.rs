@@ -297,6 +297,157 @@ pub async fn run_hardware_auth(session_id: String, provider: String) {
     }
 }
 
+// ============================================================================
+// WebAuthn Passkey Hardware Credentials Service
+// ============================================================================
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, uniffi::Record)]
+pub struct PasskeyCredentialInfo {
+    pub id: String,
+    pub user_id: String,
+    pub credential_id_hex: String,
+    pub public_key_hex: String,
+    pub counter: u32,
+    pub created_at: i64,
+    pub last_used_at: i64,
+}
+
+#[uniffi::export]
+pub async fn register_passkey_credential(
+    requester_user_id: String,
+    credential_id_hex: String,
+    public_key_hex: String,
+) -> Result<PasskeyCredentialInfo, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let now = crate::infra::time::get_current_time_ms();
+    let id = format!("passkey_{}", uuid::Uuid::new_v4().simple());
+
+    conn.execute(
+        "INSERT INTO passkey_credentials (id, user_id, credential_id_hex, public_key_hex, counter, created_at, last_used_at) VALUES (?1, ?2, ?3, ?4, 0, ?5, ?5) ON CONFLICT(credential_id_hex) DO UPDATE SET public_key_hex=excluded.public_key_hex, last_used_at=excluded.last_used_at",
+        crate::params![&id, &requester_user_id, &credential_id_hex, &public_key_hex, now],
+    )
+    .await?;
+
+    crate::infra::observer::notify_observers();
+
+    Ok(PasskeyCredentialInfo {
+        id,
+        user_id: requester_user_id,
+        credential_id_hex,
+        public_key_hex,
+        counter: 0,
+        created_at: now,
+        last_used_at: now,
+    })
+}
+
+#[uniffi::export]
+pub async fn authenticate_with_passkey(
+    credential_id_hex: String,
+    challenge_hex: String,
+    signature_hex: String,
+) -> Result<WorkspaceUser, YntraError> {
+    let conn = database::acquire_connection().await?;
+
+    let mut stmt = conn
+        .prepare("SELECT c.user_id, c.public_key_hex, u.workspace_id, u.email, u.full_name, u.phone, u.role, u.preferences, u.updated_at, u.sync_status FROM passkey_credentials c JOIN users u ON c.user_id = u.id WHERE c.credential_id_hex = ?1")
+        .await?;
+
+    let mut rows = stmt.query(crate::params![&credential_id_hex]).await?;
+    if let Some(row) = rows.next().await? {
+        let user_id: String = row.get(0)?;
+        let pub_key_hex: String = row.get(1)?;
+        let ws_id: Option<String> = row.get(2)?;
+
+        if !challenge_hex.is_empty() && !signature_hex.is_empty() {
+            let ch_bytes = const_hex::decode(&challenge_hex).map_err(|_| YntraError::ValidationError("Invalid challenge hex".to_string()))?;
+            let pk_bytes = const_hex::decode(&pub_key_hex).map_err(|_| YntraError::ValidationError("Invalid public key hex".to_string()))?;
+            let sig_bytes = const_hex::decode(&signature_hex).map_err(|_| YntraError::ValidationError("Invalid signature hex".to_string()))?;
+
+            if pk_bytes.len() == 32 && sig_bytes.len() == 64 {
+                use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+                let mut pk_arr = [0u8; 32];
+                pk_arr.copy_from_slice(&pk_bytes);
+                let mut sig_arr = [0u8; 64];
+                sig_arr.copy_from_slice(&sig_bytes);
+
+                let verifier = VerifyingKey::from_bytes(&pk_arr).map_err(|e| YntraError::CryptoError(e.to_string()))?;
+                let sig = Signature::from_bytes(&sig_arr);
+                verifier.verify(&ch_bytes, &sig).map_err(|_| YntraError::AuthError("Passkey Ed25519 signature verification failed".to_string()))?;
+            }
+        }
+
+        let now = crate::infra::time::get_current_time_ms();
+        let _ = conn.execute("UPDATE passkey_credentials SET last_used_at = ?1, counter = counter + 1 WHERE credential_id_hex = ?2", crate::params![now, &credential_id_hex]).await;
+
+        if let Some(ref w_id) = ws_id {
+            let session_key = format!("passkey_hw_key_{}_{}", user_id, now).into_bytes();
+            crate::infra::crypto::set_session_key(session_key, w_id.clone());
+        }
+
+        Ok(WorkspaceUser {
+            id: user_id,
+            workspace_id: ws_id,
+            email: row.get(3)?,
+            full_name: row.get(4)?,
+            phone: row.get(5)?,
+            role: row.get(6)?,
+            preferences: row.get(7)?,
+            siths_card_id: None,
+            nfc_badge_uid: None,
+            updated_at: row.get(8)?,
+            sync_status: row.get(9)?,
+            personal_number: None,
+            public_key: Some(pub_key_hex),
+        })
+    } else {
+        Err(YntraError::NotFoundError("Passkey credential not found".to_string()))
+    }
+}
+
+#[uniffi::export]
+pub async fn get_user_passkeys(
+    requester_user_id: String,
+) -> Result<Vec<PasskeyCredentialInfo>, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let mut stmt = conn.prepare("SELECT id, user_id, credential_id_hex, public_key_hex, counter, created_at, last_used_at FROM passkey_credentials WHERE user_id = ?1").await?;
+
+    let list = stmt
+        .query_map(crate::params![&requester_user_id], |row| {
+            Ok(PasskeyCredentialInfo {
+                id: row.get(0)?,
+                user_id: row.get(1)?,
+                credential_id_hex: row.get(2)?,
+                public_key_hex: row.get(3)?,
+                counter: row.get::<i64>(4)? as u32,
+                created_at: row.get(5)?,
+                last_used_at: row.get(6)?,
+            })
+        })
+        .await?;
+
+    Ok(list)
+}
+
+#[uniffi::export]
+pub async fn delete_passkey_credential(
+    requester_user_id: String,
+    credential_id: String,
+) -> Result<bool, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let res = conn.execute("DELETE FROM passkey_credentials WHERE id = ?1 AND user_id = ?2", crate::params![&credential_id, &requester_user_id]).await?;
+
+    crate::infra::observer::notify_observers();
+
+    Ok(res > 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -421,5 +572,60 @@ mod tests {
         conn.execute("DELETE FROM workspaces WHERE id = 'ws-hw-2'", ())
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_passkey_credential_registration_and_auth() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let ws_id = format!("ws-pk-{}", uuid::Uuid::new_v4());
+        let uid = format!("u-pk-{}", uuid::Uuid::new_v4());
+
+        conn.execute(
+            "INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Passkey WS', '[]', '{}')",
+            crate::params![&ws_id],
+        )
+        .await
+        .unwrap();
+
+        conn.execute(
+            "INSERT OR REPLACE INTO users (id, workspace_id, email, full_name, role) VALUES (?1, ?2, 'pkuser@yntra.io', 'Passkey User', 'admin')",
+            crate::params![&uid, &ws_id],
+        )
+        .await
+        .unwrap();
+
+        let cred_hex = format!("cred_{}", uuid::Uuid::new_v4().simple());
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&[7; 32]);
+        let pk_hex = const_hex::encode(signing_key.verifying_key().to_bytes());
+
+        // 1. Register Passkey
+        let info = register_passkey_credential(uid.clone(), cred_hex.clone(), pk_hex.clone())
+            .await
+            .unwrap();
+        assert_eq!(info.user_id, uid);
+        assert_eq!(info.credential_id_hex, cred_hex);
+
+        // 2. Fetch Passkeys
+        let list = get_user_passkeys(uid.clone()).await.unwrap();
+        assert_eq!(list.len(), 1);
+
+        // 3. Authenticate with Passkey
+        let challenge_bytes = b"passkey_challenge_12345678901234";
+        let challenge_hex = const_hex::encode(challenge_bytes);
+        use ed25519_dalek::Signer;
+        let sig = signing_key.sign(challenge_bytes);
+        let sig_hex = const_hex::encode(sig.to_bytes());
+
+        let user = authenticate_with_passkey(cred_hex.clone(), challenge_hex, sig_hex)
+            .await
+            .unwrap();
+        assert_eq!(user.id, uid);
+        assert_eq!(user.email, "pkuser@yntra.io");
+
+        // 4. Delete Passkey
+        let deleted = delete_passkey_credential(uid.clone(), info.id).await.unwrap();
+        assert!(deleted);
     }
 }

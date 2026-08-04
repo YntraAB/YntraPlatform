@@ -3,7 +3,7 @@ use crate::YntraError;
 
 mod migrations;
 mod seeds;
-mod tables;
+pub mod tables;
 
 pub async fn setup_schema(conn: &DbConnection) -> Result<(), YntraError> {
     // 0. Enable WAL mode

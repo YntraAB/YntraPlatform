@@ -23,3 +23,8 @@ pub mod billing;
 pub mod support;
 pub mod telemetry;
 pub mod metrics;
+pub mod presence;
+pub mod in_app_notifications;
+pub mod ai_automation;
+pub mod integrations;
+pub mod industry_templates;

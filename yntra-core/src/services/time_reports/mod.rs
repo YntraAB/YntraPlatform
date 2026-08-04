@@ -566,6 +566,104 @@ pub async fn add_time_report(
     }
 }
 
+fn haversine_distance_meters(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+    let r = 6_371_000.0;
+    let d_lat = (lat2 - lat1).to_radians();
+    let d_lon = (lon2 - lon1).to_radians();
+    let a = (d_lat / 2.0).sin().powi(2)
+        + lat1.to_radians().cos() * lat2.to_radians().cos() * (d_lon / 2.0).sin().powi(2);
+    let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
+    r * c
+}
+
+/// Ray-Casting algorithm to check if point (lat, lon) is inside a multi-vertex polygon
+fn point_in_polygon(lat: f64, lon: f64, polygon: &[(f64, f64)]) -> bool {
+    if polygon.len() < 3 {
+        return false;
+    }
+    let mut inside = false;
+    let mut j = polygon.len() - 1;
+    for i in 0..polygon.len() {
+        let (xi, yi) = polygon[i];
+        let (xj, yj) = polygon[j];
+        let intersect = ((yi > lon) != (yj > lon))
+            && (lat < (xj - xi) * (lon - yi) / (yj - yi + 1e-12) + xi);
+        if intersect {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
+#[uniffi::export]
+#[allow(clippy::too_many_arguments)]
+pub async fn clock_in_geofenced(
+    requester_user_id: String,
+    workspace_id: String,
+    user_id: String,
+    team_id: Option<String>,
+    date: String,
+    hours: f64,
+    note: String,
+    latitude: f64,
+    longitude: f64,
+    target_latitude: f64,
+    target_longitude: f64,
+    max_radius_meters: f64,
+    is_spoofed_location: Option<bool>,
+    polygon_coords_json: Option<String>,
+) -> Result<TimeReport, YntraError> {
+    // 1. Anti-Spoofing Location Check
+    if is_spoofed_location.unwrap_or(false) {
+        return Err(YntraError::ValidationError(
+            "Security Violation: Spoofed/fake GPS location detected. Physical site clock-in rejected.".to_string(),
+        ));
+    }
+
+    // 2. Geofence Distance / Polygon Intersection Check
+    let distance = haversine_distance_meters(latitude, longitude, target_latitude, target_longitude);
+    
+    if let Some(poly_json) = polygon_coords_json {
+        if let Ok(polygon) = serde_json::from_str::<Vec<(f64, f64)>>(&poly_json) {
+            if !polygon.is_empty() && !point_in_polygon(latitude, longitude, &polygon) {
+                return Err(YntraError::ValidationError(format!(
+                    "Geofence polygon violation: Device location ({:.5}, {:.5}) is outside the target site boundary polygon",
+                    latitude, longitude
+                )));
+            }
+        }
+    }
+
+    if distance > max_radius_meters {
+        return Err(YntraError::ValidationError(format!(
+            "Geofence violation: Device location ({:.5}, {:.5}) is {:.1}m away from target site ({:.5}, {:.5}), exceeding allowed radius of {:.0}m",
+            latitude, longitude, distance, target_latitude, target_longitude, max_radius_meters
+        )));
+    }
+
+    let geo_note = format!("{} [SOTA GPS Verified: {:.5},{:.5} ({:.0}m inside geofence)]", note, latitude, longitude, distance);
+
+    let now_str = crate::infra::time::get_current_datetime_str();
+    let start_time_str = if now_str.len() >= 16 {
+        Some(now_str[11..16].to_string())
+    } else {
+        None
+    };
+
+    add_time_report(
+        requester_user_id,
+        workspace_id,
+        user_id,
+        team_id,
+        date,
+        hours,
+        geo_note,
+        start_time_str,
+        None,
+    ).await
+}
+
 #[uniffi::export]
 pub async fn update_time_report_status(
     requester_user_id: String,

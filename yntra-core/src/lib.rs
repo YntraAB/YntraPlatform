@@ -40,6 +40,16 @@ pub use services::billing::*;
 pub use services::support::*;
 pub use services::telemetry::*;
 pub use services::metrics::*;
+pub use services::presence::*;
+pub use services::in_app_notifications::*;
+pub use services::ai_automation::*;
+pub use services::integrations::*;
+pub use services::industry_templates::*;
+pub use services::auth::hardware::{
+    authenticate_with_passkey, delete_passkey_credential, get_user_passkeys,
+    register_passkey_credential, PasskeyCredentialInfo,
+};
+pub use services::users::{delete_user_account, export_user_personal_data};
 
 // Support absolute paths inside submodules that import modules re-exported at the root
 #[cfg(target_arch = "wasm32")]
@@ -85,6 +95,18 @@ pub mod rusqlite {
     }
 
     impl ToLibsqlValue for i32 {
+        fn to_value(&self) -> libsql::Value {
+            libsql::Value::Integer(*self as i64)
+        }
+    }
+
+    impl ToLibsqlValue for u32 {
+        fn to_value(&self) -> libsql::Value {
+            libsql::Value::Integer(*self as i64)
+        }
+    }
+
+    impl ToLibsqlValue for u64 {
         fn to_value(&self) -> libsql::Value {
             libsql::Value::Integer(*self as i64)
         }
@@ -184,6 +206,24 @@ pub mod rusqlite {
     impl ToWasmValue for i32 {
         fn to_value(&self) -> serde_json::Value {
             serde_json::Value::Number(serde_json::value::Number::from(*self))
+        }
+    }
+
+    impl ToWasmValue for u32 {
+        fn to_value(&self) -> serde_json::Value {
+            serde_json::Value::Number(serde_json::value::Number::from(*self))
+        }
+    }
+
+    impl ToWasmValue for u64 {
+        fn to_value(&self) -> serde_json::Value {
+            serde_json::Value::Number(serde_json::value::Number::from(*self))
+        }
+    }
+
+    impl ToWasmValue for usize {
+        fn to_value(&self) -> serde_json::Value {
+            serde_json::Value::Number(serde_json::value::Number::from(*self as u64))
         }
     }
 

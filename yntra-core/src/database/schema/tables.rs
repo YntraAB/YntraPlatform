@@ -46,6 +46,17 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
         );
 
+        CREATE TABLE IF NOT EXISTS passkey_credentials (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            credential_id_hex TEXT NOT NULL UNIQUE,
+            public_key_hex TEXT NOT NULL,
+            counter INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL DEFAULT 0,
+            last_used_at INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS teams (
             id TEXT PRIMARY KEY,
             workspace_id TEXT NOT NULL,
@@ -997,7 +1008,125 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
         CREATE INDEX IF NOT EXISTS idx_job_packaging_items_job ON job_packaging_items(job_ticket_id);
         CREATE INDEX IF NOT EXISTS idx_damage_inspections_job ON damage_inspections(job_ticket_id);
         CREATE INDEX IF NOT EXISTS idx_offline_media_blobs_job ON offline_media_blobs(job_ticket_id);
-        CREATE INDEX IF NOT EXISTS idx_student_parents_parent ON student_parents(parent_user_id);"
+        CREATE INDEX IF NOT EXISTS idx_student_parents_parent ON student_parents(parent_user_id);
+
+        CREATE TABLE IF NOT EXISTS ai_action_triggers (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            natural_language_prompt TEXT NOT NULL,
+            condition_type TEXT NOT NULL,
+            condition_params TEXT NOT NULL,
+            action_type TEXT NOT NULL,
+            action_params TEXT NOT NULL,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_action_triggers_ws ON ai_action_triggers(workspace_id, is_active);
+
+        CREATE TABLE IF NOT EXISTS ai_daily_digests (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            date TEXT NOT NULL,
+            summary_text TEXT NOT NULL,
+            total_hours_logged REAL NOT NULL,
+            total_reports_count INTEGER NOT NULL,
+            flagged_reports_count INTEGER NOT NULL,
+            audit_events_count INTEGER NOT NULL,
+            telemetry_summary_json TEXT NOT NULL,
+            digest_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_daily_digests_ws_date ON ai_daily_digests(workspace_id, date DESC);
+
+        CREATE TABLE IF NOT EXISTS data_imports (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            file_name TEXT NOT NULL,
+            file_format TEXT NOT NULL,
+            records_total INTEGER NOT NULL DEFAULT 0,
+            records_imported INTEGER NOT NULL DEFAULT 0,
+            records_failed INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'completed',
+            summary_json TEXT DEFAULT '{}',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_data_imports_ws ON data_imports(workspace_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS calendar_integrations (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            account_email TEXT NOT NULL,
+            access_token TEXT,
+            refresh_token TEXT,
+            token_expires_at INTEGER DEFAULT 0,
+            sync_direction TEXT NOT NULL DEFAULT 'two_way',
+            auto_sync_enabled INTEGER NOT NULL DEFAULT 1,
+            last_synced_at INTEGER DEFAULT 0,
+            sync_status TEXT DEFAULT 'idle',
+            error_message TEXT,
+            sync_token TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_calendar_integrations_ws ON calendar_integrations(workspace_id);
+
+        CREATE TABLE IF NOT EXISTS calendar_sync_mappings (
+            id TEXT PRIMARY KEY,
+            integration_id TEXT NOT NULL,
+            workspace_id TEXT NOT NULL,
+            local_event_id TEXT NOT NULL,
+            external_event_id TEXT NOT NULL,
+            external_etag TEXT,
+            last_synced_at INTEGER NOT NULL,
+            FOREIGN KEY(integration_id) REFERENCES calendar_integrations(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_calendar_sync_map ON calendar_sync_mappings(integration_id, local_event_id);
+
+        CREATE TABLE IF NOT EXISTS webhook_endpoints (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            target_url TEXT NOT NULL,
+            secret TEXT NOT NULL,
+            events TEXT NOT NULL DEFAULT '[]',
+            is_active INTEGER NOT NULL DEFAULT 1,
+            consecutive_failures INTEGER NOT NULL DEFAULT 0,
+            circuit_state TEXT NOT NULL DEFAULT 'closed',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_webhook_endpoints_ws ON webhook_endpoints(workspace_id);
+
+        CREATE TABLE IF NOT EXISTS webhook_delivery_logs (
+            id TEXT PRIMARY KEY,
+            endpoint_id TEXT NOT NULL,
+            workspace_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            status TEXT NOT NULL,
+            response_code INTEGER DEFAULT 0,
+            response_body TEXT,
+            attempt_count INTEGER NOT NULL DEFAULT 1,
+            idempotency_key TEXT,
+            next_retry_at INTEGER DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            FOREIGN KEY(endpoint_id) REFERENCES webhook_endpoints(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_webhook_logs_endpoint ON webhook_delivery_logs(endpoint_id, created_at DESC);"
     )
     .await
     .map_err(|e| YntraError::DbError(e.to_string()))?;

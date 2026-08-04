@@ -24,7 +24,7 @@ pub struct TelemetryOptInSettings {
     pub allow_crash_diagnostics: bool,
 }
 
-#[derive(uniffi::Record, Debug, Clone, PartialEq)]
+#[derive(uniffi::Record, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PerformanceMetricSummary {
     pub tti_ms: u64,
     pub ffi_calls_count: u64,
