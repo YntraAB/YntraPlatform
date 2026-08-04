@@ -1,0 +1,53 @@
+default_platform(:android)
+
+platform :android do
+  desc "Build and upload Android App Bundle (.aab) to Google Play Internal Test"
+  lane :android_beta do
+    gradle(
+      task: "bundle",
+      build_type: "Release",
+      project_dir: "yntra-android"
+    )
+
+    upload_to_play_store(
+      track: "internal",
+      aab: "yntra-android/app/build/outputs/bundle/release/app-release.aab",
+      metadata_path: "packaging/mobile/metadata/android",
+      skip_submission_localization_check: true
+    )
+  end
+
+  desc "Build signed APK artifact"
+  lane :android_apk do
+    gradle(
+      task: "assemble",
+      build_type: "Release",
+      project_dir: "yntra-android"
+    )
+  end
+end
+
+platform :ios do
+  desc "Build and upload iOS app to TestFlight"
+  lane :ios_beta do
+    api_key = app_store_connect_api_key(
+      key_id: ENV["APP_STORE_CONNECT_API_KEY_ID"],
+      issuer_id: ENV["APP_STORE_CONNECT_ISSUER_ID"],
+      key_content: ENV["APP_STORE_CONNECT_API_KEY_BASE64"],
+      is_key_content_base64: true
+    )
+
+    build_app(
+      project: "yntra-ios/project.yml",
+      scheme: "YntraIOS",
+      export_options: "packaging/mobile/ExportOptions.plist",
+      output_directory: "target/release/ios",
+      output_name: "YntraPlatform.ipa"
+    )
+
+    upload_to_testflight(
+      api_key: api_key,
+      skip_waiting_for_build_processing: true
+    )
+  end
+end

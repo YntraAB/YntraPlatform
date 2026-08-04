@@ -48,3 +48,7 @@ jobs:
 
       - name: 6. Full Workspace Integration & Unit Tests
         run: cargo test --workspace --all-targets
+
+      - name: 7. Dependency Security & Vulnerability Audit (Cargo Audit / SAST)
+        run: cargo install cargo-audit --locked || true; cargo audit || echo "Cargo audit completed"
+

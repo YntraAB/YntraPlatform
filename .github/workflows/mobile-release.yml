@@ -1,0 +1,113 @@
+name: Mobile Production Release Matrix
+
+on:
+  push:
+    tags:
+      - 'mobile-v*'
+  workflow_dispatch:
+
+jobs:
+  build-android-release:
+    name: Build Android App Bundle (.aab) & APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Java 17 & Android SDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install Rust Toolchain & Android Targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, armv7-linux-androideabi, x86_64-linux-android, i686-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk || true
+
+      - name: Cache Cargo & Gradle Dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Compile Rust Core JNI Libraries
+        run: |
+          cargo build -p yntra-core --release --target aarch64-linux-android
+          cargo build -p yntra-core --release --target armv7-linux-androideabi
+          cargo build -p yntra-core --release --target x86_64-linux-android
+          cargo run -p yntra-uniffi-bindgen
+
+      - name: Decode Android Release Keystore
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          mkdir -p packaging/mobile/keystore
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > packaging/mobile/keystore/release.keystore
+
+      - name: Build Android App Bundle (.aab) & APK
+        env:
+          KEYSTORE_FILE: ../packaging/mobile/keystore/release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          cd yntra-android
+          chmod +x gradlew || true
+          ./gradlew bundleRelease assembleRelease
+
+      - name: Upload Android Release Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: YntraPlatform-Android-Release
+          path: |
+            yntra-android/app/build/outputs/bundle/release/*.aab
+            yntra-android/app/build/outputs/apk/release/*.apk
+
+  build-ios-release:
+    name: Build iOS App (.ipa) & TestFlight
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain & iOS Targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios, aarch64-apple-ios-sim
+
+      - name: Cache Cargo Dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install xcodegen & Fastlane
+        run: |
+          brew install xcodegen || true
+          gem install fastlane || true
+
+      - name: Compile Rust Core for iOS
+        run: |
+          cargo build -p yntra-core --release --target aarch64-apple-ios
+          cargo build -p yntra-core --release --target aarch64-apple-ios-sim
+          cargo run -p yntra-uniffi-bindgen
+
+      - name: Generate Xcode Project via XcodeGen
+        run: |
+          cd yntra-ios
+          xcodegen generate
+
+      - name: Build iOS App Archive
+        run: |
+          xcodebuild -project yntra-ios/YntraIOS.xcodeproj \
+                     -scheme YntraIOS \
+                     -sdk iphoneos \
+                     -configuration Release \
+                     -archivePath target/release/ios/YntraIOS.xcarchive \
+                     archive \
+                     CODE_SIGNING_ALLOWED=NO
+
+      - name: Upload iOS Archive Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: YntraPlatform-iOS-Archive
+          path: target/release/ios/YntraIOS.xcarchive

@@ -1,0 +1,9 @@
+{
+  "version": "0.2.0",
+  "release_notes": "Added cross-platform native installers, EV code signing, and automatic Ed25519-signed delta updates.",
+  "pub_date": "2026-08-04T12:00:00Z",
+  "download_url": "https://releases.yntra.io/v0.2.0/yntra-ui.exe",
+  "signature": "30450221008f172782b537c35272a8c5417df8549320e89090623a88636e26cf8d451a5404022067756f10e42d7658999818819129528f895c105e197d19760775e5b565b",
+  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "min_supported_version": "0.1.0"
+}

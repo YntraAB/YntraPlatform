@@ -1,0 +1,103 @@
+name: Desktop Native Packaging & Code Signing Matrix
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-desktop-release:
+    name: Package Desktop (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: YntraPlatform-Windows-x64
+            target: x86_64-pc-windows-msvc
+          - os: macos-latest
+            artifact_name: YntraPlatform-macOS
+            target: x86_64-apple-darwin
+          - os: ubuntu-latest
+            artifact_name: YntraPlatform-Linux-x64
+            target: x86_64-unknown-linux-gnu
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo Dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Windows NSIS (Windows)
+        if: runner.os == 'Windows'
+        run: choco install nsis -y
+
+      - name: Build Release Binary
+        run: cargo build --release -p yntra-ui
+
+      # Windows Release & Code Signing Step
+      - name: Build & Sign Windows Installer (NSIS)
+        if: runner.os == 'Windows'
+        env:
+          EV_CERT_PATH: ${{ secrets.EV_CERT_PATH }}
+          EV_CERT_PASSWORD: ${{ secrets.EV_CERT_PASSWORD }}
+          EV_CERT_SUBJECT: ${{ secrets.EV_CERT_SUBJECT }}
+        run: |
+          makensis packaging\windows\installer.nsi
+          powershell -ExecutionPolicy Bypass -File packaging\windows\sign-installer.ps1
+
+      # macOS Release, Code Signing & Notarization Step
+      - name: Package, Sign & Notarize macOS (.app / .dmg)
+        if: runner.os == 'macOS'
+        env:
+          APPLE_DEVELOPER_IDENTITY: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          mkdir -p target/release/macos/Yntra.app/Contents/MacOS
+          mkdir -p target/release/macos/Yntra.app/Contents/Resources
+          cp target/release/yntra-ui target/release/macos/Yntra.app/Contents/MacOS/
+          cp packaging/macos/Info.plist target/release/macos/Yntra.app/Contents/
+          bash packaging/macos/create-dmg.sh
+          bash packaging/macos/notarize-app.sh
+
+      # Linux Release Step (AppImage & DEB)
+      - name: Package Linux (AppImage & .deb)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update && sudo apt-get install -y dpkg-dev
+          bash packaging/linux/build-appimage.sh || true
+          bash packaging/linux/build-deb.sh
+
+      - name: Upload Windows Installers
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: YntraPlatform-Windows-x64
+          path: |
+            target/release/yntra-ui.exe
+            target/release/YntraPlatform-Setup.exe
+
+      - name: Upload macOS Release Artifacts
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: YntraPlatform-macOS
+          path: |
+            target/release/YntraPlatform-macOS.dmg
+
+      - name: Upload Linux Release Artifacts
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: YntraPlatform-Linux-x64
+          path: |
+            target/release/*.AppImage
+            target/release/*.deb

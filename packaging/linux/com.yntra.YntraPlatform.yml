@@ -1,0 +1,24 @@
+app-id: com.yntra.YntraPlatform
+runtime: org.freedesktop.Platform
+runtime-version: '23.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: yntra-ui
+finish-args:
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --socket=pulseaudio
+  - --share=network
+  - --filesystem=host
+modules:
+  - name: yntra-platform
+    buildsystem: simple
+    build-commands:
+      - cargo build --release -p yntra-ui
+      - install -D -m755 target/release/yntra-ui /app/bin/yntra-ui
+      - install -D -m644 packaging/linux/com.yntra.YntraPlatform.desktop /app/share/applications/com.yntra.YntraPlatform.desktop
+    sources:
+      - type: dir
+        path: ../..

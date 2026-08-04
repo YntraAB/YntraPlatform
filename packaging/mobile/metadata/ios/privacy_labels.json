@@ -1,0 +1,26 @@
+{
+  "privacy_policy_url": "https://yntra.io/privacy",
+  "data_types": [
+    {
+      "type": "USER_ID",
+      "collected": true,
+      "linked_to_user": true,
+      "used_for_tracking": false,
+      "purpose": "App Functionality"
+    },
+    {
+      "type": "DIAGNOSTICS",
+      "collected": true,
+      "linked_to_user": false,
+      "used_for_tracking": false,
+      "purpose": "Analytics & Crash Reporting"
+    },
+    {
+      "type": "USER_CONTENT",
+      "collected": true,
+      "linked_to_user": true,
+      "used_for_tracking": false,
+      "purpose": "App Functionality & Local-First Sync"
+    }
+  ]
+}

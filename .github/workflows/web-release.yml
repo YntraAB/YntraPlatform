@@ -1,0 +1,51 @@
+name: Web PWA & Edge CDN Deployment
+
+on:
+  push:
+    branches: [ main, master ]
+    tags:
+      - 'web-v*'
+  workflow_dispatch:
+
+jobs:
+  deploy-web-pwa:
+    name: Build & Deploy Web WASM PWA
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain & WASM Target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo Dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Dioxus CLI (dx)
+        run: cargo install dioxus-cli --version 0.7.0 --locked || true
+
+      - name: Build Web Production WASM Bundle
+        run: |
+          cd yntra-ui
+          dx build --release
+
+      - name: Stage PWA Assets & Edge Headers
+        run: |
+          cp packaging/web/_headers target/dx/yntra-ui/release/web/public/ || true
+
+      - name: Deploy to Cloudflare Pages Edge CDN
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: 'yntra-platform-web'
+          directory: 'target/dx/yntra-ui/release/web/public'
+          gitToPages свя: true
+
+      - name: Upload Web Release Bundle Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: YntraPlatform-Web-PWA
+          path: target/dx/yntra-ui/release/web/public/

@@ -1,0 +1,7 @@
+Yntra is a local-first modular operational workspace engine designed for organizations requiring sub-millisecond execution across mobile and desktop devices.
+
+Highlights:
+• Local-first libSQL embedded database replication.
+• ZK-proof cryptographically signed action logs.
+• Offline-first CRDT collaborative editing.
+• Custom functional blocks for messaging, scheduling, notes, and time reporting.

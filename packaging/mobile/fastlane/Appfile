@@ -1,0 +1,7 @@
+app_identifier("com.yntra.app")
+apple_id(ENV["APPLE_ID"] || "support@yntra.io")
+itc_team_id(ENV["APPLE_TEAM_ID"] || "123456789")
+team_id(ENV["APPLE_TEAM_ID"] || "TEAMID12345")
+
+json_key_file(ENV["PLAY_STORE_JSON_KEY_PATH"] || "packaging/mobile/fastlane/play_store_key.json")
+package_name("com.yntra.app")

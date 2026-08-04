@@ -1,0 +1,19 @@
+# Cloudflare Pages / Wrangler Configuration for Yntra Platform
+name = "yntra-platform-web"
+pages_build_output_dir = "target/dx/yntra-ui/release/web/public"
+compatibility_date = "2026-08-04"
+
+[site]
+bucket = "target/dx/yntra-ui/release/web/public"
+
+# Custom Domain Mapping & SSL Termination
+[env.production]
+routes = [
+  { pattern = "app.yntra.io", custom_domain = true },
+  { pattern = "yntra.app", custom_domain = true }
+]
+
+[env.staging]
+routes = [
+  { pattern = "staging.yntra.io", custom_domain = true }
+]

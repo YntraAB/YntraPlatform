@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Yntra Platform
+Comment=Dynamic Modular Workspace Engine
+Exec=yntra-ui
+Icon=yntra-platform
+Categories=Utility;Office;ProjectManagement;
+Terminal=false
+StartupWMClass=yntra-ui
