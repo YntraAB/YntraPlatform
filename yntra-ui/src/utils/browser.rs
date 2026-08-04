@@ -48,7 +48,10 @@ pub fn copy_to_clipboard(text: String, toast: Option<Toasts>) {
     dioxus::prelude::spawn(async move {
         let res = eval.recv::<serde_json::Value>().await;
         let is_success = match &res {
-            Ok(val) => val.get("success").and_then(|v| v.as_bool()).unwrap_or(false),
+            Ok(val) => val
+                .get("success")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
             Err(_) => false,
         };
 

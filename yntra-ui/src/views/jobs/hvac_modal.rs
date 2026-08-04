@@ -1,7 +1,7 @@
-use dioxus::prelude::*;
 use crate::locales::{t, t_with_args};
 use crate::state::AppState;
 use crate::utils::use_action_runner;
+use dioxus::prelude::*;
 use yntra_core::{HvacSystemDiagnostic, JobPartItem, RotInvoiceSplitBreakdown};
 
 #[derive(Props, Clone, PartialEq)]
@@ -81,7 +81,9 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
         let uid = active_user_id.clone();
         let jid = job_id.clone();
         async move {
-            yntra_core::get_hvac_location_assets(uid, jid).await.unwrap_or_default()
+            yntra_core::get_hvac_location_assets(uid, jid)
+                .await
+                .unwrap_or_default()
         }
     });
     let location_assets = location_assets_res.read().clone().unwrap_or_default();
@@ -98,7 +100,9 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
         let u = uid_res.clone();
         let j = jid_res.clone();
         async move {
-            yntra_core::get_hvac_job_diagnostics(u, j).await.unwrap_or_default()
+            yntra_core::get_hvac_job_diagnostics(u, j)
+                .await
+                .unwrap_or_default()
         }
     });
 
@@ -110,11 +114,14 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
         let u = uid_parts_res.clone();
         let j = jid_parts_res.clone();
         async move {
-            yntra_core::get_job_parts_used(u, j).await.unwrap_or_default()
+            yntra_core::get_job_parts_used(u, j)
+                .await
+                .unwrap_or_default()
         }
     });
 
-    let diagnostics_history: Vec<HvacSystemDiagnostic> = diagnostics_res.read().clone().unwrap_or_default();
+    let diagnostics_history: Vec<HvacSystemDiagnostic> =
+        diagnostics_res.read().clone().unwrap_or_default();
     let job_parts: Vec<JobPartItem> = parts_res.read().clone().unwrap_or_default();
 
     // Retrieve last recorded baseline readings for the active work order if available using a reactive effect
@@ -134,19 +141,39 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
                     }
                     let is_m = *unit_system.read() == "METRIC";
                     if let Some(h) = latest.high_side_psi {
-                        high_side_psi.set(if is_m { format!("{:.2}", h / 14.503773773) } else { format!("{:.1}", h) });
+                        high_side_psi.set(if is_m {
+                            format!("{:.2}", h / 14.503773773)
+                        } else {
+                            format!("{:.1}", h)
+                        });
                     }
                     if let Some(l) = latest.low_side_psi {
-                        low_side_psi.set(if is_m { format!("{:.2}", l / 14.503773773) } else { format!("{:.1}", l) });
+                        low_side_psi.set(if is_m {
+                            format!("{:.2}", l / 14.503773773)
+                        } else {
+                            format!("{:.1}", l)
+                        });
                     }
                     if let Some(w) = latest.water_pressure_bar {
-                        water_pressure_bar.set(if is_m { format!("{:.2}", w) } else { format!("{:.1}", w * 14.503773773) });
+                        water_pressure_bar.set(if is_m {
+                            format!("{:.2}", w)
+                        } else {
+                            format!("{:.1}", w * 14.503773773)
+                        });
                     }
                     if let Some(td) = latest.temp_differential_c {
-                        temp_diff_c.set(if is_m { format!("{:.1}", td) } else { format!("{:.1}", td * 1.8) });
+                        temp_diff_c.set(if is_m {
+                            format!("{:.1}", td)
+                        } else {
+                            format!("{:.1}", td * 1.8)
+                        });
                     }
                     if let Some(amb) = latest.ambient_temp_c {
-                        ambient_temp_c.set(if is_m { format!("{:.1}", amb) } else { format!("{:.1}", amb * 1.8 + 32.0) });
+                        ambient_temp_c.set(if is_m {
+                            format!("{:.1}", amb)
+                        } else {
+                            format!("{:.1}", amb * 1.8 + 32.0)
+                        });
                     }
                     if let Some(v) = latest.voltage_v {
                         voltage_v.set(format!("{:.1}", v));
@@ -192,14 +219,38 @@ pub fn HvacDiagnosticModal(props: HvacModalProps) -> Element {
     let job_id_str = props.job_id.clone();
     let subtitle_text = t_with_args("hvac-work-order-subtitle", &region, &[("id", &job_id_str)]);
     let history_count_str = diagnostics_history.len().to_string();
-    let history_tab_text = t_with_args("hvac-tab-history", &region, &[("count", &history_count_str)]);
+    let history_tab_text = t_with_args(
+        "hvac-tab-history",
+        &region,
+        &[("count", &history_count_str)],
+    );
 
     let is_metric = *unit_system.read() == "METRIC";
-    let high_psi_label = if is_metric { "High Side Pressure (Bar)" } else { "High Side Pressure (PSI)" };
-    let low_psi_label = if is_metric { "Low Side Pressure (Bar)" } else { "Low Side Pressure (PSI)" };
-    let water_press_label = if is_metric { "Water / Hydronic Pressure (Bar)" } else { "Water / Hydronic Pressure (PSI)" };
-    let delta_t_label = if is_metric { "Delta T Differential (ΔT °C)" } else { "Delta T Differential (ΔT °F)" };
-    let ambient_temp_label = if is_metric { "Outdoor Ambient Temp (°C)" } else { "Outdoor Ambient Temp (°F)" };
+    let high_psi_label = if is_metric {
+        "High Side Pressure (Bar)"
+    } else {
+        "High Side Pressure (PSI)"
+    };
+    let low_psi_label = if is_metric {
+        "Low Side Pressure (Bar)"
+    } else {
+        "Low Side Pressure (PSI)"
+    };
+    let water_press_label = if is_metric {
+        "Water / Hydronic Pressure (Bar)"
+    } else {
+        "Water / Hydronic Pressure (PSI)"
+    };
+    let delta_t_label = if is_metric {
+        "Delta T Differential (ΔT °C)"
+    } else {
+        "Delta T Differential (ΔT °F)"
+    };
+    let ambient_temp_label = if is_metric {
+        "Outdoor Ambient Temp (°C)"
+    } else {
+        "Outdoor Ambient Temp (°F)"
+    };
 
     rsx! {
         div { class: "fixed inset-0 z-50 flex items-center justify-end bg-black/60 backdrop-blur-sm animate-in fade-in duration-200",

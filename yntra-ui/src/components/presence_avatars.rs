@@ -11,7 +11,7 @@ pub struct PresenceAvatarsProps {
 #[component]
 pub fn PresenceAvatars(props: PresenceAvatarsProps) -> Element {
     let max = props.max_visible.unwrap_or(4);
-    
+
     // Filter out current user from avatar stack if desired, or show all
     let active_peers = props.presences;
     let total = active_peers.len();
@@ -26,7 +26,7 @@ pub fn PresenceAvatars(props: PresenceAvatarsProps) -> Element {
         div {
             class: "flex items-center -space-x-2 overflow-hidden py-1 px-2 bg-slate-800/40 rounded-full border border-slate-700/50 backdrop-blur-sm",
             title: "{total} active team members in workspace",
-            
+
             for peer in visible_peers {
                 {
                     let initial = peer.user_name.chars().next().unwrap_or('U').to_uppercase().to_string();
@@ -45,13 +45,13 @@ pub fn PresenceAvatars(props: PresenceAvatarsProps) -> Element {
                         div {
                             key: "{peer.user_id}",
                             class: "relative group inline-block",
-                            
+
                             // Avatar circle
                             div {
                                 class: "w-7 h-7 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-500 flex items-center justify-center text-xs font-bold text-white shadow-md ring-2 ring-slate-900 transition-transform hover:scale-110 hover:z-20 cursor-pointer",
                                 "{initial}"
                             }
-                            
+
                             // Status indicator dot
                             span {
                                 class: "absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 {status_color}",

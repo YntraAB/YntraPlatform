@@ -56,7 +56,8 @@ pub fn init_oauth_handlers(
                                         Ok(Some(session)) => {
                                             match session.status.as_str() {
                                                 "success" => {
-                                                    if let Some(uid) = session.authenticated_user_id {
+                                                    if let Some(uid) = session.authenticated_user_id
+                                                    {
                                                         log::info!(
                                                             "[Desktop OAuth] Auth success, loading user ID: {}",
                                                             uid
@@ -81,23 +82,26 @@ pub fn init_oauth_handlers(
                                                                     tf_user.set(Some(user.clone()));
                                                                 } else {
                                                                     active_uid.set(user.id.clone());
-                                                                    active_role.set(user.role.clone());
+                                                                    active_role
+                                                                        .set(user.role.clone());
                                                                     if user.role == "client" {
                                                                         active_sec.set(
-                                                                            "client_portal".to_string(),
+                                                                            "client_portal"
+                                                                                .to_string(),
                                                                         );
                                                                     } else {
                                                                         active_sec.set(
                                                                             "dashboard".to_string(),
                                                                         );
                                                                     }
-                                                                    let is_new_invite =
-                                                                        user.phone.is_none()
-                                                                            || user
-                                                                                .phone
-                                                                                .as_ref()
-                                                                                .map(|p| p.is_empty())
-                                                                                .unwrap_or(true);
+                                                                    let is_new_invite = user
+                                                                        .phone
+                                                                        .is_none()
+                                                                        || user
+                                                                            .phone
+                                                                            .as_ref()
+                                                                            .map(|p| p.is_empty())
+                                                                            .unwrap_or(true);
                                                                     setup_needed.set(is_new_invite);
                                                                     is_logged_in.set(true);
                                                                 }
@@ -165,14 +169,18 @@ pub fn init_oauth_handlers(
                                         match session.status.as_str() {
                                             "success" => {
                                                 if let Some(uid) = session.authenticated_user_id {
-                                                    if let Ok(all_users) = get_users(uid.clone()).await
+                                                    if let Ok(all_users) =
+                                                        get_users(uid.clone()).await
                                                     {
-                                                        if let Some(user) =
-                                                            all_users.into_iter().find(|u| u.id == uid)
+                                                        if let Some(user) = all_users
+                                                            .into_iter()
+                                                            .find(|u| u.id == uid)
                                                         {
                                                             let prefs: serde_json::Value =
-                                                                serde_json::from_str(&user.preferences)
-                                                                    .unwrap_or_default();
+                                                                serde_json::from_str(
+                                                                    &user.preferences,
+                                                                )
+                                                                .unwrap_or_default();
                                                             let mfa_enabled = prefs
                                                                 .get("two_factor_enabled")
                                                                 .and_then(|v| v.as_bool())
@@ -181,14 +189,16 @@ pub fn init_oauth_handlers(
                                                                 tf_user.set(Some(user.clone()));
                                                             } else {
                                                                 active_uid.set(user.id.clone());
-                                                                active_role_sig.set(user.role.clone());
+                                                                active_role_sig
+                                                                    .set(user.role.clone());
                                                                 if user.role == "client" {
                                                                     active_sec.set(
                                                                         "client_portal".to_string(),
                                                                     );
                                                                 } else {
-                                                                    active_sec
-                                                                        .set("dashboard".to_string());
+                                                                    active_sec.set(
+                                                                        "dashboard".to_string(),
+                                                                    );
                                                                 }
                                                                 let is_new_invite =
                                                                     user.phone.is_none()
@@ -229,10 +239,7 @@ pub fn init_oauth_handlers(
                             }
                         }
                         Err(e) => {
-                            log_error.set(Some(format!(
-                                "Failed to initiate login session: {}",
-                                e
-                            )));
+                            log_error.set(Some(format!("Failed to initiate login session: {}", e)));
                         }
                     }
                 }

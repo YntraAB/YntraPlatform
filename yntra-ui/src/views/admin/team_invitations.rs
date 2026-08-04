@@ -30,9 +30,7 @@ pub fn TeamInvitationsView(props: TeamInvitationsProps) -> Element {
         let uid = active_user_id.clone();
         let wsid = workspace_id.clone();
         let _trig = *db_trigger.read();
-        async move {
-            yntra_core::get_workspace_invitations(uid, wsid).await
-        }
+        async move { yntra_core::get_workspace_invitations(uid, wsid).await }
     });
 
     let active_uid_create = props.active_user.id.clone();
@@ -61,16 +59,24 @@ pub fn TeamInvitationsView(props: TeamInvitationsProps) -> Element {
                 uid.clone(),
                 wsid,
                 email_val,
-                if name_val.is_empty() { "Invited User".to_string() } else { name_val },
+                if name_val.is_empty() {
+                    "Invited User".to_string()
+                } else {
+                    name_val
+                },
                 role_val,
-            ).await;
+            )
+            .await;
 
             is_creating.set(false);
             match res {
                 Ok(inv) => {
                     invite_email.set(String::new());
                     invite_name.set(String::new());
-                    status_msg.set(Some(format!("Invitation code {} successfully generated!", inv.code)));
+                    status_msg.set(Some(format!(
+                        "Invitation code {} successfully generated!",
+                        inv.code
+                    )));
                     let trig_val = *trigger.read();
                     trigger.set(trig_val + 1);
                 }
@@ -80,7 +86,6 @@ pub fn TeamInvitationsView(props: TeamInvitationsProps) -> Element {
             }
         });
     };
-
 
     rsx! {
         div { class: "p-6 space-y-8 animate-in fade-in duration-300",

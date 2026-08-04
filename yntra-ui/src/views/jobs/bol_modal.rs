@@ -2,8 +2,7 @@ use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::{
-    get_bill_of_lading, generate_bill_of_lading, sign_bill_of_lading_phase,
-    BillOfLading,
+    BillOfLading, generate_bill_of_lading, get_bill_of_lading, sign_bill_of_lading_phase,
 };
 
 #[derive(Props, Clone, PartialEq)]
@@ -18,17 +17,15 @@ pub fn BillOfLadingModal(props: BillOfLadingModalProps) -> Element {
     let toast = dioxus_primitives::toast::use_toast();
     let job_id = props.job_id.clone();
     let active_user_id = props.active_user_id.clone();
-    
+
     let mut db_trigger = use_signal(|| 0u32);
     let db_trig_val = *db_trigger.read();
-    
+
     let jid = job_id.clone();
     let bol_res = use_resource(move || {
         let _ = db_trig_val;
         let j_id = jid.clone();
-        async move {
-            get_bill_of_lading(j_id).await.unwrap_or(None)
-        }
+        async move { get_bill_of_lading(j_id).await.unwrap_or(None) }
     });
 
     let bol_data = bol_res.read().clone().flatten();
@@ -450,7 +447,7 @@ fn trigger_download_file(toast: &dioxus_primitives::toast::Toasts, content: &str
     {
         toast.info(
             "Exporting Bill of Lading...".to_string(),
-            dioxus_primitives::toast::ToastOptions::new()
+            dioxus_primitives::toast::ToastOptions::new(),
         );
         let base64_str = base64_encode_str(content.as_bytes());
         let js_code = format!(
@@ -478,19 +475,17 @@ fn trigger_download_file(toast: &dioxus_primitives::toast::Toasts, content: &str
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let file_path = rfd::FileDialog::new()
-            .set_file_name(file_name)
-            .save_file();
+        let file_path = rfd::FileDialog::new().set_file_name(file_name).save_file();
         if let Some(path) = file_path {
             if std::fs::write(&path, content).is_ok() {
                 toast.success(
                     format!("Saved Bill of Lading to {}", path.display()),
-                    dioxus_primitives::toast::ToastOptions::new()
+                    dioxus_primitives::toast::ToastOptions::new(),
                 );
             } else {
                 toast.error(
                     "Failed to save Bill of Lading document".to_string(),
-                    dioxus_primitives::toast::ToastOptions::new()
+                    dioxus_primitives::toast::ToastOptions::new(),
                 );
             }
         }
@@ -504,8 +499,16 @@ fn base64_encode_str(data: &[u8]) -> String {
     let mut i = 0;
     while i < data.len() {
         let b0 = data[i] as u32;
-        let b1 = if i + 1 < data.len() { data[i + 1] as u32 } else { 0 };
-        let b2 = if i + 2 < data.len() { data[i + 2] as u32 } else { 0 };
+        let b1 = if i + 1 < data.len() {
+            data[i + 1] as u32
+        } else {
+            0
+        };
+        let b2 = if i + 2 < data.len() {
+            data[i + 2] as u32
+        } else {
+            0
+        };
         let triple = (b0 << 16) | (b1 << 8) | b2;
 
         encoded.push(CHARS[((triple >> 18) & 63) as usize] as char);

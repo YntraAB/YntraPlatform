@@ -1,9 +1,12 @@
-use dioxus::prelude::*;
-use dioxus::html::HasFileData;
-use crate::components::{Button, Dialog, Input, SuggestionInput, LucideIcon};
-use yntra_core::{Course, Assignment, TermGrade, Submission, save_course, save_assignment, save_blob, save_term_grade, save_submission};
 use super::super::infer_subject_from_course;
-use super::super::utils::{format_file_size, compute_mock_hash, base64_encode, AdvancedAttachment};
+use super::super::utils::{AdvancedAttachment, base64_encode, compute_mock_hash, format_file_size};
+use crate::components::{Button, Dialog, Input, LucideIcon, SuggestionInput};
+use dioxus::html::HasFileData;
+use dioxus::prelude::*;
+use yntra_core::{
+    Assignment, Course, Submission, TermGrade, save_assignment, save_blob, save_course,
+    save_submission, save_term_grade,
+};
 
 #[component]
 pub fn CreateCourseModal(
@@ -21,7 +24,11 @@ pub fn CreateCourseModal(
 
     let name_suggestions = {
         let subj = new_course_subject.read().trim().to_lowercase();
-        if subj == "matematik" || subj == "mathematics" || subj == "matematikk" || subj == "matematiikka" {
+        if subj == "matematik"
+            || subj == "mathematics"
+            || subj == "matematikk"
+            || subj == "matematiikka"
+        {
             match locale.as_str() {
                 "sv" => vec!["Algebra I", "Algebra II", "Geometri", "Analys"],
                 "no" => vec!["Algebra I", "Algebra II", "Geometri", "Kalkulus"],
@@ -29,37 +36,164 @@ pub fn CreateCourseModal(
                 "fi" => vec!["Algebra I", "Algebra II", "Geometria", "Analyysi"],
                 _ => vec!["Algebra I", "Algebra II", "Geometry", "Calculus"],
             }
-        } else if subj == "naturvetenskap" || subj == "science" || subj == "naturfag" || subj == "luonnontiede" || subj == "fysik" || subj == "kemi" || subj == "biologi" || subj == "physics" || subj == "chemistry" || subj == "biology" || subj == "fysikk" || subj == "kjemi" || subj == "fysiikka" || subj == "kemia" || subj == "biologia" {
+        } else if subj == "naturvetenskap"
+            || subj == "science"
+            || subj == "naturfag"
+            || subj == "luonnontiede"
+            || subj == "fysik"
+            || subj == "kemi"
+            || subj == "biologi"
+            || subj == "physics"
+            || subj == "chemistry"
+            || subj == "biology"
+            || subj == "fysikk"
+            || subj == "kjemi"
+            || subj == "fysiikka"
+            || subj == "kemia"
+            || subj == "biologia"
+        {
             match locale.as_str() {
-                "sv" => vec!["Biologi I", "Avancerad biologi", "Grundläggande kemi", "Introduktion till fysik"],
-                "no" => vec!["Biologi I", "Avansert biologi", "Kjemi 101", "Innføring i fysikk"],
-                "da" => vec!["Biologi I", "Avanceret biologi", "Kemi 101", "Introduktion til fysik"],
-                "fi" => vec!["Biologia I", "Syventävä biologia", "Kemia 101", "Johdatus fysiikkaan"],
-                _ => vec!["Biology I", "Advanced Biology", "Chemistry 101", "Introduction to Physics"],
+                "sv" => vec![
+                    "Biologi I",
+                    "Avancerad biologi",
+                    "Grundläggande kemi",
+                    "Introduktion till fysik",
+                ],
+                "no" => vec![
+                    "Biologi I",
+                    "Avansert biologi",
+                    "Kjemi 101",
+                    "Innføring i fysikk",
+                ],
+                "da" => vec![
+                    "Biologi I",
+                    "Avanceret biologi",
+                    "Kemi 101",
+                    "Introduktion til fysik",
+                ],
+                "fi" => vec![
+                    "Biologia I",
+                    "Syventävä biologia",
+                    "Kemia 101",
+                    "Johdatus fysiikkaan",
+                ],
+                _ => vec![
+                    "Biology I",
+                    "Advanced Biology",
+                    "Chemistry 101",
+                    "Introduction to Physics",
+                ],
             }
-        } else if subj == "historia" || subj == "history" || subj == "historie" || subj == "geografi" || subj == "geography" || subj == "maantieto" {
+        } else if subj == "historia"
+            || subj == "history"
+            || subj == "historie"
+            || subj == "geografi"
+            || subj == "geography"
+            || subj == "maantieto"
+        {
             match locale.as_str() {
-                "sv" => vec!["Världshistoria", "Sveriges historia", "Geografi I", "Forntida civilisationer"],
-                "no" => vec!["Verdenshistorie", "Norgeshistorie", "Geografi I", "Gamle sivilisasjoner"],
-                "da" => vec!["Verdenshistorie", "Danmarks historie", "Geografi I", "Gamle civilisationer"],
-                "fi" => vec!["Maailmanhistoria", "Suomen historia", "Maantieto I", "Muinaiset sivilisaatiot"],
-                _ => vec!["World History", "US History", "Human Geography", "Ancient Civilizations"],
+                "sv" => vec![
+                    "Världshistoria",
+                    "Sveriges historia",
+                    "Geografi I",
+                    "Forntida civilisationer",
+                ],
+                "no" => vec![
+                    "Verdenshistorie",
+                    "Norgeshistorie",
+                    "Geografi I",
+                    "Gamle sivilisasjoner",
+                ],
+                "da" => vec![
+                    "Verdenshistorie",
+                    "Danmarks historie",
+                    "Geografi I",
+                    "Gamle civilisationer",
+                ],
+                "fi" => vec![
+                    "Maailmanhistoria",
+                    "Suomen historia",
+                    "Maantieto I",
+                    "Muinaiset sivilisaatiot",
+                ],
+                _ => vec![
+                    "World History",
+                    "US History",
+                    "Human Geography",
+                    "Ancient Civilizations",
+                ],
             }
-        } else if subj == "engelska" || subj == "english" || subj == "engelsk" || subj == "englanti" {
+        } else if subj == "engelska" || subj == "english" || subj == "engelsk" || subj == "englanti"
+        {
             match locale.as_str() {
-                "sv" => vec!["Engelsk litteratur", "Kreativt skrivande", "Akademiskt skrivande", "Engelska 101"],
-                "no" => vec!["Engelsk litteratur", "Kreativ skriving", "Akademisk skriving", "Engelsk 101"],
-                "da" => vec!["Engelsk litteratur", "Kreativ skrivning", "Akademisk skrivning", "Engelsk 101"],
-                "fi" => vec!["Englanninkielinen kirjallisuus", "Luova kirjoittaminen", "Akateeminen kirjoittaminen", "Englanti 101"],
-                _ => vec!["English Literature", "Creative Writing", "Academic Writing", "English 101"],
+                "sv" => vec![
+                    "Engelsk litteratur",
+                    "Kreativt skrivande",
+                    "Akademiskt skrivande",
+                    "Engelska 101",
+                ],
+                "no" => vec![
+                    "Engelsk litteratur",
+                    "Kreativ skriving",
+                    "Akademisk skriving",
+                    "Engelsk 101",
+                ],
+                "da" => vec![
+                    "Engelsk litteratur",
+                    "Kreativ skrivning",
+                    "Akademisk skrivning",
+                    "Engelsk 101",
+                ],
+                "fi" => vec![
+                    "Englanninkielinen kirjallisuus",
+                    "Luova kirjoittaminen",
+                    "Akateeminen kirjoittaminen",
+                    "Englanti 101",
+                ],
+                _ => vec![
+                    "English Literature",
+                    "Creative Writing",
+                    "Academic Writing",
+                    "English 101",
+                ],
             }
-        } else if subj == "bild" || subj == "art" || subj == "kunst og håndverk" || subj == "billedkunst" || subj == "kuvataide" {
+        } else if subj == "bild"
+            || subj == "art"
+            || subj == "kunst og håndverk"
+            || subj == "billedkunst"
+            || subj == "kuvataide"
+        {
             match locale.as_str() {
-                "sv" => vec!["Teckning & målning", "Grafisk design", "Konsthistoria", "Keramik"],
-                "no" => vec!["Tegning og maling", "Grafisk design", "Kunsthistorie", "Keramikk"],
-                "da" => vec!["Tegning & maleri", "Grafisk design", "Kunsthistorie", "Keramik"],
-                "fi" => vec!["Piirustus & maalaus", "Graafinen suunnittelu", "Taidehistoria", "Keramiikka"],
-                _ => vec!["Drawing & Painting", "Graphic Design", "Art History", "Ceramics"],
+                "sv" => vec![
+                    "Teckning & målning",
+                    "Grafisk design",
+                    "Konsthistoria",
+                    "Keramik",
+                ],
+                "no" => vec![
+                    "Tegning og maling",
+                    "Grafisk design",
+                    "Kunsthistorie",
+                    "Keramikk",
+                ],
+                "da" => vec![
+                    "Tegning & maleri",
+                    "Grafisk design",
+                    "Kunsthistorie",
+                    "Keramik",
+                ],
+                "fi" => vec![
+                    "Piirustus & maalaus",
+                    "Graafinen suunnittelu",
+                    "Taidehistoria",
+                    "Keramiikka",
+                ],
+                _ => vec![
+                    "Drawing & Painting",
+                    "Graphic Design",
+                    "Art History",
+                    "Ceramics",
+                ],
             }
         } else if subj == "musik" || subj == "music" || subj == "musiikki" {
             match locale.as_str() {
@@ -67,23 +201,88 @@ pub fn CreateCourseModal(
                 "no" => vec!["Musikkteori", "Kor", "Orkester", "Gitar for nybegynnere"],
                 "da" => vec!["Musikteori", "Kor", "Orkester", "Guitar for begyndere"],
                 "fi" => vec!["Musiikin teoria", "Kuoro", "Orkesteri", "Kitaran alkeet"],
-                _ => vec!["Music Theory", "Choir", "Band / Orchestra", "Beginner Guitar"],
+                _ => vec![
+                    "Music Theory",
+                    "Choir",
+                    "Band / Orchestra",
+                    "Beginner Guitar",
+                ],
             }
-        } else if subj == "idrott och hälsa" || subj == "physical education" || subj == "kroppsøving" || subj == "idræt" || subj == "liikunta" {
+        } else if subj == "idrott och hälsa"
+            || subj == "physical education"
+            || subj == "kroppsøving"
+            || subj == "idræt"
+            || subj == "liikunta"
+        {
             match locale.as_str() {
-                "sv" => vec!["Lagsport", "Konditionsträning", "Hälsokunskap", "Yoga & välmående"],
-                "no" => vec!["Lagsport", "Kondisjonstrening", "Helsefag", "Yoga og velvære"],
-                "da" => vec!["Lagsport", "Konditionstræning", "Sundhedslære", "Yoga & være"],
-                "fi" => vec!["Joukkuepelit", "Kuntosali & kuntoilu", "Terveystieto", "Jooga & hyvinvointi"],
-                _ => vec!["Team Sports", "Fitness & Conditioning", "Health Education", "Yoga & Wellness"],
+                "sv" => vec![
+                    "Lagsport",
+                    "Konditionsträning",
+                    "Hälsokunskap",
+                    "Yoga & välmående",
+                ],
+                "no" => vec![
+                    "Lagsport",
+                    "Kondisjonstrening",
+                    "Helsefag",
+                    "Yoga og velvære",
+                ],
+                "da" => vec![
+                    "Lagsport",
+                    "Konditionstræning",
+                    "Sundhedslære",
+                    "Yoga & være",
+                ],
+                "fi" => vec![
+                    "Joukkuepelit",
+                    "Kuntosali & kuntoilu",
+                    "Terveystieto",
+                    "Jooga & hyvinvointi",
+                ],
+                _ => vec![
+                    "Team Sports",
+                    "Fitness & Conditioning",
+                    "Health Education",
+                    "Yoga & Wellness",
+                ],
             }
         } else {
             match locale.as_str() {
-                "sv" => vec!["Algebra I", "Världshistoria", "Grundläggande kemi", "Engelsk litteratur", "Bild"],
-                "no" => vec!["Algebra I", "Verdenshistorie", "Kjemi 101", "Engelsk litteratur", "Kunst"],
-                "da" => vec!["Algebra I", "Verdenshistorie", "Kemi 101", "Engelsk litteratur", "Billedkunst"],
-                "fi" => vec!["Algebra I", "Maailmanhistoria", "Kemia 101", "Englanninkielinen kirjallisuus", "Kuvataide"],
-                _ => vec!["Algebra I", "World History", "Chemistry 101", "English Literature", "Fine Arts"],
+                "sv" => vec![
+                    "Algebra I",
+                    "Världshistoria",
+                    "Grundläggande kemi",
+                    "Engelsk litteratur",
+                    "Bild",
+                ],
+                "no" => vec![
+                    "Algebra I",
+                    "Verdenshistorie",
+                    "Kjemi 101",
+                    "Engelsk litteratur",
+                    "Kunst",
+                ],
+                "da" => vec![
+                    "Algebra I",
+                    "Verdenshistorie",
+                    "Kemi 101",
+                    "Engelsk litteratur",
+                    "Billedkunst",
+                ],
+                "fi" => vec![
+                    "Algebra I",
+                    "Maailmanhistoria",
+                    "Kemia 101",
+                    "Englanninkielinen kirjallisuus",
+                    "Kuvataide",
+                ],
+                _ => vec![
+                    "Algebra I",
+                    "World History",
+                    "Chemistry 101",
+                    "English Literature",
+                    "Fine Arts",
+                ],
             }
         }
         .into_iter()
@@ -93,29 +292,69 @@ pub fn CreateCourseModal(
 
     let subject_suggestions = match locale.as_str() {
         "sv" => vec![
-            "Matematik".to_string(), "Naturvetenskap".to_string(), "Historia".to_string(),
-            "Geografi".to_string(), "Fysik".to_string(), "Kemi".to_string(), "Biologi".to_string(),
-            "Engelska".to_string(), "Idrott och hälsa".to_string(), "Bild".to_string(), "Musik".to_string(),
+            "Matematik".to_string(),
+            "Naturvetenskap".to_string(),
+            "Historia".to_string(),
+            "Geografi".to_string(),
+            "Fysik".to_string(),
+            "Kemi".to_string(),
+            "Biologi".to_string(),
+            "Engelska".to_string(),
+            "Idrott och hälsa".to_string(),
+            "Bild".to_string(),
+            "Musik".to_string(),
         ],
         "no" => vec![
-            "Matematikk".to_string(), "Naturfag".to_string(), "Historie".to_string(),
-            "Geografi".to_string(), "Fysikk".to_string(), "Kjemi".to_string(), "Biologi".to_string(),
-            "Engelsk".to_string(), "Kroppsøving".to_string(), "Kunst og håndverk".to_string(), "Musikk".to_string(),
+            "Matematikk".to_string(),
+            "Naturfag".to_string(),
+            "Historie".to_string(),
+            "Geografi".to_string(),
+            "Fysikk".to_string(),
+            "Kjemi".to_string(),
+            "Biologi".to_string(),
+            "Engelsk".to_string(),
+            "Kroppsøving".to_string(),
+            "Kunst og håndverk".to_string(),
+            "Musikk".to_string(),
         ],
         "da" => vec![
-            "Matematik".to_string(), "Naturfag".to_string(), "Historie".to_string(),
-            "Geografi".to_string(), "Fysik".to_string(), "Kemi".to_string(), "Biologi".to_string(),
-            "Engelsk".to_string(), "Idræt".to_string(), "Billedkunst".to_string(), "Musik".to_string(),
+            "Matematik".to_string(),
+            "Naturfag".to_string(),
+            "Historie".to_string(),
+            "Geografi".to_string(),
+            "Fysik".to_string(),
+            "Kemi".to_string(),
+            "Biologi".to_string(),
+            "Engelsk".to_string(),
+            "Idræt".to_string(),
+            "Billedkunst".to_string(),
+            "Musik".to_string(),
         ],
         "fi" => vec![
-            "Matematiikka".to_string(), "Luonnontiede".to_string(), "Historia".to_string(),
-            "Maantieto".to_string(), "Fysiikka".to_string(), "Kemia".to_string(), "Biologia".to_string(),
-            "Englanti".to_string(), "Liikunta".to_string(), "Kuvataide".to_string(), "Musiikki".to_string(),
+            "Matematiikka".to_string(),
+            "Luonnontiede".to_string(),
+            "Historia".to_string(),
+            "Maantieto".to_string(),
+            "Fysiikka".to_string(),
+            "Kemia".to_string(),
+            "Biologia".to_string(),
+            "Englanti".to_string(),
+            "Liikunta".to_string(),
+            "Kuvataide".to_string(),
+            "Musiikki".to_string(),
         ],
         _ => vec![
-            "Mathematics".to_string(), "Science".to_string(), "History".to_string(),
-            "Geography".to_string(), "Physics".to_string(), "Chemistry".to_string(), "Biology".to_string(),
-            "English".to_string(), "Physical Education".to_string(), "Art".to_string(), "Music".to_string(),
+            "Mathematics".to_string(),
+            "Science".to_string(),
+            "History".to_string(),
+            "Geography".to_string(),
+            "Physics".to_string(),
+            "Chemistry".to_string(),
+            "Biology".to_string(),
+            "English".to_string(),
+            "Physical Education".to_string(),
+            "Art".to_string(),
+            "Music".to_string(),
         ],
     };
 
@@ -224,7 +463,11 @@ pub fn CreateAssignmentModal(
 
     let is_drag_over = *new_assign_drag_active.read();
     let staged_file = new_assign_file.read().clone();
-    let drag_border_class = if is_drag_over { "border-primary bg-primary/5 shadow-md scale-[1.01]" } else { "border-border/60 bg-muted/20" };
+    let drag_border_class = if is_drag_over {
+        "border-primary bg-primary/5 shadow-md scale-[1.01]"
+    } else {
+        "border-border/60 bg-muted/20"
+    };
 
     rsx! {
         Dialog {
@@ -587,7 +830,7 @@ pub fn HomeworkGradeModal(
                                     let mut updated_sub = sub_rec.clone();
                                     updated_sub.grade = Some(homework_grade.read().clone());
                                     updated_sub.feedback = Some(homework_feedback.read().clone());
-                                    
+
                                     let uid_c = uid.clone();
                                     spawn(async move {
                                         let _ = save_submission(uid_c, updated_sub, proof).await;

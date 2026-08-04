@@ -1,7 +1,7 @@
 use crate::components::{Button, LucideIcon};
 use dioxus::prelude::*;
-use yntra_core::{execute_csv_import, parse_and_preview_csv, CsvImportPreview};
 use std::collections::HashMap;
+use yntra_core::{CsvImportPreview, execute_csv_import, parse_and_preview_csv};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct CsvImportModalProps {
@@ -29,7 +29,9 @@ pub fn CsvImportModal(props: CsvImportModalProps) -> Element {
     let parse_action = move |_| {
         let text = raw_csv_text.read().clone();
         if text.trim().is_empty() {
-            error_msg.set(Some("Please paste or upload non-empty CSV text".to_string()));
+            error_msg.set(Some(
+                "Please paste or upload non-empty CSV text".to_string(),
+            ));
             return;
         }
         is_parsing.set(true);
@@ -60,7 +62,8 @@ pub fn CsvImportModal(props: CsvImportModalProps) -> Element {
 
     let execute_action = move |_| {
         let text = raw_csv_text.read().clone();
-        let map_json = serde_json::to_string(&*mappings_state.read()).unwrap_or_else(|_| "{}".to_string());
+        let map_json =
+            serde_json::to_string(&*mappings_state.read()).unwrap_or_else(|_| "{}".to_string());
         is_executing.set(true);
         error_msg.set(None);
         let req_uid = exec_uid.clone();
@@ -72,9 +75,15 @@ pub fn CsvImportModal(props: CsvImportModalProps) -> Element {
             match execute_csv_import(req_uid, ws_id, block_id, map_json, text).await {
                 Ok(res) => {
                     if res.failed_count > 0 {
-                        error_msg.set(Some(format!("Imported {} records with {} errors", res.imported_count, res.failed_count)));
+                        error_msg.set(Some(format!(
+                            "Imported {} records with {} errors",
+                            res.imported_count, res.failed_count
+                        )));
                     } else {
-                        success_msg.set(Some(format!("Successfully imported {} records into local libSQL database!", res.imported_count)));
+                        success_msg.set(Some(format!(
+                            "Successfully imported {} records into local libSQL database!",
+                            res.imported_count
+                        )));
                     }
                     oncomplete_cb.call(res.imported_count);
                 }
@@ -86,7 +95,9 @@ pub fn CsvImportModal(props: CsvImportModalProps) -> Element {
         });
     };
 
-    let preview_rows: Vec<serde_json::Value> = preview_state.read().as_ref()
+    let preview_rows: Vec<serde_json::Value> = preview_state
+        .read()
+        .as_ref()
         .map(|p| serde_json::from_str(&p.preview_rows_json).unwrap_or_default())
         .unwrap_or_default();
 
@@ -143,7 +154,7 @@ pub fn CsvImportModal(props: CsvImportModalProps) -> Element {
                                 value: "{raw_csv_text}",
                                 oninput: move |e| raw_csv_text.set(e.value())
                             }
-                            
+
                             div { class: "flex justify-end",
                                 Button {
                                     class: "text-xs h-10 px-5 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm cursor-pointer",

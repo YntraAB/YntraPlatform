@@ -1,7 +1,7 @@
-use dioxus::prelude::*;
-use crate::components::{Button, LucideIcon};
-use yntra_core::Assignment;
 use super::super::utils::parse_submission_content_and_advanced_attachment;
+use crate::components::{Button, LucideIcon};
+use dioxus::prelude::*;
+use yntra_core::Assignment;
 
 #[component]
 pub fn CourseClassworkTab(
@@ -46,7 +46,7 @@ pub fn CourseClassworkTab(
                                         if !desc_text.is_empty() {
                                             div { class: "text-muted-foreground break-words font-medium leading-relaxed max-w-2xl", "{desc_text}" }
                                         }
-                                        
+
                                         if let Some(staged) = attachment {
                                             a {
                                                 href: "{staged.dataurl}",

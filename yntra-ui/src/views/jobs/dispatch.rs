@@ -1,9 +1,9 @@
-use dioxus::prelude::*;
-use yntra_core::{JobTicket, MoveVehicle};
 use crate::components;
 use crate::locales::t;
 use crate::views::scheduling::{add_days_to_date, parse_date};
+use dioxus::prelude::*;
 use std::collections::HashMap;
+use yntra_core::{JobTicket, MoveVehicle};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct DispatchBoardProps {
@@ -56,9 +56,10 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
     // GPS Telemetry Tracking states
     let mut selected_tracking_vehicle = use_signal(|| Option::<MoveVehicle>::None);
 
-    let tracking_vehicle_resolved = selected_tracking_vehicle.read().clone().and_then(|sel_v| {
-        vehicles.iter().find(|v| v.id == sel_v.id).cloned()
-    });
+    let tracking_vehicle_resolved = selected_tracking_vehicle
+        .read()
+        .clone()
+        .and_then(|sel_v| vehicles.iter().find(|v| v.id == sel_v.id).cloned());
 
     // Retrieve workspace GPS Webhook settings for production instructions
     let state = use_context::<crate::state::AppState>();
@@ -143,7 +144,10 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
             for job in jobs {
                 let inv_res = yntra_core::get_move_inventory(uid.clone(), job.id.clone()).await;
                 if let Ok(inv) = inv_res {
-                    let total_vol: f64 = inv.iter().map(|item| item.estimated_volume_m3 * item.quantity as f64).sum();
+                    let total_vol: f64 = inv
+                        .iter()
+                        .map(|item| item.estimated_volume_m3 * item.quantity as f64)
+                        .sum();
                     volumes_map.insert(job.id.clone(), total_vol);
                 }
             }
@@ -224,7 +228,7 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
                                 },
                                 class: "p-3 rounded-lg border border-border bg-background cursor-grab active:cursor-grabbing transition-all hover:border-primary/50 hover:shadow-md hover:bg-secondary/10 flex flex-col gap-1.5",
                                 style: if dragged_job_id.read().as_ref() == Some(&job.id) { "opacity: 0.4;" } else { "" },
-                                
+
                                 div { class: "flex justify-between items-start gap-2",
                                     span { class: "text-xs font-extrabold text-foreground leading-tight", "{job.title}" }
                                     span {
@@ -256,7 +260,7 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
 
             // Right Panel: 7-Day Timeline / Gantt grid
             div { class: "flex-1 flex flex-col gap-4 border border-border bg-sidebar rounded-xl p-4 shadow-sm",
-                
+
                 // Gantt Header (Week Navigation)
                 div { class: "flex justify-between items-center pb-2 border-b border-border/40",
                     div {
@@ -293,7 +297,7 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
                 // Grid Container
                 div { class: "flex-1 overflow-x-auto select-none",
                     div { class: "min-w-[800px] flex flex-col",
-                        
+
                         // Column Headers (Dates)
                         div { class: "grid border-b border-border/60 pb-2",
                             style: "grid-template-columns: 180px repeat(7, minmax(0, 1fr));",
@@ -347,7 +351,7 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
                                                     .filter(|j| j.assigned_vehicle_id.as_ref() == Some(&vehicle.id) && j.scheduled_date == *date)
                                                     .cloned()
                                                     .collect();
-                                                
+
                                                 let cell_vol: f64 = cell_jobs.iter().map(|j| *volumes.get(&j.id).unwrap_or(&0.0)).sum();
                                                 let is_overloaded = cell_vol > vehicle.capacity_m3;
                                                 let is_dragged_over = dragged_over_cell.read().as_ref() == Some(&(vehicle.id.clone(), date.clone()));
@@ -371,7 +375,7 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
                                                         key: "{vehicle.id}-{date}",
                                                         class: "border-r border-border/10 px-2 py-1.5 flex flex-col gap-2 transition-all relative border-dashed border {cell_bg}",
                                                         style: "min-height: 120px;",
-                                                        
+
                                                         ondragover: |e| e.prevent_default(),
                                                         ondragenter: {
                                                             let v_id_c = vehicle.id.clone();
@@ -437,7 +441,7 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
                                                                         "medium" => "p-2 rounded border border-l-2 bg-background/90 shadow-sm cursor-grab active:cursor-grabbing hover:border-primary/40 transition-all flex flex-col gap-1 pr-6 relative group border-blue-500 bg-blue-500/10",
                                                                         _ => "p-2 rounded border border-l-2 bg-background/90 shadow-sm cursor-grab active:cursor-grabbing hover:border-primary/40 transition-all flex flex-col gap-1 pr-6 relative group border-slate-500 bg-slate-500/10",
                                                                     },
-                                                                    
+
                                                                     span { class: "text-[10px] font-extrabold text-foreground leading-tight truncate", "{job.title}" }
                                                                     span { class: "text-[8px] font-semibold text-muted-foreground flex items-center gap-0.5",
                                                                         components::LucideIcon { name: "box", size: "8" }
@@ -490,7 +494,7 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
                         .filter(|j| j.assigned_vehicle_id.as_ref() == Some(&resolved_v.id) && !j.scheduled_date.is_empty() && j.scheduled_date != "unscheduled")
                         .cloned()
                         .collect();
-                    
+
                     let (center_lat, center_lon) = if let (Some(lat), Some(lng)) = (resolved_v.latitude, resolved_v.longitude) {
                         (lat, lng)
                     } else {
@@ -766,7 +770,7 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
                                         components::LucideIcon { name: "x", size: "16" }
                                     }
                                 }
-                                
+
                                 // Content grid
                                 div { class: "flex-1 flex min-h-0",
                                     // Left Sidebar: Status & Controls
@@ -779,7 +783,7 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
                                                     span { class: "text-xs font-bold text-foreground", if has_coords { "{t(\"dispatch-modal-tracking-live\", &region)}" } else { "{t(\"dispatch-modal-no-coords\", &region)}" } }
                                                 }
                                             }
-                                            
+
                                             if let (Some(lat), Some(lng)) = (resolved_v.latitude, resolved_v.longitude) {
                                                 div { class: "flex flex-col gap-1.5 p-3 rounded-lg border border-border/20 bg-background",
                                                     div { class: "text-[10px] font-extrabold text-muted-foreground uppercase", "{t(\"dispatch-modal-recent-pos\", &region)}" }
@@ -816,7 +820,7 @@ pub fn DispatchBoard(props: DispatchBoardProps) -> Element {
                                             }
                                         }
                                     }
-                                    
+
                                     // Right Side: The Map
                                     div { class: "flex-1 relative bg-slate-900",
                                         iframe {
@@ -857,9 +861,7 @@ pub fn DispatchView(props: DispatchViewProps) -> Element {
     let jobs_res = use_resource(move || {
         let _ = db_trig;
         let uid = uid.clone();
-        async move {
-            yntra_core::get_job_tickets(uid).await.unwrap_or_default()
-        }
+        async move { yntra_core::get_job_tickets(uid).await.unwrap_or_default() }
     });
     let jobs = jobs_res.read().clone().unwrap_or_default();
 
@@ -867,9 +869,7 @@ pub fn DispatchView(props: DispatchViewProps) -> Element {
     let vehicles_res = use_resource(move || {
         let _ = db_trig;
         let uid = uid2.clone();
-        async move {
-            yntra_core::get_vehicles(uid).await.unwrap_or_default()
-        }
+        async move { yntra_core::get_vehicles(uid).await.unwrap_or_default() }
     });
     let vehicles = vehicles_res.read().clone().unwrap_or_default();
 

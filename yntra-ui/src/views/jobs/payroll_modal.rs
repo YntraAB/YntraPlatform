@@ -1,5 +1,5 @@
-use dioxus::prelude::*;
 use crate::components;
+use dioxus::prelude::*;
 
 #[component]
 pub fn CrewPayrollModal(
@@ -29,9 +29,7 @@ pub fn CrewPayrollModal(
         let _ = trig_val;
         let u = uid.clone();
         let j = jid.clone();
-        async move {
-            yntra_core::get_job_crew(u, j).await.unwrap_or_default()
-        }
+        async move { yntra_core::get_job_crew(u, j).await.unwrap_or_default() }
     });
 
     let uid_b = active_user_id.clone();
@@ -41,7 +39,10 @@ pub fn CrewPayrollModal(
         let u = uid_b.clone();
         let j = jid_b.clone();
         async move {
-            yntra_core::get_job_tip_distribution(u, j).await.ok().flatten()
+            yntra_core::get_job_tip_distribution(u, j)
+                .await
+                .ok()
+                .flatten()
         }
     });
 
@@ -108,7 +109,8 @@ pub fn CrewPayrollModal(
                     drv_h,
                     load_h,
                     per_diem,
-                ).await;
+                )
+                .await;
 
                 is_calculating.set(false);
                 match res {

@@ -1,6 +1,6 @@
 use crate::components::{
-    Button, Dialog, DynamicForm, DynamicList, FormFieldSchema, LucideIcon,
-    TemplateMarketplace, VisualBlockBuilder,
+    Button, Dialog, DynamicForm, DynamicList, FormFieldSchema, LucideIcon, TemplateMarketplace,
+    VisualBlockBuilder,
 };
 use crate::locales::t;
 use crate::utils::DioxusDbObserver;
@@ -8,8 +8,8 @@ use dioxus::prelude::*;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use yntra_core::{
-    delete_dynamic_entity, get_blocks, get_dynamic_entities, register_observer,
-    save_dynamic_entity, DynamicEntity,
+    DynamicEntity, delete_dynamic_entity, get_blocks, get_dynamic_entities, register_observer,
+    save_dynamic_entity,
 };
 
 #[derive(Props, Clone, PartialEq)]
@@ -52,7 +52,9 @@ pub fn DynamicBlockView(props: DynamicBlockViewProps) -> Element {
                     }
                 });
             }
-            let observer = Box::new(DioxusDbObserver { tx: tx_channel.clone() });
+            let observer = Box::new(DioxusDbObserver {
+                tx: tx_channel.clone(),
+            });
             register_observer(observer);
         }
     });
@@ -108,13 +110,23 @@ pub fn DynamicBlockView(props: DynamicBlockViewProps) -> Element {
     let parsed_fields = FormFieldSchema::parse_json(&fields_schema).unwrap_or_default();
 
     // Determine status column options for Kanban view
-    let status_field = parsed_fields
-        .iter()
-        .find(|f| f.name == "status" || f.name == "priority" || f.name == "care_level" || f.field_type == crate::components::FieldType::Select);
-    
-    let kanban_statuses: Vec<String> = status_field
-        .and_then(|f| f.options.clone())
-        .unwrap_or_else(|| vec!["New".to_string(), "In Progress".to_string(), "Completed".to_string()]);
+    let status_field = parsed_fields.iter().find(|f| {
+        f.name == "status"
+            || f.name == "priority"
+            || f.name == "care_level"
+            || f.field_type == crate::components::FieldType::Select
+    });
+
+    let kanban_statuses: Vec<String> =
+        status_field
+            .and_then(|f| f.options.clone())
+            .unwrap_or_else(|| {
+                vec![
+                    "New".to_string(),
+                    "In Progress".to_string(),
+                    "Completed".to_string(),
+                ]
+            });
 
     let curr_view = active_view_mode.read().clone();
 
@@ -268,7 +280,7 @@ pub fn DynamicBlockView(props: DynamicBlockViewProps) -> Element {
                                             div {
                                                 key: "{status_name}",
                                                 class: "w-80 flex flex-col rounded-2xl border border-border bg-card/40 p-4 space-y-3 shadow-xs shrink-0",
-                                                
+
                                                 div { class: "flex items-center justify-between border-b border-border/60 pb-3",
                                                     h4 { class: "text-xs font-bold uppercase tracking-wider text-foreground m-0 flex items-center gap-2",
                                                         span { class: "h-2 w-2 rounded-full bg-primary" }
@@ -305,7 +317,7 @@ pub fn DynamicBlockView(props: DynamicBlockViewProps) -> Element {
                                                                     div {
                                                                         key: "{item.id}",
                                                                         class: "rounded-xl border border-border bg-background p-4 space-y-3 shadow-xs hover:border-primary/40 transition-all group",
-                                                                        
+
                                                                         div { class: "flex items-start justify-between gap-2",
                                                                             p { class: "text-xs font-bold text-foreground m-0 group-hover:text-primary transition-colors", "{title_text}" }
                                                                             button {
@@ -426,7 +438,7 @@ pub fn DynamicBlockView(props: DynamicBlockViewProps) -> Element {
                                                     "min-h-[100px] p-2 rounded-xl border flex flex-col justify-between transition-all {}",
                                                     if !day_entities.is_empty() { "bg-primary/5 border-primary/30" } else { "bg-background border-border/60" }
                                                 ),
-                                                
+
                                                 div { class: "flex items-center justify-between text-xs font-bold text-foreground",
                                                     span { class: "h-6 w-6 rounded-full flex items-center justify-center bg-muted/60 text-[11px]", "{day}" }
                                                     if !day_entities.is_empty() {

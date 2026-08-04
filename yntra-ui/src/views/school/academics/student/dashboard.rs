@@ -1,8 +1,10 @@
-use dioxus::prelude::*;
-use crate::components::{Button, Card, CardContent, CardDescription, CardHeader, CardTitle, LucideIcon};
-use crate::locales::{t, t_with_args};
-use yntra_core::{Course, StudentProfile, TimetableSlot};
 use super::super::utils::base64_encode;
+use crate::components::{
+    Button, Card, CardContent, CardDescription, CardHeader, CardTitle, LucideIcon,
+};
+use crate::locales::{t, t_with_args};
+use dioxus::prelude::*;
+use yntra_core::{Course, StudentProfile, TimetableSlot};
 
 #[component]
 pub fn StudentDashboardTab(
@@ -24,7 +26,7 @@ pub fn StudentDashboardTab(
             // Welcome Banner Card
             div { class: "p-6 rounded-2xl bg-gradient-to-r from-primary/10 to-accent/5 border border-primary/20 flex items-center justify-between shadow-sm",
                 div { class: "space-y-1.5",
-                    h3 { class: "text-lg font-extrabold text-foreground m-0", 
+                    h3 { class: "text-lg font-extrabold text-foreground m-0",
                         {t_with_args("school-welcome", &locale, &[("name", &student_name)])}
                     }
                     p { class: "text-xs text-muted-foreground m-0", {t("school-ready-msg", &locale)} }
@@ -45,9 +47,9 @@ pub fn StudentDashboardTab(
                                 {
                                     let active = i < stars_count;
                                     rsx! {
-                                        LucideIcon { 
-                                            name: "star", 
-                                            class: format!("h-10 w-10 {}", if active { "text-amber-500 fill-amber-500 animate-pulse" } else { "text-muted-foreground/10" }) 
+                                        LucideIcon {
+                                            name: "star",
+                                            class: format!("h-10 w-10 {}", if active { "text-amber-500 fill-amber-500 animate-pulse" } else { "text-muted-foreground/10" })
                                         }
                                     }
                                 }
@@ -202,7 +204,7 @@ pub fn StudentDashboardTab(
                                                 5 => "20260724",
                                                 _ => "20260720",
                                             };
-                                            
+
                                             let clean_start = s.start_time.replace(":", "");
                                             let clean_end = s.end_time.replace(":", "");
 

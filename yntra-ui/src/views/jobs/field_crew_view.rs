@@ -19,10 +19,12 @@ pub fn FieldCrewView(props: FieldCrewViewProps) -> Element {
     let job_prop = props.job.clone();
 
     let mut current_status = use_signal(|| "LASTNING_PÅGÅR".to_string());
-    let mut captured_photos = use_signal(|| vec![
-        "Foto 1: Trapphus damage waiver".to_string(),
-        "Foto 2: Spegel inslagen filt".to_string(),
-    ]);
+    let mut captured_photos = use_signal(|| {
+        vec![
+            "Foto 1: Trapphus damage waiver".to_string(),
+            "Foto 2: Spegel inslagen filt".to_string(),
+        ]
+    });
     let mut is_offline = use_signal(|| true); // Field environment default: basement / low-connectivity
     let mut offline_queue_count = use_signal(|| 3u32);
     let mut flash_feedback = use_signal(|| Option::<String>::None);
@@ -31,31 +33,38 @@ pub fn FieldCrewView(props: FieldCrewViewProps) -> Element {
     let tracking_res = use_resource(move || {
         let id_val = j_id.clone();
         async move {
-            yntra_core::get_customer_live_tracking_portal(id_val).await.ok()
+            yntra_core::get_customer_live_tracking_portal(id_val)
+                .await
+                .ok()
         }
     });
 
     let portal_opt = tracking_res.read().clone().flatten();
 
-    let (job_title_display, origin_address_display, destination_address_display) = if let Some(ref j) = job_prop {
-        (
-            j.title.clone(),
-            j.origin_address.clone().unwrap_or_else(|| j.location_address.clone()),
-            j.destination_address.clone().unwrap_or_else(|| "Ej angiven".to_string()),
-        )
-    } else if let Some(ref p) = portal_opt {
-        (
-            format!("Flyttuppdrag #{}", p.job_ticket_id),
-            p.origin_address.clone(),
-            p.destination_address.clone(),
-        )
-    } else {
-        (
-            "Laddar uppdrag...".to_string(),
-            "Laddar adress...".to_string(),
-            "Laddar adress...".to_string(),
-        )
-    };
+    let (job_title_display, origin_address_display, destination_address_display) =
+        if let Some(ref j) = job_prop {
+            (
+                j.title.clone(),
+                j.origin_address
+                    .clone()
+                    .unwrap_or_else(|| j.location_address.clone()),
+                j.destination_address
+                    .clone()
+                    .unwrap_or_else(|| "Ej angiven".to_string()),
+            )
+        } else if let Some(ref p) = portal_opt {
+            (
+                format!("Flyttuppdrag #{}", p.job_ticket_id),
+                p.origin_address.clone(),
+                p.destination_address.clone(),
+            )
+        } else {
+            (
+                "Laddar uppdrag...".to_string(),
+                "Laddar adress...".to_string(),
+                "Laddar adress...".to_string(),
+            )
+        };
 
     let driver_phone_display = portal_opt.as_ref().and_then(|p| p.driver_phone.clone());
 
@@ -118,7 +127,7 @@ pub fn FieldCrewView(props: FieldCrewViewProps) -> Element {
                 // LEFT PANEL: 1-TAP STATUS TRANSITIONS & JOB INFO
                 div {
                     class: "bg-slate-950 border-4 border-yellow-400 rounded-2xl p-4 flex flex-col justify-between space-y-4 shadow-2xl",
-                    
+
                     div {
                         class: "space-y-2 border-b-2 border-yellow-500/40 pb-3",
                         div { class: "text-xs font-black uppercase text-yellow-500 tracking-widest", "KUND & ADRESS" }
@@ -131,10 +140,10 @@ pub fn FieldCrewView(props: FieldCrewViewProps) -> Element {
                     div {
                         class: "space-y-3",
                         div { class: "text-xs font-black uppercase text-yellow-500 tracking-widest", "STATUSUPPDATERING (1-TRYCK)" }
-                        
+
                         div {
                             class: "grid grid-cols-2 gap-3",
-                            
+
                             button {
                                 class: if *current_status.read() == "LASTNING_PÅGÅR" {
                                     "h-20 bg-yellow-400 text-black font-black text-xl rounded-xl border-4 border-white shadow-xl active:scale-95 transition-all flex items-center justify-center"
@@ -209,11 +218,11 @@ pub fn FieldCrewView(props: FieldCrewViewProps) -> Element {
                 // RIGHT PANEL: RAPID PHOTO CAPTURE & CONDITION DISPATCH
                 div {
                     class: "bg-slate-950 border-4 border-yellow-400 rounded-2xl p-4 flex flex-col justify-between space-y-4 shadow-2xl",
-                    
+
                     div {
                         class: "space-y-2",
                         div { class: "text-xs font-black uppercase text-yellow-500 tracking-widest", "SNABBFOTO & SKADEINSPEKTION" }
-                        
+
                         // Ultra-Large Rapid Shutter Trigger
                         button {
                             class: "h-28 w-full bg-yellow-400 hover:bg-yellow-300 active:scale-95 text-black font-black text-2xl rounded-2xl border-4 border-white shadow-2xl flex items-center justify-center gap-4 transition-all",

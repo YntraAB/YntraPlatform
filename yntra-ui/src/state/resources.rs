@@ -369,7 +369,9 @@ pub fn init_resources(
             if !initialized || !is_login {
                 return Vec::new();
             }
-            get_workspace_presences(uid, ws_id).await.unwrap_or_default()
+            get_workspace_presences(uid, ws_id)
+                .await
+                .unwrap_or_default()
         }
     });
 
@@ -382,7 +384,9 @@ pub fn init_resources(
             if !initialized || !is_login {
                 return Vec::new();
             }
-            get_user_notifications(uid.clone(), uid).await.unwrap_or_default()
+            get_user_notifications(uid.clone(), uid)
+                .await
+                .unwrap_or_default()
         }
     });
 

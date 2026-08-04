@@ -1,8 +1,8 @@
+use super::CareViewProps;
 use crate::components::{Button, Card, Dialog, LucideIcon};
 use crate::locales::t;
 use dioxus::prelude::*;
-use yntra_core::{get_clients, get_journals, add_journal_entry, check_care_permission};
-use super::CareViewProps;
+use yntra_core::{add_journal_entry, check_care_permission, get_clients, get_journals};
 
 #[component]
 pub fn JournalsView(props: CareViewProps) -> Element {
@@ -52,7 +52,10 @@ pub fn JournalsView(props: CareViewProps) -> Element {
     let journals = journals_res.read().clone().unwrap_or_default();
     let can_write = can_write_res.read().cloned().unwrap_or(false);
 
-    let selected_client = clients.iter().find(|c| c.id == *selected_client_id.read()).cloned();
+    let selected_client = clients
+        .iter()
+        .find(|c| c.id == *selected_client_id.read())
+        .cloned();
 
     rsx! {
         div { class: "p-6 space-y-6 max-w-5xl mx-auto animate-in fade-in slide-in-from-top-4 duration-300",

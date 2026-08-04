@@ -1,154 +1,66 @@
 use super::utils::format_month_year;
 
-
-
 use crate::components;
-
-
 
 use crate::locales::t;
 
-
-
 use dioxus::prelude::*;
-
-
 
 use yntra_core::TimeReport;
 
-
-
 use yntra_core::WorkspaceUser;
-
-
 
 use yntra_core::{delete_time_report, update_time_report_status};
 
-
-
-
-
-
-
 #[derive(Props, Clone)]
 
-
-
 pub struct ShiftListProps {
-
-
-
     pub filtered_reports: Vec<TimeReport>,
-
-
 
     pub users: Vec<WorkspaceUser>,
 
-
-
     pub teams: Vec<yntra_core::Team>,
-
-
 
     pub is_manager: bool,
 
-
-
     pub selected_time_reports: Signal<Vec<String>>,
-
-
 
     pub time_filter_status: Signal<String>,
 
-
-
     pub db_trigger: Signal<u32>,
-
-
 
     pub selected_user_id: Signal<Option<String>>,
 
-
-
     pub selected_team_id: Signal<Option<String>>,
-
-
 
     pub current_level: Signal<String>,
 
-
-
     pub active_user_role: String,
-
-
 
     pub list_mode: Signal<String>,
 
-
-
     pub current_page: Signal<i32>,
-
-
 
     pub time_search_query: Signal<String>,
 
-
-
     pub show_report_modal: Signal<bool>,
 
-
-
     pub locale: String,
-
-
-
 }
-
-
-
-
-
-
 
 impl PartialEq for ShiftListProps {
-
-
-
     fn eq(&self, _other: &Self) -> bool {
-
-
-
         false
-
-
-
     }
-
-
-
 }
-
-
-
-
-
-
 
 #[component]
 
-
-
 pub fn ShiftList(props: ShiftListProps) -> Element {
-
-
-
     let state = use_context::<crate::state::AppState>();
     let region = state.auth_region.read();
 
     let requester_id = state.active_user_id.read().clone();
-
-
-
 
     let mut context_menu_open = use_signal(|| false);
 
@@ -157,203 +69,77 @@ pub fn ShiftList(props: ShiftListProps) -> Element {
     let mut context_menu_report = use_signal(|| Option::<TimeReport>::None);
     let requester_id_approve = requester_id.clone();
 
-
-
     let requester_id_reject = requester_id.clone();
-
-
 
     let requester_id_delete = requester_id.clone();
 
-
-
     let filtered_reports = props.filtered_reports.clone();
-
-
 
     let users = props.users.clone();
 
-
-
     let teams = props.teams.clone();
-
-
 
     let is_manager = props.is_manager;
 
-
-
     let mut selected_time_reports = props.selected_time_reports;
-
-
 
     let mut time_filter_status = props.time_filter_status;
 
-
-
     let mut db_trigger = props.db_trigger;
-
-
 
     let mut selected_user_id = props.selected_user_id;
 
-
-
     let mut selected_team_id = props.selected_team_id;
-
-
 
     let mut current_level = props.current_level;
 
-
-
     let active_user_role = props.active_user_role.clone();
-
-
 
     let mut list_mode = props.list_mode;
 
-
-
     let mut current_page = props.current_page;
-
-
 
     let mut time_search_query = props.time_search_query;
 
-
-
     let mut show_report_modal = props.show_report_modal;
 
-
-
-
-
-
-
     let history_reports: Vec<TimeReport> = filtered_reports
-
-
-
         .iter()
-
-
-
         .filter(|r| r.status == "approved")
-
-
-
         .cloned()
-
-
-
         .collect();
-
-
-
-
-
-
 
     let items_per_page = 10;
 
-
-
     let total_pages = (std::cmp::max(1, filtered_reports.len().div_ceil(items_per_page))) as i32;
-
-
 
     let current_page_val = *current_page.read();
 
-
-
     let current_page_val = if current_page_val > total_pages {
-
-
-
         total_pages
-
-
-
     } else {
-
-
-
         current_page_val
-
-
-
     };
-
-
 
     let start_idx = ((current_page_val - 1) * items_per_page as i32) as usize;
 
-
-
     let end_idx = std::cmp::min(
-
-
-
         filtered_reports.len(),
-
-
-
         (current_page_val * items_per_page as i32) as usize,
-
-
-
     );
 
-
-
     let page_reports = if start_idx < filtered_reports.len() {
-
-
-
         filtered_reports[start_idx..end_idx].to_vec()
-
-
-
     } else {
-
-
-
         Vec::new()
-
-
-
     };
-
-
-
-
-
-
 
     let all_page_ids: Vec<String> = page_reports.iter().map(|r| r.id.clone()).collect();
 
-
-
     let is_all_selected = !all_page_ids.is_empty()
-
-
-
         && all_page_ids
-
-
-
             .iter()
-
-
-
             .all(|id| selected_time_reports.read().contains(id));
-
-
-
-
-
-
 
     rsx! {
 
@@ -1900,10 +1686,4 @@ Note: {}",
 
 
     }
-
-
-
 }
-
-
-

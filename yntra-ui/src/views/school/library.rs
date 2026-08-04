@@ -1,17 +1,21 @@
 #![allow(unused_imports)]
-use crate::components::{Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, Input, LucideIcon, SuggestionInput};
+use crate::components::{
+    Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, Input, LucideIcon,
+    SuggestionInput,
+};
 use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::{
-    checkout_book, create_school_invoice, get_assignments, get_library_books,
-    get_library_lending_logs, get_school_invoices, get_student_profiles, get_workspace_courses,
-    get_users, record_school_payment, return_book, save_assignment, save_attendance_record, save_course,
-    link_parent_to_student, get_student_parents, get_student_health_records, save_student_health_record,
-    get_health_incidents, save_health_incident, save_student_profile,
-    get_course_term_grades, save_term_grade, publish_report_card, get_report_cards,
-    get_student_submissions, save_submission, get_timetable_slots, save_timetable_slot, save_library_book, LibraryBook,
-    get_parent_students, SchoolInvoice, HealthRecord, HealthIncident, StudentProfile, TermGrade, ReportCard,
-    Submission, TimetableSlot, reserve_book, renew_book,
+    HealthIncident, HealthRecord, LibraryBook, ReportCard, SchoolInvoice, StudentProfile,
+    Submission, TermGrade, TimetableSlot, checkout_book, create_school_invoice, get_assignments,
+    get_course_term_grades, get_health_incidents, get_library_books, get_library_lending_logs,
+    get_parent_students, get_report_cards, get_school_invoices, get_student_health_records,
+    get_student_parents, get_student_profiles, get_student_submissions, get_timetable_slots,
+    get_users, get_workspace_courses, link_parent_to_student, publish_report_card,
+    record_school_payment, renew_book, reserve_book, return_book, save_assignment,
+    save_attendance_record, save_course, save_health_incident, save_library_book,
+    save_student_health_record, save_student_profile, save_submission, save_term_grade,
+    save_timetable_slot,
 };
 
 use super::SchoolViewProps;
@@ -83,7 +87,11 @@ pub fn LibraryView(props: SchoolViewProps) -> Element {
         let _trig = trigger_school_directory.read();
         let uid = user_id_clone_p.clone();
         let ws = ws_id_clone_p.clone();
-        async move { get_parent_students(uid.clone(), ws, uid).await.unwrap_or_default() }
+        async move {
+            get_parent_students(uid.clone(), ws, uid)
+                .await
+                .unwrap_or_default()
+        }
     });
 
     let mut selected_student_id = use_signal(|| "".to_string());
@@ -105,13 +113,18 @@ pub fn LibraryView(props: SchoolViewProps) -> Element {
         if q.is_empty() {
             books_raw
         } else {
-            books_raw.into_iter()
-                .filter(|b| b.title.to_lowercase().contains(&q) || b.author.to_lowercase().contains(&q) || b.isbn.contains(&q))
+            books_raw
+                .into_iter()
+                .filter(|b| {
+                    b.title.to_lowercase().contains(&q)
+                        || b.author.to_lowercase().contains(&q)
+                        || b.isbn.contains(&q)
+                })
                 .collect()
         }
     };
     let logs_raw = logs_res.read().clone().unwrap_or_default();
-    
+
     let students = if current_role == "parent" || current_role == "role-school-parent" {
         parent_students_res.read().clone().unwrap_or_default()
     } else {
@@ -120,13 +133,20 @@ pub fn LibraryView(props: SchoolViewProps) -> Element {
 
     let logs = if current_role == "parent" || current_role == "role-school-parent" {
         let s_id = selected_student_id.read().clone();
-        logs_raw.into_iter().filter(|lg| lg.student_id == s_id).collect::<Vec<_>>()
+        logs_raw
+            .into_iter()
+            .filter(|lg| lg.student_id == s_id)
+            .collect::<Vec<_>>()
     } else if current_role == "student" || current_role == "role-school-student" {
-        let student_names: std::collections::HashSet<String> = students.iter()
+        let student_names: std::collections::HashSet<String> = students
+            .iter()
             .filter(|s| s.user_id.as_ref() == Some(&user_id))
             .map(|s| format!("{} {}", s.first_name, s.last_name))
             .collect();
-        logs_raw.into_iter().filter(|lg| student_names.contains(&lg.student_name)).collect::<Vec<_>>()
+        logs_raw
+            .into_iter()
+            .filter(|lg| student_names.contains(&lg.student_name))
+            .collect::<Vec<_>>()
     } else {
         logs_raw
     };
@@ -650,4 +670,3 @@ pub fn LibraryView(props: SchoolViewProps) -> Element {
         }
     }
 }
-

@@ -3,18 +3,24 @@ use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::{
-    JobTicket, MoveInventoryItem, MoveQuote, MoveVehicle,
-    initiate_bankid_skatteverket_session, submit_skatteverket_claim_direct,
-    SkatteverketSubmitResult, BankIdAuthSession,
+    BankIdAuthSession, JobTicket, MoveInventoryItem, MoveQuote, MoveVehicle,
+    SkatteverketSubmitResult, initiate_bankid_skatteverket_session,
+    submit_skatteverket_claim_direct,
 };
 
 #[allow(dead_code)]
-fn trigger_download(toast: &dioxus_primitives::toast::Toasts, locale: &str, content: &str, file_name: &str) {
+fn trigger_download(
+    toast: &dioxus_primitives::toast::Toasts,
+    locale: &str,
+    content: &str,
+    file_name: &str,
+) {
     #[cfg(target_arch = "wasm32")]
     {
         toast.info(
             t("school-toast-download-started", locale),
-            dioxus_primitives::toast::ToastOptions::new().description(t("school-toast-browser-download-desc", locale))
+            dioxus_primitives::toast::ToastOptions::new()
+                .description(t("school-toast-browser-download-desc", locale)),
         );
 
         let base64_str = crate::views::school::academics::utils::base64_encode(content.as_bytes());
@@ -43,50 +49,49 @@ fn trigger_download(toast: &dioxus_primitives::toast::Toasts, locale: &str, cont
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let file_path = rfd::FileDialog::new()
-            .set_file_name(file_name)
-            .save_file();
+        let file_path = rfd::FileDialog::new().set_file_name(file_name).save_file();
         if let Some(path) = file_path {
             if std::fs::write(&path, content).is_ok() {
                 let desc = format!("{} {}", t("school-toast-saved-to", locale), path.display());
                 toast.success(
                     t("school-toast-export-success", locale),
-                    dioxus_primitives::toast::ToastOptions::new().description(desc)
+                    dioxus_primitives::toast::ToastOptions::new().description(desc),
                 );
             } else {
                 toast.error(
                     t("school-toast-export-failed", locale),
-                    dioxus_primitives::toast::ToastOptions::new().description(t("school-toast-export-failed-desc", locale))
+                    dioxus_primitives::toast::ToastOptions::new()
+                        .description(t("school-toast-export-failed-desc", locale)),
                 );
             }
         }
     }
 }
 
-pub mod details;
-pub mod dispatch;
-pub mod public_widget;
-pub mod fleet;
-pub mod live_map;
-pub mod rut_exports;
 pub mod bol_modal;
 pub mod condition_modal;
-pub mod printable_exporter;
-pub mod pos_modal;
-pub mod sit_modal;
-pub mod payroll_modal;
-pub mod erp_modal;
-pub mod live_tracking_modal;
-pub mod field_crew_view;
-pub mod eld_modal;
+pub mod details;
+pub mod dispatch;
 pub mod dispatch_alerts_modal;
+pub mod eld_modal;
+pub mod erp_modal;
+pub mod field_crew_view;
+pub mod fleet;
 pub mod hvac_modal;
+pub mod live_map;
+pub mod live_tracking_modal;
+pub mod payroll_modal;
+pub mod pos_modal;
+pub mod printable_exporter;
+pub mod public_widget;
+pub mod rut_exports;
+pub mod sit_modal;
 
 pub use dispatch::DispatchView;
 pub use fleet::FleetView;
 pub use live_map::LiveMapView;
-pub use rut_exports::RutExportsView;
 pub use public_widget::BookingWidgetView;
+pub use rut_exports::RutExportsView;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub struct ChecklistItem {
@@ -194,7 +199,7 @@ pub fn JobsView(props: JobsViewProps) -> Element {
     let mut checklist_state = use_signal(Vec::<ChecklistItem>::new);
     let mut completion_report_state = use_signal(String::new);
     let mut active_status_state = use_signal(|| "all".to_string());
-    
+
     // Context Menu signals
     let mut job_context_menu_open = use_signal(|| false);
     let mut job_context_menu_pos = use_signal(|| (0, 0));
@@ -219,7 +224,10 @@ pub fn JobsView(props: JobsViewProps) -> Element {
         }
     });
 
-    let details_val = details_resource.read().clone().unwrap_or((Vec::new(), None));
+    let details_val = details_resource
+        .read()
+        .clone()
+        .unwrap_or((Vec::new(), None));
     let inventories: Vec<MoveInventoryItem> = details_val.0;
     let quote: Option<MoveQuote> = details_val.1;
 
@@ -276,201 +284,201 @@ pub fn JobsView(props: JobsViewProps) -> Element {
     ];
 
     rsx! {
-        div {
-            class: "mx-auto w-full max-w-5xl",
-            style: "padding: 2rem; display: flex; flex-direction: column; gap: 1.5rem; box-sizing: border-box;",
-            // Header Section
-            div { class: "flex flex-col gap-1.5",
-                components::Tabs {
-                    tabs: tabs_list,
-                    active_tab: active_status_state.read().clone(),
-                    onchange: move |val| active_status_state.set(val),
-                }
+    div {
+        class: "mx-auto w-full max-w-5xl",
+        style: "padding: 2rem; display: flex; flex-direction: column; gap: 1.5rem; box-sizing: border-box;",
+        // Header Section
+        div { class: "flex flex-col gap-1.5",
+            components::Tabs {
+                tabs: tabs_list,
+                active_tab: active_status_state.read().clone(),
+                onchange: move |val| active_status_state.set(val),
             }
+        }
 
-            // Two-column responsive layout for Job Tickets & Details
+        // Two-column responsive layout for Job Tickets & Details
+        div {
+            style: "display: flex; gap: 1.5rem; align-items: start; width: 100%; flex-wrap: wrap; box-sizing: border-box;",
+
+            // Left Column: Job Tickets List
             div {
-                style: "display: flex; gap: 1.5rem; align-items: start; width: 100%; flex-wrap: wrap; box-sizing: border-box;",
-
-                // Left Column: Job Tickets List
-                div {
-                    style: "display: flex; flex-direction: column; gap: 0.75rem; width: 340px; flex-shrink: 0; min-width: 280px;",
-                    if filtered_jobs.is_empty() {
-                        components::Card {
-                            class: "text-center p-8 text-muted-foreground",
-                            components::LucideIcon { name: "inbox", size: "32", class: "icon-muted", }
-                            p { class: "mt-2 text-sm", "{t(\"jobs-empty-filter\", &region)}" }
-                        }
+                style: "display: flex; flex-direction: column; gap: 0.75rem; width: 340px; flex-shrink: 0; min-width: 280px;",
+                if filtered_jobs.is_empty() {
+                    components::Card {
+                        class: "text-center p-8 text-muted-foreground",
+                        components::LucideIcon { name: "inbox", size: "32", class: "icon-muted", }
+                        p { class: "mt-2 text-sm", "{t(\"jobs-empty-filter\", &region)}" }
                     }
+                }
 
-                    {filtered_jobs.into_iter().map(|job| {
-                        let job_id = job.id.clone();
-                        let is_selected = selected_job_id.read().as_ref() == Some(&job_id);
+                {filtered_jobs.into_iter().map(|job| {
+                    let job_id = job.id.clone();
+                    let is_selected = selected_job_id.read().as_ref() == Some(&job_id);
 
-                        let priority_color = match job.priority.as_str() {
-                            "critical" => "background: rgba(239, 68, 68, 0.15); color: hsl(0, 90.6%, 70.8%); border: 1px solid rgba(239, 68, 68, 0.2);",
-                            "high" => "background: rgba(245, 158, 11, 0.15); color: hsl(43.3, 96.4%, 56.3%); border: 1px solid rgba(245, 158, 11, 0.2);",
-                            "medium" => "background: rgba(59, 130, 246, 0.15); color: hsl(213.1, 93.9%, 67.8%); border: 1px solid rgba(59, 130, 246, 0.2);",
-                            _ => "background: rgba(156, 163, 175, 0.15); color: hsl(217.9, 10.6%, 64.9%); border: 1px solid rgba(156, 163, 175, 0.2);",
-                        };
+                    let priority_color = match job.priority.as_str() {
+                        "critical" => "background: rgba(239, 68, 68, 0.15); color: hsl(0, 90.6%, 70.8%); border: 1px solid rgba(239, 68, 68, 0.2);",
+                        "high" => "background: rgba(245, 158, 11, 0.15); color: hsl(43.3, 96.4%, 56.3%); border: 1px solid rgba(245, 158, 11, 0.2);",
+                        "medium" => "background: rgba(59, 130, 246, 0.15); color: hsl(213.1, 93.9%, 67.8%); border: 1px solid rgba(59, 130, 246, 0.2);",
+                        _ => "background: rgba(156, 163, 175, 0.15); color: hsl(217.9, 10.6%, 64.9%); border: 1px solid rgba(156, 163, 175, 0.2);",
+                    };
 
-                        let status_color = match job.status.as_str() {
-                            "completed" => "background: rgba(16, 185, 129, 0.15); color: hsl(158.1, 64.4%, 51.6%);",
-                            "in_progress" => "background: rgba(245, 158, 11, 0.15); color: hsl(43.3, 96.4%, 56.3%);",
-                            _ => "background: rgba(107, 114, 128, 0.15); color: hsl(216, 12.2%, 83.9%);",
-                        };
+                    let status_color = match job.status.as_str() {
+                        "completed" => "background: rgba(16, 185, 129, 0.15); color: hsl(158.1, 64.4%, 51.6%);",
+                        "in_progress" => "background: rgba(245, 158, 11, 0.15); color: hsl(43.3, 96.4%, 56.3%);",
+                        _ => "background: rgba(107, 114, 128, 0.15); color: hsl(216, 12.2%, 83.9%);",
+                    };
 
-                        let job_clone = job.clone();
-                        rsx! {
-                            div {
-                                key: "{job_id}",
-                                class: "cursor-pointer w-full",
-                                    onclick: move |_| selected_job_id.set(Some(job_id.clone())),
-                                    oncontextmenu: move |evt| {
-                                        evt.prevent_default();
-                                        let coords = evt.client_coordinates();
-                                        job_context_menu_pos.set((coords.x as i32, coords.y as i32));
-                                        job_context_menu_val.set(Some(job_clone.clone()));
-                                        job_context_menu_open.set(true);
-                                    },
-                                    components::Card {
-                                        style: format!(
-                                            "padding: 1rem; border-color: {}; transition: all 0.2s;",
-                                            if is_selected { "var(--accent)" } else { "var(--border-color)" }
-                                        ),
+                    let job_clone = job.clone();
+                    rsx! {
+                        div {
+                            key: "{job_id}",
+                            class: "cursor-pointer w-full",
+                                onclick: move |_| selected_job_id.set(Some(job_id.clone())),
+                                oncontextmenu: move |evt| {
+                                    evt.prevent_default();
+                                    let coords = evt.client_coordinates();
+                                    job_context_menu_pos.set((coords.x as i32, coords.y as i32));
+                                    job_context_menu_val.set(Some(job_clone.clone()));
+                                    job_context_menu_open.set(true);
+                                },
+                                components::Card {
+                                    style: format!(
+                                        "padding: 1rem; border-color: {}; transition: all 0.2s;",
+                                        if is_selected { "var(--accent)" } else { "var(--border-color)" }
+                                    ),
 
-                                        // Top Row: Priority & Status Badges
-                                        div { class: "flex justify-between items-center mb-2",
-                                            span {
-                                                style: format!("font-size: 0.65rem; text-transform: uppercase; font-weight: 800; padding: 0.15rem 0.4rem; border-radius: 4px; {}", priority_color),
-                                                "{job.priority}"
-                                            }
-                                            span {
-                                                style: format!("font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 4px; {}", status_color),
-                                                "{job.status}"
-                                            }
+                                    // Top Row: Priority & Status Badges
+                                    div { class: "flex justify-between items-center mb-2",
+                                        span {
+                                            style: format!("font-size: 0.65rem; text-transform: uppercase; font-weight: 800; padding: 0.15rem 0.4rem; border-radius: 4px; {}", priority_color),
+                                            "{job.priority}"
                                         }
-
-                                        h3 { class: "text-sm font-bold",
-                                        style: "margin: 0 0 0.25rem 0;", "{job.title}" }
-                                        p { class: "text-xs text-muted-foreground",
-                                        style: "margin: 0 0 0.5rem 0; line-height: 1.3;", "{job.description}" }
-
-                                        // Bottom Metadata
-                                        div { class: "flex items-center text-xs text-muted-foreground",
-                                        style: "gap: 0.35rem;",
-                                            components::LucideIcon { name: "map-pin", size: "12" }
-                                            span { "{job.location_address}" }
+                                        span {
+                                            style: format!("font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 4px; {}", status_color),
+                                            "{job.status}"
                                         }
+                                    }
+
+                                    h3 { class: "text-sm font-bold",
+                                    style: "margin: 0 0 0.25rem 0;", "{job.title}" }
+                                    p { class: "text-xs text-muted-foreground",
+                                    style: "margin: 0 0 0.5rem 0; line-height: 1.3;", "{job.description}" }
+
+                                    // Bottom Metadata
+                                    div { class: "flex items-center text-xs text-muted-foreground",
+                                    style: "gap: 0.35rem;",
+                                        components::LucideIcon { name: "map-pin", size: "12" }
+                                        span { "{job.location_address}" }
                                     }
                                 }
                             }
-                        })}
-                    }
+                        }
+                    })}
+                }
 
-                    // Right Column: Active Job Ticket Detail View
-                    div {
-                        style: "flex: 1 1 0%; min-width: 320px;",
-                        if let Some(job) = selected_job {
-                            details::JobDetails {
-                                job: job,
-                                active_user_id: props.active_user_id.read().clone(),
-                                region: region.clone(),
-                                checklist_state: checklist_state,
-                                completion_report_state: completion_report_state,
-                                inventories: inventories.clone(),
-                                quote: quote.clone(),
-                                db_trigger: db_trigger,
-                            }
-                        } else {
-                            components::Card {
-                                class: "flex flex-col items-center justify-center text-center text-muted-foreground",
-                                style: "min-height: 380px;",
-                                components::LucideIcon { name: "wrench", size: "48", class: "icon-muted", }
-                                h2 { class: "text-lg font-extrabold text-foreground",
-                                style: "margin: 1rem 0 0.25rem 0;", "{t(\"jobs-detail-empty-title\", &region)}" }
-                                p { class: "text-sm m-0",
-                                style: "max-width: 280px; line-height: 1.4;", "{t(\"jobs-detail-empty-desc\", &region)}" }
-                            }
+                // Right Column: Active Job Ticket Detail View
+                div {
+                    style: "flex: 1 1 0%; min-width: 320px;",
+                    if let Some(job) = selected_job {
+                        details::JobDetails {
+                            job: job,
+                            active_user_id: props.active_user_id.read().clone(),
+                            region: region.clone(),
+                            checklist_state: checklist_state,
+                            completion_report_state: completion_report_state,
+                            inventories: inventories.clone(),
+                            quote: quote.clone(),
+                            db_trigger: db_trigger,
+                        }
+                    } else {
+                        components::Card {
+                            class: "flex flex-col items-center justify-center text-center text-muted-foreground",
+                            style: "min-height: 380px;",
+                            components::LucideIcon { name: "wrench", size: "48", class: "icon-muted", }
+                            h2 { class: "text-lg font-extrabold text-foreground",
+                            style: "margin: 1rem 0 0.25rem 0;", "{t(\"jobs-detail-empty-title\", &region)}" }
+                            p { class: "text-sm m-0",
+                            style: "max-width: 280px; line-height: 1.4;", "{t(\"jobs-detail-empty-desc\", &region)}" }
                         }
                     }
                 }
+            }
 
-                // Context menu overlay
-                if let Some(job) = job_context_menu_val.read().clone() {
-                    components::ContextMenu {
-                        open: *job_context_menu_open.read(),
-                        x: job_context_menu_pos.read().0,
-                        y: job_context_menu_pos.read().1,
-                        onclose: move |_| job_context_menu_open.set(false),
+            // Context menu overlay
+            if let Some(job) = job_context_menu_val.read().clone() {
+                components::ContextMenu {
+                    open: *job_context_menu_open.read(),
+                    x: job_context_menu_pos.read().0,
+                    y: job_context_menu_pos.read().1,
+                    onclose: move |_| job_context_menu_open.set(false),
 
-                        button {
-                            class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
-                            onclick: {
-                                let job_id = job.id.clone();
-                                move |_| {
-                                    selected_job_id.set(Some(job_id.clone()));
-                                    job_context_menu_open.set(false);
-                                }
-                            },
-                            components::LucideIcon { name: "info", size: "14" }
-                            "View Details"
-                        }
-                        button {
-                            class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
-                            onclick: {
-                                let job_id = job.id.clone();
-                                let active_uid = props.active_user_id.read().clone();
-                                move |_| {
-                                    let j_id = job_id.clone();
-                                    let u_id = active_uid.clone();
-                                    let mut d_trig = db_trigger;
-                                    spawn(async move {
-                                        let _ = yntra_core::update_job_status(u_id, j_id, "in_progress".to_string()).await;
-                                        let current = *d_trig.read();
-                                        d_trig.set(current + 1);
-                                    });
-                                    job_context_menu_open.set(false);
-                                }
-                            },
-                            components::LucideIcon { name: "play", size: "14" }
-                            "Mark In Progress"
-                        }
-                        button {
-                            class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
-                            onclick: {
-                                let job_id = job.id.clone();
-                                let active_uid = props.active_user_id.read().clone();
-                                move |_| {
-                                    let j_id = job_id.clone();
-                                    let u_id = active_uid.clone();
-                                    let mut d_trig = db_trigger;
-                                    spawn(async move {
-                                        let _ = yntra_core::update_job_status(u_id, j_id, "completed".to_string()).await;
-                                        let current = *d_trig.read();
-                                        d_trig.set(current + 1);
-                                    });
-                                    job_context_menu_open.set(false);
-                                }
-                            },
-                            components::LucideIcon { name: "check-circle", size: "14" }
-                            "Mark Completed"
-                        }
-                        button {
-                            class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
-                            onclick: {
-                                let job_id = job.id.clone();
-                                move |_| {
-                                    let js = format!("navigator.clipboard.writeText({:?});", job_id);
-                                    let _ = dioxus::document::eval(&js);
-                                    job_context_menu_open.set(false);
-                                }
-                            },
-                            components::LucideIcon { name: "copy", size: "14" }
-                            "Copy Job ID"
-                        }
+                    button {
+                        class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                        onclick: {
+                            let job_id = job.id.clone();
+                            move |_| {
+                                selected_job_id.set(Some(job_id.clone()));
+                                job_context_menu_open.set(false);
+                            }
+                        },
+                        components::LucideIcon { name: "info", size: "14" }
+                        "View Details"
+                    }
+                    button {
+                        class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                        onclick: {
+                            let job_id = job.id.clone();
+                            let active_uid = props.active_user_id.read().clone();
+                            move |_| {
+                                let j_id = job_id.clone();
+                                let u_id = active_uid.clone();
+                                let mut d_trig = db_trigger;
+                                spawn(async move {
+                                    let _ = yntra_core::update_job_status(u_id, j_id, "in_progress".to_string()).await;
+                                    let current = *d_trig.read();
+                                    d_trig.set(current + 1);
+                                });
+                                job_context_menu_open.set(false);
+                            }
+                        },
+                        components::LucideIcon { name: "play", size: "14" }
+                        "Mark In Progress"
+                    }
+                    button {
+                        class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                        onclick: {
+                            let job_id = job.id.clone();
+                            let active_uid = props.active_user_id.read().clone();
+                            move |_| {
+                                let j_id = job_id.clone();
+                                let u_id = active_uid.clone();
+                                let mut d_trig = db_trigger;
+                                spawn(async move {
+                                    let _ = yntra_core::update_job_status(u_id, j_id, "completed".to_string()).await;
+                                    let current = *d_trig.read();
+                                    d_trig.set(current + 1);
+                                });
+                                job_context_menu_open.set(false);
+                            }
+                        },
+                        components::LucideIcon { name: "check-circle", size: "14" }
+                        "Mark Completed"
+                    }
+                    button {
+                        class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
+                        onclick: {
+                            let job_id = job.id.clone();
+                            move |_| {
+                                let js = format!("navigator.clipboard.writeText({:?});", job_id);
+                                let _ = dioxus::document::eval(&js);
+                                job_context_menu_open.set(false);
+                            }
+                        },
+                        components::LucideIcon { name: "copy", size: "14" }
+                        "Copy Job ID"
                     }
                 }
             }
         }
     }
+}

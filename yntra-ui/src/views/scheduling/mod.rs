@@ -84,8 +84,12 @@ pub fn SchedulingView(props: SchedulingViewProps) -> Element {
 
     let workspace_opt = state.workspace.read().clone();
     let is_moving_company = if let Some(ref ws) = workspace_opt {
-        let modules_val: serde_json::Value = serde_json::from_str(&ws.modules_active).unwrap_or_default();
-        modules_val.get("moving_company").and_then(|v| v.as_bool()).unwrap_or(false)
+        let modules_val: serde_json::Value =
+            serde_json::from_str(&ws.modules_active).unwrap_or_default();
+        modules_val
+            .get("moving_company")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
     } else {
         false
     };

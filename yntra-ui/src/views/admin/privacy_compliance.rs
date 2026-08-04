@@ -1,7 +1,7 @@
 use crate::components::{Button, Dialog, LucideIcon, PasskeyCard};
 use crate::locales::t;
 use dioxus::prelude::*;
-use yntra_core::{delete_user_account, export_user_personal_data, Workspace, ZkCryptoTrust};
+use yntra_core::{Workspace, ZkCryptoTrust, delete_user_account, export_user_personal_data};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct PrivacyComplianceViewProps {

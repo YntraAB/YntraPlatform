@@ -1,5 +1,5 @@
-use dioxus::prelude::*;
 use crate::components;
+use dioxus::prelude::*;
 
 #[component]
 pub fn PosTerminalModal(
@@ -33,7 +33,8 @@ pub fn PosTerminalModal(
                     iid,
                     Some(prov),
                     Some("reader_bt_field_01".to_string()),
-                ).await;
+                )
+                .await;
                 is_connecting.set(false);
                 match res {
                     Ok(sess) => {
@@ -65,7 +66,8 @@ pub fn PosTerminalModal(
                     "card_present_tap".to_string(),
                     brand,
                     l4,
-                ).await;
+                )
+                .await;
                 is_processing.set(false);
                 match res {
                     Ok(_) => {
@@ -114,7 +116,7 @@ pub fn PosTerminalModal(
 
                 // Modal Body
                 div { class: "p-5 space-y-4 overflow-y-auto flex-1 text-xs",
-                    
+
                     // Amount Banner
                     div { class: "bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3.5 flex justify-between items-center",
                         div {
@@ -188,7 +190,7 @@ pub fn PosTerminalModal(
                         // Hardware Selection View
                         div { class: "space-y-3",
                             label { class: "text-[11px] font-bold text-foreground block", "Välj Kortläsare / Terminal" }
-                            
+
                             div { class: "grid grid-cols-2 gap-2",
                                 button {
                                     class: format!(

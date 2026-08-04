@@ -28,23 +28,29 @@ pub fn RbacManagementView(props: RbacManagementProps) -> Element {
     let permissions_res = use_resource(move || {
         let uid = active_user_id.clone();
         let wsid = workspace_id.clone();
-        async move {
-            yntra_core::get_workspace_role_permissions(uid, wsid).await
-        }
+        async move { yntra_core::get_workspace_role_permissions(uid, wsid).await }
     });
 
+    let filtered_users: Vec<WorkspaceUser> = props
+        .users
+        .iter()
+        .filter(|u| {
+            let q = search_query.read().to_lowercase();
+            let matches_search = q.is_empty()
+                || u.email.to_lowercase().contains(&q)
+                || u.full_name
+                    .as_deref()
+                    .unwrap_or("")
+                    .to_lowercase()
+                    .contains(&q);
 
-    let filtered_users: Vec<WorkspaceUser> = props.users.iter().filter(|u| {
-        let q = search_query.read().to_lowercase();
-        let matches_search = q.is_empty()
-            || u.email.to_lowercase().contains(&q)
-            || u.full_name.as_deref().unwrap_or("").to_lowercase().contains(&q);
+            let rf = selected_role_filter.read().clone();
+            let matches_role = rf == "all" || u.role.to_lowercase() == rf;
 
-        let rf = selected_role_filter.read().clone();
-        let matches_role = rf == "all" || u.role.to_lowercase() == rf;
-
-        matches_search && matches_role
-    }).cloned().collect();
+            matches_search && matches_role
+        })
+        .cloned()
+        .collect();
 
     rsx! {
         div { class: "p-6 space-y-8 animate-in fade-in duration-300",

@@ -1,19 +1,23 @@
 #![allow(unused_imports)]
-use crate::components::{Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, Input, LucideIcon, SuggestionInput};
+use crate::components::{
+    Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, Input, LucideIcon,
+    SuggestionInput,
+};
 use crate::locales::t;
-use crate::views::school::academics::utils::{decrypt_field, decrypt_opt_field, encrypt_field_with_proof, encrypt_opt_field_with_proof};
+use crate::views::school::academics::utils::{
+    decrypt_field, decrypt_opt_field, encrypt_field_with_proof, encrypt_opt_field_with_proof,
+};
 use dioxus::prelude::*;
 use yntra_core::{
-    checkout_book, create_school_invoice, get_assignments, get_library_books,
-    get_library_lending_logs, get_school_invoices, get_student_profiles, get_workspace_courses,
-    get_users, record_school_payment, return_book, save_assignment, save_attendance_record, save_course,
-    link_parent_to_student, get_student_parents, get_student_health_records, save_student_health_record,
-    get_health_incidents, save_health_incident, save_student_profile,
-    get_course_term_grades, save_term_grade, publish_report_card, get_report_cards,
-    get_student_submissions, save_submission, get_timetable_slots, save_timetable_slot,
-    get_parent_students,
-    Assignment, Course, SchoolInvoice, HealthRecord, HealthIncident, StudentProfile, TermGrade, ReportCard,
-    Submission, TimetableSlot,
+    Assignment, Course, HealthIncident, HealthRecord, ReportCard, SchoolInvoice, StudentProfile,
+    Submission, TermGrade, TimetableSlot, checkout_book, create_school_invoice, get_assignments,
+    get_course_term_grades, get_health_incidents, get_library_books, get_library_lending_logs,
+    get_parent_students, get_report_cards, get_school_invoices, get_student_health_records,
+    get_student_parents, get_student_profiles, get_student_submissions, get_timetable_slots,
+    get_users, get_workspace_courses, link_parent_to_student, publish_report_card,
+    record_school_payment, return_book, save_assignment, save_attendance_record, save_course,
+    save_health_incident, save_student_health_record, save_student_profile, save_submission,
+    save_term_grade, save_timetable_slot,
 };
 
 use super::SchoolViewProps;
@@ -65,7 +69,11 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
         let _trig = trigger_school_directory.read();
         let uid = user_id_clone_p.clone();
         let ws = ws_id_clone_p.clone();
-        async move { get_parent_students(uid.clone(), ws, uid).await.unwrap_or_default() }
+        async move {
+            get_parent_students(uid.clone(), ws, uid)
+                .await
+                .unwrap_or_default()
+        }
     });
 
     let user_id_clone_hr = user_id.clone();
@@ -89,7 +97,10 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
             };
             let mut list = Vec::new();
             for s in st_list {
-                if let Ok(mut hrs) = yntra_core::get_student_health_records(uid.clone(), ws.clone(), s.id.clone()).await {
+                if let Ok(mut hrs) =
+                    yntra_core::get_student_health_records(uid.clone(), ws.clone(), s.id.clone())
+                        .await
+                {
                     list.append(&mut hrs);
                 }
             }
@@ -132,13 +143,20 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
     let incidents = {
         let raw = if current_role == "parent" || current_role == "role-school-parent" {
             let s_id = selected_student_id.read().clone();
-            incidents_raw.into_iter().filter(|inc| inc.student_id == s_id).collect::<Vec<_>>()
+            incidents_raw
+                .into_iter()
+                .filter(|inc| inc.student_id == s_id)
+                .collect::<Vec<_>>()
         } else if current_role == "student" || current_role == "role-school-student" {
-            let student_ids: std::collections::HashSet<String> = students.iter()
+            let student_ids: std::collections::HashSet<String> = students
+                .iter()
                 .filter(|s| s.user_id.as_ref() == Some(&user_id))
                 .map(|s| s.id.clone())
                 .collect();
-            incidents_raw.into_iter().filter(|inc| student_ids.contains(&inc.student_id)).collect::<Vec<_>>()
+            incidents_raw
+                .into_iter()
+                .filter(|inc| student_ids.contains(&inc.student_id))
+                .collect::<Vec<_>>()
         } else {
             incidents_raw
         };
@@ -158,7 +176,10 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
     let health_records = {
         let raw = if current_role == "parent" || current_role == "role-school-parent" {
             let s_id = selected_student_id.read().clone();
-            health_records_all.into_iter().filter(|hr| hr.student_id == s_id).collect::<Vec<_>>()
+            health_records_all
+                .into_iter()
+                .filter(|hr| hr.student_id == s_id)
+                .collect::<Vec<_>>()
         } else {
             health_records_all
         };
@@ -328,7 +349,7 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
                                                                         } else {
                                                                             Some(encrypt_field_with_proof(&seed_val, &admin_val, &u, &r))
                                                                         };
-                                                                        
+
                                                                         let mut db_t = db_trigger.clone();
                                                                         spawn(async move {
                                                                             let proof_val = yntra_core::ZkCryptoTrust::new()
@@ -501,4 +522,3 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
         }
     }
 }
-

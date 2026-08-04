@@ -9,8 +9,8 @@ use tokio::sync::mpsc;
 use yntra_core::{
     ClientProfile, DailyNote, MessageItem, ReportItem, Team, TeamEvent, TimeReport, TodoItem,
     Workspace, WorkspaceUser, clear_observers, clear_session_key, get_users, init_tracing,
-    init_wasm_db, is_session_key_set, load_local_workspace_key, register_observer,
-    start_background_sync, load_workspace_zero_copy_stores,
+    init_wasm_db, is_session_key_set, load_local_workspace_key, load_workspace_zero_copy_stores,
+    register_observer, start_background_sync,
 };
 
 #[derive(Clone, Copy)]

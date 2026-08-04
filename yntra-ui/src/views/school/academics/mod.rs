@@ -1,18 +1,18 @@
-use dioxus::prelude::*;
+use super::SchoolViewProps;
 use crate::components::LucideIcon;
 use crate::locales::t;
-use super::SchoolViewProps;
+use dioxus::prelude::*;
 
-pub mod utils;
-pub mod student;
 pub mod parent;
+pub mod student;
 pub mod teacher;
+pub mod utils;
 
-pub use utils::{decrypt_field, decrypt_opt_field, AdvancedAttachment};
-pub use student::StudentPortal;
-pub use parent::ParentPortal;
-pub use teacher::TeacherPortal;
 pub use super::infer_subject_from_course;
+pub use parent::ParentPortal;
+pub use student::StudentPortal;
+pub use teacher::TeacherPortal;
+pub use utils::{AdvancedAttachment, decrypt_field, decrypt_opt_field};
 
 #[component]
 pub fn AcademicsView(props: SchoolViewProps) -> Element {
@@ -48,7 +48,11 @@ pub fn AcademicsView(props: SchoolViewProps) -> Element {
         let _trig = trigger_school_academics.read();
         let uid = user_id_clone.clone();
         let ws = ws_id_clone.clone();
-        async move { yntra_core::get_workspace_courses(uid, ws).await.unwrap_or_default() }
+        async move {
+            yntra_core::get_workspace_courses(uid, ws)
+                .await
+                .unwrap_or_default()
+        }
     });
 
     let user_id_clone4 = user_id.clone();
@@ -57,7 +61,11 @@ pub fn AcademicsView(props: SchoolViewProps) -> Element {
         let _trig = trigger_school_directory.read();
         let uid = user_id_clone4.clone();
         let ws = ws_id_clone4.clone();
-        async move { yntra_core::get_student_profiles(uid, ws).await.unwrap_or_default() }
+        async move {
+            yntra_core::get_student_profiles(uid, ws)
+                .await
+                .unwrap_or_default()
+        }
     });
 
     let user_id_clone_s = user_id.clone();
@@ -77,7 +85,9 @@ pub fn AcademicsView(props: SchoolViewProps) -> Element {
         let uid = user_id_clone_p.clone();
         let ws = ws_id_clone_p.clone();
         async move {
-            yntra_core::get_parent_students(uid.clone(), ws, uid).await.unwrap_or_default()
+            yntra_core::get_parent_students(uid.clone(), ws, uid)
+                .await
+                .unwrap_or_default()
         }
     });
 
@@ -86,7 +96,10 @@ pub fn AcademicsView(props: SchoolViewProps) -> Element {
         if role == "student" || role == "role-school-student" {
             let uid = state.active_user_id.read().clone();
             let student_list = students_res.read().clone().unwrap_or_default();
-            if let Some(profile) = student_list.iter().find(|s| s.user_id.as_ref() == Some(&uid)) {
+            if let Some(profile) = student_list
+                .iter()
+                .find(|s| s.user_id.as_ref() == Some(&uid))
+            {
                 if selected_student_profile_id.read().as_str() != profile.id.as_str() {
                     selected_student_profile_id.set(profile.id.clone());
                 }
@@ -126,7 +139,7 @@ pub fn AcademicsView(props: SchoolViewProps) -> Element {
 
     rsx! {
         div { class: "p-6 space-y-6 max-w-6xl mx-auto animate-in fade-in slide-in-from-top-4 duration-300",
-            
+
             // Preview View Switcher
             div { class: "flex items-center justify-between border-b border-border pb-4",
                 div {
@@ -146,7 +159,7 @@ pub fn AcademicsView(props: SchoolViewProps) -> Element {
                             {t("school-student-portal-title", &locale)}
                         }
                     }
-                    p { class: "text-xs text-muted-foreground m-0 mt-1", 
+                    p { class: "text-xs text-muted-foreground m-0 mt-1",
                         if *view_mode.read() == "teacher" {
                             match locale.as_str() {
                                 "sv" => "Hantera akademiska kurser, schemaläggning och läxuppgifter.",
@@ -162,7 +175,7 @@ pub fn AcademicsView(props: SchoolViewProps) -> Element {
                         }
                     }
                 }
-                
+
                 div { class: "flex items-center gap-4",
                     // Tab toggle
                     if state.active_user_role.read().as_str() != "student" && state.active_user_role.read().as_str() != "parent" {

@@ -1,8 +1,8 @@
+use super::CareViewProps;
 use crate::components::{Button, Card, Dialog, Input, LucideIcon};
 use crate::locales::t;
 use dioxus::prelude::*;
-use yntra_core::{get_clients, get_medications, add_medication, check_care_permission};
-use super::CareViewProps;
+use yntra_core::{add_medication, check_care_permission, get_clients, get_medications};
 
 #[component]
 pub fn MedicationsView(props: CareViewProps) -> Element {
@@ -12,7 +12,7 @@ pub fn MedicationsView(props: CareViewProps) -> Element {
 
     let mut selected_client_id = use_signal(|| "".to_string());
     let mut show_add_med_modal = use_signal(|| false);
-    
+
     // Add medication form signals
     let mut new_med_name = use_signal(String::new);
     let mut new_med_dosage = use_signal(String::new);
@@ -57,7 +57,10 @@ pub fn MedicationsView(props: CareViewProps) -> Element {
     let medications = meds_res.read().clone().unwrap_or_default();
     let can_manage = can_manage_res.read().cloned().unwrap_or(false);
 
-    let selected_client = clients.iter().find(|c| c.id == *selected_client_id.read()).cloned();
+    let selected_client = clients
+        .iter()
+        .find(|c| c.id == *selected_client_id.read())
+        .cloned();
 
     rsx! {
         div { class: "p-6 space-y-6 max-w-5xl mx-auto animate-in fade-in slide-in-from-top-4 duration-300",

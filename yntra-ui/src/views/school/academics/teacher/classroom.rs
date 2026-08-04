@@ -1,5 +1,5 @@
-use dioxus::prelude::*;
 use crate::components::{Card, CardContent, LucideIcon};
+use dioxus::prelude::*;
 use yntra_core::Course;
 
 #[component]
@@ -10,17 +10,36 @@ pub fn ClassroomContainer(
     children: Element,
 ) -> Element {
     let subject_lower = course.subject.trim().to_lowercase();
-    let gradient_class = if subject_lower == "matematik" || subject_lower == "mathematics" || subject_lower == "matematikk" || subject_lower == "matematiikka" {
+    let gradient_class = if subject_lower == "matematik"
+        || subject_lower == "mathematics"
+        || subject_lower == "matematikk"
+        || subject_lower == "matematiikka"
+    {
         "from-blue-600 to-indigo-600"
-    } else if subject_lower == "naturvetenskap" || subject_lower == "science" || subject_lower == "naturfag" || subject_lower == "luonnontiede" {
+    } else if subject_lower == "naturvetenskap"
+        || subject_lower == "science"
+        || subject_lower == "naturfag"
+        || subject_lower == "luonnontiede"
+    {
         "from-teal-600 to-emerald-600"
-    } else if subject_lower == "bild" || subject_lower == "art" || subject_lower == "billedkunst" || subject_lower == "kuvataide" {
+    } else if subject_lower == "bild"
+        || subject_lower == "art"
+        || subject_lower == "billedkunst"
+        || subject_lower == "kuvataide"
+    {
         "from-purple-600 to-pink-600"
     } else if subject_lower == "musik" || subject_lower == "music" || subject_lower == "musiikki" {
         "from-rose-500 to-red-600"
-    } else if subject_lower == "engelska" || subject_lower == "english" || subject_lower == "engelsk" || subject_lower == "englanti" {
+    } else if subject_lower == "engelska"
+        || subject_lower == "english"
+        || subject_lower == "engelsk"
+        || subject_lower == "englanti"
+    {
         "from-amber-500 to-orange-600"
-    } else if subject_lower == "historia" || subject_lower == "history" || subject_lower == "historie" {
+    } else if subject_lower == "historia"
+        || subject_lower == "history"
+        || subject_lower == "historie"
+    {
         "from-cyan-600 to-sky-600"
     } else {
         "from-gray-600 to-slate-700"
@@ -40,7 +59,7 @@ pub fn ClassroomContainer(
             // Gorgeous Classroom banner card
             div { class: "h-36 rounded-2xl bg-gradient-to-r {gradient_class} p-6 text-white flex flex-col justify-end shadow-md relative overflow-hidden shadow-inner",
                 h2 { class: "text-2xl font-extrabold m-0 text-white tracking-tight", "{course.name}" }
-                p { class: "text-xs font-bold text-white/90 m-0 mt-1.5 uppercase tracking-wider", 
+                p { class: "text-xs font-bold text-white/90 m-0 mt-1.5 uppercase tracking-wider",
                     "Subject: {course.subject} • Room: {course.classroom.clone().unwrap_or_default()} • Teacher: {course.teacher_id.clone().unwrap_or_default()}"
                 }
             }

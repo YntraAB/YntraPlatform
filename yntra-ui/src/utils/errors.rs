@@ -120,8 +120,12 @@ impl ActionRunner {
         });
     }
 
-    pub fn run_with_success<F>(&self, fut: F, success_title: impl Into<String>, success_desc: impl Into<String>)
-    where
+    pub fn run_with_success<F>(
+        &self,
+        fut: F,
+        success_title: impl Into<String>,
+        success_desc: impl Into<String>,
+    ) where
         F: Future<Output = Result<(), yntra_core::YntraError>> + 'static,
     {
         let toast = self.toast.clone();

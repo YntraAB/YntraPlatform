@@ -1,5 +1,5 @@
-use dioxus::prelude::*;
 use crate::components::LucideIcon;
+use dioxus::prelude::*;
 use yntra_core::{Assignment, StudentProfile, Submission, TermGrade};
 
 #[component]
@@ -22,7 +22,7 @@ pub fn CourseGradesTab(
     rsx! {
         div { class: "space-y-4",
             h5 { class: "font-bold text-sm m-0 text-foreground", "Student Grades Matrix" }
-            
+
             if students.is_empty() {
                 div { class: "py-10 text-center text-xs text-muted-foreground border border-dashed border-border rounded-xl", "No students registered in this course." }
             } else {

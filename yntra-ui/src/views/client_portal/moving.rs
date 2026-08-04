@@ -1,12 +1,12 @@
+use crate::components;
 use dioxus::prelude::*;
 use yntra_core::{
-    get_job_tickets, get_move_inventory, get_move_quote, accept_move_quote,
-    generate_move_invoice, get_move_invoice, pay_move_invoice,
-    create_move_inventory_item, delete_move_inventory_item,
-    calculate_and_save_move_quote, initiate_swish_payment, check_swish_payment_status, SwishPaymentSession,
-    initiate_stripe_payment, initiate_adyen_payment, StripePaymentSession, AdyenPaymentSession,
+    AdyenPaymentSession, StripePaymentSession, SwishPaymentSession, accept_move_quote,
+    calculate_and_save_move_quote, check_swish_payment_status, create_move_inventory_item,
+    delete_move_inventory_item, generate_move_invoice, get_job_tickets, get_move_inventory,
+    get_move_invoice, get_move_quote, initiate_adyen_payment, initiate_stripe_payment,
+    initiate_swish_payment, pay_move_invoice,
 };
-use crate::components;
 
 #[derive(Clone, Copy, PartialEq)]
 struct InventoryTemplate {
@@ -18,19 +18,84 @@ struct InventoryTemplate {
 }
 
 const TEMPLATES: &[InventoryTemplate] = &[
-    InventoryTemplate { name_key: "inventory-item-moving-box", category_key: "inventory-category-boxes", default_name: "Flyttkartong", default_category: "Kartonger", volume: 0.1 },
-    InventoryTemplate { name_key: "inventory-item-bed-single", category_key: "inventory-category-furniture", default_name: "Säng (enkel)", default_category: "Möbler", volume: 1.2 },
-    InventoryTemplate { name_key: "inventory-item-bed-double", category_key: "inventory-category-furniture", default_name: "Säng (dubbel)", default_category: "Möbler", volume: 2.4 },
-    InventoryTemplate { name_key: "inventory-item-sofa-3p", category_key: "inventory-category-furniture", default_name: "Soffa (3-sits)", default_category: "Möbler", volume: 1.8 },
-    InventoryTemplate { name_key: "inventory-item-dining-table", category_key: "inventory-category-furniture", default_name: "Matbord", default_category: "Möbler", volume: 1.2 },
-    InventoryTemplate { name_key: "inventory-item-chair", category_key: "inventory-category-furniture", default_name: "Stol", default_category: "Möbler", volume: 0.2 },
-    InventoryTemplate { name_key: "inventory-item-wardrobe", category_key: "inventory-category-furniture", default_name: "Garderob", default_category: "Möbler", volume: 2.0 },
-    InventoryTemplate { name_key: "inventory-item-bookshelf", category_key: "inventory-category-furniture", default_name: "Bokhylla", default_category: "Möbler", volume: 0.8 },
-    InventoryTemplate { name_key: "inventory-item-dresser", category_key: "inventory-category-furniture", default_name: "Byrå", default_category: "Möbler", volume: 0.7 },
-    InventoryTemplate { name_key: "inventory-item-fridge-freezer", category_key: "inventory-category-appliances", default_name: "Kyl/Frys", default_category: "Vitvaror", volume: 1.5 },
-    InventoryTemplate { name_key: "inventory-item-washing-machine", category_key: "inventory-category-appliances", default_name: "Tvättmaskin", default_category: "Vitvaror", volume: 0.6 },
+    InventoryTemplate {
+        name_key: "inventory-item-moving-box",
+        category_key: "inventory-category-boxes",
+        default_name: "Flyttkartong",
+        default_category: "Kartonger",
+        volume: 0.1,
+    },
+    InventoryTemplate {
+        name_key: "inventory-item-bed-single",
+        category_key: "inventory-category-furniture",
+        default_name: "Säng (enkel)",
+        default_category: "Möbler",
+        volume: 1.2,
+    },
+    InventoryTemplate {
+        name_key: "inventory-item-bed-double",
+        category_key: "inventory-category-furniture",
+        default_name: "Säng (dubbel)",
+        default_category: "Möbler",
+        volume: 2.4,
+    },
+    InventoryTemplate {
+        name_key: "inventory-item-sofa-3p",
+        category_key: "inventory-category-furniture",
+        default_name: "Soffa (3-sits)",
+        default_category: "Möbler",
+        volume: 1.8,
+    },
+    InventoryTemplate {
+        name_key: "inventory-item-dining-table",
+        category_key: "inventory-category-furniture",
+        default_name: "Matbord",
+        default_category: "Möbler",
+        volume: 1.2,
+    },
+    InventoryTemplate {
+        name_key: "inventory-item-chair",
+        category_key: "inventory-category-furniture",
+        default_name: "Stol",
+        default_category: "Möbler",
+        volume: 0.2,
+    },
+    InventoryTemplate {
+        name_key: "inventory-item-wardrobe",
+        category_key: "inventory-category-furniture",
+        default_name: "Garderob",
+        default_category: "Möbler",
+        volume: 2.0,
+    },
+    InventoryTemplate {
+        name_key: "inventory-item-bookshelf",
+        category_key: "inventory-category-furniture",
+        default_name: "Bokhylla",
+        default_category: "Möbler",
+        volume: 0.8,
+    },
+    InventoryTemplate {
+        name_key: "inventory-item-dresser",
+        category_key: "inventory-category-furniture",
+        default_name: "Byrå",
+        default_category: "Möbler",
+        volume: 0.7,
+    },
+    InventoryTemplate {
+        name_key: "inventory-item-fridge-freezer",
+        category_key: "inventory-category-appliances",
+        default_name: "Kyl/Frys",
+        default_category: "Vitvaror",
+        volume: 1.5,
+    },
+    InventoryTemplate {
+        name_key: "inventory-item-washing-machine",
+        category_key: "inventory-category-appliances",
+        default_name: "Tvättmaskin",
+        default_category: "Vitvaror",
+        volume: 0.6,
+    },
 ];
-
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub struct ChecklistItem {
@@ -89,7 +154,11 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
         let current_jobs = jobs_res.read().clone().unwrap_or_default();
         if !current_jobs.is_empty() {
             let sel = selected_job_id.read().clone();
-            if sel.is_none() || !current_jobs.iter().any(|j| j.id == sel.as_deref().unwrap_or("")) {
+            if sel.is_none()
+                || !current_jobs
+                    .iter()
+                    .any(|j| j.id == sel.as_deref().unwrap_or(""))
+            {
                 selected_job_id.set(Some(current_jobs[0].id.clone()));
             }
         }
@@ -228,9 +297,15 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
         .and_then(|v| v.as_f64())
         .unwrap_or_else(|| {
             if target_region == "US" {
-                settings_json.get("sales_tax_rate").and_then(|v| v.as_f64()).unwrap_or(0.08)
+                settings_json
+                    .get("sales_tax_rate")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.08)
             } else if target_region == "DE" {
-                settings_json.get("vat_rate").and_then(|v| v.as_f64()).unwrap_or(0.19)
+                settings_json
+                    .get("vat_rate")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.19)
             } else {
                 0.0
             }
@@ -252,10 +327,34 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
     let current_sw_status = swish_payment_status.read().clone();
 
     let payment_method_label = match active_gateway.as_str() {
-        "stripe" | "card" => if is_english { "Pay with Card (Stripe)".to_string() } else { "Betala med Stripe (Kort)".to_string() },
-        "adyen" => if is_english { "Pay with Adyen".to_string() } else { "Betala med Adyen".to_string() },
-        "swish" => if is_english { "Pay with Swish".to_string() } else { "Betala med Swish".to_string() },
-        gw => if is_english { format!("Pay with {}", gw) } else { format!("Betala med {}", gw) },
+        "stripe" | "card" => {
+            if is_english {
+                "Pay with Card (Stripe)".to_string()
+            } else {
+                "Betala med Stripe (Kort)".to_string()
+            }
+        }
+        "adyen" => {
+            if is_english {
+                "Pay with Adyen".to_string()
+            } else {
+                "Betala med Adyen".to_string()
+            }
+        }
+        "swish" => {
+            if is_english {
+                "Pay with Swish".to_string()
+            } else {
+                "Betala med Swish".to_string()
+            }
+        }
+        gw => {
+            if is_english {
+                format!("Pay with {}", gw)
+            } else {
+                format!("Betala med {}", gw)
+            }
+        }
     };
 
     let tax_label = match (target_region.as_str(), configured_currency.as_deref()) {
@@ -322,7 +421,10 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
         let uid = active_uid_for_accept_c.clone();
         let apply_rut = *use_rut.read();
         spawn(async move {
-            if accept_move_quote(uid.clone(), quote_id.clone()).await.is_ok() {
+            if accept_move_quote(uid.clone(), quote_id.clone())
+                .await
+                .is_ok()
+            {
                 let _ = generate_move_invoice(uid, quote_id, apply_rut).await;
                 let current_val = *db_trigger.read();
                 db_trigger.set(current_val + 1);
@@ -386,7 +488,13 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                             break;
                         }
                         swish_polling_seconds.set(iteration * 2);
-                        if let Ok(status) = check_swish_payment_status(uid_c.clone(), invoice_id_c.clone(), token_c.clone()).await {
+                        if let Ok(status) = check_swish_payment_status(
+                            uid_c.clone(),
+                            invoice_id_c.clone(),
+                            token_c.clone(),
+                        )
+                        .await
+                        {
                             if status == "paid" {
                                 resolved = true;
                                 swish_payment_status.set("paid".to_string());
@@ -396,7 +504,10 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                 crate::utils::sleep_ms(1500).await;
                                 show_swish_modal.set(None);
                                 break;
-                            } else if status == "failed" || status == "declined" || status == "cancelled" {
+                            } else if status == "failed"
+                                || status == "declined"
+                                || status == "cancelled"
+                            {
                                 resolved = true;
                                 swish_payment_status.set(status);
                                 break;
@@ -427,7 +538,11 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
     let active_uid_for_manual_check = props.active_user_id.clone();
     let on_manual_swish_check = move |invoice_id: String| {
         let uid = active_uid_for_manual_check.clone();
-        let session_token = show_swish_modal.read().as_ref().map(|s| s.token.clone()).unwrap_or_default();
+        let session_token = show_swish_modal
+            .read()
+            .as_ref()
+            .map(|s| s.token.clone())
+            .unwrap_or_default();
         spawn(async move {
             if let Ok(status) = check_swish_payment_status(uid, invoice_id, session_token).await {
                 if status == "paid" {
@@ -462,7 +577,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                     show_swish_modal.set(Some(session.clone()));
                     swish_polling_seconds.set(0);
                     swish_payment_status.set("pending".to_string());
-                    
+
                     let invoice_id_c = invoice_id.clone();
                     let uid_c = uid.clone();
                     let token_c = session.token.clone();
@@ -476,20 +591,29 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                 break;
                             }
                             swish_polling_seconds.set(iteration * 2);
-                            
-                            if let Ok(status) = check_swish_payment_status(uid_c.clone(), invoice_id_c.clone(), token_c.clone()).await {
+
+                            if let Ok(status) = check_swish_payment_status(
+                                uid_c.clone(),
+                                invoice_id_c.clone(),
+                                token_c.clone(),
+                            )
+                            .await
+                            {
                                 if status == "paid" {
                                     resolved = true;
                                     swish_payment_status.set("paid".to_string());
                                     swish_polling_seconds.set(120);
                                     let current_val = *db_trigger.read();
                                     db_trigger.set(current_val + 1);
-                                    
+
                                     // Pause to let the user see the success state
                                     crate::utils::sleep_ms(1500).await;
                                     show_swish_modal.set(None);
                                     break;
-                                } else if status == "failed" || status == "declined" || status == "cancelled" {
+                                } else if status == "failed"
+                                    || status == "declined"
+                                    || status == "cancelled"
+                                {
                                     resolved = true;
                                     swish_payment_status.set(status);
                                     break;
@@ -507,13 +631,24 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
 
     let swish_session_opt = show_swish_modal.read().clone();
     let show_swish = swish_session_opt.is_some();
-    let qr_code_base64 = swish_session_opt.as_ref().map(|s| s.qr_code_base64.clone()).unwrap_or_default();
+    let qr_code_base64 = swish_session_opt
+        .as_ref()
+        .map(|s| s.qr_code_base64.clone())
+        .unwrap_or_default();
     let swish_amount = swish_session_opt.as_ref().map(|s| s.amount).unwrap_or(0.0);
-    let swish_url = swish_session_opt.as_ref().map(|s| s.swish_url.clone()).unwrap_or_default();
-    
+    let swish_url = swish_session_opt
+        .as_ref()
+        .map(|s| s.swish_url.clone())
+        .unwrap_or_default();
+
     let elapsed_sec = *swish_polling_seconds.read();
     let progress_percent = ((elapsed_sec as f64 / 120.0) * 100.0).min(100.0) as i64;
-    let current_inv_id = invoice_res.read().clone().flatten().map(|i| i.id).unwrap_or_default();
+    let current_inv_id = invoice_res
+        .read()
+        .clone()
+        .flatten()
+        .map(|i| i.id)
+        .unwrap_or_default();
 
     rsx! {
 
@@ -650,7 +785,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                 {
                                     let is_rut = *use_rut.read() && show_rut;
                                     let labor_cost = q.base_price + q.stairs_surcharge;
-                                    
+
                                     let (tax_amount, final_total) = match target_region.as_str() {
                                         "US" | "DE" => {
                                             let tax = q.total_price * dynamic_tax_rate;
@@ -783,7 +918,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                                 span { "Förfallodatum:" }
                                                 span { "{inv.due_date}" }
                                             }
-                                            
+
                                             div { class: "pt-4",
                                                 if inv.status == "paid" {
                                                     div { class: "flex items-center justify-center gap-2 p-2.5 rounded-lg bg-primary/10 text-blue-500 text-xs font-bold text-center border border-primary/20 select-none",
@@ -1203,7 +1338,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
 
                                                                     let j_id = j_id.clone();
                                                                     let uid_val = uid.clone();
-                                                                    
+
                                                                     // reset inputs
                                                                     new_item_name.set(String::new());
                                                                     new_item_notes.set(String::new());
@@ -1271,7 +1406,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                 }
             }
         }
-        
+
         if show_swish {
             div {
                 class: "fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200",
@@ -1561,4 +1696,3 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
         }
     }
 }
-

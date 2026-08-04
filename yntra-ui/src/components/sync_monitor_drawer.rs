@@ -1,6 +1,9 @@
 use crate::components::{Button, LucideIcon};
 use dioxus::prelude::*;
-use yntra_core::{get_pending_blob_uploads, get_sync_queue_breakdown, sync_database, PendingBlobUpload, SyncQueueSummaryRecord};
+use yntra_core::{
+    PendingBlobUpload, SyncQueueSummaryRecord, get_pending_blob_uploads, get_sync_queue_breakdown,
+    sync_database,
+};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct SyncMonitorDrawerProps {
@@ -38,7 +41,9 @@ pub fn SyncMonitorDrawer(props: SyncMonitorDrawerProps) -> Element {
         spawn(async move {
             match sync_database().await {
                 Ok(_) => {
-                    status_msg.set(Some("Database synchronization completed successfully!".to_string()));
+                    status_msg.set(Some(
+                        "Database synchronization completed successfully!".to_string(),
+                    ));
                     if let Ok(records) = get_sync_queue_breakdown(ws.clone()).await {
                         queue_records.set(records);
                     }

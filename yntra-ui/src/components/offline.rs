@@ -64,7 +64,8 @@ pub fn OfflineIndicator() -> Element {
     let error = *has_sync_error.read();
     let pending = *pending_count.read();
 
-    let container_class = "fixed bottom-4 left-4 z-[100] cursor-pointer hover:scale-105 transition-transform";
+    let container_class =
+        "fixed bottom-4 left-4 z-[100] cursor-pointer hover:scale-105 transition-transform";
 
     let badge_style = if !online {
         "background-color: rgba(239, 68, 68, 0.95); color: white; border-color: rgba(248, 113, 113, 0.4);"

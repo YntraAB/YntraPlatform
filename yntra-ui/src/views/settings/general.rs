@@ -244,15 +244,23 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
             settings_map["target_region"] = serde_json::json!((*target_region.read()).clone());
             settings_map["moving_base_rate_per_m3"] = serde_json::json!(*base_rate.read());
             settings_map["moving_distance_fee_flat"] = serde_json::json!(*distance_fee.read());
-            settings_map["moving_stairs_surcharge_per_floor"] = serde_json::json!(*stairs_surcharge.read());
-            settings_map["moving_packing_supplies_fee_per_m3"] = serde_json::json!(*packing_fee.read());
-            settings_map["geocoder_provider"] = serde_json::json!((*geocoder_provider.read()).clone());
-            settings_map["geocoder_api_key"] = serde_json::json!((*geocoder_api_key.read()).clone());
+            settings_map["moving_stairs_surcharge_per_floor"] =
+                serde_json::json!(*stairs_surcharge.read());
+            settings_map["moving_packing_supplies_fee_per_m3"] =
+                serde_json::json!(*packing_fee.read());
+            settings_map["geocoder_provider"] =
+                serde_json::json!((*geocoder_provider.read()).clone());
+            settings_map["geocoder_api_key"] =
+                serde_json::json!((*geocoder_api_key.read()).clone());
             settings_map["geocoder_url"] = serde_json::json!((*geocoder_url.read()).clone());
-            settings_map["skatteverket_api_url"] = serde_json::json!((*skatteverket_api_url.read()).clone());
-            settings_map["skatteverket_corporate_cert"] = serde_json::json!((*skatteverket_corporate_cert.read()).clone());
-            settings_map["company_org_number"] = serde_json::json!((*company_org_number.read()).clone());
-            settings_map["gps_webhook_token"] = serde_json::json!((*gps_webhook_token.read()).clone());
+            settings_map["skatteverket_api_url"] =
+                serde_json::json!((*skatteverket_api_url.read()).clone());
+            settings_map["skatteverket_corporate_cert"] =
+                serde_json::json!((*skatteverket_corporate_cert.read()).clone());
+            settings_map["company_org_number"] =
+                serde_json::json!((*company_org_number.read()).clone());
+            settings_map["gps_webhook_token"] =
+                serde_json::json!((*gps_webhook_token.read()).clone());
 
             let settings_str = serde_json::to_string(&settings_map).unwrap_or_default();
             let ws_id = workspace_id.clone();
@@ -733,7 +741,7 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
                                     ],
                                 }
                             }
-                            
+
                             if *geocoder_provider.read() == "google" || *geocoder_provider.read() == "mapbox" {
                                 div { class: "space-y-2",
                                     label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
@@ -821,7 +829,7 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
                                     }
                                 }
                             }
-                            
+
                             div { class: "space-y-2",
                                 label { class: "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/70",
                                     "Skatteverket API Endpoint URL"
@@ -913,7 +921,7 @@ pub fn GeneralSettings(props: GeneralSettingsProps) -> Element {
                                     }
                                 }
                             }
-                            
+
                             div { class: "p-2.5 rounded-lg bg-background/50 border border-border/20 space-y-1 text-[10px] text-left",
                                 div { class: "flex justify-between items-center gap-2",
                                     span { class: "text-muted-foreground", "Webhook Ingest Endpoint:" }

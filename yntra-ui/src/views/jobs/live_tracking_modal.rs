@@ -20,7 +20,9 @@ pub fn CustomerLiveTrackingModal(props: CustomerLiveTrackingModalProps) -> Eleme
         let job_id_val = j_id.clone();
         let _ = *sim_tick.read(); // reactive trigger for simulation updates
         async move {
-            yntra_core::get_customer_live_tracking_portal(job_id_val).await.ok()
+            yntra_core::get_customer_live_tracking_portal(job_id_val)
+                .await
+                .ok()
         }
     });
 
@@ -38,8 +40,16 @@ pub fn CustomerLiveTrackingModal(props: CustomerLiveTrackingModalProps) -> Eleme
                 // Get job details to find assigned vehicle
                 if let Ok(portal) = yntra_core::get_customer_live_tracking_portal(j.clone()).await {
                     if let Ok(vehicles) = yntra_core::get_vehicles(u.clone()).await {
-                        if let Some(veh) = vehicles.iter().find(|v| v.license_plate == portal.vehicle_license_plate.clone().unwrap_or_default()) {
-                            let _ = yntra_core::simulate_vehicle_movement(u, veh.id.clone(), current_tick + 1).await;
+                        if let Some(veh) = vehicles.iter().find(|v| {
+                            v.license_plate
+                                == portal.vehicle_license_plate.clone().unwrap_or_default()
+                        }) {
+                            let _ = yntra_core::simulate_vehicle_movement(
+                                u,
+                                veh.id.clone(),
+                                current_tick + 1,
+                            )
+                            .await;
                         }
                     }
                 }

@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
-use dioxus::prelude::*;
 use crate::components::LucideIcon;
+use dioxus::prelude::*;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AdvancedAttachment {
@@ -27,7 +27,9 @@ pub fn is_deadline_passed(due_date: &str) -> bool {
     false
 }
 
-pub fn parse_submission_content_and_advanced_attachment(content: &str) -> (String, Option<AdvancedAttachment>) {
+pub fn parse_submission_content_and_advanced_attachment(
+    content: &str,
+) -> (String, Option<AdvancedAttachment>) {
     if let Some(idx) = content.rfind("\n[Attachment: ") {
         let text = content[..idx].to_string();
         let link_part = &content[idx + "\n[Attachment: ".len()..];
@@ -35,21 +37,27 @@ pub fn parse_submission_content_and_advanced_attachment(content: &str) -> (Strin
             let payload = &link_part[..end_idx];
             let parts: Vec<&str> = payload.split('|').collect();
             if parts.len() >= 5 {
-                return (text, Some(AdvancedAttachment {
-                    filename: parts[0].trim().to_string(),
-                    size_str: parts[1].trim().to_string(),
-                    sha256: parts[2].trim().to_string(),
-                    e2ee: parts[3].trim() == "true",
-                    dataurl: parts[4].trim().to_string(),
-                }));
+                return (
+                    text,
+                    Some(AdvancedAttachment {
+                        filename: parts[0].trim().to_string(),
+                        size_str: parts[1].trim().to_string(),
+                        sha256: parts[2].trim().to_string(),
+                        e2ee: parts[3].trim() == "true",
+                        dataurl: parts[4].trim().to_string(),
+                    }),
+                );
             } else if parts.len() == 2 {
-                return (text, Some(AdvancedAttachment {
-                    filename: parts[0].trim().to_string(),
-                    size_str: "Unknown size".to_string(),
-                    sha256: "legacy-unhashed".to_string(),
-                    e2ee: false,
-                    dataurl: parts[1].trim().to_string(),
-                }));
+                return (
+                    text,
+                    Some(AdvancedAttachment {
+                        filename: parts[0].trim().to_string(),
+                        size_str: "Unknown size".to_string(),
+                        sha256: "legacy-unhashed".to_string(),
+                        e2ee: false,
+                        dataurl: parts[1].trim().to_string(),
+                    }),
+                );
             }
         }
     }
@@ -161,7 +169,12 @@ pub fn encrypt_field_with_proof(seed: &str, plaintext: &str, user_id: &str, role
     }
     let trust = yntra_core::ZkCryptoTrust::new();
     if let Ok(ciphertext) = trust.encrypt_workspace_field(seed.to_string(), plaintext.to_string()) {
-        if let Ok(proof) = trust.generate_compliance_proof(seed.to_string(), ciphertext.clone(), user_id.to_string(), role.to_string()) {
+        if let Ok(proof) = trust.generate_compliance_proof(
+            seed.to_string(),
+            ciphertext.clone(),
+            user_id.to_string(),
+            role.to_string(),
+        ) {
             return format!("zero_copy_enc:{}:{}", proof, ciphertext);
         }
     }
@@ -174,7 +187,9 @@ pub fn decrypt_field(seed: &str, val: &str) -> String {
         if parts.len() == 3 {
             let ciphertext = parts[2];
             let trust = yntra_core::ZkCryptoTrust::new();
-            if let Ok(decrypted) = trust.decrypt_workspace_field(seed.to_string(), ciphertext.to_string()) {
+            if let Ok(decrypted) =
+                trust.decrypt_workspace_field(seed.to_string(), ciphertext.to_string())
+            {
                 return decrypted;
             }
         }
@@ -182,7 +197,12 @@ pub fn decrypt_field(seed: &str, val: &str) -> String {
     val.to_string()
 }
 
-pub fn encrypt_opt_field_with_proof(seed: &str, plaintext: Option<String>, user_id: &str, role: &str) -> Option<String> {
+pub fn encrypt_opt_field_with_proof(
+    seed: &str,
+    plaintext: Option<String>,
+    user_id: &str,
+    role: &str,
+) -> Option<String> {
     plaintext.map(|p| encrypt_field_with_proof(seed, &p, user_id, role))
 }
 

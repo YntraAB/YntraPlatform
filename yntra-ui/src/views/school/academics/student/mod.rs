@@ -1,22 +1,22 @@
-use dioxus::prelude::*;
+use super::SchoolViewProps;
+use super::utils::{AdvancedAttachment, decrypt_field, decrypt_opt_field};
 use crate::components::LucideIcon;
 use crate::locales::t;
-use super::SchoolViewProps;
-use super::utils::{decrypt_field, decrypt_opt_field, AdvancedAttachment};
+use dioxus::prelude::*;
 use yntra_core::{
-    get_assignments, get_student_submissions, get_timetable_slots,
-    get_student_attendance_records, get_library_lending_logs, StudentProfile
+    StudentProfile, get_assignments, get_library_lending_logs, get_student_attendance_records,
+    get_student_submissions, get_timetable_slots,
 };
 
+mod classwork;
+mod dashboard;
 mod profile_selector;
 mod stream;
-mod dashboard;
-mod classwork;
 
+pub use classwork::StudentClassworkTab;
+pub use dashboard::StudentDashboardTab;
 pub use profile_selector::ProfileSelector;
 pub use stream::StudentStreamTab;
-pub use dashboard::StudentDashboardTab;
-pub use classwork::StudentClassworkTab;
 
 #[component]
 pub fn StudentPortal(
@@ -55,7 +55,9 @@ pub fn StudentPortal(
             if s_id.is_empty() {
                 Vec::new()
             } else {
-                get_student_attendance_records(uid, ws, s_id).await.unwrap_or_default()
+                get_student_attendance_records(uid, ws, s_id)
+                    .await
+                    .unwrap_or_default()
             }
         }
     });
@@ -72,7 +74,9 @@ pub fn StudentPortal(
             if s_id.is_empty() {
                 Vec::new()
             } else {
-                get_student_submissions(uid, ws, s_id).await.unwrap_or_default()
+                get_student_submissions(uid, ws, s_id)
+                    .await
+                    .unwrap_or_default()
             }
         }
     });
@@ -84,9 +88,7 @@ pub fn StudentPortal(
         let _trig = db_trigger_academics.read();
         let uid = user_id_clone7.clone();
         let ws = ws_id_clone7.clone();
-        async move {
-            get_timetable_slots(uid, ws).await.unwrap_or_default()
-        }
+        async move { get_timetable_slots(uid, ws).await.unwrap_or_default() }
     });
 
     // Courses resource to look up course names in the timetable
@@ -96,7 +98,11 @@ pub fn StudentPortal(
         let _trig = db_trigger_academics.read();
         let uid = user_id_clone_courses.clone();
         let ws = ws_id_clone_courses.clone();
-        async move { yntra_core::get_workspace_courses(uid, ws).await.unwrap_or_default() }
+        async move {
+            yntra_core::get_workspace_courses(uid, ws)
+                .await
+                .unwrap_or_default()
+        }
     });
 
     // Helper resource to load all workspace assignments for the student dashboard preview
@@ -112,7 +118,8 @@ pub fn StudentPortal(
         async move {
             let mut list = Vec::new();
             for c in courses_list {
-                if let Ok(mut assign) = get_assignments(uid.clone(), ws.clone(), c.id.clone()).await {
+                if let Ok(mut assign) = get_assignments(uid.clone(), ws.clone(), c.id.clone()).await
+                {
                     list.append(&mut assign);
                 }
             }
@@ -141,12 +148,22 @@ pub fn StudentPortal(
     }
 
     let current_student_id = selected_student_profile_id.read().clone();
-    let current_student = students.iter().find(|s| s.id == current_student_id).cloned().unwrap_or_else(|| students[0].clone());
-    let student_name = format!("{} {}", current_student.first_name, current_student.last_name);
+    let current_student = students
+        .iter()
+        .find(|s| s.id == current_student_id)
+        .cloned()
+        .unwrap_or_else(|| students[0].clone());
+    let student_name = format!(
+        "{} {}",
+        current_student.first_name, current_student.last_name
+    );
 
     let seed = state.get_passkey_seed();
     let all_assignments = all_assignments_res.read().clone().unwrap_or_default();
-    let student_submissions = submissions_res.read().clone().unwrap_or_default()
+    let student_submissions = submissions_res
+        .read()
+        .clone()
+        .unwrap_or_default()
         .into_iter()
         .map(|mut s| {
             s.content = decrypt_field(&seed, &s.content);
@@ -156,28 +173,45 @@ pub fn StudentPortal(
         })
         .collect::<Vec<_>>();
 
-    let announcements = all_assignments.iter().filter(|a| a.max_points == -1).cloned().collect::<Vec<_>>();
-    let comments = all_assignments.iter().filter(|a| a.max_points == -2).cloned().collect::<Vec<_>>();
+    let announcements = all_assignments
+        .iter()
+        .filter(|a| a.max_points == -1)
+        .cloned()
+        .collect::<Vec<_>>();
+    let comments = all_assignments
+        .iter()
+        .filter(|a| a.max_points == -2)
+        .cloned()
+        .collect::<Vec<_>>();
 
     let homework_filter_val = homework_filter.read().clone();
-    let filtered_assignments = all_assignments.iter().filter(|a| {
-        if a.max_points < 0 {
-            return false;
-        }
-        let has_sub = student_submissions.iter().any(|sub| sub.assignment_id == a.id);
-        if homework_filter_val == "todo" {
-            a.max_points > 0 && !has_sub
-        } else if homework_filter_val == "done" {
-            has_sub
-        } else if homework_filter_val == "materials" {
-            a.max_points == 0
-        } else {
-            true
-        }
-    }).cloned().collect::<Vec<_>>();
+    let filtered_assignments = all_assignments
+        .iter()
+        .filter(|a| {
+            if a.max_points < 0 {
+                return false;
+            }
+            let has_sub = student_submissions
+                .iter()
+                .any(|sub| sub.assignment_id == a.id);
+            if homework_filter_val == "todo" {
+                a.max_points > 0 && !has_sub
+            } else if homework_filter_val == "done" {
+                has_sub
+            } else if homework_filter_val == "materials" {
+                a.max_points == 0
+            } else {
+                true
+            }
+        })
+        .cloned()
+        .collect::<Vec<_>>();
 
     let timetable = timetable_res.read().clone().unwrap_or_default();
-    let attendance = student_attendance_res.read().clone().unwrap_or_default()
+    let attendance = student_attendance_res
+        .read()
+        .clone()
+        .unwrap_or_default()
         .into_iter()
         .map(|mut a| {
             a.notes = decrypt_opt_field(&seed, a.notes);
@@ -199,14 +233,18 @@ pub fn StudentPortal(
         ids
     };
 
-    let filtered_timetable: Vec<_> = timetable.iter()
+    let filtered_timetable: Vec<_> = timetable
+        .iter()
         .filter(|s| enrolled_course_ids.contains(&s.course_id))
         .cloned()
         .collect();
 
     // Stats calculations
     let total_days = attendance.len();
-    let present_days = attendance.iter().filter(|a| a.status == "present" || a.status == "late").count();
+    let present_days = attendance
+        .iter()
+        .filter(|a| a.status == "present" || a.status == "late")
+        .count();
     let attendance_rate = if total_days > 0 {
         (present_days as f32 / total_days as f32) * 100.0
     } else {
@@ -222,7 +260,8 @@ pub fn StudentPortal(
         log.student_name == student_name && (log.status == "borrowed" || log.status == "returned")
     });
 
-    let graded_submissions_count = student_submissions.iter()
+    let graded_submissions_count = student_submissions
+        .iter()
         .filter(|sub| {
             if let Some(ref g) = sub.grade {
                 g == "A" || g == "B" || g == "C" || g == "B+" || g == "A+"

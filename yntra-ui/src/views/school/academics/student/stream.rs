@@ -1,6 +1,6 @@
-use dioxus::prelude::*;
 use crate::components::{Button, LucideIcon};
 use crate::locales::t;
+use dioxus::prelude::*;
 use yntra_core::{Assignment, Course, StudentProfile, delete_assignment};
 
 #[component]
@@ -91,9 +91,9 @@ pub fn StudentStreamTab(
                                                 "{ann_title.chars().next().unwrap_or('?')}"
                                             }
                                             div {
-                                                div { class: "text-xs font-bold text-foreground flex items-center gap-1.5", 
+                                                div { class: "text-xs font-bold text-foreground flex items-center gap-1.5",
                                                     "{ann_title}"
-                                                    span { 
+                                                    span {
                                                         class: format!(
                                                             "text-[9px] px-1.5 py-0.5 rounded font-extrabold uppercase tracking-wide {}",
                                                             if is_author { "bg-accent/10 text-accent" } else { "bg-primary/10 text-primary" }
@@ -192,13 +192,13 @@ pub fn StudentStreamTab(
                                     } else {
                                         div { class: "text-xs text-foreground font-medium whitespace-pre-line leading-relaxed", "{ann_desc}" }
                                     }
-                                    
+
                                     div { class: "border-t border-border/40 pt-3 space-y-3",
                                         div { class: "text-[10px] font-bold text-muted-foreground flex items-center gap-1",
                                             LucideIcon { name: "message-square", size: "11" }
                                             "Class comments ({ann_comments.len()})"
                                         }
-                                        
+
                                         if !ann_comments.is_empty() {
                                             div { class: "space-y-3 pl-3 border-l-2 border-muted",
                                                 for comm in ann_comments.into_iter() {
@@ -310,7 +310,7 @@ pub fn StudentStreamTab(
                                                 }
                                             }
                                         }
-                                        
+
                                         div { class: "flex items-center gap-2 pt-1.5",
                                             input {
                                                 class: "flex-1 h-8 px-3 text-xs bg-muted/30 border border-border/60 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary text-foreground placeholder:text-muted-foreground/50 font-medium",

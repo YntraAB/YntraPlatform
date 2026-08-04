@@ -1,5 +1,5 @@
-use dioxus::prelude::*;
 use crate::components;
+use dioxus::prelude::*;
 
 #[component]
 pub fn WarehouseSitModal(
@@ -25,7 +25,9 @@ pub fn WarehouseSitModal(
         let u = uid.clone();
         let j = jid.clone();
         async move {
-            yntra_core::get_job_warehouse_vaults(u, j).await.unwrap_or_default()
+            yntra_core::get_job_warehouse_vaults(u, j)
+                .await
+                .unwrap_or_default()
         }
     });
 
@@ -36,7 +38,9 @@ pub fn WarehouseSitModal(
         let u = uid_b.clone();
         let j = jid_b.clone();
         async move {
-            yntra_core::calculate_sit_recurring_billing_summary(u, j).await.ok()
+            yntra_core::calculate_sit_recurring_billing_summary(u, j)
+                .await
+                .ok()
         }
     });
 
@@ -53,7 +57,9 @@ pub fn WarehouseSitModal(
             let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
 
             if v_num.trim().is_empty() {
-                error_msg.set(Some("Vänligen ange ett box-/magasinnummer (t.ex. V-104)".to_string()));
+                error_msg.set(Some(
+                    "Vänligen ange ett box-/magasinnummer (t.ex. V-104)".to_string(),
+                ));
                 return;
             }
 
@@ -62,15 +68,9 @@ pub fn WarehouseSitModal(
 
             spawn(async move {
                 let res = yntra_core::assign_job_to_warehouse_vault(
-                    uid,
-                    jid,
-                    v_num,
-                    w_name,
-                    vol,
-                    rate,
-                    today,
-                    None,
-                ).await;
+                    uid, jid, v_num, w_name, vol, rate, today, None,
+                )
+                .await;
 
                 is_submitting.set(false);
                 match res {
@@ -123,7 +123,7 @@ pub fn WarehouseSitModal(
 
                 // Body
                 div { class: "p-5 space-y-4 overflow-y-auto flex-1 text-xs",
-                    
+
                     // SIT Recurring Billing Summary Banner
                     if let Some(ref billing) = sit_billing {
                         div { class: "bg-primary/10 border border-primary/20 rounded-xl p-3.5 space-y-2",

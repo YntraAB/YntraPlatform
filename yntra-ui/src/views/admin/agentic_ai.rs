@@ -15,7 +15,9 @@ pub fn AgenticAiView(props: AgenticAiProps) -> Element {
     let mut active_tab = use_signal(|| "voice".to_string());
 
     // Voice Automation State
-    let mut voice_transcript = use_signal(|| "Logged 9.5 hours today doing emergency HVAC system diagnostics and client consultation. Overtime required.".to_string());
+    let mut voice_transcript = use_signal(|| {
+        "Logged 9.5 hours today doing emergency HVAC system diagnostics and client consultation. Overtime required.".to_string()
+    });
     let mut parsed_proposal = use_signal(|| Option::<VoiceReportProposal>::None);
     let mut voice_status_msg = use_signal(|| Option::<String>::None);
     let mut is_submitting_voice = use_signal(|| false);
@@ -42,17 +44,20 @@ pub fn AgenticAiView(props: AgenticAiProps) -> Element {
         let u = uid_trig.clone();
         let w = ws_trig.clone();
         let _t = *db_trigger.read();
-        async move {
-            yntra_core::get_action_triggers(u, w).await
-        }
+        async move { yntra_core::get_action_triggers(u, w).await }
     });
 
     // Parse voice transcript handler
     let handle_parse_voice = move |_| {
         let transcript = voice_transcript.read().clone();
-        let proposal = yntra_core::parse_voice_report_to_proposal(transcript, Some(digest_date.read().clone()));
+        let proposal = yntra_core::parse_voice_report_to_proposal(
+            transcript,
+            Some(digest_date.read().clone()),
+        );
         parsed_proposal.set(Some(proposal));
-        voice_status_msg.set(Some("Voice transcript analyzed and converted into structured report proposal.".to_string()));
+        voice_status_msg.set(Some(
+            "Voice transcript analyzed and converted into structured report proposal.".to_string(),
+        ));
     };
 
     // Submit voice time report handler
@@ -70,7 +75,10 @@ pub fn AgenticAiView(props: AgenticAiProps) -> Element {
             match yntra_core::submit_voice_time_report(u, w, transcript, Some(date_str)).await {
                 Ok(report) => {
                     is_submitting_voice.set(false);
-                    voice_status_msg.set(Some(format!("Time report logged successfully! (ID: {}, Hours: {}, Status: {})", report.id, report.hours, report.status)));
+                    voice_status_msg.set(Some(format!(
+                        "Time report logged successfully! (ID: {}, Hours: {}, Status: {})",
+                        report.id, report.hours, report.status
+                    )));
                     db_trigger.with_mut(|v| *v += 1);
                 }
                 Err(e) => {
@@ -95,7 +103,10 @@ pub fn AgenticAiView(props: AgenticAiProps) -> Element {
         spawn(async move {
             match yntra_core::create_natural_language_trigger(u, w, prompt).await {
                 Ok(trig) => {
-                    trigger_status_msg.set(Some(format!("Created trigger: '{}' ({})", trig.natural_language_prompt, trig.condition_type)));
+                    trigger_status_msg.set(Some(format!(
+                        "Created trigger: '{}' ({})",
+                        trig.natural_language_prompt, trig.condition_type
+                    )));
                     trigger_prompt.set(String::new());
                     db_trigger.with_mut(|v| *v += 1);
                 }

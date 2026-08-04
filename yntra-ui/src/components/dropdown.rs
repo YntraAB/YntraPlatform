@@ -121,7 +121,9 @@ pub struct SelectProps {
 #[component]
 pub fn Select(props: SelectProps) -> Element {
     let mut open = use_signal(|| false);
-    let current_option_label = props.options.iter()
+    let current_option_label = props
+        .options
+        .iter()
         .find(|(val, _)| val == &props.value)
         .map(|(_, label)| label.clone())
         .unwrap_or_else(|| props.value.clone());

@@ -1,14 +1,17 @@
-use dioxus::prelude::*;
-use crate::components::{Button, Card, CardContent, CardDescription, CardHeader, CardTitle, LucideIcon, Dialog, Input};
-use crate::locales::t;
 use super::SchoolViewProps;
 use super::utils::{decrypt_field, decrypt_opt_field};
-use yntra_core::{
-    get_student_attendance_records, get_student_health_records, get_health_incidents,
-    get_report_cards, get_course_term_grades, get_timetable_slots, StudentProfile,
-    link_student_self_service, get_assignments, get_student_submissions, report_student_absence
+use crate::components::{
+    Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, Input, LucideIcon,
 };
+use crate::locales::t;
+use dioxus::prelude::*;
 use dioxus_primitives::toast::{ToastOptions, use_toast};
+use yntra_core::{
+    StudentProfile, get_assignments, get_course_term_grades, get_health_incidents,
+    get_report_cards, get_student_attendance_records, get_student_health_records,
+    get_student_submissions, get_timetable_slots, link_student_self_service,
+    report_student_absence,
+};
 
 #[component]
 pub fn ParentPortal(
@@ -34,7 +37,7 @@ pub fn ParentPortal(
     let link_error = use_signal(|| Option::<String>::None);
 
     // Resources specific to parent child tracking
-    
+
     let user_id_clone_att = user_id.clone();
     let ws_id_clone_att = ws_id.clone();
     let student_attendance_res = use_resource(move || {
@@ -46,7 +49,9 @@ pub fn ParentPortal(
             if s_id.is_empty() {
                 Vec::new()
             } else {
-                get_student_attendance_records(uid, ws, s_id).await.unwrap_or_default()
+                get_student_attendance_records(uid, ws, s_id)
+                    .await
+                    .unwrap_or_default()
             }
         }
     });
@@ -62,7 +67,9 @@ pub fn ParentPortal(
             if s_id.is_empty() {
                 Vec::new()
             } else {
-                get_student_health_records(uid, ws, s_id).await.unwrap_or_default()
+                get_student_health_records(uid, ws, s_id)
+                    .await
+                    .unwrap_or_default()
             }
         }
     });
@@ -79,7 +86,10 @@ pub fn ParentPortal(
                 Vec::new()
             } else {
                 let all_inc = get_health_incidents(uid, ws).await.unwrap_or_default();
-                all_inc.into_iter().filter(|i| i.student_id == s_id).collect::<Vec<_>>()
+                all_inc
+                    .into_iter()
+                    .filter(|i| i.student_id == s_id)
+                    .collect::<Vec<_>>()
             }
         }
     });
@@ -107,7 +117,11 @@ pub fn ParentPortal(
         let _trig = db_trigger_academics.read();
         let uid = user_id_clone_courses.clone();
         let ws = ws_id_clone_courses.clone();
-        async move { yntra_core::get_workspace_courses(uid, ws).await.unwrap_or_default() }
+        async move {
+            yntra_core::get_workspace_courses(uid, ws)
+                .await
+                .unwrap_or_default()
+        }
     });
 
     // Timetable slots resource
@@ -117,9 +131,7 @@ pub fn ParentPortal(
         let _trig = db_trigger_academics.read();
         let uid = user_id_clone7.clone();
         let ws = ws_id_clone7.clone();
-        async move {
-            get_timetable_slots(uid, ws).await.unwrap_or_default()
-        }
+        async move { get_timetable_slots(uid, ws).await.unwrap_or_default() }
     });
 
     // Course Grades resource
@@ -135,10 +147,14 @@ pub fn ParentPortal(
                 Vec::new()
             } else {
                 // Fetch all grades for child
-                let courses = yntra_core::get_workspace_courses(uid.clone(), ws.clone()).await.unwrap_or_default();
+                let courses = yntra_core::get_workspace_courses(uid.clone(), ws.clone())
+                    .await
+                    .unwrap_or_default();
                 let mut list = Vec::new();
                 for c in courses {
-                    if let Ok(mut cg) = get_course_term_grades(uid.clone(), ws.clone(), c.id.clone()).await {
+                    if let Ok(mut cg) =
+                        get_course_term_grades(uid.clone(), ws.clone(), c.id.clone()).await
+                    {
                         // filter by student
                         cg.retain(|g| g.student_id == s_id);
                         list.append(&mut cg);
@@ -164,7 +180,9 @@ pub fn ParentPortal(
             if s_id.is_empty() {
                 Vec::new()
             } else {
-                get_student_submissions(uid, ws, s_id).await.unwrap_or_default()
+                get_student_submissions(uid, ws, s_id)
+                    .await
+                    .unwrap_or_default()
             }
         }
     });
@@ -181,7 +199,8 @@ pub fn ParentPortal(
         async move {
             let mut list = Vec::new();
             for c in courses_list {
-                if let Ok(mut assign) = get_assignments(uid.clone(), ws.clone(), c.id.clone()).await {
+                if let Ok(mut assign) = get_assignments(uid.clone(), ws.clone(), c.id.clone()).await
+                {
                     list.append(&mut assign);
                 }
             }
@@ -190,7 +209,7 @@ pub fn ParentPortal(
     });
 
     if students.is_empty() {
-         return rsx! {
+        return rsx! {
             div { class: "max-w-md mx-auto py-12 space-y-6",
                 div { class: "flex flex-col items-center justify-center text-center border border-dashed border-border rounded-2xl bg-muted/10 p-8",
                     LucideIcon { name: "shield-alert", class: "h-12 w-12 text-muted-foreground/30 mb-3" }
@@ -258,14 +277,20 @@ pub fn ParentPortal(
 
     let seed = state.get_passkey_seed();
     // Read parent portal child resources
-    let attendance = student_attendance_res.read().clone().unwrap_or_default()
+    let attendance = student_attendance_res
+        .read()
+        .clone()
+        .unwrap_or_default()
         .into_iter()
         .map(|mut a| {
             a.notes = decrypt_opt_field(&seed, a.notes);
             a
         })
         .collect::<Vec<_>>();
-    let health_records = student_health_records_res.read().clone().unwrap_or_default()
+    let health_records = student_health_records_res
+        .read()
+        .clone()
+        .unwrap_or_default()
         .into_iter()
         .map(|mut r| {
             r.vaccine_name = decrypt_field(&seed, &r.vaccine_name);
@@ -274,7 +299,10 @@ pub fn ParentPortal(
             r
         })
         .collect::<Vec<_>>();
-    let health_incidents = student_health_incidents_res.read().clone().unwrap_or_default()
+    let health_incidents = student_health_incidents_res
+        .read()
+        .clone()
+        .unwrap_or_default()
         .into_iter()
         .map(|mut i| {
             i.visit_reason = decrypt_field(&seed, &i.visit_reason);
@@ -285,7 +313,10 @@ pub fn ParentPortal(
             i
         })
         .collect::<Vec<_>>();
-    let report_cards = student_report_cards_res.read().clone().unwrap_or_default()
+    let report_cards = student_report_cards_res
+        .read()
+        .clone()
+        .unwrap_or_default()
         .into_iter()
         .map(|mut rc| {
             rc.principal_comments = decrypt_opt_field(&seed, rc.principal_comments);
@@ -295,23 +326,29 @@ pub fn ParentPortal(
     let (chart_points, chart_line_d, chart_area_d) = {
         let mut sorted_reports = report_cards.clone();
         sorted_reports.sort_by_key(|r| r.updated_at);
-        
+
         let width = 500.0;
         let height = 120.0;
         let padding_x = 45.0;
         let padding_y = 15.0;
-        
-        let points: Vec<(f32, f32, f64, String)> = sorted_reports.iter().enumerate().map(|(i, rc)| {
-            let x = if sorted_reports.len() > 1 {
-                padding_x + (i as f32) * (width - 2.0 * padding_x) / ((sorted_reports.len() - 1) as f32)
-            } else {
-                width / 2.0
-            };
-            let gpa_ratio = (rc.gpa as f32) / 4.0;
-            let y = height - padding_y - gpa_ratio * (height - 2.0 * padding_y);
-            (x, y, rc.gpa, rc.term_name.clone())
-        }).collect();
-        
+
+        let points: Vec<(f32, f32, f64, String)> = sorted_reports
+            .iter()
+            .enumerate()
+            .map(|(i, rc)| {
+                let x = if sorted_reports.len() > 1 {
+                    padding_x
+                        + (i as f32) * (width - 2.0 * padding_x)
+                            / ((sorted_reports.len() - 1) as f32)
+                } else {
+                    width / 2.0
+                };
+                let gpa_ratio = (rc.gpa as f32) / 4.0;
+                let y = height - padding_y - gpa_ratio * (height - 2.0 * padding_y);
+                (x, y, rc.gpa, rc.term_name.clone())
+            })
+            .collect();
+
         let line_d = if points.len() > 1 {
             let mut d = format!("M {:.1} {:.1}", points[0].0, points[0].1);
             for pt in points.iter().skip(1) {
@@ -321,21 +358,28 @@ pub fn ParentPortal(
         } else {
             String::new()
         };
-        
+
         let area_d = if points.len() > 1 {
             let mut d = format!("M {:.1} {:.1}", points[0].0, height - padding_y);
             for pt in points.iter() {
                 d.push_str(&format!(" L {:.1} {:.1}", pt.0, pt.1));
             }
-            d.push_str(&format!(" L {:.1} {:.1} Z", points[points.len() - 1].0, height - padding_y));
+            d.push_str(&format!(
+                " L {:.1} {:.1} Z",
+                points[points.len() - 1].0,
+                height - padding_y
+            ));
             d
         } else {
             String::new()
         };
-        
+
         (points, line_d, area_d)
     };
-    let course_grades = course_grades_res.read().clone().unwrap_or_default()
+    let course_grades = course_grades_res
+        .read()
+        .clone()
+        .unwrap_or_default()
         .into_iter()
         .map(|mut g| {
             g.final_grade = decrypt_opt_field(&seed, g.final_grade);
@@ -343,7 +387,10 @@ pub fn ParentPortal(
             g
         })
         .collect::<Vec<_>>();
-    let student_submissions = student_submissions_res.read().clone().unwrap_or_default()
+    let student_submissions = student_submissions_res
+        .read()
+        .clone()
+        .unwrap_or_default()
         .into_iter()
         .map(|mut s| {
             s.content = decrypt_field(&seed, &s.content);
@@ -370,14 +417,18 @@ pub fn ParentPortal(
         ids
     };
 
-    let filtered_timetable: Vec<_> = timetable.iter()
+    let filtered_timetable: Vec<_> = timetable
+        .iter()
         .filter(|s| enrolled_course_ids.contains(&s.course_id))
         .cloned()
         .collect();
 
     // Stats calculations
     let total_days = attendance.len();
-    let present_days = attendance.iter().filter(|a| a.status == "present" || a.status == "late").count();
+    let present_days = attendance
+        .iter()
+        .filter(|a| a.status == "present" || a.status == "late")
+        .count();
     let absent_days = attendance.iter().filter(|a| a.status == "absent").count();
     let attendance_rate = if total_days > 0 {
         (present_days as f32 / total_days as f32) * 100.0
@@ -437,7 +488,7 @@ pub fn ParentPortal(
             div { class: "grid grid-cols-1 lg:grid-cols-3 gap-6",
                 // Left Side: Attendance Progress and Health logs
                 div { class: "lg:col-span-2 space-y-6",
-                    
+
                     // Attendance SOTA Widget
                     Card { class: "border-border shadow-sm overflow-hidden",
                         CardHeader { class: "pb-2 flex flex-row items-center justify-between",
@@ -488,12 +539,12 @@ pub fn ParentPortal(
                                     }
                                     div {
                                         div { class: "text-sm font-black text-foreground", "Attendance Status" }
-                                        div { class: "text-[10px] text-muted-foreground mt-0.5", 
+                                        div { class: "text-[10px] text-muted-foreground mt-0.5",
                                             if attendance_rate >= 90.0 { {t("school-parent-excellent-standing", &locale)} } else { {t("school-parent-low-attendance", &locale)} }
                                         }
                                     }
                                 }
-                                
+
                                 div { class: "flex gap-6 items-center text-center",
                                     div {
                                         div { class: "text-lg font-black text-foreground", "{present_days}" }
@@ -697,7 +748,7 @@ pub fn ParentPortal(
                                             let course_opt = courses.iter().find(|c| c.id == a.course_id);
                                             let c_name = course_opt.map(|c| c.name.clone()).unwrap_or_else(|| "Course".to_string());
                                             let teacher_id_opt = course_opt.and_then(|c| c.teacher_id.clone());
-                                            
+
                                             let status_tag = if let Some(g) = grade {
                                                 rsx! {
                                                     span { class: "text-[9px] font-black uppercase bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 px-2 py-0.5 rounded",
@@ -775,7 +826,7 @@ pub fn ParentPortal(
 
                 // Right Side: Academic status, report cards and schedule
                 div { class: "space-y-6",
-                    
+
                     // GPA / Course Grades
                     Card { class: "border-border shadow-sm",
                         CardHeader {
@@ -846,7 +897,7 @@ pub fn ParentPortal(
                                         svg {
                                             view_box: "0 0 500 120",
                                             class: "w-full min-w-[400px] h-[120px] overflow-visible",
-                                            
+
                                             defs {
                                                 linearGradient {
                                                     id: "gpa-grad",
@@ -858,7 +909,7 @@ pub fn ParentPortal(
                                                     stop { offset: "100%", stop_color: "var(--primary)", stop_opacity: "0" }
                                                 }
                                             }
-                                            
+
                                             for gpa_val in [1.0, 2.0, 3.0, 4.0] {
                                                 {
                                                     let ratio = gpa_val / 4.0;
@@ -883,7 +934,7 @@ pub fn ParentPortal(
                                                     }
                                                 }
                                             }
-                                            
+
                                             if !chart_area_d.is_empty() {
                                                 path {
                                                     d: "{chart_area_d}",
@@ -891,7 +942,7 @@ pub fn ParentPortal(
                                                     opacity: "0.15",
                                                 }
                                             }
-                                            
+
                                             if !chart_line_d.is_empty() {
                                                 path {
                                                     d: "{chart_line_d}",
@@ -902,7 +953,7 @@ pub fn ParentPortal(
                                                     fill: "none",
                                                 }
                                             }
-                                            
+
                                             for pt in chart_points.iter() {
                                                 {
                                                     let (x, y, val, term) = pt;
@@ -1353,7 +1404,7 @@ pub fn ParentPortal(
                                                     .find(|s| s.id == child_id_val)
                                                     .map(|s| format!("{} {}", s.first_name, s.last_name))
                                                     .unwrap_or_else(|| "Student".to_string());
-                                                
+
                                                 let mut ics_content = format!(
                                                     "BEGIN:VCALENDAR\n\
                                                      VERSION:2.0\n\
@@ -1375,7 +1426,7 @@ pub fn ParentPortal(
                                                     };
                                                     let target_day = monday + chrono::Duration::days(s.day_of_week as i64 - 1);
                                                     let start_date = target_day.format("%Y%m%d").to_string();
-                                                    
+
                                                     let clean_start = s.start_time.replace(":", "");
                                                     let clean_end = s.end_time.replace(":", "");
                                                     let event_desc = crate::locales::t_with_args("school-parent-ics-desc", &locale_c, &[("name", &child_name_val)]);

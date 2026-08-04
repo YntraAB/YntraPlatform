@@ -38,9 +38,7 @@ pub fn SupportWidget(props: SupportWidgetProps) -> Element {
         let uid = active_user_id.clone();
         let q = search_query.read().clone();
         let _trig = *props.db_trigger.read();
-        async move {
-            yntra_core::search_helpdesk_articles(uid, q, "all".to_string()).await
-        }
+        async move { yntra_core::search_helpdesk_articles(uid, q, "all".to_string()).await }
     });
 
     let active_user_id_t = props.active_user.id.clone();
@@ -51,9 +49,7 @@ pub fn SupportWidget(props: SupportWidgetProps) -> Element {
         let uid = active_user_id_t.clone();
         let wsid = workspace_id_t.clone();
         let _trig = *props.db_trigger.read();
-        async move {
-            yntra_core::get_user_support_tickets(uid, wsid).await
-        }
+        async move { yntra_core::get_user_support_tickets(uid, wsid).await }
     });
 
     let handle_create_ticket = {
@@ -84,7 +80,10 @@ pub fn SupportWidget(props: SupportWidgetProps) -> Element {
                         is_submitting.set(false);
                         ticket_subject.set(String::new());
                         ticket_message.set(String::new());
-                        status_msg.set(Some(format!("Support Ticket {} created successfully!", t.id)));
+                        status_msg.set(Some(format!(
+                            "Support Ticket {} created successfully!",
+                            t.id
+                        )));
                         selected_ticket.set(Some(t));
                         let trig_val = *db_trigger.read();
                         db_trigger.set(trig_val + 1);
@@ -431,9 +430,7 @@ pub fn ProductTourOverlay(props: ProductTourOverlayProps) -> Element {
 
     let steps_res = use_resource(move || {
         let uid = active_user_id.clone();
-        async move {
-            yntra_core::get_product_tour_steps(uid, "onboarding_tour".to_string()).await
-        }
+        async move { yntra_core::get_product_tour_steps(uid, "onboarding_tour".to_string()).await }
     });
 
     let active_user_id_p = props.active_user.id.clone();
@@ -443,9 +440,7 @@ pub fn ProductTourOverlay(props: ProductTourOverlayProps) -> Element {
         let uid = active_user_id_p.clone();
         let wsid = workspace_id_p.clone();
         let _trig = *db_trigger.read();
-        async move {
-            yntra_core::get_user_tour_progress(uid, wsid, "onboarding_tour".to_string()).await
-        }
+        async move { yntra_core::get_user_tour_progress(uid, wsid, "onboarding_tour".to_string()).await }
     });
 
     let progress = match &*progress_res.read() {
@@ -482,7 +477,13 @@ pub fn ProductTourOverlay(props: ProductTourOverlayProps) -> Element {
             let uid = req_uid.clone();
             let ws = wsid.clone();
             spawn(async move {
-                let _ = yntra_core::complete_product_tour_step(uid, ws, "onboarding_tour".to_string(), next_s).await;
+                let _ = yntra_core::complete_product_tour_step(
+                    uid,
+                    ws,
+                    "onboarding_tour".to_string(),
+                    next_s,
+                )
+                .await;
                 let trig_val = *db_trigger.read();
                 db_trigger.set(trig_val + 1);
             });
@@ -496,7 +497,13 @@ pub fn ProductTourOverlay(props: ProductTourOverlayProps) -> Element {
             let uid = req_uid.clone();
             let ws = wsid.clone();
             spawn(async move {
-                let _ = yntra_core::complete_product_tour_step(uid, ws, "onboarding_tour".to_string(), 5).await;
+                let _ = yntra_core::complete_product_tour_step(
+                    uid,
+                    ws,
+                    "onboarding_tour".to_string(),
+                    5,
+                )
+                .await;
                 let trig_val = *db_trigger.read();
                 db_trigger.set(trig_val + 1);
             });

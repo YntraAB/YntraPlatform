@@ -547,4 +547,3 @@ pub fn AccountSettings(props: AccountSettingsProps) -> Element {
         }
     }
 }
-

@@ -1,7 +1,9 @@
 use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
-use yntra_core::{delete_user_account, export_user_personal_data, set_telemetry_opt_out, WorkspaceUser};
+use yntra_core::{
+    WorkspaceUser, delete_user_account, export_user_personal_data, set_telemetry_opt_out,
+};
 
 #[derive(Props, Clone)]
 pub struct PrivacyComplianceCardProps {
@@ -64,7 +66,8 @@ pub fn PrivacyComplianceCard(props: PrivacyComplianceCardProps) -> Element {
             spawn(async move {
                 match delete_user_account(uid.clone(), uid).await {
                     Ok(_) => {
-                        delete_status.set(Some("Account and data successfully deleted.".to_string()));
+                        delete_status
+                            .set(Some("Account and data successfully deleted.".to_string()));
                     }
                     Err(e) => {
                         delete_status.set(Some(format!("Deletion failed: {}", e)));
@@ -100,7 +103,7 @@ pub fn PrivacyComplianceCard(props: PrivacyComplianceCardProps) -> Element {
                 }
             }
             components::CardContent { class: "space-y-6",
-                
+
                 // 1. Data Export Section (GDPR Art. 20)
                 div { class: "flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-border/40 pb-4",
                     div { class: "space-y-1 flex-1",

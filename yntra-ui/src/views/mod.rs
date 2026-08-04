@@ -29,18 +29,21 @@ pub mod dynamic_block;
 pub use dynamic_block::DynamicBlockView;
 
 pub mod school;
-pub use school::{AcademicsView, AttendanceView, FinanceView, LibraryView, StudentDirectoryView, HealthClinicView, ReportCardsView};
+pub use school::{
+    AcademicsView, AttendanceView, FinanceView, HealthClinicView, LibraryView, ReportCardsView,
+    StudentDirectoryView,
+};
 
 pub mod care;
 pub use care::{JournalsView, MedicationsView};
 
 pub mod admin;
-pub use admin::{AdminPanelView, AuditExportsView, OnboardingWizardView, RbacManagementView, TeamInvitationsView};
+pub use admin::{
+    AdminPanelView, AuditExportsView, OnboardingWizardView, RbacManagementView, TeamInvitationsView,
+};
 
 pub mod support;
 pub use support::{ProductTourOverlay, SupportCenterView, SupportWidget};
 
 pub mod integrations;
 pub use integrations::EcosystemIntegrationsView;
-
-

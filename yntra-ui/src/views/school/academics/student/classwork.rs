@@ -1,13 +1,12 @@
-use dioxus::prelude::*;
-use dioxus::html::HasFileData;
+use super::super::utils::{
+    AdvancedAttachment, base64_encode, compute_mock_hash, encrypt_field_with_proof,
+    format_file_size, is_deadline_passed, parse_submission_content_and_advanced_attachment,
+};
 use crate::components::{Button, LucideIcon};
 use crate::locales::{t, t_with_args};
+use dioxus::html::HasFileData;
+use dioxus::prelude::*;
 use yntra_core::{Assignment, Submission, save_submission};
-use super::super::utils::{
-    is_deadline_passed, parse_submission_content_and_advanced_attachment,
-    format_file_size, compute_mock_hash, base64_encode, AdvancedAttachment,
-    encrypt_field_with_proof
-};
 
 #[component]
 pub fn StudentClassworkTab(
@@ -62,8 +61,8 @@ pub fn StudentClassworkTab(
             }
 
             if filtered_assignments.is_empty() {
-                div { class: "py-12 text-center text-xs text-muted-foreground border border-dashed border-border rounded-xl italic bg-muted/5", 
-                    {t("school-student-no-homework", &locale)} 
+                div { class: "py-12 text-center text-xs text-muted-foreground border border-dashed border-border rounded-xl italic bg-muted/5",
+                    {t("school-student-no-homework", &locale)}
                 }
             } else {
                 div { class: "space-y-4",

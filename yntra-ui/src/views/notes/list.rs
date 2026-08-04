@@ -197,7 +197,7 @@ pub fn NoteList(props: NoteListProps) -> Element {
                     let is_manager = active_user.role == "admin" || active_user.role == "platform_admin";
                     let can_delete = is_author || is_manager;
                     let is_enc = note.content.starts_with("zero_copy_enc:");
-                    
+
                     let note_read_id = note.id.clone();
                     let note_edit_id = note.id.clone();
                     let note_delete_id = note.id.clone();
@@ -210,7 +210,7 @@ pub fn NoteList(props: NoteListProps) -> Element {
                             x: context_menu_pos.read().0,
                             y: context_menu_pos.read().1,
                             onclose: move |_| context_menu_open.set(false),
-                            
+
                             button {
                                 class: "w-full text-left px-3 py-2 text-xs hover:bg-white/5 rounded-md text-foreground flex items-center gap-2 bg-transparent border-0 cursor-pointer",
                                 onclick: move |_| {

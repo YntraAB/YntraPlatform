@@ -1,6 +1,6 @@
 use crate::components::{Button, LucideIcon};
 use dioxus::prelude::*;
-use yntra_core::{get_sync_conflicts, resolve_sync_conflict, SyncConflictRecord};
+use yntra_core::{SyncConflictRecord, get_sync_conflicts, resolve_sync_conflict};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct ConflictResolverModalProps {

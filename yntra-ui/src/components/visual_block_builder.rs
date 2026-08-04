@@ -1,4 +1,4 @@
-use crate::components::{Button, DynamicForm, FormFieldSchema, FieldType, LucideIcon};
+use crate::components::{Button, DynamicForm, FieldType, FormFieldSchema, LucideIcon};
 use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::update_block_schema;
@@ -19,42 +19,47 @@ pub fn VisualBlockBuilder(props: VisualBlockBuilderProps) -> Element {
     let loc = props.locale.as_str();
 
     // Parse initial fields
-    let initial_fields = FormFieldSchema::parse_json(&props.initial_schema_json).unwrap_or_else(|_| {
-        vec![
-            FormFieldSchema {
-                name: "title".to_string(),
-                label: "Title".to_string(),
-                field_type: FieldType::Text,
-                placeholder: Some("Enter title".to_string()),
-                help_text: None,
-                required: true,
-                min_length: None,
-                max_length: None,
-                min: None,
-                max: None,
-                pattern: None,
-                compiled_pattern: None,
-                options: None,
-                col_span: None,
-            },
-            FormFieldSchema {
-                name: "status".to_string(),
-                label: "Status".to_string(),
-                field_type: FieldType::Select,
-                placeholder: None,
-                help_text: None,
-                required: true,
-                min_length: None,
-                max_length: None,
-                min: None,
-                max: None,
-                pattern: None,
-                compiled_pattern: None,
-                options: Some(vec!["New".to_string(), "In Progress".to_string(), "Completed".to_string()]),
-                col_span: None,
-            },
-        ]
-    });
+    let initial_fields =
+        FormFieldSchema::parse_json(&props.initial_schema_json).unwrap_or_else(|_| {
+            vec![
+                FormFieldSchema {
+                    name: "title".to_string(),
+                    label: "Title".to_string(),
+                    field_type: FieldType::Text,
+                    placeholder: Some("Enter title".to_string()),
+                    help_text: None,
+                    required: true,
+                    min_length: None,
+                    max_length: None,
+                    min: None,
+                    max: None,
+                    pattern: None,
+                    compiled_pattern: None,
+                    options: None,
+                    col_span: None,
+                },
+                FormFieldSchema {
+                    name: "status".to_string(),
+                    label: "Status".to_string(),
+                    field_type: FieldType::Select,
+                    placeholder: None,
+                    help_text: None,
+                    required: true,
+                    min_length: None,
+                    max_length: None,
+                    min: None,
+                    max: None,
+                    pattern: None,
+                    compiled_pattern: None,
+                    options: Some(vec![
+                        "New".to_string(),
+                        "In Progress".to_string(),
+                        "Completed".to_string(),
+                    ]),
+                    col_span: None,
+                },
+            ]
+        });
 
     let mut fields = use_signal(|| initial_fields);
     let mut selected_field_idx = use_signal(|| Option::<usize>::None);
@@ -64,7 +69,8 @@ pub fn VisualBlockBuilder(props: VisualBlockBuilderProps) -> Element {
     let current_fields = fields.read().clone();
 
     // Serialize current schema for live preview
-    let preview_schema_json = serde_json::to_string(&current_fields).unwrap_or_else(|_| "[]".to_string());
+    let preview_schema_json =
+        serde_json::to_string(&current_fields).unwrap_or_else(|_| "[]".to_string());
 
     rsx! {
         div { class: "flex flex-col h-full bg-background rounded-2xl border border-border overflow-hidden shadow-xl",
@@ -296,7 +302,7 @@ pub fn VisualBlockBuilder(props: VisualBlockBuilderProps) -> Element {
                     // Field Ordering List
                     div { class: "space-y-2 flex-1 overflow-y-auto pt-2 border-t border-border",
                         span { class: "text-[10px] font-bold text-muted-foreground uppercase tracking-wider", "Configured Schema Fields ({current_fields.len()})" }
-                        
+
                         if current_fields.is_empty() {
                             div { class: "p-6 text-center text-xs text-muted-foreground border border-dashed border-border rounded-xl italic",
                                 "No fields configured. Click buttons above to add controls."
@@ -315,7 +321,7 @@ pub fn VisualBlockBuilder(props: VisualBlockBuilderProps) -> Element {
                                                     if is_selected { "bg-primary/10 border-primary/40 text-primary shadow-xs" } else { "bg-card border-border hover:bg-accent text-foreground" }
                                                 ),
                                                 onclick: move |_| selected_field_idx.set(Some(idx)),
-                                                
+
                                                 div { class: "flex items-center gap-2 truncate",
                                                     LucideIcon { name: "grip-vertical", class: "h-3.5 w-3.5 text-muted-foreground/40 shrink-0" }
                                                     div { class: "truncate",

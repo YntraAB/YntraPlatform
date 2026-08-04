@@ -63,9 +63,7 @@ pub fn FleetView(props: FleetViewProps) -> Element {
     let vehicles_res = use_resource(move || {
         let _ = db_trig;
         let uid = props.active_user_id.read().clone();
-        async move {
-            yntra_core::get_vehicles(uid).await.unwrap_or_default()
-        }
+        async move { yntra_core::get_vehicles(uid).await.unwrap_or_default() }
     });
 
     let is_loading = vehicles_res.read().is_none();
@@ -80,21 +78,28 @@ pub fn FleetView(props: FleetViewProps) -> Element {
         let vid_opt = active_vid_dvir.clone();
         async move {
             if let Some(vid) = vid_opt {
-                yntra_core::get_vehicle_dvir_reports(uid, vid).await.unwrap_or_default()
+                yntra_core::get_vehicle_dvir_reports(uid, vid)
+                    .await
+                    .unwrap_or_default()
             } else {
                 Vec::new()
             }
         }
     });
 
-    let dvir_reports: Vec<DriverVehicleInspectionReport> = dvir_history_res.read().clone().unwrap_or_default();
+    let dvir_reports: Vec<DriverVehicleInspectionReport> =
+        dvir_history_res.read().clone().unwrap_or_default();
 
     // Compute Metrics
     let total_vehicles = vehicles.len();
     let total_capacity: f64 = vehicles.iter().map(|v| v.capacity_m3).sum();
     let active_count = vehicles.iter().filter(|v| v.status == "active").count();
     let heavy_fleet_count = vehicles.iter().filter(|v| v.capacity_m3 > 20.0).count();
-    let avg_capacity = if total_vehicles > 0 { total_capacity / total_vehicles as f64 } else { 0.0 };
+    let avg_capacity = if total_vehicles > 0 {
+        total_capacity / total_vehicles as f64
+    } else {
+        0.0
+    };
 
     // Filter vehicles
     let filtered_vehicles: Vec<MoveVehicle> = vehicles
@@ -102,10 +107,10 @@ pub fn FleetView(props: FleetViewProps) -> Element {
         .cloned()
         .filter(|v| {
             let q = search_query.read().to_lowercase();
-            let matches_query = q.is_empty() 
-                || v.name.to_lowercase().contains(&q) 
+            let matches_query = q.is_empty()
+                || v.name.to_lowercase().contains(&q)
                 || v.license_plate.to_lowercase().contains(&q);
-            
+
             let st = status_filter.read().clone();
             let matches_status = match st.as_str() {
                 "active" => v.status == "active",
@@ -119,7 +124,7 @@ pub fn FleetView(props: FleetViewProps) -> Element {
 
     rsx! {
         div { class: "mx-auto w-full max-w-5xl p-6 flex flex-col gap-6 animate-in fade-in duration-300",
-            
+
             // Header with action button
             div { class: "flex items-center justify-between flex-wrap gap-4",
                 div { class: "flex flex-col gap-1",
@@ -160,7 +165,7 @@ pub fn FleetView(props: FleetViewProps) -> Element {
                     div { class: "text-2xl font-black text-foreground flex items-center justify-between",
                         "{avg_capacity:.1} m³"
                         if heavy_fleet_count > 0 {
-                            span { 
+                            span {
                                 class: "text-[9px] font-bold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-500 border border-amber-500/20",
                                 title: "Heavy Transport Rig Fleet",
                                 "Heavy ({heavy_fleet_count})"
@@ -216,7 +221,7 @@ pub fn FleetView(props: FleetViewProps) -> Element {
 
                 components::CardContent {
                     class: "pt-4 flex flex-1 flex-col",
-                    
+
                     if is_loading {
                         // Skeleton Loader State
                         div { class: "grid grid-cols-1 md:grid-cols-2 gap-3.5 animate-pulse",
@@ -260,7 +265,7 @@ pub fn FleetView(props: FleetViewProps) -> Element {
                                     let is_heavy_rig = v_capacity > 35.0;
                                     let is_medium_truck = v_capacity > 15.0 && v_capacity <= 35.0;
                                     let requires_permit = v_capacity > 20.0;
-                                    
+
                                     // Compute ping status
                                     let has_gps = v_device.is_some() || vehicle.latitude.is_some();
                                     let last_ping_ms = vehicle.last_ping.unwrap_or(0);
@@ -293,8 +298,8 @@ pub fn FleetView(props: FleetViewProps) -> Element {
                                                     div { class: "min-w-0 flex-1",
                                                         div { class: "flex items-center gap-2 flex-wrap",
                                                             span { class: "text-sm font-bold text-foreground truncate group-hover:text-primary transition-all", "{v_name}" }
-                                                            span { class: "font-mono font-bold bg-muted text-foreground border border-border/60 px-1.5 py-0.5 rounded text-[10px] tracking-wide shrink-0", 
-                                                                "{v_plate}" 
+                                                            span { class: "font-mono font-bold bg-muted text-foreground border border-border/60 px-1.5 py-0.5 rounded text-[10px] tracking-wide shrink-0",
+                                                                "{v_plate}"
                                                             }
                                                         }
                                                         div { class: "text-xs text-muted-foreground flex items-center gap-2 mt-1 flex-wrap",
@@ -425,11 +430,11 @@ pub fn FleetView(props: FleetViewProps) -> Element {
                     let uid_sim_drawer = active_uid.clone();
 
                     rsx! {
-                        div { 
+                        div {
                             style: "position: fixed; inset: 0; z-index: 9999; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);",
                             onclick: move |_| active_drawer_vehicle.set(None),
-                            
-                            div { 
+
+                            div {
                                 class: "w-full max-w-xl bg-sidebar border-l border-border h-full flex flex-col shadow-2xl animate-in slide-in-from-right duration-300 overflow-y-auto p-6 space-y-5",
                                 onclick: move |e| e.stop_propagation(),
 
@@ -756,11 +761,11 @@ pub fn FleetView(props: FleetViewProps) -> Element {
                     let runner_del = runner.clone();
 
                     rsx! {
-                        div { 
+                        div {
                             style: "position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); padding: 1rem;",
                             onclick: move |_| vehicle_to_delete.set(None),
-                            
-                            div { 
+
+                            div {
                                 class: "w-full max-w-md bg-sidebar border border-border rounded-2xl shadow-2xl p-6 space-y-4 animate-in zoom-in-95 duration-200",
                                 onclick: move |e| e.stop_propagation(),
 
@@ -820,11 +825,11 @@ pub fn FleetView(props: FleetViewProps) -> Element {
                     let runner_reg = runner.clone();
 
                     rsx! {
-                        div { 
+                        div {
                             style: "position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); padding: 1rem;",
                             onclick: move |_| show_register_modal.set(false),
-                            
-                            div { 
+
+                            div {
                                 class: "w-full max-w-md bg-sidebar border border-border rounded-2xl shadow-2xl p-6 space-y-5 animate-in zoom-in-95 duration-200",
                                 onclick: move |e| e.stop_propagation(),
 
@@ -927,9 +932,9 @@ pub fn FleetView(props: FleetViewProps) -> Element {
                                                 new_vehicle_gps_id.set(String::new());
                                                 form_validation_error.set(None);
                                                 show_register_modal.set(false);
-                                                
+
                                                 let gps_opt = if gps_id.is_empty() { None } else { Some(gps_id) };
-                                                
+
                                                 runner_c.run(async move {
                                                     yntra_core::create_vehicle(uid, name, plate, cap, gps_opt).await?;
                                                     let current = *db_trigger.read();

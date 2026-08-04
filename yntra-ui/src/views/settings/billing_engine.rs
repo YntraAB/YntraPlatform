@@ -31,9 +31,7 @@ pub fn BillingEngineView(props: BillingEngineProps) -> Element {
         let uid = active_user_id.clone();
         let wsid = workspace_id.clone();
         let _trig = *db_trigger.read();
-        async move {
-            yntra_core::get_workspace_subscription(uid, wsid).await
-        }
+        async move { yntra_core::get_workspace_subscription(uid, wsid).await }
     });
 
     let active_user_id_inv = props.active_user.id.clone();
@@ -44,9 +42,7 @@ pub fn BillingEngineView(props: BillingEngineProps) -> Element {
         let uid = active_user_id_inv.clone();
         let wsid = workspace_id_inv.clone();
         let _trig = *db_trigger.read();
-        async move {
-            yntra_core::get_platform_invoices(uid, wsid).await
-        }
+        async move { yntra_core::get_platform_invoices(uid, wsid).await }
     });
 
     // Populate local signal defaults from fetched subscription
@@ -64,11 +60,21 @@ pub fn BillingEngineView(props: BillingEngineProps) -> Element {
         _ => None,
     };
 
-    let current_tier = sub_val.as_ref().map(|s| s.tier.as_str()).unwrap_or("starter");
-    let current_platform = sub_val.as_ref().map(|s| s.payment_platform.as_str()).unwrap_or("stripe");
+    let current_tier = sub_val
+        .as_ref()
+        .map(|s| s.tier.as_str())
+        .unwrap_or("starter");
+    let current_platform = sub_val
+        .as_ref()
+        .map(|s| s.payment_platform.as_str())
+        .unwrap_or("stripe");
     let price_per_seat = yntra_core::get_tier_seat_price(&selected_tier.read());
     let seats_count = *allocated_seats.read();
-    let annual_discount = if *billing_cycle.read() == "annual" { 0.85 } else { 1.0 };
+    let annual_discount = if *billing_cycle.read() == "annual" {
+        0.85
+    } else {
+        1.0
+    };
     let monthly_total = price_per_seat * (seats_count as f64) * annual_discount;
 
     let handle_save_subscription = {
@@ -87,7 +93,16 @@ pub fn BillingEngineView(props: BillingEngineProps) -> Element {
             let cycle = billing_cycle.read().clone();
 
             spawn(async move {
-                match yntra_core::update_workspace_subscription(uid, ws, tier.clone(), platform.clone(), seats, cycle).await {
+                match yntra_core::update_workspace_subscription(
+                    uid,
+                    ws,
+                    tier.clone(),
+                    platform.clone(),
+                    seats,
+                    cycle,
+                )
+                .await
+                {
                     Ok(s) => {
                         is_updating.set(false);
                         status_msg.set(Some(format!(
@@ -121,12 +136,17 @@ pub fn BillingEngineView(props: BillingEngineProps) -> Element {
             let seats = *allocated_seats.read();
 
             spawn(async move {
-                match yntra_core::create_payment_checkout_session(uid, ws, platform, tier, seats).await {
+                match yntra_core::create_payment_checkout_session(uid, ws, platform, tier, seats)
+                    .await
+                {
                     Ok(sess) => {
                         is_updating.set(false);
                         status_msg.set(Some(format!(
                             "Checkout session created on {} ({})! Total: ${:.2}. Launch URL: {}",
-                            sess.payment_platform.to_uppercase(), sess.session_id, sess.total_amount, sess.checkout_url
+                            sess.payment_platform.to_uppercase(),
+                            sess.session_id,
+                            sess.total_amount,
+                            sess.checkout_url
                         )));
                     }
                     Err(e) => {
@@ -155,7 +175,9 @@ pub fn BillingEngineView(props: BillingEngineProps) -> Element {
                         is_generating_inv.set(false);
                         status_msg.set(Some(format!(
                             "Invoice {} successfully generated for ${:.2} ({})",
-                            inv.invoice_number, inv.amount_paid, inv.payment_platform.to_uppercase()
+                            inv.invoice_number,
+                            inv.amount_paid,
+                            inv.payment_platform.to_uppercase()
                         )));
                         let trig_val = *db_trigger.read();
                         db_trigger.set(trig_val + 1);

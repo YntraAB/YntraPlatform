@@ -85,7 +85,7 @@ pub fn DispatchAlertsModal(
                     // Dispatch Alert Actions
                     div {
                         class: "space-y-3 pt-2",
-                        
+
                         button {
                             class: "w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] text-white font-bold text-sm rounded-xl shadow-lg transition-all border border-emerald-400 flex items-center justify-center gap-3",
                             disabled: *is_sending.read(),

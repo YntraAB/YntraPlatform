@@ -3,18 +3,18 @@ use dioxus::prelude::*;
 pub mod academics;
 pub mod attendance;
 pub mod finance;
-pub mod library;
-pub mod student_directory;
 pub mod health;
+pub mod library;
 pub mod report_cards;
+pub mod student_directory;
 
 pub use academics::AcademicsView;
 pub use attendance::AttendanceView;
 pub use finance::FinanceView;
-pub use library::LibraryView;
-pub use student_directory::StudentDirectoryView;
 pub use health::HealthClinicView;
+pub use library::LibraryView;
 pub use report_cards::ReportCardsView;
+pub use student_directory::StudentDirectoryView;
 
 #[derive(Props, Clone, PartialEq)]
 pub struct SchoolViewProps {
@@ -30,10 +30,17 @@ pub fn infer_subject_from_course(course: &str, locale: &str) -> Option<String> {
     if name_lower.is_empty() {
         return None;
     }
-    
+
     // Mathematics
     let math_keywords = &[
-        "algebra", "geometry", "calculus", "geometri", "analys", "kalkulus", "geometria", "analyysi"
+        "algebra",
+        "geometry",
+        "calculus",
+        "geometri",
+        "analys",
+        "kalkulus",
+        "geometria",
+        "analyysi",
     ];
     if math_keywords.iter().any(|k| name_lower.contains(k)) {
         return Some(match locale {
@@ -47,8 +54,21 @@ pub fn infer_subject_from_course(course: &str, locale: &str) -> Option<String> {
 
     // Science
     let science_keywords = &[
-        "biology", "physics", "chemistry", "biologi", "fysik", "kemi", "science", "naturvetenskap",
-        "naturfag", "luonnontiede", "fysiikka", "kemia", "biologia", "fysikk", "kjemi"
+        "biology",
+        "physics",
+        "chemistry",
+        "biologi",
+        "fysik",
+        "kemi",
+        "science",
+        "naturvetenskap",
+        "naturfag",
+        "luonnontiede",
+        "fysiikka",
+        "kemia",
+        "biologia",
+        "fysikk",
+        "kjemi",
     ];
     if science_keywords.iter().any(|k| name_lower.contains(k)) {
         return Some(match locale {
@@ -62,8 +82,16 @@ pub fn infer_subject_from_course(course: &str, locale: &str) -> Option<String> {
 
     // History & Geography
     let history_keywords = &[
-        "history", "geography", "civilization", "historia", "geografi", "historie", "civilisation",
-        "civilisasjon", "sivilisaatio", "maantieto"
+        "history",
+        "geography",
+        "civilization",
+        "historia",
+        "geografi",
+        "historie",
+        "civilisation",
+        "civilisasjon",
+        "sivilisaatio",
+        "maantieto",
     ];
     if history_keywords.iter().any(|k| name_lower.contains(k)) {
         return Some(match locale {
@@ -77,7 +105,15 @@ pub fn infer_subject_from_course(course: &str, locale: &str) -> Option<String> {
 
     // English
     let english_keywords = &[
-        "english", "literature", "writing", "engelska", "engelsk", "englanti", "kirjallisuus", "skrivande", "skriving"
+        "english",
+        "literature",
+        "writing",
+        "engelska",
+        "engelsk",
+        "englanti",
+        "kirjallisuus",
+        "skrivande",
+        "skriving",
     ];
     if english_keywords.iter().any(|k| name_lower.contains(k)) {
         return Some(match locale {
@@ -91,7 +127,16 @@ pub fn infer_subject_from_course(course: &str, locale: &str) -> Option<String> {
 
     // Art
     let art_keywords = &[
-        "drawing", "painting", "art", "ceramics", "sketching", "design", "bild", "kuvataide", "billedkunst", "kunst"
+        "drawing",
+        "painting",
+        "art",
+        "ceramics",
+        "sketching",
+        "design",
+        "bild",
+        "kuvataide",
+        "billedkunst",
+        "kunst",
     ];
     if art_keywords.iter().any(|k| name_lower.contains(k)) {
         return Some(match locale {
@@ -105,7 +150,15 @@ pub fn infer_subject_from_course(course: &str, locale: &str) -> Option<String> {
 
     // Music
     let music_keywords = &[
-        "music", "choir", "band", "orchestra", "guitar", "musik", "musiikki", "kor", "orkester"
+        "music",
+        "choir",
+        "band",
+        "orchestra",
+        "guitar",
+        "musik",
+        "musiikki",
+        "kor",
+        "orkester",
     ];
     if music_keywords.iter().any(|k| name_lower.contains(k)) {
         return Some(match locale {
@@ -119,7 +172,18 @@ pub fn infer_subject_from_course(course: &str, locale: &str) -> Option<String> {
 
     // PE
     let pe_keywords = &[
-        "fitness", "conditioning", "sports", "wellness", "yoga", "gymnastics", "idrott", "hälsa", "kroppsøving", "idræt", "liikunta", "terveystieto"
+        "fitness",
+        "conditioning",
+        "sports",
+        "wellness",
+        "yoga",
+        "gymnastics",
+        "idrott",
+        "hälsa",
+        "kroppsøving",
+        "idræt",
+        "liikunta",
+        "terveystieto",
     ];
     if pe_keywords.iter().any(|k| name_lower.contains(k)) {
         return Some(match locale {

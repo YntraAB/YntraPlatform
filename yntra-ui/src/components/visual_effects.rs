@@ -170,7 +170,11 @@ pub fn VisualEffectHandler(props: VisualEffectHandlerProps) -> Element {
     let prefs_str = props.account_preferences.read();
     let mut font_scale = 100.0f32;
     let mut theme_mode = "dark".to_string();
-    let mut accent_color = if props.workspace_brand_color.is_empty() { "#3b82f6".to_string() } else { props.workspace_brand_color.clone() };
+    let mut accent_color = if props.workspace_brand_color.is_empty() {
+        "#3b82f6".to_string()
+    } else {
+        props.workspace_brand_color.clone()
+    };
 
     if let Ok(val) = serde_json::from_str::<Value>(&prefs_str) {
         if let Some(scale) = val.get("font_scale").and_then(|v| v.as_f64()) {
@@ -212,7 +216,11 @@ pub fn VisualEffectHandler(props: VisualEffectHandlerProps) -> Element {
         let primary_coords = format!("{} {}% {}%", h, s, l);
         let foreground_coords = if l > 60 { "0 0% 0%" } else { "0 0% 100%" };
         let accent_color_str = format!("hsl({} {}% {}%)", h, s, l);
-        let hover_l = if l > 50 { l.saturating_sub(10) } else { l.saturating_add(10) };
+        let hover_l = if l > 50 {
+            l.saturating_sub(10)
+        } else {
+            l.saturating_add(10)
+        };
         let accent_color_hover_str = format!("hsl({} {}% {}%)", h, s, hover_l);
         let accent_color_soft_str = format!("hsla({}, {}%, {}%, 0.15)", h, s, l);
 

@@ -239,9 +239,7 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
             let _trig = db_trigger.read();
             let active_user_id = active_user_id.clone();
             let ws_id = ws_id.clone();
-            async move {
-                yntra_core::get_academic_overview(active_user_id, ws_id).await
-            }
+            async move { yntra_core::get_academic_overview(active_user_id, ws_id).await }
         })
     };
 
@@ -252,9 +250,7 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
             let _trig = db_trigger.read();
             let active_user_id = active_user_id.clone();
             let ws_id = ws_id.clone();
-            async move {
-                yntra_core::get_library_overview(active_user_id, ws_id).await
-            }
+            async move { yntra_core::get_library_overview(active_user_id, ws_id).await }
         })
     };
 
@@ -265,9 +261,7 @@ pub fn DashboardView(props: DashboardViewProps) -> Element {
             let _trig = db_trigger.read();
             let active_user_id = active_user_id.clone();
             let ws_id = ws_id.clone();
-            async move {
-                yntra_core::get_finance_overview(active_user_id, ws_id).await
-            }
+            async move { yntra_core::get_finance_overview(active_user_id, ws_id).await }
         })
     };
 

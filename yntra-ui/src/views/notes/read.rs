@@ -59,7 +59,7 @@ pub fn NoteRead(props: NoteReadProps) -> Element {
             let author_role = author_user
                 .map(|u| u.role.clone())
                 .unwrap_or_else(|| "user".to_string());
-            
+
             let is_ring = if let Ok(proof_bytes) = const_hex::decode(&proof) {
                 proof_bytes.starts_with(b"ZKP_RING_PROOF_V1:")
             } else {

@@ -1,5 +1,5 @@
-use dioxus::prelude::*;
 use crate::components;
+use dioxus::prelude::*;
 
 #[derive(Props, Clone, PartialEq)]
 pub struct ErpSyncModalProps {
@@ -33,7 +33,9 @@ pub fn ErpSyncModal(props: ErpSyncModalProps) -> Element {
     let mut gl_res = use_resource(move || {
         let u = u_gl.clone();
         async move {
-            yntra_core::get_accounting_general_ledger_summary(u).await.ok()
+            yntra_core::get_accounting_general_ledger_summary(u)
+                .await
+                .ok()
         }
     });
 
@@ -41,7 +43,9 @@ pub fn ErpSyncModal(props: ErpSyncModalProps) -> Element {
     let mut logs_res = use_resource(move || {
         let u = u_logs.clone();
         async move {
-            yntra_core::get_erp_sync_history(u).await.unwrap_or_default()
+            yntra_core::get_erp_sync_history(u)
+                .await
+                .unwrap_or_default()
         }
     });
 
@@ -49,7 +53,9 @@ pub fn ErpSyncModal(props: ErpSyncModalProps) -> Element {
     let mut fuel_res = use_resource(move || {
         let u = u_fuel.clone();
         async move {
-            yntra_core::get_fleet_fuel_receipts(u).await.unwrap_or_default()
+            yntra_core::get_fleet_fuel_receipts(u)
+                .await
+                .unwrap_or_default()
         }
     });
 

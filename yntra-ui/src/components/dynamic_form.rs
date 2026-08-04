@@ -4,14 +4,17 @@ use dioxus::prelude::*;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 
-static EMAIL_REGEX: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r"^[^@\s]+@[^@\s]+\.[^@\s]+$").expect("Invalid static EMAIL_REGEX"));
+static EMAIL_REGEX: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"^[^@\s]+@[^@\s]+\.[^@\s]+$").expect("Invalid static EMAIL_REGEX")
+});
 
-static URL_REGEX: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r"^(https?|ftp)://[^\s/$.?#].[^\s]*$").expect("Invalid static URL_REGEX"));
+static URL_REGEX: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"^(https?|ftp)://[^\s/$.?#].[^\s]*$").expect("Invalid static URL_REGEX")
+});
 
-static TEL_REGEX: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r"^\+?[0-9\s\-()]{7,20}$").expect("Invalid static TEL_REGEX"));
+static TEL_REGEX: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"^\+?[0-9\s\-()]{7,20}$").expect("Invalid static TEL_REGEX")
+});
 
 /// Helper function to retrieve a nested `serde_json::Value` from a `Map` using dot-path syntax (e.g. "user.profile.name").
 pub fn get_nested_value<'a>(
@@ -53,7 +56,10 @@ pub fn set_nested_value(
         }
         let is_obj = current_map.get(part).map_or(false, |v| v.is_object());
         if !is_obj {
-            current_map.insert(part.to_string(), serde_json::Value::Object(serde_json::Map::new()));
+            current_map.insert(
+                part.to_string(),
+                serde_json::Value::Object(serde_json::Map::new()),
+            );
         }
         if let Some(serde_json::Value::Object(next_map)) = current_map.get_mut(part) {
             current_map = next_map;
@@ -79,7 +85,12 @@ pub enum FieldType {
     Date,
     Time,
     Color,
-    #[serde(rename = "section", alias = "heading", alias = "group", alias = "divider")]
+    #[serde(
+        rename = "section",
+        alias = "heading",
+        alias = "group",
+        alias = "divider"
+    )]
     Section,
     #[serde(rename = "tel", alias = "phone")]
     Tel,
@@ -254,13 +265,16 @@ pub fn DynamicForm(props: DynamicFormProps) -> Element {
 
     let mut form_values = use_signal(serde_json::Map::<String, serde_json::Value>::new);
 
-    use_effect(use_reactive((&props.initial_values,), move |(initial_json,)| {
-        let parsed = serde_json::from_str::<serde_json::Value>(&initial_json)
-            .ok()
-            .and_then(|v| v.as_object().cloned())
-            .unwrap_or_default();
-        form_values.set(parsed);
-    }));
+    use_effect(use_reactive(
+        (&props.initial_values,),
+        move |(initial_json,)| {
+            let parsed = serde_json::from_str::<serde_json::Value>(&initial_json)
+                .ok()
+                .and_then(|v| v.as_object().cloned())
+                .unwrap_or_default();
+            form_values.set(parsed);
+        },
+    ));
 
     let mut validation_errors = use_signal(HashMap::<String, String>::new);
 
@@ -277,7 +291,11 @@ pub fn DynamicForm(props: DynamicFormProps) -> Element {
             if name.is_empty() || matches!(field_type, FieldType::Section) {
                 continue;
             }
-            let label = if field.label.is_empty() { name.clone() } else { field.label.clone() };
+            let label = if field.label.is_empty() {
+                name.clone()
+            } else {
+                field.label.clone()
+            };
             let required = field.required;
 
             let val_opt = get_nested_value(&current_vals, &name);
@@ -312,7 +330,11 @@ pub fn DynamicForm(props: DynamicFormProps) -> Element {
                             if !EMAIL_REGEX.is_match(s_val) {
                                 errs.insert(
                                     name.clone(),
-                                    t_with_args("validation-email-invalid", &loc_val, &[("label", &label)]),
+                                    t_with_args(
+                                        "validation-email-invalid",
+                                        &loc_val,
+                                        &[("label", &label)],
+                                    ),
                                 );
                                 format_err = true;
                             }
@@ -321,7 +343,11 @@ pub fn DynamicForm(props: DynamicFormProps) -> Element {
                             if !URL_REGEX.is_match(s_val) {
                                 errs.insert(
                                     name.clone(),
-                                    t_with_args("validation-pattern-invalid", &loc_val, &[("label", &label)]),
+                                    t_with_args(
+                                        "validation-pattern-invalid",
+                                        &loc_val,
+                                        &[("label", &label)],
+                                    ),
                                 );
                                 format_err = true;
                             }
@@ -330,7 +356,11 @@ pub fn DynamicForm(props: DynamicFormProps) -> Element {
                             if !TEL_REGEX.is_match(s_val) {
                                 errs.insert(
                                     name.clone(),
-                                    t_with_args("validation-pattern-invalid", &loc_val, &[("label", &label)]),
+                                    t_with_args(
+                                        "validation-pattern-invalid",
+                                        &loc_val,
+                                        &[("label", &label)],
+                                    ),
                                 );
                                 format_err = true;
                             }
@@ -353,7 +383,11 @@ pub fn DynamicForm(props: DynamicFormProps) -> Element {
                             let min_str = min.to_string();
                             errs.insert(
                                 name.clone(),
-                                t_with_args("validation-min-length", &loc_val, &[("label", &label), ("min", &min_str)]),
+                                t_with_args(
+                                    "validation-min-length",
+                                    &loc_val,
+                                    &[("label", &label), ("min", &min_str)],
+                                ),
                             );
                             text_err = true;
                         }
@@ -365,7 +399,11 @@ pub fn DynamicForm(props: DynamicFormProps) -> Element {
                                 let max_str = max.to_string();
                                 errs.insert(
                                     name.clone(),
-                                    t_with_args("validation-max-length", &loc_val, &[("label", &label), ("max", &max_str)]),
+                                    t_with_args(
+                                        "validation-max-length",
+                                        &loc_val,
+                                        &[("label", &label), ("max", &max_str)],
+                                    ),
                                 );
                                 text_err = true;
                             }
@@ -377,7 +415,11 @@ pub fn DynamicForm(props: DynamicFormProps) -> Element {
                             if !re.is_match(s_val) {
                                 errs.insert(
                                     name.clone(),
-                                    t_with_args("validation-pattern-invalid", &loc_val, &[("label", &label)]),
+                                    t_with_args(
+                                        "validation-pattern-invalid",
+                                        &loc_val,
+                                        &[("label", &label)],
+                                    ),
                                 );
                                 text_err = true;
                             }
@@ -387,7 +429,11 @@ pub fn DynamicForm(props: DynamicFormProps) -> Element {
                                     if !re.is_match(s_val) {
                                         errs.insert(
                                             name.clone(),
-                                            t_with_args("validation-pattern-invalid", &loc_val, &[("label", &label)]),
+                                            t_with_args(
+                                                "validation-pattern-invalid",
+                                                &loc_val,
+                                                &[("label", &label)],
+                                            ),
                                         );
                                         text_err = true;
                                     }
@@ -426,7 +472,11 @@ pub fn DynamicForm(props: DynamicFormProps) -> Element {
                                 Err(_) => {
                                     errs.insert(
                                         name.clone(),
-                                        t_with_args("validation-pattern-invalid", &loc_val, &[("label", &label)]),
+                                        t_with_args(
+                                            "validation-pattern-invalid",
+                                            &loc_val,
+                                            &[("label", &label)],
+                                        ),
                                     );
                                     num_err = true;
                                     None
@@ -448,7 +498,11 @@ pub fn DynamicForm(props: DynamicFormProps) -> Element {
                             let min_str = min.to_string();
                             errs.insert(
                                 name.clone(),
-                                t_with_args("validation-min-number", &loc_val, &[("label", &label), ("min", &min_str)]),
+                                t_with_args(
+                                    "validation-min-number",
+                                    &loc_val,
+                                    &[("label", &label), ("min", &min_str)],
+                                ),
                             );
                             invalid_ids.push(field_id);
                             continue;
@@ -460,7 +514,11 @@ pub fn DynamicForm(props: DynamicFormProps) -> Element {
                             let max_str = max.to_string();
                             errs.insert(
                                 name.clone(),
-                                t_with_args("validation-max-number", &loc_val, &[("label", &label), ("max", &max_str)]),
+                                t_with_args(
+                                    "validation-max-number",
+                                    &loc_val,
+                                    &[("label", &label), ("max", &max_str)],
+                                ),
                             );
                             invalid_ids.push(field_id);
                             continue;

@@ -104,7 +104,11 @@ pub fn NotesView(props: NotesViewProps) -> Element {
                     if q.is_empty() {
                         None
                     } else {
-                        Some(yntra_core::search_notes(uid, tid, q).await.unwrap_or_default())
+                        Some(
+                            yntra_core::search_notes(uid, tid, q)
+                                .await
+                                .unwrap_or_default(),
+                        )
                     }
                 }
             });

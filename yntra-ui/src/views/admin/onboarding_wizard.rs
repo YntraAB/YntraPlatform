@@ -86,7 +86,13 @@ pub fn OnboardingWizardView(props: OnboardingWizardProps) -> Element {
         let mut trigger = db_trigger;
 
         spawn(async move {
-            match yntra_core::complete_workspace_onboarding(uid.clone(), wsid.clone(), payload.to_string()).await {
+            match yntra_core::complete_workspace_onboarding(
+                uid.clone(),
+                wsid.clone(),
+                payload.to_string(),
+            )
+            .await
+            {
                 Ok(_) => {
                     // Send initial invitations if any
                     for (inv_e, inv_r) in invites {
@@ -96,13 +102,16 @@ pub fn OnboardingWizardView(props: OnboardingWizardProps) -> Element {
                             inv_e.clone(),
                             inv_e,
                             inv_r,
-                        ).await;
+                        )
+                        .await;
                     }
 
                     let trig_val = *trigger.read();
                     trigger.set(trig_val + 1);
                     is_saving.set(false);
-                    status_msg.set(Some("Workspace onboarding successfully completed!".to_string()));
+                    status_msg.set(Some(
+                        "Workspace onboarding successfully completed!".to_string(),
+                    ));
                     on_complete.call(());
                 }
                 Err(e) => {

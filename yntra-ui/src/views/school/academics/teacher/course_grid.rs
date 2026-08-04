@@ -1,5 +1,5 @@
-use dioxus::prelude::*;
 use crate::components::LucideIcon;
+use dioxus::prelude::*;
 use yntra_core::Course;
 
 #[component]
@@ -50,7 +50,7 @@ pub fn CourseGrid(
                                             selected_course_id.set(c_id_select.clone());
                                         }
                                     },
-                                    
+
                                     // Colorful header banner
                                     div { class: "h-28 bg-gradient-to-br {gradient_class} p-4 text-white relative flex flex-col justify-between shadow-inner rounded-t-2xl",
                                         div { class: "flex items-start justify-between w-full",
@@ -77,7 +77,7 @@ pub fn CourseGrid(
                                                 }
                                             }
                                         }
-                                        
+
                                         if let Some(ref room) = c.classroom {
                                             span { class: "text-[10px] text-white/80 font-semibold", "Room: {room}" }
                                         }
@@ -110,7 +110,7 @@ pub fn CourseGrid(
                                             }
                                         }
                                     }
-                                    
+
                                     // Card content (Roster info)
                                     div { class: "p-4 flex flex-col justify-between flex-1 bg-card h-20 border-x border-b border-border/60 rounded-b-2xl",
                                         div { class: "text-[11px] text-muted-foreground flex items-center gap-1.5",

@@ -14,9 +14,14 @@ pub fn NotificationBell(props: NotificationBellProps) -> Element {
     let mut filter_unread_only = use_signal(|| false);
 
     let unread_count = props.notifications.iter().filter(|n| !n.is_read).count();
-    
+
     let filtered_notifications: Vec<InAppNotification> = if *filter_unread_only.read() {
-        props.notifications.iter().filter(|n| !n.is_read).cloned().collect()
+        props
+            .notifications
+            .iter()
+            .filter(|n| !n.is_read)
+            .cloned()
+            .collect()
     } else {
         props.notifications.clone()
     };
@@ -24,14 +29,14 @@ pub fn NotificationBell(props: NotificationBellProps) -> Element {
     rsx! {
         div {
             class: "relative inline-block text-left",
-            
+
             // Bell Button
             button {
                 r#type: "button",
                 class: "relative p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800/60 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50",
                 onclick: move |_| is_open.toggle(),
                 title: "Notifications",
-                
+
                 // Bell SVG Icon
                 svg {
                     class: "w-5 h-5",
@@ -59,7 +64,7 @@ pub fn NotificationBell(props: NotificationBellProps) -> Element {
             if *is_open.read() {
                 div {
                     class: "absolute right-0 mt-2 w-80 md:w-96 rounded-xl bg-slate-900 border border-slate-800 shadow-2xl z-50 overflow-hidden backdrop-blur-xl animate-in fade-in slide-in-from-top-2 duration-150",
-                    
+
                     // Header
                     div {
                         class: "flex items-center justify-between px-4 py-3 border-b border-slate-800/80 bg-slate-900/90",
@@ -96,7 +101,7 @@ pub fn NotificationBell(props: NotificationBellProps) -> Element {
                     // Notification Item List
                     div {
                         class: "max-h-80 overflow-y-auto divide-y divide-slate-800/40",
-                        
+
                         if filtered_notifications.is_empty() {
                             div {
                                 class: "p-8 text-center text-slate-500 text-xs flex flex-col items-center gap-2",
@@ -111,12 +116,12 @@ pub fn NotificationBell(props: NotificationBellProps) -> Element {
                                     let notif_id = item.id.clone();
                                     let is_unread = !item.is_read;
                                     let bg_style = if is_unread { "bg-indigo-950/20 hover:bg-indigo-900/30" } else { "bg-transparent hover:bg-slate-800/40" };
-                                    
+
                                     rsx! {
                                         div {
                                             key: "{item.id}",
                                             class: "p-3 flex items-start gap-3 transition-colors group cursor-pointer {bg_style}",
-                                            
+
                                             // Icon indicator
                                             div { class: "mt-0.5 p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 shrink-0 border border-indigo-500/20",
                                                 svg { class: "w-4 h-4", fill: "none", stroke: "currentColor", view_box: "0 0 24 24",

@@ -1,7 +1,7 @@
 use crate::components::{Button, LucideIcon};
 use crate::locales::t;
 use dioxus::prelude::*;
-use yntra_core::{get_industry_templates, install_industry_template, IndustryTemplate};
+use yntra_core::{IndustryTemplate, get_industry_templates, install_industry_template};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct TemplateMarketplaceProps {
@@ -21,9 +21,7 @@ pub fn TemplateMarketplace(props: TemplateMarketplaceProps) -> Element {
     let req_uid = props.active_user_id.clone();
     let templates_res = use_resource(move || {
         let r_uid = req_uid.clone();
-        async move {
-            get_industry_templates(r_uid).await.unwrap_or_default()
-        }
+        async move { get_industry_templates(r_uid).await.unwrap_or_default() }
     });
 
     let templates = templates_res.read().clone().unwrap_or_default();
@@ -32,7 +30,11 @@ pub fn TemplateMarketplace(props: TemplateMarketplaceProps) -> Element {
     let filtered_templates: Vec<IndustryTemplate> = if sel_cat == "All" {
         templates.clone()
     } else {
-        templates.iter().filter(|t| t.category == sel_cat).cloned().collect()
+        templates
+            .iter()
+            .filter(|t| t.category == sel_cat)
+            .cloned()
+            .collect()
     };
 
     let categories = vec![
@@ -104,12 +106,12 @@ pub fn TemplateMarketplace(props: TemplateMarketplaceProps) -> Element {
                                 let tpl_id = tpl.id.clone();
                                 let is_curr_installing = installing_id.read().as_deref() == Some(&tpl_id);
                                 let schema_fields: Vec<serde_json::Value> = serde_json::from_str(&tpl.fields_schema).unwrap_or_default();
-                                
+
                                 rsx! {
                                     div {
                                         key: "{tpl.id}",
                                         class: "rounded-2xl border border-border bg-background p-5 flex flex-col justify-between gap-4 shadow-sm hover:border-primary/40 hover:shadow-md transition-all group",
-                                        
+
                                         div { class: "space-y-3",
                                             div { class: "flex items-start justify-between gap-2",
                                                 div { class: "flex items-center gap-2.5",

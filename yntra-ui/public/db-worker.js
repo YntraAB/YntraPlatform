@@ -27,13 +27,121 @@ if (!loaded) {
 
 let db = null;
 let isReady = false;
+let pendingJournalDb = null;
+
+// Request browser storage persistence and monitor quota
+async function requestStoragePersistence() {
+  if (navigator.storage && navigator.storage.persist) {
+    try {
+      const isPersisted = await navigator.storage.persist();
+      console.log(`[Storage] Storage persistence granted: ${isPersisted}`);
+    } catch (e) {
+      console.warn("[Storage] Failed to request storage persistence:", e);
+    }
+  }
+  if (navigator.storage && navigator.storage.estimate) {
+    try {
+      const { quota, usage } = await navigator.storage.estimate();
+      const usageMB = (usage / (1024 * 1024)).toFixed(2);
+      const quotaMB = (quota / (1024 * 1024)).toFixed(2);
+      console.log(`[Storage] Used ${usageMB} MB of ${quotaMB} MB quota.`);
+    } catch (e) {
+      console.warn("[Storage] Failed to estimate storage quota:", e);
+    }
+  }
+}
+requestStoragePersistence();
+
+function initPendingJournal() {
+  return new Promise((resolve) => {
+    if (!self.indexedDB) {
+      console.warn("[Journal] IndexedDB not available in worker.");
+      resolve(false);
+      return;
+    }
+    try {
+      const request = indexedDB.open("yntra_pending_backup_db", 1);
+      request.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains("pending_journal")) {
+          db.createObjectStore("pending_journal", { keyPath: "id" });
+        }
+      };
+      request.onsuccess = (e) => {
+        pendingJournalDb = e.target.result;
+        console.log("[Journal] Emergency IndexedDB pending journal initialized.");
+        resolve(true);
+      };
+      request.onerror = (e) => {
+        console.warn("[Journal] Failed to open IndexedDB pending journal:", e);
+        resolve(false);
+      };
+    } catch (e) {
+      console.warn("[Journal] IndexedDB initialization error:", e);
+      resolve(false);
+    }
+  });
+}
+
+function backupPendingTransaction(sql, params) {
+  if (!pendingJournalDb || typeof sql !== 'string') return;
+  const isPendingWrite = sql.includes("sync_status") || /^\s*(INSERT|UPDATE|DELETE)/i.test(sql);
+  if (!isPendingWrite) return;
+
+  try {
+    const tx = pendingJournalDb.transaction("pending_journal", "readwrite");
+    const store = tx.objectStore("pending_journal");
+    const entry = {
+      id: "entry_" + Date.now() + "_" + Math.random().toString(36).substring(2, 9),
+      sql,
+      params: sanitizeBind(params),
+      timestamp: Date.now()
+    };
+    store.put(entry);
+  } catch (err) {
+    console.warn("[Journal] Failed to backup pending write:", err);
+  }
+}
+
+async function recoverFromPendingJournal(sqliteDb) {
+  if (!pendingJournalDb || !sqliteDb) return;
+  return new Promise((resolve) => {
+    try {
+      const tx = pendingJournalDb.transaction("pending_journal", "readonly");
+      const store = tx.objectStore("pending_journal");
+      const req = store.getAll();
+      req.onsuccess = () => {
+        const entries = req.result || [];
+        if (entries.length > 0) {
+          console.log(`[Journal] Replaying ${entries.length} pending writes from emergency IndexedDB journal...`);
+          for (const entry of entries) {
+            try {
+              sqliteDb.exec({
+                sql: entry.sql,
+                bind: sanitizeBind(entry.params) || []
+              });
+            } catch (err) {
+              console.warn("[Journal] Failed to replay journal entry:", entry, err);
+            }
+          }
+          console.log("[Journal] Finished emergency journal replay.");
+        }
+        resolve();
+      };
+      req.onerror = () => resolve();
+    } catch (e) {
+      resolve();
+    }
+  });
+}
 
 // Initialize official SQLite WASM module
 self.sqlite3InitModule({
   print: console.log,
   printErr: console.error,
-}).then((sqlite3) => {
+}).then(async (sqlite3) => {
   try {
+    await initPendingJournal();
     const oo1 = sqlite3.oo1;
     if (sqlite3.opfs) {
       db = new sqlite3.opfs.OpfsDb("/yntra_local.db");
@@ -47,6 +155,7 @@ self.sqlite3InitModule({
     db.exec("PRAGMA cache_size = -16000;");
     db.exec("PRAGMA temp_store = MEMORY;");
     db.exec("PRAGMA busy_timeout = 5000;");
+    await recoverFromPendingJournal(db);
     isReady = true;
     postMessage({ type: "status", status: "ready" });
   } catch (err) {
@@ -82,6 +191,7 @@ onmessage = async function(e) {
   
   try {
     if (type === "execute") {
+      backupPendingTransaction(sql, params);
       db.exec({
         sql: sql,
         bind: sanitizeBind(params) || [],
@@ -98,6 +208,7 @@ onmessage = async function(e) {
       });
       postMessage({ id, success: true, rows });
     } else if (type === "execute_batch") {
+      backupPendingTransaction(sql, null);
       db.exec({
         sql: sql,
       });
@@ -108,6 +219,7 @@ onmessage = async function(e) {
         for (const item of params) {
           const sqlVal = (item instanceof Map) ? item.get('sql') : item.sql;
           const paramsVal = (item instanceof Map) ? item.get('params') : item.params;
+          backupPendingTransaction(sqlVal, paramsVal);
           try {
             db.exec({
               sql: sqlVal,

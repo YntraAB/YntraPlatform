@@ -4,12 +4,12 @@ use yntra_core::Workspace;
 use yntra_core::WorkspaceUser;
 
 pub mod general;
-pub mod moving;
 pub mod inventory_builder;
+pub mod moving;
 
 pub use general::GeneralPortal;
-pub use moving::MovingPortal;
 pub use inventory_builder::InteractiveSelfServiceInventoryBuilder;
+pub use moving::MovingPortal;
 
 #[derive(Props, Clone)]
 pub struct ClientPortalViewProps {

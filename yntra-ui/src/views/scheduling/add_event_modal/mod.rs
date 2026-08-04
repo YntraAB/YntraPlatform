@@ -321,9 +321,18 @@ pub fn AddEventModal(props: AddEventModalProps) -> Element {
     };
 
     let no_client_placeholder = match props.locale.as_str() {
-        "sv" => format!("Ingen specifik {}", client_label.split(' ').next().unwrap().to_lowercase()),
-        "no" => format!("Ingen spesifikk {}", client_label.split(' ').next().unwrap().to_lowercase()),
-        "da" => format!("Ingen specifik {}", client_label.split(' ').next().unwrap().to_lowercase()),
+        "sv" => format!(
+            "Ingen specifik {}",
+            client_label.split(' ').next().unwrap().to_lowercase()
+        ),
+        "no" => format!(
+            "Ingen spesifikk {}",
+            client_label.split(' ').next().unwrap().to_lowercase()
+        ),
+        "da" => format!(
+            "Ingen specifik {}",
+            client_label.split(' ').next().unwrap().to_lowercase()
+        ),
         _ => format!("No specific {}", client_label.split(' ').next().unwrap()),
     };
 

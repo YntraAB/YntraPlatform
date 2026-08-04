@@ -68,7 +68,10 @@ pub fn EventDetailModal(props: EventDetailModalProps) -> Element {
         let course_name: Option<String> = metadata_obj.course_id.clone().and_then(|cid| {
             courses_res.read().as_ref().and_then(|r| {
                 r.as_ref().ok().and_then(|courses| {
-                    courses.iter().find(|c| c.id == cid).map(|c| format!("{} ({})", c.name, c.subject))
+                    courses
+                        .iter()
+                        .find(|c| c.id == cid)
+                        .map(|c| format!("{} ({})", c.name, c.subject))
                 })
             })
         });

@@ -70,7 +70,11 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
     let region = {
         let user_prefs: serde_json::Value =
             serde_json::from_str(&active_user.preferences).unwrap_or_default();
-        user_prefs.get("language").and_then(|l| l.as_str()).unwrap_or("US").to_string()
+        user_prefs
+            .get("language")
+            .and_then(|l| l.as_str())
+            .unwrap_or("US")
+            .to_string()
     };
 
     let active_user_id = props.active_user_id;

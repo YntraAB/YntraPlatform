@@ -1,23 +1,23 @@
-use dioxus::prelude::*;
-use yntra_core::{Course, StudentProfile, Submission};
 use super::SchoolViewProps;
 use super::utils::AdvancedAttachment;
+use dioxus::prelude::*;
+use yntra_core::{Course, StudentProfile, Submission};
 
-mod course_grid;
 mod classroom;
-mod stream;
 mod classwork;
+mod course_grid;
 mod grades;
-mod submissions;
 mod modals;
+mod stream;
+mod submissions;
 
-pub use course_grid::CourseGrid;
 pub use classroom::ClassroomContainer;
-pub use stream::CourseStreamTab;
 pub use classwork::CourseClassworkTab;
+pub use course_grid::CourseGrid;
 pub use grades::CourseGradesTab;
+pub use modals::{CreateAssignmentModal, CreateCourseModal, HomeworkGradeModal, TermGradeModal};
+pub use stream::CourseStreamTab;
 pub use submissions::CourseSubmissionsTab;
-pub use modals::{CreateCourseModal, CreateAssignmentModal, TermGradeModal, HomeworkGradeModal};
 
 #[component]
 pub fn TeacherPortal(
@@ -88,7 +88,9 @@ pub fn TeacherPortal(
             if c_id.is_empty() {
                 Vec::new()
             } else {
-                yntra_core::get_assignments(uid, ws, c_id).await.unwrap_or_default()
+                yntra_core::get_assignments(uid, ws, c_id)
+                    .await
+                    .unwrap_or_default()
             }
         }
     });
@@ -105,7 +107,9 @@ pub fn TeacherPortal(
             if c_id.is_empty() {
                 Vec::new()
             } else {
-                yntra_core::get_course_term_grades(uid, ws, c_id).await.unwrap_or_default()
+                yntra_core::get_course_term_grades(uid, ws, c_id)
+                    .await
+                    .unwrap_or_default()
             }
         }
     });
@@ -121,7 +125,9 @@ pub fn TeacherPortal(
         async move {
             let mut list = Vec::new();
             for s in students_list {
-                if let Ok(mut subs) = yntra_core::get_student_submissions(uid.clone(), ws.clone(), s.id.clone()).await {
+                if let Ok(mut subs) =
+                    yntra_core::get_student_submissions(uid.clone(), ws.clone(), s.id.clone()).await
+                {
                     list.append(&mut subs);
                 }
             }
@@ -130,9 +136,21 @@ pub fn TeacherPortal(
     });
 
     let all_course_assignments = assignments_res.read().clone().unwrap_or_default();
-    let announcements = all_course_assignments.iter().filter(|a| a.max_points == -1).cloned().collect::<Vec<_>>();
-    let comments = all_course_assignments.iter().filter(|a| a.max_points == -2).cloned().collect::<Vec<_>>();
-    let assignments = all_course_assignments.iter().filter(|a| a.max_points >= 0).cloned().collect::<Vec<_>>();
+    let announcements = all_course_assignments
+        .iter()
+        .filter(|a| a.max_points == -1)
+        .cloned()
+        .collect::<Vec<_>>();
+    let comments = all_course_assignments
+        .iter()
+        .filter(|a| a.max_points == -2)
+        .cloned()
+        .collect::<Vec<_>>();
+    let assignments = all_course_assignments
+        .iter()
+        .filter(|a| a.max_points >= 0)
+        .cloned()
+        .collect::<Vec<_>>();
     let course_grades = course_grades_res.read().clone().unwrap_or_default();
     let all_submissions = all_submissions_res.read().clone().unwrap_or_default();
     let users_binding = users_res.read().clone().unwrap_or_default();

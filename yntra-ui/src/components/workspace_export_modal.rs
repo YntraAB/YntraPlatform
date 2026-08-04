@@ -28,7 +28,10 @@ pub fn WorkspaceExportModal(props: WorkspaceExportModalProps) -> Element {
             match export_workspace_full_data_json(req_uid, ws_id).await {
                 Ok(json_str) => {
                     let len_kb = (json_str.len() as f64) / 1024.0;
-                    status_msg.set(Some(format!("Full workspace data archive compiled successfully ({:.1} KB)", len_kb)));
+                    status_msg.set(Some(format!(
+                        "Full workspace data archive compiled successfully ({:.1} KB)",
+                        len_kb
+                    )));
                     exported_payload.set(Some(json_str));
                 }
                 Err(e) => {

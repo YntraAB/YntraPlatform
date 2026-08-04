@@ -20,7 +20,8 @@ pub fn SuggestionInput(props: SuggestionInputProps) -> Element {
 
     let filtered_suggestions = {
         let val_lower = props.value.to_lowercase();
-        props.suggestions
+        props
+            .suggestions
             .iter()
             .filter(|s| s.to_lowercase().contains(&val_lower))
             .cloned()

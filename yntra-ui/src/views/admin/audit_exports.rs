@@ -27,9 +27,7 @@ pub fn AuditExportsView(props: AuditExportsProps) -> Element {
     let audit_logs_res = use_resource(move || {
         let uid = active_user_id.clone();
         let _trig = *db_trigger.read();
-        async move {
-            yntra_core::get_audit_logs(uid).await
-        }
+        async move { yntra_core::get_audit_logs(uid).await }
     });
 
     let active_uid_verify = props.active_user.id.clone();
@@ -37,9 +35,7 @@ pub fn AuditExportsView(props: AuditExportsProps) -> Element {
     let chain_verify_res = use_resource(move || {
         let uid = active_uid_verify.clone();
         let _trig = *db_trigger.read();
-        async move {
-            yntra_core::verify_audit_log_chain(uid).await
-        }
+        async move { yntra_core::verify_audit_log_chain(uid).await }
     });
 
     let active_uid_export = props.active_user.id.clone();
@@ -64,7 +60,9 @@ pub fn AuditExportsView(props: AuditExportsProps) -> Element {
                     Ok(json_str) => {
                         is_exporting.set(false);
                         export_output.set(Some(json_str));
-                        status_msg.set(Some("Audit logs successfully exported as formatted JSON!".to_string()));
+                        status_msg.set(Some(
+                            "Audit logs successfully exported as formatted JSON!".to_string(),
+                        ));
                     }
                     Err(e) => {
                         is_exporting.set(false);
@@ -76,7 +74,8 @@ pub fn AuditExportsView(props: AuditExportsProps) -> Element {
                     Ok(csv_str) => {
                         is_exporting.set(false);
                         export_output.set(Some(csv_str));
-                        status_msg.set(Some("Audit logs successfully exported as CSV!".to_string()));
+                        status_msg
+                            .set(Some("Audit logs successfully exported as CSV!".to_string()));
                     }
                     Err(e) => {
                         is_exporting.set(false);

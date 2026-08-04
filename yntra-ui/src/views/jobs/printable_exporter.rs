@@ -1,10 +1,14 @@
 #[allow(unused_variables)]
-pub fn trigger_print_or_pdf_download(toast: &dioxus_primitives::toast::Toasts, html_content: &str, document_name: &str) {
+pub fn trigger_print_or_pdf_download(
+    toast: &dioxus_primitives::toast::Toasts,
+    html_content: &str,
+    document_name: &str,
+) {
     #[cfg(target_arch = "wasm32")]
     {
         toast.info(
             "Opening Print / PDF Export Preview...".to_string(),
-            dioxus_primitives::toast::ToastOptions::new()
+            dioxus_primitives::toast::ToastOptions::new(),
         );
         let base64_str = base64_encode_str(html_content.as_bytes());
         let js_code = format!(
@@ -46,12 +50,12 @@ pub fn trigger_print_or_pdf_download(toast: &dioxus_primitives::toast::Toasts, h
             if std::fs::write(&path, html_content).is_ok() {
                 toast.success(
                     format!("Saved printable PDF document to {}", path.display()),
-                    dioxus_primitives::toast::ToastOptions::new()
+                    dioxus_primitives::toast::ToastOptions::new(),
                 );
             } else {
                 toast.error(
                     "Failed to save printable document".to_string(),
-                    dioxus_primitives::toast::ToastOptions::new()
+                    dioxus_primitives::toast::ToastOptions::new(),
                 );
             }
         }
@@ -65,8 +69,16 @@ fn base64_encode_str(data: &[u8]) -> String {
     let mut i = 0;
     while i < data.len() {
         let b0 = data[i] as u32;
-        let b1 = if i + 1 < data.len() { data[i + 1] as u32 } else { 0 };
-        let b2 = if i + 2 < data.len() { data[i + 2] as u32 } else { 0 };
+        let b1 = if i + 1 < data.len() {
+            data[i + 1] as u32
+        } else {
+            0
+        };
+        let b2 = if i + 2 < data.len() {
+            data[i + 2] as u32
+        } else {
+            0
+        };
         let triple = (b0 << 16) | (b1 << 8) | b2;
 
         encoded.push(CHARS[((triple >> 18) & 63) as usize] as char);

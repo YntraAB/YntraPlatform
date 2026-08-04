@@ -30,7 +30,8 @@ pub fn DynamicList(props: DynamicListProps) -> Element {
         entities_prop
             .iter()
             .map(|entity| {
-                let entity_data: serde_json::Value = serde_json::from_str(&entity.data).unwrap_or_default();
+                let entity_data: serde_json::Value =
+                    serde_json::from_str(&entity.data).unwrap_or_default();
                 (entity.clone(), entity_data)
             })
             .collect::<Vec<(DynamicEntity, serde_json::Value)>>()
@@ -49,7 +50,11 @@ pub fn DynamicList(props: DynamicListProps) -> Element {
 
     let total_items = parsed_entities.len();
     let current_ps = *page_size.read();
-    let total_pages = if total_items == 0 { 1 } else { (total_items + current_ps - 1) / current_ps };
+    let total_pages = if total_items == 0 {
+        1
+    } else {
+        (total_items + current_ps - 1) / current_ps
+    };
     let cur_page = (*current_page.read()).min(total_pages).max(1);
 
     let start_idx = (cur_page - 1) * current_ps;
@@ -317,5 +322,3 @@ pub fn DynamicList(props: DynamicListProps) -> Element {
         }
     }
 }
-
-

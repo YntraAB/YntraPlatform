@@ -1,12 +1,9 @@
 use dioxus::prelude::*;
 
 #[component]
-pub fn EldDotComplianceModal(
-    vehicle_id: String,
-    on_close_handler: EventHandler<()>,
-) -> Element {
+pub fn EldDotComplianceModal(vehicle_id: String, on_close_handler: EventHandler<()>) -> Element {
     let mut active_tab = use_signal(|| "HOS".to_string());
-    
+
     // ELD HOS State
     let driver_id_input = use_signal(|| "drv-101".to_string());
     let driver_name_input = use_signal(|| "Erik Driver".to_string());
@@ -43,7 +40,9 @@ pub fn EldDotComplianceModal(
         let vid = v_id.clone();
         let _trig = *db_trigger.read();
         async move {
-            yntra_core::get_vehicle_dot_compliance_summary("user-staff".to_string(), vid).await.ok()
+            yntra_core::get_vehicle_dot_compliance_summary("user-staff".to_string(), vid)
+                .await
+                .ok()
         }
     });
 

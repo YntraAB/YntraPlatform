@@ -2,8 +2,8 @@ use crate::components::{Button, LucideIcon};
 use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::{
-    authenticate_with_passkey, delete_passkey_credential, get_user_passkeys,
-    register_passkey_credential, PasskeyCredentialInfo,
+    PasskeyCredentialInfo, authenticate_with_passkey, delete_passkey_credential, get_user_passkeys,
+    register_passkey_credential,
 };
 
 #[derive(Props, Clone, PartialEq)]
@@ -27,9 +27,7 @@ pub fn PasskeyCard(props: PasskeyCardProps) -> Element {
     let passkeys_res = use_resource(move || {
         let _ = trig;
         let r_uid = req_uid.clone();
-        async move {
-            get_user_passkeys(r_uid).await.unwrap_or_default()
-        }
+        async move { get_user_passkeys(r_uid).await.unwrap_or_default() }
     });
 
     let passkeys = passkeys_res.read().clone().unwrap_or_default();
@@ -93,12 +91,12 @@ pub fn PasskeyCard(props: PasskeyCardProps) -> Element {
                             let pk_cred = pk.credential_id_hex.clone();
                             let pk_pub = pk.public_key_hex.clone();
                             let req_uid = props.active_user_id.clone();
-                            
+
                             rsx! {
                                 div {
                                     key: "{pk.id}",
                                     class: "rounded-2xl border border-border bg-background p-4 flex items-center justify-between gap-4 shadow-2xs hover:border-primary/40 transition-all",
-                                    
+
                                     div { class: "flex items-center gap-3.5",
                                         div { class: "h-10 w-10 rounded-xl bg-secondary flex items-center justify-center text-foreground font-bold shrink-0",
                                             LucideIcon { name: "fingerprint", class: "h-5 w-5 text-primary" }
@@ -133,7 +131,7 @@ pub fn PasskeyCard(props: PasskeyCardProps) -> Element {
                                                         // Simulate client WebAuthn signature
                                                         let sig_bytes = [1u8; 64];
                                                         let sig_hex = const_hex::encode(sig_bytes);
-                                                        
+
                                                         match authenticate_with_passkey(pk_cred, challenge_hex, sig_hex).await {
                                                             Ok(user) => {
                                                                 status_msg.set(Some(format!("Hardware Passkey verified! Derived session key for user {}", user.email)));
@@ -232,7 +230,7 @@ pub fn PasskeyCard(props: PasskeyCardProps) -> Element {
                                             let cred_hex = format!("webauthn_cred_{}", uuid::Uuid::new_v4().simple());
                                             let pk_bytes = [8u8; 32];
                                             let pk_hex = const_hex::encode(pk_bytes);
-                                            
+
                                             let _ = register_passkey_credential(req_uid, cred_hex, pk_hex).await;
                                             is_registering.set(false);
                                             show_reg_modal.set(false);

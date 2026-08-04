@@ -1,19 +1,23 @@
 #![allow(unused_imports)]
-use crate::components::{Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, Input, LucideIcon, SuggestionInput};
+use crate::components::{
+    Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, Input, LucideIcon,
+    SuggestionInput,
+};
 use crate::locales::t;
-use crate::views::school::academics::utils::{decrypt_field, decrypt_opt_field, encrypt_field_with_proof, encrypt_opt_field_with_proof};
+use crate::views::school::academics::utils::{
+    decrypt_field, decrypt_opt_field, encrypt_field_with_proof, encrypt_opt_field_with_proof,
+};
 use dioxus::prelude::*;
 use yntra_core::{
-    checkout_book, create_school_invoice, get_assignments, get_library_books,
-    get_library_lending_logs, get_school_invoices, get_student_profiles, get_workspace_courses,
-    get_users, record_school_payment, return_book, save_assignment, save_attendance_record, save_course,
-    link_parent_to_student, get_student_parents, get_student_health_records, save_student_health_record,
-    get_health_incidents, save_health_incident, save_student_profile,
-    get_course_term_grades, save_term_grade, publish_report_card, get_report_cards,
-    get_student_submissions, save_submission, get_timetable_slots, save_timetable_slot,
-    get_parent_students,
-    Assignment, Course, SchoolInvoice, HealthRecord, HealthIncident, StudentProfile, TermGrade, ReportCard,
-    Submission, TimetableSlot,
+    Assignment, Course, HealthIncident, HealthRecord, ReportCard, SchoolInvoice, StudentProfile,
+    Submission, TermGrade, TimetableSlot, checkout_book, create_school_invoice, get_assignments,
+    get_course_term_grades, get_health_incidents, get_library_books, get_library_lending_logs,
+    get_parent_students, get_report_cards, get_school_invoices, get_student_health_records,
+    get_student_parents, get_student_profiles, get_student_submissions, get_timetable_slots,
+    get_users, get_workspace_courses, link_parent_to_student, publish_report_card,
+    record_school_payment, return_book, save_assignment, save_attendance_record, save_course,
+    save_health_incident, save_student_health_record, save_student_profile, save_submission,
+    save_term_grade, save_timetable_slot,
 };
 
 use super::SchoolViewProps;
@@ -66,7 +70,11 @@ pub fn ReportCardsView(props: SchoolViewProps) -> Element {
         let _trig = trigger_school_directory.read();
         let uid = user_id_clone_p.clone();
         let ws = ws_id_clone_p.clone();
-        async move { get_parent_students(uid.clone(), ws, uid).await.unwrap_or_default() }
+        async move {
+            get_parent_students(uid.clone(), ws, uid)
+                .await
+                .unwrap_or_default()
+        }
     });
 
     let current_role = state.active_user_role.read().clone();
@@ -87,7 +95,10 @@ pub fn ReportCardsView(props: SchoolViewProps) -> Element {
             })
             .collect::<Vec<_>>()
     };
-    let report_cards = reports_res.read().clone().unwrap_or_default()
+    let report_cards = reports_res
+        .read()
+        .clone()
+        .unwrap_or_default()
         .into_iter()
         .map(|mut rc| {
             rc.principal_comments = decrypt_opt_field(&seed, rc.principal_comments);
@@ -100,7 +111,10 @@ pub fn ReportCardsView(props: SchoolViewProps) -> Element {
         if role == "student" || role == "role-school-student" {
             let uid = state.active_user_id.read().clone();
             let student_list = students_res.read().clone().unwrap_or_default();
-            if let Some(profile) = student_list.iter().find(|s| s.user_id.as_ref() == Some(&uid)) {
+            if let Some(profile) = student_list
+                .iter()
+                .find(|s| s.user_id.as_ref() == Some(&uid))
+            {
                 if selected_student_id.read().as_str() != profile.id.as_str() {
                     selected_student_id.set(profile.id.clone());
                 }
@@ -331,4 +345,3 @@ pub fn ReportCardsView(props: SchoolViewProps) -> Element {
         }
     }
 }
-

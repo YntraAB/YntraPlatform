@@ -4,16 +4,22 @@ use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::{
-    JobTicket, MoveInventoryItem, MoveQuote, MoveVehicle, WorkspaceUser,
-    save_job_signature, get_job_signature,
+    JobTicket, MoveInventoryItem, MoveQuote, MoveVehicle, WorkspaceUser, get_job_signature,
+    save_job_signature,
 };
 
-fn trigger_download(toast: &dioxus_primitives::toast::Toasts, locale: &str, content: &str, file_name: &str) {
+fn trigger_download(
+    toast: &dioxus_primitives::toast::Toasts,
+    locale: &str,
+    content: &str,
+    file_name: &str,
+) {
     #[cfg(target_arch = "wasm32")]
     {
         toast.info(
             t("school-toast-download-started", locale),
-            dioxus_primitives::toast::ToastOptions::new().description(t("school-toast-browser-download-desc", locale))
+            dioxus_primitives::toast::ToastOptions::new()
+                .description(t("school-toast-browser-download-desc", locale)),
         );
 
         let base64_str = crate::views::school::academics::utils::base64_encode(content.as_bytes());
@@ -42,20 +48,19 @@ fn trigger_download(toast: &dioxus_primitives::toast::Toasts, locale: &str, cont
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let file_path = rfd::FileDialog::new()
-            .set_file_name(file_name)
-            .save_file();
+        let file_path = rfd::FileDialog::new().set_file_name(file_name).save_file();
         if let Some(path) = file_path {
             if std::fs::write(&path, content).is_ok() {
                 let desc = format!("{} {}", t("school-toast-saved-to", locale), path.display());
                 toast.success(
                     t("school-toast-export-success", locale),
-                    dioxus_primitives::toast::ToastOptions::new().description(desc)
+                    dioxus_primitives::toast::ToastOptions::new().description(desc),
                 );
             } else {
                 toast.error(
                     t("school-toast-export-failed", locale),
-                    dioxus_primitives::toast::ToastOptions::new().description(t("school-toast-export-failed-desc", locale))
+                    dioxus_primitives::toast::ToastOptions::new()
+                        .description(t("school-toast-export-failed-desc", locale)),
                 );
             }
         }
@@ -128,7 +133,9 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
         let uid = uid_for_pack.clone();
         let jid = jid_for_pack.clone();
         async move {
-            yntra_core::get_job_packaging_items(uid, jid).await.unwrap_or_default()
+            yntra_core::get_job_packaging_items(uid, jid)
+                .await
+                .unwrap_or_default()
         }
     });
 
@@ -190,9 +197,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
     let users_res = use_resource(move || {
         let _ = db_trig_val;
         let uid = uid_for_users.clone();
-        async move {
-            yntra_core::get_users(uid).await.unwrap_or_default()
-        }
+        async move { yntra_core::get_users(uid).await.unwrap_or_default() }
     });
     let workspace_users = users_res.read().clone().unwrap_or_default();
 
@@ -200,9 +205,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
     let vehicles_res = use_resource(move || {
         let _ = db_trig_val;
         let uid = uid_for_vehicles.clone();
-        async move {
-            yntra_core::get_vehicles(uid).await.unwrap_or_default()
-        }
+        async move { yntra_core::get_vehicles(uid).await.unwrap_or_default() }
     });
     let vehicles_list = vehicles_res.read().clone().unwrap_or_default();
 
@@ -216,7 +219,9 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
             if jid.is_empty() {
                 None
             } else {
-                yntra_core::get_job_signature(uid, jid).await.unwrap_or(None)
+                yntra_core::get_job_signature(uid, jid)
+                    .await
+                    .unwrap_or(None)
             }
         }
     });
@@ -233,16 +238,28 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
 
     let mut show_override_form = use_signal(|| false);
     let mut manual_override_input = use_signal(|| {
-        quote.as_ref().and_then(|q| q.manual_price_override).map(|v| v.to_string()).unwrap_or_default()
+        quote
+            .as_ref()
+            .and_then(|q| q.manual_price_override)
+            .map(|v| v.to_string())
+            .unwrap_or_default()
     });
     let mut discount_input = use_signal(|| {
-        quote.as_ref().and_then(|q| q.price_discount).map(|v| v.to_string()).unwrap_or_default()
+        quote
+            .as_ref()
+            .and_then(|q| q.price_discount)
+            .map(|v| v.to_string())
+            .unwrap_or_default()
     });
     use_effect({
         let quote = quote.clone();
         move || {
             if let Some(ref q) = quote {
-                manual_override_input.set(q.manual_price_override.map(|v| v.to_string()).unwrap_or_default());
+                manual_override_input.set(
+                    q.manual_price_override
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                );
                 discount_input.set(q.price_discount.map(|v| v.to_string()).unwrap_or_default());
             } else {
                 manual_override_input.set("".to_string());
@@ -258,9 +275,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
         let _ = db_trig_val;
         let uid = uid_for_dir.clone();
         let jid = jid_for_dir.clone();
-        async move {
-            yntra_core::get_directions_url(uid, jid).await.ok()
-        }
+        async move { yntra_core::get_directions_url(uid, jid).await.ok() }
     });
 
     let state = use_context::<crate::state::AppState>();
@@ -284,22 +299,37 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
         .get("moving_hourly_rate")
         .and_then(|v| v.as_f64())
         .unwrap_or(1200.0);
-    let surcharge_piano = settings_json.get("surcharge_piano").and_then(|v| v.as_f64()).unwrap_or(1500.0);
-    let surcharge_safe = settings_json.get("surcharge_safe").and_then(|v| v.as_f64()).unwrap_or(2000.0);
-    let surcharge_jacuzzi = settings_json.get("surcharge_jacuzzi").and_then(|v| v.as_f64()).unwrap_or(2500.0);
-    let surcharge_fragile = settings_json.get("surcharge_fragile").and_then(|v| v.as_f64()).unwrap_or(500.0);
-    let specialty_surcharge: f64 = inventories.iter().map(|item| {
-        let item_fee = yntra_core::calculate_item_specialty_surcharge(
-            item.item_category.clone(),
-            item.item_name.clone(),
-            item.handling_notes.clone(),
-            surcharge_piano,
-            surcharge_safe,
-            surcharge_jacuzzi,
-            surcharge_fragile,
-        );
-        item_fee * item.quantity as f64
-    }).sum();
+    let surcharge_piano = settings_json
+        .get("surcharge_piano")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(1500.0);
+    let surcharge_safe = settings_json
+        .get("surcharge_safe")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(2000.0);
+    let surcharge_jacuzzi = settings_json
+        .get("surcharge_jacuzzi")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(2500.0);
+    let surcharge_fragile = settings_json
+        .get("surcharge_fragile")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(500.0);
+    let specialty_surcharge: f64 = inventories
+        .iter()
+        .map(|item| {
+            let item_fee = yntra_core::calculate_item_specialty_surcharge(
+                item.item_category.clone(),
+                item.item_name.clone(),
+                item.handling_notes.clone(),
+                surcharge_piano,
+                surcharge_safe,
+                surcharge_jacuzzi,
+                surcharge_fragile,
+            );
+            item_fee * item.quantity as f64
+        })
+        .sum();
     let total_vol: f64 = inventories
         .iter()
         .map(|i| i.estimated_volume_m3 * i.quantity as f64)
@@ -316,10 +346,13 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
         2
     };
 
-    let hours = quote.as_ref().map(|q| {
-        let labor_base = (q.base_price as f64 - specialty_surcharge).max(0.0);
-        labor_base / hourly_rate
-    }).unwrap_or(0.0);
+    let hours = quote
+        .as_ref()
+        .map(|q| {
+            let labor_base = (q.base_price as f64 - specialty_surcharge).max(0.0);
+            labor_base / hourly_rate
+        })
+        .unwrap_or(0.0);
     let todos_enabled = modules_active_val
         .get("todos")
         .and_then(|v| v.as_bool())
@@ -365,7 +398,10 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
         .map(|i| i.estimated_volume_m3 * i.quantity as f64)
         .sum();
 
-    let stops_str = job.route_stops_json.clone().unwrap_or_else(|| "[]".to_string());
+    let stops_str = job
+        .route_stops_json
+        .clone()
+        .unwrap_or_else(|| "[]".to_string());
     let stops: Vec<String> = serde_json::from_str(&stops_str).unwrap_or_default();
 
     rsx! {
@@ -694,11 +730,11 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                 }
 
                 div { class: "grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-xl border border-border/20 bg-secondary/5",
-                    
+
                     // Vehicle Assignment Column
                     div { class: "space-y-3",
                         label { class: "text-[11px] font-bold text-muted-foreground uppercase tracking-wider block", "Tilldelat Fordon" }
-                        
+
                         // Select element for assigning vehicle
                         select {
                             value: if let Some(ref vid) = job.assigned_vehicle_id { vid.clone() } else { "none".to_string() },
@@ -730,7 +766,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                     // Crew Assignment Column
                     div { class: "space-y-3",
                         label { class: "text-[11px] font-bold text-muted-foreground uppercase tracking-wider block", "Lägg till bemanning" }
-                        
+
                         div { class: "flex flex-col gap-2",
                             // Dropdown of users
                             select {
@@ -772,10 +808,10 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                             let role = new_crew_role.read().clone();
                                             let jid = jid.clone();
                                             let uid = uid.clone();
-                                            
+
                                             // Reset dropdown
                                             selected_crew_user_id.set("999".to_string());
-                                            
+
                                             spawn(async move {
                                                 if yntra_core::add_crew_member(uid, jid, selected_uid, role).await.is_ok() {
                                                     let current = *db_trigger.read();
@@ -907,7 +943,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                             components::LucideIcon { name: "box", size: "16", class: "accent-text" }
                             "Flyttinventarie & Cargo ({total_vol:.1} m³)"
                         }
-                        
+
                         if inventories.is_empty() {
                             p { class: "text-xs text-muted-foreground italic my-1", "Inga inventarier tillagda än." }
                         } else {
@@ -957,7 +993,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                 }
                             }
                         }
-                        
+
                         // Inline Add Inventory Form for staff
                         if is_staff {
                             div { class: "mt-2 border border-border/30 rounded-lg p-3 bg-secondary/5",
@@ -978,7 +1014,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                                 "Avbryt"
                                             }
                                         }
-                                        
+
                                         div { class: "grid grid-cols-2 gap-2",
                                             div { class: "col-span-2 sm:col-span-1",
                                                 label { class: "text-[10px] text-muted-foreground block mb-0.5", "Artikelnamn" }
@@ -1003,7 +1039,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                                 }
                                             }
                                         }
-                                        
+
                                         div { class: "grid grid-cols-2 gap-2",
                                             div {
                                                 label { class: "text-[10px] text-muted-foreground block mb-0.5", "Antal" }
@@ -1055,7 +1091,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
 
                                                     let j_id = j_id.clone();
                                                     let uid = uid.clone();
-                                                    
+
                                                     // reset inputs
                                                     new_item_name.set(String::new());
                                                     new_item_notes.set(String::new());
@@ -1095,7 +1131,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                 let items = packaging_res.read().clone().unwrap_or_default();
                 let uid_for_add = active_user_id.clone();
                 let jid_for_add = job.id.clone();
-                
+
                 rsx! {
                     div { class: "border-t border-border/40 pt-4 flex flex-col gap-3",
                         h3 { class: "text-sm font-extrabold flex items-center gap-1.5",
@@ -1103,7 +1139,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                             components::LucideIcon { name: "package", size: "16", class: "accent-text" }
                             "Förpackningsmaterial & Materialinventarie"
                         }
-                        
+
                         if items.is_empty() {
                             p { class: "text-xs text-muted-foreground italic my-1", "Inga förpackningsmaterial registrerade för detta flyttuppdrag." }
                         } else {
@@ -1119,7 +1155,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                         let total_cost = price * qty as f64;
                                         let uid = active_user_id.clone();
                                         let jid = job.id.clone();
-                                        
+
                                         rsx! {
                                             div {
                                                 key: "{item_id}",
@@ -1141,7 +1177,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                                         div { class: "text-[10px] text-muted-foreground", "{qty} st" }
                                                     }
                                                 }
-                                                
+
                                                 if is_leased {
                                                     div { class: "flex items-center justify-between border-t border-border/10 pt-1.5 mt-1",
                                                         div { class: "text-[10px] font-bold text-muted-foreground",
@@ -1179,7 +1215,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                                         }
                                                     }
                                                 }
-                                                
+
                                                 if is_staff {
                                                     div { class: "flex justify-end gap-1.5 border-t border-border/10 pt-1.5 mt-1",
                                                         button {
@@ -1209,7 +1245,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                 }
                             }
                         }
-                        
+
                         if is_staff {
                             div { class: "mt-2 border border-border/30 rounded-lg p-3 bg-secondary/5",
                                 if !*show_add_pack_form.read() {
@@ -1229,7 +1265,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                                 "Avbryt"
                                             }
                                         }
-                                        
+
                                         div { class: "grid grid-cols-2 gap-2",
                                             div { class: "col-span-2 sm:col-span-1",
                                                 label { class: "text-[10px] text-muted-foreground block mb-0.5", "Materialtyp (Preset)" }
@@ -1274,7 +1310,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                                     option { value: "Custom", "Annan (Ange själv...)" }
                                                 }
                                             }
-                                            
+
                                             div { class: "col-span-2 sm:col-span-1",
                                                 label { class: "text-[10px] text-muted-foreground block mb-0.5", "Namn" }
                                                 input {
@@ -1287,7 +1323,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                                 }
                                             }
                                         }
-                                        
+
                                         div { class: "grid grid-cols-3 gap-2",
                                             div {
                                                 label { class: "text-[10px] text-muted-foreground block mb-0.5", "Antal" }
@@ -1322,7 +1358,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                                 }
                                             }
                                         }
-                                        
+
                                         button {
                                             onclick: {
                                                 let j_id = jid_for_add.clone();
@@ -1334,14 +1370,14 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                                     let qty = *new_pack_qty.read();
                                                     let price = *new_pack_price.read();
                                                     let leased = *new_pack_leased.read();
-                                                    
+
                                                     let j_id = j_id.clone();
                                                     let uid = uid.clone();
-                                                    
+
                                                     // reset inputs
                                                     new_pack_qty.set(10);
                                                     show_add_pack_form.set(false);
-                                                    
+
                                                     spawn(async move {
                                                         let _ = yntra_core::add_job_packaging_item(
                                                             uid,
@@ -1941,7 +1977,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                         let job_id = job_id.clone();
                                         let uid = uid.clone();
                                         let signer = signer_name_sig.read().trim().to_string();
-                                        
+
                                         spawn(async move {
                                             // 1. Capture base64 signature from canvas
                                             let mut eval = dioxus::document::eval(r#"
@@ -1953,9 +1989,9 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                                     dioxus.send("");
                                                 }
                                             "#);
-                                            
+
                                             let signature_data = eval.recv::<String>().await.unwrap_or_default();
-                                            
+
                                             // 2. Save signature if we captured one
                                             if !signature_data.is_empty() && !signer.is_empty() {
                                                 let _ = yntra_core::save_job_signature(
@@ -1965,7 +2001,7 @@ pub fn JobDetails(props: JobDetailsProps) -> Element {
                                                     signature_data,
                                                 ).await;
                                             }
-                                            
+
                                             // 3. Complete the job
                                             if yntra_core::submit_job_completion(uid, job_id, checklist_str, report_str).await.is_ok() {
                                                 let current = *db_trigger.read();

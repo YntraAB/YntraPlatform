@@ -1,8 +1,8 @@
 use crate::components;
 use dioxus::prelude::*;
 use yntra_core::{
-    record_damage_inspection, get_job_damage_inspections, acknowledge_damage_inspection_by_client,
-    DamageInspection, MoveInventoryItem,
+    DamageInspection, MoveInventoryItem, acknowledge_damage_inspection_by_client,
+    get_job_damage_inspections, record_damage_inspection,
 };
 
 #[derive(Props, Clone, PartialEq)]
@@ -30,7 +30,9 @@ pub fn InventoryConditionModal(props: InventoryConditionModalProps) -> Element {
         let j_id = jid.clone();
         let u_id = uid.clone();
         async move {
-            get_job_damage_inspections(u_id, j_id).await.unwrap_or_default()
+            get_job_damage_inspections(u_id, j_id)
+                .await
+                .unwrap_or_default()
         }
     });
 
@@ -38,7 +40,10 @@ pub fn InventoryConditionModal(props: InventoryConditionModalProps) -> Element {
 
     // Condition Code Selection
     let mut selected_item_id = use_signal(|| {
-        inventories.first().map(|i| i.id.clone()).unwrap_or_default()
+        inventories
+            .first()
+            .map(|i| i.id.clone())
+            .unwrap_or_default()
     });
     let mut selected_condition_code = use_signal(|| "SC".to_string());
     let mut selected_severity = use_signal(|| "minor".to_string());
@@ -51,7 +56,11 @@ pub fn InventoryConditionModal(props: InventoryConditionModalProps) -> Element {
         ("SC", "Scratched", "Surface scratch or scuff"),
         ("CH", "Chipped", "Chipped edge or finish"),
         ("D", "Dented", "Surface dent or depression"),
-        ("MCU", "Missing/Chipped/Uph.", "Upholstery tear / missing piece"),
+        (
+            "MCU",
+            "Missing/Chipped/Uph.",
+            "Upholstery tear / missing piece",
+        ),
         ("MAR", "Marred", "Rub mark or stain"),
         ("BR", "Broken", "Structural fracture or break"),
         ("F", "Faded", "Color fading or sun bleach"),

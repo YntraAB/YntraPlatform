@@ -457,7 +457,7 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
                                             div { class: "mb-4 rounded-full bg-muted p-4",
                                                 components::LucideIcon { name: "settings-2", class: "h-8 w-8 text-muted-foreground opacity-20" }
                                             }
-                                            h3 { class: "text-lg font-medium m-0", 
+                                            h3 { class: "text-lg font-medium m-0",
                                                 match props.locale.as_str() {
                                                     "sv" => "Dynamisk databas & formulär",
                                                     "no" => "Dynamisk database & skjema",

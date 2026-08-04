@@ -112,18 +112,14 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
     let vehicles_res = use_resource(move || {
         let _ = db_trig;
         let uid = props.active_user_id.read().clone();
-        async move {
-            yntra_core::get_vehicles(uid).await.unwrap_or_default()
-        }
+        async move { yntra_core::get_vehicles(uid).await.unwrap_or_default() }
     });
     let vehicles: Vec<MoveVehicle> = vehicles_res.read().clone().unwrap_or_default();
 
     let users_res = use_resource(move || {
         let _ = db_trig;
         let uid = props.active_user_id.read().clone();
-        async move {
-            yntra_core::get_users(uid).await.unwrap_or_default()
-        }
+        async move { yntra_core::get_users(uid).await.unwrap_or_default() }
     });
     let raw_users: Vec<WorkspaceUser> = users_res.read().clone().unwrap_or_default();
 
@@ -174,7 +170,11 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
                 let name = u.full_name.clone().unwrap_or(u.email.clone());
                 let parts: Vec<&str> = name.split_whitespace().collect();
                 let initials = if parts.len() >= 2 {
-                    format!("{}{}", parts[0].chars().next().unwrap_or('P'), parts[1].chars().next().unwrap_or('U'))
+                    format!(
+                        "{}{}",
+                        parts[0].chars().next().unwrap_or('P'),
+                        parts[1].chars().next().unwrap_or('U')
+                    )
                 } else {
                     name.chars().take(2).collect::<String>().to_uppercase()
                 };
@@ -185,7 +185,11 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
                     id: u.id,
                     name: name,
                     role: u.role,
-                    status: if idx % 3 == 0 { "idle".to_string() } else { "active".to_string() },
+                    status: if idx % 3 == 0 {
+                        "idle".to_string()
+                    } else {
+                        "active".to_string()
+                    },
                     latitude: base_lat + offset_lat,
                     longitude: base_lon + offset_lon,
                     phone: u.phone.unwrap_or_else(|| "+46 70 000 00 00".to_string()),
@@ -298,7 +302,9 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
         let v_filtered: Vec<_> = v_data
             .into_iter()
             .filter(|v| {
-                let matches_q = q.is_empty() || v.name.to_lowercase().contains(&q) || v.license_plate.to_lowercase().contains(&q);
+                let matches_q = q.is_empty()
+                    || v.name.to_lowercase().contains(&q)
+                    || v.license_plate.to_lowercase().contains(&q);
                 let matches_s = match current_sf.as_str() {
                     "active" => v.status == "active",
                     "idle" => v.status != "active",
@@ -311,7 +317,9 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
         let p_filtered: Vec<_> = p_data
             .into_iter()
             .filter(|p| {
-                let matches_q = q.is_empty() || p.name.to_lowercase().contains(&q) || p.role.to_lowercase().contains(&q);
+                let matches_q = q.is_empty()
+                    || p.name.to_lowercase().contains(&q)
+                    || p.role.to_lowercase().contains(&q);
                 let matches_s = match current_sf.as_str() {
                     "active" => p.status == "active",
                     "idle" => p.status != "active",
@@ -325,7 +333,8 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
         let p_json = serde_json::to_string(&p_filtered).unwrap_or_else(|_| "[]".to_string());
         let j_json = serde_json::to_string(&j_data).unwrap_or_else(|_| "[]".to_string());
         let c_json = serde_json::to_string(&c_data).unwrap_or_else(|_| "{}".to_string());
-        let mode_json = serde_json::to_string(&current_mode).unwrap_or_else(|_| "\"both\"".to_string());
+        let mode_json =
+            serde_json::to_string(&current_mode).unwrap_or_else(|_| "\"both\"".to_string());
         let ts_json = serde_json::to_string(&current_ts).unwrap_or_else(|_| "\"dark\"".to_string());
 
         let script = format!(
@@ -341,7 +350,8 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
     });
 
     // Static iframe template - Leaflet map initialized once
-    let map_html = format!(r#"
+    let map_html = format!(
+        r#"
 <!DOCTYPE html>
 <html>
 <head>
@@ -747,11 +757,14 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
     </script>
 </body>
 </html>
-"#, center_lat=base_lat, center_lon=base_lon);
+"#,
+        center_lat = base_lat,
+        center_lon = base_lon
+    );
 
     rsx! {
         div { class: "w-full h-full min-h-[calc(100vh-3.5rem)] relative overflow-hidden bg-slate-950 flex flex-col animate-in fade-in duration-300",
-            
+
             // Static Full-bleed map iframe
             iframe {
                 id: "live-map-iframe",
@@ -761,9 +774,9 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
             }
 
             // Floating Clean Top Control Bar
-            div { 
+            div {
                 style: "position: absolute; top: 16px; left: 16px; right: 16px; z-index: 10; pointer-events: auto; background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 20px; padding: 0.55rem 0.9rem; box-shadow: 0 15px 35px -10px rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;",
-                
+
                 // Real-Time Search Bar
                 div { class: "flex-1 max-w-xs relative min-w-[180px]",
                     input {
@@ -893,7 +906,7 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
                     span { class: "bg-primary/30 text-primary-foreground text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1", "{total_active_units}" }
                 }
             } else {
-                div { 
+                div {
                     style: "position: absolute; top: 76px; left: 16px; bottom: 16px; z-index: 1000; display: flex; flex-direction: column; background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; box-shadow: 0 20px 50px -10px rgba(0,0,0,0.8); box-sizing: border-box; overflow: hidden; padding: 1.1rem;",
                     class: "w-[320px] max-sm:w-[calc(100%-2rem)] max-sm:left-4 max-sm:right-4 max-sm:bottom-4 max-sm:top-auto max-sm:max-h-[50vh] animate-in slide-in-from-left-4 duration-200",
                     div { class: "flex items-center justify-between pb-2.5 border-b border-white/10",
@@ -915,7 +928,7 @@ pub fn LiveMapView(props: LiveMapViewProps) -> Element {
                     }
 
                     div { class: "flex-1 overflow-y-auto space-y-2 mt-3 pr-1 scrollbar-thin",
-                        
+
                         // Empty State if no units match current filter
                         if drawer_vehicles.read().is_empty() && drawer_personnel.read().is_empty() {
                             div { class: "py-8 text-center flex flex-col items-center justify-center px-3",

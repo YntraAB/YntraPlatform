@@ -1,19 +1,23 @@
 #![allow(unused_imports)]
-use crate::components::{Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, Input, LucideIcon, SuggestionInput};
+use crate::components::{
+    Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, Input, LucideIcon,
+    SuggestionInput,
+};
 use crate::locales::t;
-use crate::views::school::academics::utils::{decrypt_field, decrypt_opt_field, encrypt_field_with_proof, encrypt_opt_field_with_proof};
+use crate::views::school::academics::utils::{
+    decrypt_field, decrypt_opt_field, encrypt_field_with_proof, encrypt_opt_field_with_proof,
+};
 use dioxus::prelude::*;
 use yntra_core::{
-    checkout_book, create_school_invoice, get_assignments, get_library_books,
-    get_library_lending_logs, get_school_invoices, get_student_profiles, get_workspace_courses,
-    get_users, record_school_payment, return_book, save_assignment, save_attendance_record, save_course,
-    link_parent_to_student, get_student_parents, get_student_health_records, save_student_health_record,
-    get_health_incidents, save_health_incident, save_student_profile,
-    get_course_term_grades, save_term_grade, publish_report_card, get_report_cards,
-    get_student_submissions, save_submission, get_timetable_slots, save_timetable_slot,
-    get_parent_students,
-    Assignment, Course, SchoolInvoice, HealthRecord, HealthIncident, StudentProfile, TermGrade, ReportCard,
-    Submission, TimetableSlot,
+    Assignment, Course, HealthIncident, HealthRecord, ReportCard, SchoolInvoice, StudentProfile,
+    Submission, TermGrade, TimetableSlot, checkout_book, create_school_invoice, get_assignments,
+    get_course_term_grades, get_health_incidents, get_library_books, get_library_lending_logs,
+    get_parent_students, get_report_cards, get_school_invoices, get_student_health_records,
+    get_student_parents, get_student_profiles, get_student_submissions, get_timetable_slots,
+    get_users, get_workspace_courses, link_parent_to_student, publish_report_card,
+    record_school_payment, return_book, save_assignment, save_attendance_record, save_course,
+    save_health_incident, save_student_health_record, save_student_profile, save_submission,
+    save_term_grade, save_timetable_slot,
 };
 
 use super::SchoolViewProps;
@@ -30,31 +34,51 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
     let ws_id = props.workspace_id.clone();
 
     let current_role = state.active_user_role.read().clone();
-    let can_edit = current_role != "parent" && current_role != "role-school-parent" && current_role != "student" && current_role != "role-school-student";
+    let can_edit = current_role != "parent"
+        && current_role != "role-school-parent"
+        && current_role != "student"
+        && current_role != "role-school-student";
 
     let locale_lower = props.locale.to_lowercase();
     let grade_suggestions = if locale_lower.starts_with("sv") || locale_lower.starts_with("se") {
         vec![
-            "Klass 1A".to_string(), "Klass 1B".to_string(),
-            "Klass 2A".to_string(), "Klass 2B".to_string(),
-            "Klass 3A".to_string(), "Klass 3B".to_string(),
-            "Klass 4A".to_string(), "Klass 4B".to_string(),
-            "Klass 5A".to_string(), "Klass 5B".to_string(),
-            "Klass 6A".to_string(), "Klass 6B".to_string(),
-            "Klass 7A".to_string(), "Klass 7B".to_string(),
-            "Klass 8A".to_string(), "Klass 8B".to_string(),
-            "Klass 9A".to_string(), "Klass 9B".to_string(),
+            "Klass 1A".to_string(),
+            "Klass 1B".to_string(),
+            "Klass 2A".to_string(),
+            "Klass 2B".to_string(),
+            "Klass 3A".to_string(),
+            "Klass 3B".to_string(),
+            "Klass 4A".to_string(),
+            "Klass 4B".to_string(),
+            "Klass 5A".to_string(),
+            "Klass 5B".to_string(),
+            "Klass 6A".to_string(),
+            "Klass 6B".to_string(),
+            "Klass 7A".to_string(),
+            "Klass 7B".to_string(),
+            "Klass 8A".to_string(),
+            "Klass 8B".to_string(),
+            "Klass 9A".to_string(),
+            "Klass 9B".to_string(),
         ]
     } else {
         vec![
-            "1st Grade".to_string(), "2nd Grade".to_string(),
-            "3rd Grade".to_string(), "4th Grade".to_string(),
-            "5th Grade".to_string(), "6th Grade".to_string(),
-            "7th Grade".to_string(), "8th Grade".to_string(),
-            "9th Grade".to_string(), "10th Grade".to_string(),
-            "11th Grade".to_string(), "12th Grade".to_string(),
-            "10A".to_string(), "10B".to_string(),
-            "9A".to_string(), "9B".to_string(),
+            "1st Grade".to_string(),
+            "2nd Grade".to_string(),
+            "3rd Grade".to_string(),
+            "4th Grade".to_string(),
+            "5th Grade".to_string(),
+            "6th Grade".to_string(),
+            "7th Grade".to_string(),
+            "8th Grade".to_string(),
+            "9th Grade".to_string(),
+            "10th Grade".to_string(),
+            "11th Grade".to_string(),
+            "12th Grade".to_string(),
+            "10A".to_string(),
+            "10B".to_string(),
+            "9A".to_string(),
+            "9B".to_string(),
         ]
     };
 
@@ -89,7 +113,9 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
         let ws = ws_id_clone.clone();
         async move {
             if is_parent {
-                get_parent_students(uid.clone(), ws, uid).await.unwrap_or_default()
+                get_parent_students(uid.clone(), ws, uid)
+                    .await
+                    .unwrap_or_default()
             } else {
                 get_student_profiles(uid, ws).await.unwrap_or_default()
             }
@@ -135,7 +161,9 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
             if s_id.is_empty() {
                 Vec::new()
             } else {
-                get_student_health_records(uid, ws, s_id).await.unwrap_or_default()
+                get_student_health_records(uid, ws, s_id)
+                    .await
+                    .unwrap_or_default()
             }
         }
     });
@@ -148,7 +176,10 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
     });
 
     let seed = state.get_passkey_seed();
-    let students = students_res.read().clone().unwrap_or_default()
+    let students = students_res
+        .read()
+        .clone()
+        .unwrap_or_default()
         .into_iter()
         .map(|mut s| {
             s.first_name = decrypt_field(&seed, &s.first_name);
@@ -159,7 +190,10 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
         })
         .collect::<Vec<_>>();
     let parents = parents_res.read().clone().unwrap_or_default();
-    let health_records = health_res.read().clone().unwrap_or_default()
+    let health_records = health_res
+        .read()
+        .clone()
+        .unwrap_or_default()
         .into_iter()
         .map(|mut r| {
             r.vaccine_name = decrypt_field(&seed, &r.vaccine_name);
@@ -632,4 +666,3 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
         }
     }
 }
-

@@ -1,18 +1,23 @@
 #![allow(unused_imports)]
-use crate::components::{Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, Input, LucideIcon, SuggestionInput};
+use crate::components::{
+    Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, Input, LucideIcon,
+    SuggestionInput,
+};
 use crate::locales::t;
-use crate::views::school::academics::utils::{decrypt_field, decrypt_opt_field, encrypt_field_with_proof, encrypt_opt_field_with_proof};
+use crate::views::school::academics::utils::{
+    decrypt_field, decrypt_opt_field, encrypt_field_with_proof, encrypt_opt_field_with_proof,
+};
 use dioxus::prelude::*;
 use yntra_core::{
-    checkout_book, create_school_invoice, get_assignments, get_library_books,
-    get_library_lending_logs, get_school_invoices, get_student_profiles, get_workspace_courses,
-    get_users, record_school_payment, return_book, save_assignment, save_attendance_record, save_course,
-    link_parent_to_student, get_student_parents, get_student_health_records, save_student_health_record,
-    get_health_incidents, save_health_incident, save_student_profile,
-    get_course_term_grades, save_term_grade, publish_report_card, get_report_cards,
-    get_student_submissions, save_submission, get_timetable_slots, save_timetable_slot,
-    Assignment, Course, SchoolInvoice, HealthRecord, HealthIncident, StudentProfile, TermGrade, ReportCard,
-    Submission, TimetableSlot,
+    Assignment, Course, HealthIncident, HealthRecord, ReportCard, SchoolInvoice, StudentProfile,
+    Submission, TermGrade, TimetableSlot, checkout_book, create_school_invoice, get_assignments,
+    get_course_term_grades, get_health_incidents, get_library_books, get_library_lending_logs,
+    get_report_cards, get_school_invoices, get_student_health_records, get_student_parents,
+    get_student_profiles, get_student_submissions, get_timetable_slots, get_users,
+    get_workspace_courses, link_parent_to_student, publish_report_card, record_school_payment,
+    return_book, save_assignment, save_attendance_record, save_course, save_health_incident,
+    save_student_health_record, save_student_profile, save_submission, save_term_grade,
+    save_timetable_slot,
 };
 
 use super::SchoolViewProps;
@@ -72,14 +77,19 @@ pub fn AttendanceView(props: SchoolViewProps) -> Element {
             if c_id.is_empty() {
                 Vec::new()
             } else {
-                yntra_core::get_attendance_records(uid, ws, c_id, dt).await.unwrap_or_default()
+                yntra_core::get_attendance_records(uid, ws, c_id, dt)
+                    .await
+                    .unwrap_or_default()
             }
         }
     });
 
     let seed = state.get_passkey_seed();
     let courses = courses_res.read().clone().unwrap_or_default();
-    let students = students_res.read().clone().unwrap_or_default()
+    let students = students_res
+        .read()
+        .clone()
+        .unwrap_or_default()
         .into_iter()
         .map(|mut s| {
             s.first_name = decrypt_field(&seed, &s.first_name);
@@ -89,7 +99,10 @@ pub fn AttendanceView(props: SchoolViewProps) -> Element {
             s
         })
         .collect::<Vec<_>>();
-    let attendance = attendance_res.read().clone().unwrap_or_default()
+    let attendance = attendance_res
+        .read()
+        .clone()
+        .unwrap_or_default()
         .into_iter()
         .map(|mut a| {
             a.notes = decrypt_opt_field(&seed, a.notes);
@@ -384,4 +397,3 @@ pub fn AttendanceView(props: SchoolViewProps) -> Element {
         }
     }
 }
-

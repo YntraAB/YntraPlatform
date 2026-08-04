@@ -1,6 +1,6 @@
 use crate::locales::t;
 use dioxus::prelude::*;
-use yntra_core::{WorkspaceTemplateType, Course};
+use yntra_core::{Course, WorkspaceTemplateType};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct TemplateInputsProps {
@@ -28,7 +28,11 @@ pub fn TemplateInputs(props: TemplateInputsProps) -> Element {
 
             let current_course_name = if *selected_course_id.read() == "none" {
                 t("scheduler-select-course", &props.locale)
-            } else if let Some(course) = props.courses.iter().find(|c| c.id == *selected_course_id.read()) {
+            } else if let Some(course) = props
+                .courses
+                .iter()
+                .find(|c| c.id == *selected_course_id.read())
+            {
                 format!("{} ({})", course.name, course.subject)
             } else {
                 t("scheduler-select-course", &props.locale)

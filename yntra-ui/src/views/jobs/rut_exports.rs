@@ -2,16 +2,22 @@ use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
 use yntra_core::{
-    BankIdAuthSession, SkatteverketSubmitResult,
-    initiate_bankid_skatteverket_session, submit_skatteverket_claim_direct,
+    BankIdAuthSession, SkatteverketSubmitResult, initiate_bankid_skatteverket_session,
+    submit_skatteverket_claim_direct,
 };
 
-fn trigger_download(toast: &dioxus_primitives::toast::Toasts, locale: &str, content: &str, file_name: &str) {
+fn trigger_download(
+    toast: &dioxus_primitives::toast::Toasts,
+    locale: &str,
+    content: &str,
+    file_name: &str,
+) {
     #[cfg(target_arch = "wasm32")]
     {
         toast.info(
             t("school-toast-download-started", locale),
-            dioxus_primitives::toast::ToastOptions::new().description(t("school-toast-browser-download-desc", locale))
+            dioxus_primitives::toast::ToastOptions::new()
+                .description(t("school-toast-browser-download-desc", locale)),
         );
 
         let base64_str = crate::views::school::academics::utils::base64_encode(content.as_bytes());
@@ -40,20 +46,19 @@ fn trigger_download(toast: &dioxus_primitives::toast::Toasts, locale: &str, cont
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let file_path = rfd::FileDialog::new()
-            .set_file_name(file_name)
-            .save_file();
+        let file_path = rfd::FileDialog::new().set_file_name(file_name).save_file();
         if let Some(path) = file_path {
             if std::fs::write(&path, content).is_ok() {
                 let desc = format!("{} {}", t("school-toast-saved-to", locale), path.display());
                 toast.success(
                     t("school-toast-export-success", locale),
-                    dioxus_primitives::toast::ToastOptions::new().description(desc)
+                    dioxus_primitives::toast::ToastOptions::new().description(desc),
                 );
             } else {
                 toast.error(
                     t("school-toast-export-failed", locale),
-                    dioxus_primitives::toast::ToastOptions::new().description(t("school-toast-export-failed-desc", locale))
+                    dioxus_primitives::toast::ToastOptions::new()
+                        .description(t("school-toast-export-failed-desc", locale)),
                 );
             }
         }
@@ -116,9 +121,15 @@ pub fn RutExportsView(props: RutExportsViewProps) -> Element {
 
     // Calculate Summary KPIs
     let total_rut_sum: f64 = list.iter().map(|item| item.rut_amount).sum();
-    let ready_items: Vec<_> = list.iter().filter(|item| item.status != "claimed" && item.status != "submitted").collect();
+    let ready_items: Vec<_> = list
+        .iter()
+        .filter(|item| item.status != "claimed" && item.status != "submitted")
+        .collect();
     let ready_sum: f64 = ready_items.iter().map(|item| item.rut_amount).sum();
-    let submitted_count = list.iter().filter(|item| item.status == "claimed" || item.status == "submitted").count();
+    let submitted_count = list
+        .iter()
+        .filter(|item| item.status == "claimed" || item.status == "submitted")
+        .count();
 
     // Filter list
     let filtered_list: Vec<_> = list
@@ -126,7 +137,7 @@ pub fn RutExportsView(props: RutExportsViewProps) -> Element {
         .cloned()
         .filter(|item| {
             let q = search_query.read().to_lowercase();
-            let matches_q = q.is_empty() 
+            let matches_q = q.is_empty()
                 || item.invoice_id.to_lowercase().contains(&q)
                 || item.customer_name.to_lowercase().contains(&q)
                 || item.customer_pnum.to_lowercase().contains(&q)
@@ -158,7 +169,7 @@ pub fn RutExportsView(props: RutExportsViewProps) -> Element {
 
     rsx! {
         div { class: "mx-auto w-full max-w-5xl p-6 flex flex-col gap-6 animate-in fade-in duration-300",
-            
+
             // Header
             div { class: "flex items-center justify-between flex-wrap gap-4",
                 div { class: "flex flex-col gap-1",
@@ -249,7 +260,7 @@ pub fn RutExportsView(props: RutExportsViewProps) -> Element {
             // Main Table & Controls Card
             components::Card {
                 class: "w-full p-1 border border-border bg-sidebar shadow-md flex flex-col",
-                
+
                 // Controls Header (Search & Filter Pills)
                 div { class: "p-4 border-b border-border/40 flex flex-col md:flex-row md:items-center justify-between gap-3",
                     div { class: "relative flex-1 max-w-md",
@@ -380,8 +391,8 @@ pub fn RutExportsView(props: RutExportsViewProps) -> Element {
                 div {
                     style: "position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); padding: 1rem;",
                     onclick: move |_| show_skatteverket_modal.set(false),
-                    
-                    div { 
+
+                    div {
                         class: "w-full max-w-lg rounded-2xl border border-border bg-sidebar p-6 shadow-2xl space-y-5 animate-in zoom-in-95 duration-200",
                         onclick: move |e| e.stop_propagation(),
 

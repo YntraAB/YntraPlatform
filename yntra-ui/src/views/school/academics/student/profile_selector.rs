@@ -1,6 +1,6 @@
-use dioxus::prelude::*;
 use crate::components::{Card, LucideIcon};
 use crate::locales::t;
+use dioxus::prelude::*;
 use yntra_core::StudentProfile;
 
 #[component]

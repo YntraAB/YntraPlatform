@@ -17,7 +17,8 @@ pub struct ReportsListProps {
 pub fn ReportsList(props: ReportsListProps) -> Element {
     let state = use_context::<crate::state::AppState>();
     let requester_id = state.active_user_id.read().clone();
-    let is_manager = *state.active_user_role.read() == "admin" || *state.active_user_role.read() == "platform_admin";
+    let is_manager = *state.active_user_role.read() == "admin"
+        || *state.active_user_role.read() == "platform_admin";
 
     let reports = props.reports.clone();
     let region = props.region;

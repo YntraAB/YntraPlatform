@@ -1,6 +1,8 @@
 use crate::components::{Button, LucideIcon};
 use dioxus::prelude::*;
-use yntra_core::{get_pending_ai_action_approvals, review_ai_action_approval, AiActionApprovalItem};
+use yntra_core::{
+    AiActionApprovalItem, get_pending_ai_action_approvals, review_ai_action_approval,
+};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct AiApprovalModalProps {

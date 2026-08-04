@@ -1,7 +1,7 @@
-use dioxus::prelude::*;
-use crate::components::{Button, LucideIcon};
-use yntra_core::{Assignment, StudentProfile, Submission};
 use super::super::utils::parse_submission_content_and_advanced_attachment;
+use crate::components::{Button, LucideIcon};
+use dioxus::prelude::*;
+use yntra_core::{Assignment, StudentProfile, Submission};
 
 #[component]
 pub fn CourseSubmissionsTab(
@@ -13,8 +13,10 @@ pub fn CourseSubmissionsTab(
     mut homework_feedback: Signal<String>,
     mut show_homework_grade_modal: Signal<bool>,
 ) -> Element {
-    let course_assignment_ids: std::collections::HashSet<String> = assignments.iter().map(|a| a.id.clone()).collect();
-    let course_submissions = all_submissions.iter()
+    let course_assignment_ids: std::collections::HashSet<String> =
+        assignments.iter().map(|a| a.id.clone()).collect();
+    let course_submissions = all_submissions
+        .iter()
         .filter(|sub| course_assignment_ids.contains(&sub.assignment_id))
         .cloned()
         .collect::<Vec<_>>();
@@ -22,7 +24,7 @@ pub fn CourseSubmissionsTab(
     rsx! {
         div { class: "space-y-4",
             h5 { class: "font-bold text-sm m-0 text-foreground", "Student Homework Submissions" }
-            
+
             if course_submissions.is_empty() {
                 div { class: "py-10 text-center text-xs text-muted-foreground border border-dashed border-border rounded-xl", "No homework submissions received yet for this course." }
             } else {

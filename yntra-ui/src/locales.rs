@@ -27,7 +27,9 @@ pub fn get_system_locale() -> String {
                         let lang = lang.to_lowercase();
                         if lang.starts_with("sv") {
                             return "sv".to_string();
-                        } else if lang.starts_with("nb") || lang.starts_with("nn") || lang.starts_with("no")
+                        } else if lang.starts_with("nb")
+                            || lang.starts_with("nn")
+                            || lang.starts_with("no")
                         {
                             return "no".to_string();
                         } else if lang.starts_with("da") {
@@ -44,7 +46,10 @@ pub fn get_system_locale() -> String {
                     let lang = lang.to_lowercase();
                     if lang.starts_with("sv") {
                         return "sv".to_string();
-                    } else if lang.starts_with("nb") || lang.starts_with("nn") || lang.starts_with("no") {
+                    } else if lang.starts_with("nb")
+                        || lang.starts_with("nn")
+                        || lang.starts_with("no")
+                    {
                         return "no".to_string();
                     } else if lang.starts_with("da") {
                         return "da".to_string();
@@ -56,16 +61,23 @@ pub fn get_system_locale() -> String {
                 #[cfg(target_os = "windows")]
                 {
                     unsafe extern "system" {
-                        fn GetUserDefaultLocaleName(lpLocaleName: *mut u16, cchLocaleName: i32) -> i32;
+                        fn GetUserDefaultLocaleName(
+                            lpLocaleName: *mut u16,
+                            cchLocaleName: i32,
+                        ) -> i32;
                     }
                     let mut buf = [0u16; 85];
-                    let len = unsafe { GetUserDefaultLocaleName(buf.as_mut_ptr(), buf.len() as i32) };
+                    let len =
+                        unsafe { GetUserDefaultLocaleName(buf.as_mut_ptr(), buf.len() as i32) };
                     if len > 0 {
-                        if let Ok(locale_str) = String::from_utf16(&buf[.. (len as usize - 1)]) {
+                        if let Ok(locale_str) = String::from_utf16(&buf[..(len as usize - 1)]) {
                             let lang = locale_str.to_lowercase();
                             if lang.starts_with("sv") {
                                 return "sv".to_string();
-                            } else if lang.starts_with("nb") || lang.starts_with("nn") || lang.starts_with("no") {
+                            } else if lang.starts_with("nb")
+                                || lang.starts_with("nn")
+                                || lang.starts_with("no")
+                            {
                                 return "no".to_string();
                             } else if lang.starts_with("da") {
                                 return "da".to_string();

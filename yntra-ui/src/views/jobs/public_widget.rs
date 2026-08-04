@@ -1,6 +1,6 @@
-use dioxus::prelude::*;
 use crate::components;
 use crate::locales::t;
+use dioxus::prelude::*;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct WidgetItem {
@@ -13,18 +13,18 @@ pub struct WidgetItem {
 pub fn PublicBookingWidget(workspace_id: String, locale: Option<String>) -> Element {
     let ws_id = workspace_id.clone();
     let loc = locale.unwrap_or_else(|| "sv".to_string());
-    
+
     let mut step = use_signal(|| 1);
-    
+
     // Contact Info
     let mut name = use_signal(String::new);
     let mut email = use_signal(String::new);
     let mut phone = use_signal(String::new);
-    
+
     // Address Info
     let mut origin = use_signal(String::new);
     let mut destination = use_signal(String::new);
-    
+
     // Inventory Items
     let mut selected_items = use_signal(|| Vec::<WidgetItem>::new());
     let mut custom_item_name = use_signal(String::new);
@@ -45,7 +45,10 @@ pub fn PublicBookingWidget(workspace_id: String, locale: Option<String>) -> Elem
 
     // Compute live values
     let items_list = selected_items.read().clone();
-    let total_volume: f64 = items_list.iter().map(|item| item.volume * item.quantity as f64).sum();
+    let total_volume: f64 = items_list
+        .iter()
+        .map(|item| item.volume * item.quantity as f64)
+        .sum();
     // SEK estimation: 1500 kr base + 150 kr per m3
     let estimated_price = 1500.0 + (total_volume * 150.0);
 
@@ -63,8 +66,13 @@ pub fn PublicBookingWidget(workspace_id: String, locale: Option<String>) -> Elem
         let dest_val = destination.read().clone();
         let items_val = selected_items.read().clone();
         let ws_id_c = ws_id.clone();
-        
-        if name_val.is_empty() || email_val.is_empty() || phone_val.is_empty() || origin_val.is_empty() || dest_val.is_empty() {
+
+        if name_val.is_empty()
+            || email_val.is_empty()
+            || phone_val.is_empty()
+            || origin_val.is_empty()
+            || dest_val.is_empty()
+        {
             submit_error.set(Some(t("booking-widget-err-fill-fields", &loc_submit)));
             return;
         }
@@ -74,24 +82,23 @@ pub fn PublicBookingWidget(workspace_id: String, locale: Option<String>) -> Elem
 
         spawn(async move {
             let items_json = serde_json::json!(
-                items_val.iter().map(|item| {
-                    serde_json::json!({
-                        "name": item.name,
-                        "quantity": item.quantity,
-                        "volume": item.volume
+                items_val
+                    .iter()
+                    .map(|item| {
+                        serde_json::json!({
+                            "name": item.name,
+                            "quantity": item.quantity,
+                            "volume": item.volume
+                        })
                     })
-                }).collect::<Vec<serde_json::Value>>()
-            ).to_string();
+                    .collect::<Vec<serde_json::Value>>()
+            )
+            .to_string();
 
             let result = yntra_core::submit_public_booking_lead(
-                ws_id_c,
-                name_val,
-                email_val,
-                phone_val,
-                origin_val,
-                dest_val,
-                items_json
-            ).await;
+                ws_id_c, name_val, email_val, phone_val, origin_val, dest_val, items_json,
+            )
+            .await;
 
             submitting.set(false);
             match result {
@@ -109,7 +116,7 @@ pub fn PublicBookingWidget(workspace_id: String, locale: Option<String>) -> Elem
     rsx! {
         div { class: "w-full max-w-lg mx-auto bg-background/80 backdrop-blur-md border border-border/60 rounded-2xl shadow-xl overflow-hidden flex flex-col items-stretch",
             style: "min-height: 520px;",
-            
+
             // Header Indicator
             div { class: "bg-gradient-to-r from-primary/10 to-accent/5 p-4 border-b border-border/40 flex justify-between items-center",
                 div {
@@ -127,8 +134,8 @@ pub fn PublicBookingWidget(workspace_id: String, locale: Option<String>) -> Elem
                     div { class: "flex items-center gap-2",
                         components::LucideIcon { name: "package", size: "14", class: "text-primary" }
                         div {
-                            div { class: "font-extrabold text-foreground", 
-                                "{t(\"booking-widget-volume-label\", &loc)}: {total_volume:.1} m³" 
+                            div { class: "font-extrabold text-foreground",
+                                "{t(\"booking-widget-volume-label\", &loc)}: {total_volume:.1} m³"
                             }
                             div { class: "text-[9px] text-muted-foreground", "{t(\"booking-widget-capacity-sub\", &loc)}" }
                         }
@@ -145,7 +152,7 @@ pub fn PublicBookingWidget(workspace_id: String, locale: Option<String>) -> Elem
                 if *step.read() == 1 {
                     div { class: "space-y-4 flex-1",
                         h4 { class: "text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1", "{t(\"booking-widget-step1-title\", &loc)}" }
-                        
+
                         div { class: "space-y-3",
                             div { class: "flex flex-col gap-1",
                                 label { class: "text-[10px] font-bold text-foreground", "{t(\"booking-widget-label-name\", &loc)}" }
@@ -181,7 +188,7 @@ pub fn PublicBookingWidget(workspace_id: String, locale: Option<String>) -> Elem
                 } else if *step.read() == 2 {
                     div { class: "space-y-4 flex-1",
                         h4 { class: "text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1", "{t(\"booking-widget-step2-title\", &loc)}" }
-                        
+
                         div { class: "space-y-3",
                             div { class: "flex flex-col gap-1",
                                 label { class: "text-[10px] font-bold text-foreground", "{t(\"booking-widget-label-origin\", &loc)}" }
@@ -274,7 +281,7 @@ pub fn PublicBookingWidget(workspace_id: String, locale: Option<String>) -> Elem
                         // Selected Items list with inline editing & removal
                         div { class: "flex-1 border border-border/40 bg-background/50 rounded-xl p-3 flex flex-col justify-stretch min-h-[140px]",
                             span { class: "text-[9px] font-bold text-muted-foreground uppercase tracking-wide mb-1", "{t(\"booking-widget-selected-items\", &loc)}" }
-                            
+
                             if items_list.is_empty() {
                                 div { class: "flex-1 flex flex-col items-center justify-center text-center text-muted-foreground/60 py-4",
                                     components::LucideIcon { name: "box", class: "h-5 w-5 opacity-40 mb-1" }
@@ -286,7 +293,7 @@ pub fn PublicBookingWidget(workspace_id: String, locale: Option<String>) -> Elem
                                         div {
                                             key: "{idx}",
                                             class: "flex justify-between items-center bg-background border border-border/30 p-2 rounded-lg text-xs gap-2 shadow-sm",
-                                            
+
                                             // Inline editable item name & volume
                                             div { class: "flex items-center gap-1.5 flex-1 min-w-0",
                                                 input {
@@ -377,8 +384,8 @@ pub fn PublicBookingWidget(workspace_id: String, locale: Option<String>) -> Elem
                         }
                         div {
                             h4 { class: "text-sm font-black text-foreground m-0", "{t(\"booking-widget-step4-title\", &loc)}" }
-                            p { class: "text-xs text-muted-foreground mt-1 max-w-sm mx-auto leading-relaxed", 
-                                "{t(\"booking-widget-step4-desc\", &loc)}" 
+                            p { class: "text-xs text-muted-foreground mt-1 max-w-sm mx-auto leading-relaxed",
+                                "{t(\"booking-widget-step4-desc\", &loc)}"
                             }
                         }
                         if let Some(ref j_id) = created_job_id.read().as_ref() {
@@ -411,7 +418,7 @@ pub fn PublicBookingWidget(workspace_id: String, locale: Option<String>) -> Elem
                         } else {
                             div {}
                         }
-                        
+
                         if *step.read() < 3 {
                             button {
                                 class: "px-5 py-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 text-xs font-black border-0 cursor-pointer shadow transition-all",
@@ -470,7 +477,7 @@ pub fn PublicBookingPreview(workspace_id: String, locale: Option<String>) -> Ele
 
     rsx! {
         div { class: "flex flex-col gap-6 w-full animate-in fade-in duration-300",
-            
+
             // Preview Panel Header with View Mode Pills
             div { class: "flex justify-between items-center border-b border-border/40 pb-3 flex-wrap gap-3",
                 div {
@@ -498,12 +505,12 @@ pub fn PublicBookingPreview(workspace_id: String, locale: Option<String>) -> Ele
             // Tab 1: Interactive Live Preview
             if *view_tab.read() == "preview" {
                 div { class: "flex gap-6 items-stretch flex-wrap md:flex-nowrap animate-in fade-in duration-200",
-                    
+
                     // Instructions Info Card
                     div { class: "flex-1 min-w-[300px] border border-border bg-sidebar rounded-2xl p-6 flex flex-col justify-between shadow-sm",
                         div { class: "space-y-4",
                             h4 { class: "text-xs font-black text-foreground uppercase tracking-wider m-0", "{t(\"booking-widget-how-it-works\", &loc_str)}" }
-                            
+
                             div { class: "space-y-3 text-xs leading-relaxed text-muted-foreground",
                                 div { class: "flex gap-3 items-start",
                                     div { class: "h-5 w-5 rounded-full bg-primary/10 border border-primary/20 text-primary font-bold flex items-center justify-center text-[10px] flex-shrink-0 mt-0.5", "1" }

@@ -1,6 +1,9 @@
 use crate::components::{Button, LucideIcon};
 use dioxus::prelude::*;
-use yntra_core::{export_audit_logs_csv, export_audit_logs_json, get_audit_logs, verify_audit_log_chain, AuditLogEntry};
+use yntra_core::{
+    AuditLogEntry, export_audit_logs_csv, export_audit_logs_json, get_audit_logs,
+    verify_audit_log_chain,
+};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct AuditLogViewerProps {
@@ -42,7 +45,10 @@ pub fn AuditLogViewer(props: AuditLogViewerProps) -> Element {
         let req_uid = uid_csv.clone();
         spawn(async move {
             if let Ok(csv) = export_audit_logs_csv(req_uid, None, None, None).await {
-                status_msg.set(Some(format!("Audit logs exported to CSV ({} bytes)", csv.len())));
+                status_msg.set(Some(format!(
+                    "Audit logs exported to CSV ({} bytes)",
+                    csv.len()
+                )));
             }
         });
     };
@@ -52,7 +58,10 @@ pub fn AuditLogViewer(props: AuditLogViewerProps) -> Element {
         let req_uid = uid_json.clone();
         spawn(async move {
             if let Ok(json) = export_audit_logs_json(req_uid, None, None, None).await {
-                status_msg.set(Some(format!("Audit logs exported to JSON ({} bytes)", json.len())));
+                status_msg.set(Some(format!(
+                    "Audit logs exported to JSON ({} bytes)",
+                    json.len()
+                )));
             }
         });
     };
@@ -61,14 +70,17 @@ pub fn AuditLogViewer(props: AuditLogViewerProps) -> Element {
     let search = search_filter.read().to_lowercase();
     let act_filt = action_filter.read().clone();
 
-    let filtered_logs: Vec<AuditLogEntry> = logs.into_iter().filter(|log| {
-        let match_search = search.is_empty()
-            || log.actor_id.to_lowercase().contains(&search)
-            || log.action_type.to_lowercase().contains(&search)
-            || log.curr_hash.to_lowercase().contains(&search);
-        let match_act = act_filt == "All" || log.action_type == act_filt;
-        match_search && match_act
-    }).collect();
+    let filtered_logs: Vec<AuditLogEntry> = logs
+        .into_iter()
+        .filter(|log| {
+            let match_search = search.is_empty()
+                || log.actor_id.to_lowercase().contains(&search)
+                || log.action_type.to_lowercase().contains(&search)
+                || log.curr_hash.to_lowercase().contains(&search);
+            let match_act = act_filt == "All" || log.action_type == act_filt;
+            match_search && match_act
+        })
+        .collect();
 
     rsx! {
         div { class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 sm:p-6",

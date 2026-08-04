@@ -60,7 +60,7 @@ pub fn Input(props: InputProps) -> Element {
     let mut resolved_style = props.style.clone();
     let is_invalid = props.is_invalid || props.error.is_some();
     let invalid_cls = if is_invalid { "is-invalid" } else { "" };
-    
+
     // Auto-detect tailwind padding-left classes to prevent override by default shorthand padding
     if props.class.contains("pl-9") && !resolved_style.contains("padding-left") {
         if !resolved_style.is_empty() && !resolved_style.ends_with(';') {
