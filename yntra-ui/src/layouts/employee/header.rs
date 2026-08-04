@@ -30,6 +30,8 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
     let teams = state.teams.read().clone().unwrap_or_default();
 
     let section = state.active_section.read().clone();
+    let presences = state.presences.read().clone().unwrap_or_default();
+    let notifications = state.notifications.read().clone().unwrap_or_default();
     let mut notes = Vec::new();
     if section == "notes" {
         notes = state.notes.read().clone().unwrap_or_default();
@@ -633,6 +635,36 @@ pub fn LayoutHeader(props: LayoutHeaderProps) -> Element {
                         },
                         components::LucideIcon { name: "shield", size: "14", class: "text-red-400 shrink-0" }
                         span { class: "whitespace-nowrap", "Report Incident" }
+                    }
+                }
+
+                // Live Peer Presence Avatars Stack
+                components::PresenceAvatars {
+                    presences: presences,
+                    current_user_id: active_user_id.read().clone(),
+                    max_visible: Some(4),
+                }
+
+                // Header Notification Bell Dropdown
+                {
+                    let active_uid_read = active_user_id.read().clone();
+                    let active_uid_all = active_user_id.read().clone();
+                    rsx! {
+                        components::NotificationBell {
+                            notifications: notifications,
+                            on_mark_read: move |id: String| {
+                                let uid = active_uid_read.clone();
+                                spawn(async move {
+                                    let _ = yntra_core::mark_notification_read(uid, id).await;
+                                });
+                            },
+                            on_mark_all_read: move |_| {
+                                let uid = active_uid_all.clone();
+                                spawn(async move {
+                                    let _ = yntra_core::mark_all_notifications_read(uid.clone(), uid).await;
+                                });
+                            },
+                        }
                     }
                 }
 

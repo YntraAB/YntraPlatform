@@ -1,8 +1,9 @@
 use dioxus::prelude::*;
 use yntra_core::{
-    ClientProfile, DailyNote, MessageItem, ReportItem, Team, TeamEvent, TimeReport, TodoItem,
-    Workspace, WorkspaceUser, get_clients, get_events, get_messages, get_notes, get_reports,
-    get_teams, get_time_reports, get_todos, get_users, get_workspace, get_workspaces,
+    ClientProfile, DailyNote, InAppNotification, MessageItem, ReportItem, Team, TeamEvent,
+    TimeReport, TodoItem, UserPresence, Workspace, WorkspaceUser, get_clients, get_events,
+    get_messages, get_notes, get_reports, get_teams, get_time_reports, get_todos,
+    get_user_notifications, get_users, get_workspace, get_workspace_presences, get_workspaces,
 };
 
 pub fn init_resources(
@@ -20,6 +21,8 @@ pub fn init_resources(
     trigger_clients: Signal<u32>,
     trigger_reports: Signal<u32>,
     trigger_todos: Signal<u32>,
+    trigger_presences: Signal<u32>,
+    trigger_notifications: Signal<u32>,
 ) -> (
     Resource<Workspace>,
     Resource<Vec<WorkspaceUser>>,
@@ -32,6 +35,8 @@ pub fn init_resources(
     Resource<Vec<ReportItem>>,
     Resource<Vec<Workspace>>,
     Resource<Vec<TodoItem>>,
+    Resource<Vec<UserPresence>>,
+    Resource<Vec<InAppNotification>>,
 ) {
     let workspace = use_resource(move || {
         let initialized = *db_initialized.read();
@@ -350,6 +355,37 @@ pub fn init_resources(
         }
     });
 
+    let presences = use_resource(move || {
+        let initialized = *db_initialized.read();
+        let is_login = *logged_in.read();
+        let _trig = trigger_presences.read();
+        let uid = active_user_id.read().clone();
+        let ws_id = workspace
+            .read()
+            .as_ref()
+            .map(|w| w.id.clone())
+            .unwrap_or_else(|| "workspace-1".to_string());
+        async move {
+            if !initialized || !is_login {
+                return Vec::new();
+            }
+            get_workspace_presences(uid, ws_id).await.unwrap_or_default()
+        }
+    });
+
+    let notifications = use_resource(move || {
+        let initialized = *db_initialized.read();
+        let is_login = *logged_in.read();
+        let _trig = trigger_notifications.read();
+        let uid = active_user_id.read().clone();
+        async move {
+            if !initialized || !is_login {
+                return Vec::new();
+            }
+            get_user_notifications(uid.clone(), uid).await.unwrap_or_default()
+        }
+    });
+
     (
         workspace,
         users,
@@ -362,5 +398,7 @@ pub fn init_resources(
         reports,
         workspaces,
         todos,
+        presences,
+        notifications,
     )
 }

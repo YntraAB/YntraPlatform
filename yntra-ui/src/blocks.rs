@@ -352,6 +352,34 @@ pub static BLOCK_REGISTRY: &[BlockDefinition] = &[
         }],
     },
     BlockDefinition {
+        id: "agentic_ai",
+        name: "Agentic AI & Voice",
+        navigation: &[BlockNavItem {
+            id: "agentic_ai",
+            label_key: "section-agentic-ai",
+            path: "agentic_ai",
+            icon: "sparkles",
+            allowed_roles: Some(&["platform_admin", "admin", "user"]),
+            section: "main",
+            children: None,
+            badge_key: None,
+        }],
+    },
+    BlockDefinition {
+        id: "ecosystem_integrations",
+        name: "Ecosystem Integrations",
+        navigation: &[BlockNavItem {
+            id: "ecosystem_integrations",
+            label_key: "section-integrations",
+            path: "integrations",
+            icon: "plug",
+            allowed_roles: Some(&["platform_admin", "admin", "user"]),
+            section: "main",
+            children: None,
+            badge_key: None,
+        }],
+    },
+    BlockDefinition {
         id: "support_center",
         name: "Support Center",
         navigation: &[BlockNavItem {

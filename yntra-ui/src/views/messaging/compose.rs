@@ -125,15 +125,24 @@ pub fn MessageCompose(props: MessageComposeProps) -> Element {
                                 let sender_id = active_user.id.clone();
                                 let recipient = Some(recipient_id);
                                 let requester_id = active_user.id.clone();
+                                let sender_name = active_user.full_name.clone().unwrap_or_else(|| "Team Member".to_string());
+                                let body_text = body.clone();
                                 spawn(async move {
                                     let _ = send_message(
-                                        requester_id,
-                                        workspace_id,
+                                        requester_id.clone(),
+                                        workspace_id.clone(),
                                         sender_id,
                                         recipient,
                                         None,
                                         sub,
-                                        body,
+                                        body_text.clone(),
+                                    ).await;
+                                    let _ = yntra_core::dispatch_mention_notifications(
+                                        requester_id,
+                                        workspace_id,
+                                        sender_name,
+                                        body_text,
+                                        Some("messaging".to_string()),
                                     ).await;
                                 });
                                 compose_subject.set(String::new());

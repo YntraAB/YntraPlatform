@@ -107,6 +107,11 @@ pub fn SettingsView(props: SettingsViewProps) -> Element {
             label: crate::locales::t("settings-tabs-billing", &props.locale),
             icon: Some("credit-card".to_string()),
         });
+        tabs_list.push(components::tabs::TabItem {
+            value: "integrations".to_string(),
+            label: crate::locales::t("section-integrations", &props.locale),
+            icon: Some("plug".to_string()),
+        });
     }
     tabs_list.push(components::tabs::TabItem {
         value: "notifications".to_string(),
@@ -285,6 +290,13 @@ pub fn SettingsView(props: SettingsViewProps) -> Element {
                             active_user: props.active_user.clone(),
                             workspace: props.workspace.clone(),
                             db_trigger: props.db_trigger,
+                            locale: props.locale.clone(),
+                        }
+                    },
+                    "integrations" => rsx! {
+                        crate::views::EcosystemIntegrationsView {
+                            active_user: props.active_user.clone(),
+                            workspace: props.workspace.clone(),
                             locale: props.locale.clone(),
                         }
                     },

@@ -28,6 +28,8 @@ pub struct AppState {
     pub trigger_school_report_cards: Signal<u32>,
     pub trigger_school_finance: Signal<u32>,
     pub trigger_school_library: Signal<u32>,
+    pub trigger_presences: Signal<u32>,
+    pub trigger_notifications: Signal<u32>,
     pub active_user_id: Signal<String>,
     pub active_section: Signal<String>,
     pub needs_setup: Signal<bool>,
@@ -155,6 +157,8 @@ pub struct AppState {
     pub reports: Resource<Vec<ReportItem>>,
     pub workspaces: Resource<Vec<Workspace>>,
     pub todos: Resource<Vec<TodoItem>>,
+    pub presences: Resource<Vec<yntra_core::UserPresence>>,
+    pub notifications: Resource<Vec<yntra_core::InAppNotification>>,
     pub workspace_id: Memo<String>,
 
     // Desktop OAuth flow triggers
@@ -192,6 +196,8 @@ pub fn use_init_app_state() -> AppState {
     let mut trigger_school_library = use_signal(|| 0);
     let mut trigger_reports = use_signal(|| 0);
     let mut trigger_workspaces = use_signal(|| 0);
+    let mut trigger_presences = use_signal(|| 0);
+    let mut trigger_notifications = use_signal(|| 0);
     let active_user_id = use_signal(|| "user-1".to_string());
     let active_section = use_signal(|| "dashboard".to_string());
     let needs_setup = use_signal(|| false);
@@ -451,6 +457,8 @@ pub fn use_init_app_state() -> AppState {
         reports,
         workspaces,
         mut todos,
+        presences,
+        notifications,
     ) = resources::init_resources(
         db_initialized,
         active_user_id,
@@ -466,6 +474,8 @@ pub fn use_init_app_state() -> AppState {
         trigger_clients,
         trigger_reports,
         trigger_todos,
+        trigger_presences,
+        trigger_notifications,
     );
 
     let workspace_id = use_memo(move || {
@@ -536,6 +546,8 @@ pub fn use_init_app_state() -> AppState {
                                  let mut update_reports = false;
                                  let mut update_workspaces = false;
                                  let mut update_jobs = false;
+                                 let mut update_presences = false;
+                                 let mut update_notifications = false;
                                  let mut update_db = false;
 
                                 let mut todo_record_updates = Vec::new();
@@ -659,6 +671,8 @@ pub fn use_init_app_state() -> AppState {
                                                 update_users = true;
                                             }
                                             "job_tickets" | "move_inventory" | "move_quotes" | "fleet_vehicles" | "crew_assignments" | "job_pricing" | "billing_invoices" | "storage_units" | "storage_contracts" => update_jobs = true,
+                                            "user_presence" => update_presences = true,
+                                            "in_app_notifications" => update_notifications = true,
                                             "audit_logs" | "bankid_auth_sessions" | "sync_checkpoints" | "loro_snapshots" => {},
                                             _ => {
                                                 dioxus_logger::tracing::debug!("Unmapped DB table notification: {}", table);
@@ -1002,6 +1016,8 @@ pub fn use_init_app_state() -> AppState {
         trigger_school_report_cards,
         trigger_school_finance,
         trigger_school_library,
+        trigger_presences,
+        trigger_notifications,
 
         workspace,
         users,
@@ -1014,6 +1030,8 @@ pub fn use_init_app_state() -> AppState {
         reports,
         workspaces,
         todos,
+        presences,
+        notifications,
         workspace_id,
         on_desktop_oauth,
         background_error,

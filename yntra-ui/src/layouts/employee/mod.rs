@@ -395,6 +395,16 @@ pub fn EmployeeLayout() -> Element {
                                         }
                                     }
 
+                                    "integrations" => {
+                                        rsx! {
+                                            views::EcosystemIntegrationsView {
+                                                active_user: active_user.clone(),
+                                                workspace: workspace.clone(),
+                                                locale: auth_region.read().clone(),
+                                            }
+                                        }
+                                    }
+
                                     "settings" => {
                                         rsx! {
                                             views::SettingsView {

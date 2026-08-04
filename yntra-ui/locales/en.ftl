@@ -1622,3 +1622,6 @@ time-action-approve-shift = Approve Shift
 time-action-reject-shift = Reject Shift
 time-action-delete-report = Delete Time Report
 time-action-copy-details = Copy Details
+section-integrations = Ecosystem Integrations
+integrations-header-title = Ecosystem Integrations & Data Onboarding
+integrations-header-desc = Connect legacy databases, 2-way Google/Outlook calendars, and real-time external webhooks (Zapier & Make).

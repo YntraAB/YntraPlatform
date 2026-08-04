@@ -1631,3 +1631,6 @@ time-action-approve-shift = Godkänn pass
 time-action-reject-shift = Avvisa pass
 time-action-delete-report = Ta bort tidsrapport
 time-action-copy-details = Kopiera detaljer
+section-integrations = Ekosystemintegreringar
+integrations-header-title = Ekosystemintegreringar & Data-onboarding
+integrations-header-desc = Anslut äldre databaser, 2-vägs Google/Outlook-kalendrar och externa webhooks i realtid (Zapier & Make).

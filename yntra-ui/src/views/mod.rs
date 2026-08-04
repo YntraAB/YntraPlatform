@@ -40,3 +40,7 @@ pub use admin::{AdminPanelView, AuditExportsView, OnboardingWizardView, RbacMana
 pub mod support;
 pub use support::{ProductTourOverlay, SupportCenterView, SupportWidget};
 
+pub mod integrations;
+pub use integrations::EcosystemIntegrationsView;
+
+

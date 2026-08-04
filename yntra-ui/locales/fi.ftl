@@ -1626,3 +1626,6 @@ settings-gdpr-export-button = [TODO] Export My Data (JSON)
 admin-tab-invitations = [TODO] Team Invitations
 settings-gdpr-export-desc = [TODO] Download a complete machine-readable JSON archive of your personal profile, signatures, and stored activity.
 section-admin-panel = [TODO] Admin Panel
+section-integrations = Ekosysteemi-integraatiot
+integrations-header-title = Ekosysteemi-integraatiot & Datan perehdytys
+integrations-header-desc = Yhdistä vanhat tietokannat, 2-suuntaiset Google/Outlook-kalenterit ja ulkoiset webhookit (Zapier & Make).
