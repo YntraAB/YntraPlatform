@@ -181,6 +181,21 @@ pub async fn dispatch_mention_notifications(
     Ok(created_notifs)
 }
 
+static PUSH_TOKENS: LazyLock<Mutex<HashMap<String, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+#[uniffi::export]
+pub async fn register_device_push_token(
+    requester_user_id: String,
+    device_token: String,
+    platform: String,
+) -> Result<(), YntraError> {
+    let _ = platform;
+    let mut tokens = PUSH_TOKENS.lock().unwrap_or_else(|e| e.into_inner());
+    tokens.insert(requester_user_id, device_token);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
