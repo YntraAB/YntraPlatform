@@ -854,6 +854,317 @@ pub fn get_setting_str(settings_json: &serde_json::Value, key: &str, fallback_st
     fallback_str.to_string()
 }
 
+#[uniffi::export]
+pub async fn create_workspace_invitation(
+    requester_user_id: String,
+    workspace_id: String,
+    email: String,
+    full_name: String,
+    role: String,
+) -> Result<crate::models::WorkspaceInvitation, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if !auth.is_admin {
+        return Err(YntraError::AuthError(
+            "Access denied: only administrators can issue invitations".to_string(),
+        ));
+    }
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    let code = format!("INV-{}", &uuid::Uuid::new_v4().to_string()[..8].to_uppercase());
+    let now_ms = crate::infra::time::get_current_time_ms();
+    let invitation = crate::models::WorkspaceInvitation {
+        code: code.clone(),
+        workspace_id: workspace_id.clone(),
+        email: email.trim().to_string(),
+        full_name: full_name.trim().to_string(),
+        role: role.clone(),
+        activated: false,
+        metadata: serde_json::json!({
+            "invited_by": requester_user_id,
+            "created_at_ms": now_ms,
+            "expires_at_ms": now_ms + (7 * 24 * 60 * 60 * 1000)
+        }).to_string(),
+        updated_at: now_ms,
+        sync_status: "pending".to_string(),
+    };
+
+    conn.execute(
+        "INSERT INTO invitations (code, workspace_id, email, full_name, role, activated, metadata, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7, 'pending')",
+        crate::params![
+            &invitation.code,
+            &invitation.workspace_id,
+            &invitation.email,
+            &invitation.full_name,
+            &invitation.role,
+            &invitation.metadata,
+            &invitation.updated_at
+        ],
+    ).await?;
+
+    notify_observers();
+    Ok(invitation)
+}
+
+#[uniffi::export]
+pub async fn get_workspace_invitations(
+    requester_user_id: String,
+    workspace_id: String,
+) -> Result<Vec<crate::models::WorkspaceInvitation>, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if !auth.is_admin {
+        return Err(YntraError::AuthError(
+            "Access denied: administrator privileges required".to_string(),
+        ));
+    }
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    let mut stmt = conn.prepare("SELECT code, workspace_id, email, full_name, role, activated, metadata, updated_at, sync_status FROM invitations WHERE workspace_id = ?1 ORDER BY updated_at DESC").await?;
+    let mut rows = stmt.query(crate::params![&workspace_id]).await?;
+
+    let mut list = Vec::new();
+    while let Some(row) = rows.next().await? {
+        let act_num: i64 = row.get(5)?;
+        list.push(crate::models::WorkspaceInvitation {
+            code: row.get(0)?,
+            workspace_id: row.get(1)?,
+            email: row.get(2)?,
+            full_name: row.get(3)?,
+            role: row.get(4)?,
+            activated: act_num != 0,
+            metadata: row.get(6)?,
+            updated_at: row.get(7)?,
+            sync_status: row.get(8)?,
+        });
+    }
+
+    Ok(list)
+}
+
+#[uniffi::export]
+pub async fn revoke_workspace_invitation(
+    requester_user_id: String,
+    workspace_id: String,
+    code: String,
+) -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if !auth.is_admin {
+        return Err(YntraError::AuthError(
+            "Access denied: administrator privileges required".to_string(),
+        ));
+    }
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    conn.execute(
+        "DELETE FROM invitations WHERE code = ?1 AND workspace_id = ?2",
+        crate::params![&code, &workspace_id],
+    ).await?;
+
+    notify_observers();
+    Ok(())
+}
+
+#[uniffi::export]
+pub async fn complete_workspace_onboarding(
+    requester_user_id: String,
+    workspace_id: String,
+    onboarding_data_json: String,
+) -> Result<Workspace, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if !auth.is_admin {
+        return Err(YntraError::AuthError(
+            "Access denied: administrator privileges required to complete onboarding".to_string(),
+        ));
+    }
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    let payload: serde_json::Value = serde_json::from_str(&onboarding_data_json)
+        .map_err(|e| YntraError::DbError(format!("Invalid onboarding JSON: {}", e)))?;
+
+    let name = payload.get("name").and_then(|v| v.as_str()).unwrap_or("My Workspace").to_string();
+    let modules_json = payload.get("modules_active").map(|v| v.to_string()).unwrap_or_else(|| "{}".to_string());
+    let brand_color = payload.get("brand_color").and_then(|v| v.as_str()).unwrap_or("hsl(217.2, 91.2%, 59.8%)").to_string();
+
+    let raw_settings: String = conn.query_row(
+        "SELECT settings FROM workspaces WHERE id = ?1",
+        crate::params![&workspace_id],
+        |r| r.get(0),
+    ).await.unwrap_or_else(|_| "{}".to_string());
+
+    let mut current_settings: serde_json::Value = serde_json::from_str(&raw_settings).unwrap_or(serde_json::json!({}));
+
+    current_settings["onboarding_completed"] = serde_json::Value::Bool(true);
+    current_settings["onboarding_completed_at"] = serde_json::Value::Number(crate::infra::time::get_current_time_ms().into());
+    if let Some(org_type) = payload.get("org_type").and_then(|v| v.as_str()) {
+        current_settings["org_type"] = serde_json::Value::String(org_type.to_string());
+    }
+
+    let now_ms = crate::infra::time::get_current_time_ms();
+    let settings_str = current_settings.to_string();
+
+    conn.execute(
+        "UPDATE workspaces SET name = ?1, modules_active = ?2, settings = ?3, brand_color = ?4, updated_at = ?5, sync_status = 'pending' WHERE id = ?6",
+        crate::params![&name, &modules_json, &settings_str, &brand_color, now_ms, &workspace_id],
+    ).await?;
+
+    crate::infra::auth::invalidate_auth_context_cache_for_workspace(&workspace_id);
+    notify_observers();
+
+    get_workspace(requester_user_id).await
+}
+
+#[uniffi::export]
+pub async fn update_user_workspace_role(
+    requester_user_id: String,
+    workspace_id: String,
+    target_user_id: String,
+    new_role: String,
+) -> Result<crate::WorkspaceUser, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if !auth.is_admin {
+        return Err(YntraError::AuthError(
+            "Access denied: only administrators can change user roles".to_string(),
+        ));
+    }
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    let valid_roles = ["platform_admin", "admin", "manager", "member", "user", "viewer", "client", "student", "parent"];
+    if !valid_roles.contains(&new_role.as_str()) {
+        return Err(YntraError::AuthError(format!("Invalid role specified: {}", new_role)));
+    }
+
+    let now_ms = crate::infra::time::get_current_time_ms();
+    conn.execute(
+        "UPDATE users SET role = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3 AND workspace_id = ?4",
+        crate::params![&new_role, now_ms, &target_user_id, &workspace_id],
+    ).await?;
+
+    crate::services::users::ensure_user_role_signature(&conn, &target_user_id, &new_role, &workspace_id).await?;
+
+    notify_observers();
+
+    let user = conn.query_row(
+        "SELECT id, workspace_id, email, full_name, phone, role, preferences, metadata, updated_at, sync_status FROM users WHERE id = ?1",
+        crate::params![&target_user_id],
+        |row| {
+            let meta_str: Option<String> = row.get(7)?;
+            let mut siths_card_id = None;
+            let mut nfc_badge_uid = None;
+            let mut personal_number = None;
+            let mut public_key = None;
+            if let Some(ref m) = meta_str {
+                if let Ok(meta_val) = serde_json::from_str::<serde_json::Value>(m) {
+                    siths_card_id = meta_val.get("siths_card_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    nfc_badge_uid = meta_val.get("nfc_badge_uid").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    personal_number = meta_val.get("personal_number").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    public_key = meta_val.get("public_key").and_then(|v| v.as_str()).map(|s| s.to_string());
+                }
+            }
+
+            Ok(crate::WorkspaceUser {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                email: row.get(2)?,
+                full_name: row.get(3)?,
+                phone: row.get(4)?,
+                role: row.get(5)?,
+                preferences: row.get(6)?,
+                siths_card_id,
+                nfc_badge_uid,
+                updated_at: row.get(8)?,
+                sync_status: row.get(9)?,
+                personal_number,
+                public_key,
+            })
+        },
+    ).await?;
+
+    Ok(user)
+}
+
+#[uniffi::export]
+pub async fn get_workspace_role_permissions(
+    requester_user_id: String,
+    workspace_id: String,
+) -> Result<Vec<crate::models::WorkspaceRolePermission>, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    Ok(vec![
+        crate::models::WorkspaceRolePermission {
+            role_id: "admin".to_string(),
+            role_name: "Administrator".to_string(),
+            description: "Full access to workspace settings, user management, RBAC, and audit logs.".to_string(),
+            permissions_json: serde_json::json!([
+                "manage_workspace", "manage_users", "manage_roles", "view_audit_logs", "export_audit_logs", "manage_billing", "edit_content", "view_content"
+            ]).to_string(),
+            is_custom: false,
+        },
+        crate::models::WorkspaceRolePermission {
+            role_id: "manager".to_string(),
+            role_name: "Operations Manager".to_string(),
+            description: "Operational access for scheduling, team dispatch, notes, and staff management.".to_string(),
+            permissions_json: serde_json::json!([
+                "manage_users", "edit_content", "view_content", "dispatch_teams", "manage_schedules"
+            ]).to_string(),
+            is_custom: false,
+        },
+        crate::models::WorkspaceRolePermission {
+            role_id: "member".to_string(),
+            role_name: "Standard Member".to_string(),
+            description: "Standard daily operational features (messaging, daily notes, time reporting).".to_string(),
+            permissions_json: serde_json::json!([
+                "edit_content", "view_content", "time_reporting"
+            ]).to_string(),
+            is_custom: false,
+        },
+        crate::models::WorkspaceRolePermission {
+            role_id: "viewer".to_string(),
+            role_name: "Read-Only Viewer".to_string(),
+            description: "Read-only access to schedules, team notes, and directory.".to_string(),
+            permissions_json: serde_json::json!([
+                "view_content"
+            ]).to_string(),
+            is_custom: false,
+        },
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -957,5 +1268,65 @@ mod tests {
         assert!(defs.iter().any(|d| d.key == "mult_narrow_staircase" && !d.tooltip.is_empty()));
         assert!(defs.iter().any(|d| d.key == "moving_weekend_multiplier" && !d.tooltip.is_empty()));
         assert!(defs.iter().any(|d| d.key == "surcharge_piano" && !d.tooltip.is_empty()));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_workspace_onboarding_invitation_rbac_flow() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = crate::database::acquire_connection().await.unwrap();
+
+        let ws_id = format!("ws-onb-test-{}", uuid::Uuid::new_v4());
+        let admin_uid = format!("u-admin-{}", uuid::Uuid::new_v4());
+        let member_uid = format!("u-member-{}", uuid::Uuid::new_v4());
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Initial WS', '{}', '{}')", crate::params![&ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES (?1, ?2, 'admin@ws.io', 'admin')", crate::params![&admin_uid, &ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES (?1, ?2, 'member@ws.io', 'member')", crate::params![&member_uid, &ws_id]).await.unwrap();
+
+        crate::services::users::ensure_user_role_signature(&conn, &admin_uid, "admin", &ws_id).await.unwrap();
+        crate::services::users::ensure_user_role_signature(&conn, &member_uid, "member", &ws_id).await.unwrap();
+
+        // 1. Test Onboarding completion
+        let onboarding_payload = serde_json::json!({
+            "name": "Configured Workspace",
+            "org_type": "care",
+            "brand_color": "hsl(210, 80%, 50%)",
+            "modules_active": {"messaging": true, "scheduling": true}
+        }).to_string();
+
+        let updated_ws = complete_workspace_onboarding(admin_uid.clone(), ws_id.clone(), onboarding_payload).await.unwrap();
+        assert_eq!(updated_ws.name, "Configured Workspace");
+        assert!(updated_ws.settings.contains("onboarding_completed"));
+
+        // 2. Test Team Invitation Creation & Revocation
+        let inv = create_workspace_invitation(admin_uid.clone(), ws_id.clone(), "invitee@ws.io".to_string(), "Invited User".to_string(), "manager".to_string()).await.unwrap();
+        assert!(inv.code.starts_with("INV-"));
+
+        let inv_list = get_workspace_invitations(admin_uid.clone(), ws_id.clone()).await.unwrap();
+        assert!(inv_list.iter().any(|i| i.code == inv.code));
+
+        revoke_workspace_invitation(admin_uid.clone(), ws_id.clone(), inv.code.clone()).await.unwrap();
+        let inv_list_after = get_workspace_invitations(admin_uid.clone(), ws_id.clone()).await.unwrap();
+        assert!(!inv_list_after.iter().any(|i| i.code == inv.code));
+
+        // 3. Test RBAC Role Update
+        crate::services::users::ensure_user_role_signature(&conn, &admin_uid, "admin", &ws_id).await.unwrap();
+        let updated_user = update_user_workspace_role(admin_uid.clone(), ws_id.clone(), member_uid.clone(), "manager".to_string()).await.unwrap();
+        assert_eq!(updated_user.role, "manager");
+
+        let roles_perm = get_workspace_role_permissions(admin_uid.clone(), ws_id.clone()).await.unwrap();
+        assert!(!roles_perm.is_empty());
+
+        // 4. Test Audit Export
+        let csv_export = crate::services::audit::export_audit_logs_csv(admin_uid.clone(), None, None, None).await.unwrap();
+        assert!(csv_export.contains("action_type"));
+
+        let json_export = crate::services::audit::export_audit_logs_json(admin_uid.clone(), None, None, None).await.unwrap();
+        assert!(json_export.contains("export_metadata"));
+
+        // Clean up
+        conn.execute("DELETE FROM users WHERE id IN (?1, ?2)", crate::params![admin_uid, member_uid]).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
     }
 }

@@ -583,14 +583,14 @@ fn test_p2p_mesh_note_sync_in_memory_fallback() {
     let store_b = Arc::new(ZeroCopyNoteStore::new(path_b.clone()).unwrap());
 
     let router = P2PMeshSyncRouter::new();
-    router.register_peer("peer_a".to_string());
-    router.register_peer("peer_b".to_string());
+    router.register_peer("peer_fb_a".to_string());
+    router.register_peer("peer_fb_b".to_string());
 
     let note = DailyNote {
         id: "note_x".to_string(),
         workspace_id: "ws_abc".to_string(),
         team_id: "team_1".to_string(),
-        author_id: Some("peer_a".to_string()),
+        author_id: Some("peer_fb_a".to_string()),
         subject: "ZK Sync Test".to_string(),
         content: "Encrypted data here".to_string(),
         edit_history: "[]".to_string(),
@@ -602,9 +602,9 @@ fn test_p2p_mesh_note_sync_in_memory_fallback() {
     store_a.write_notes(vec![note.clone()]).unwrap();
 
     let changes = store_a.get_loro_changes().unwrap();
-    router.broadcast_write_network("peer_a".to_string(), changes);
+    router.broadcast_write_network("peer_fb_a".to_string(), changes);
 
-    let updates = in_memory_poll("peer_b");
+    let updates = in_memory_poll("peer_fb_b");
     assert_eq!(updates.len(), 1);
 
     store_b.apply_loro_update(updates[0].clone()).unwrap();
@@ -807,8 +807,8 @@ fn test_edge_sync_loop_note_and_audit_loops() {
 #[test]
 fn test_in_memory_relay_queue_bounding() {
     let router = P2PMeshSyncRouter::new();
-    router.register_peer("peer_a".to_string());
-    router.register_peer("peer_b".to_string());
+    router.register_peer("peer_q_a".to_string());
+    router.register_peer("peer_q_b".to_string());
 
     // Generate 150 valid Loro snapshot updates
     let doc_a = loro::LoroDoc::new();
@@ -822,11 +822,11 @@ fn test_in_memory_relay_queue_bounding() {
 
     // Broadcast all 150 updates
     for u in updates_list {
-        router.broadcast_write_network("peer_a".to_string(), u);
+        router.broadcast_write_network("peer_q_a".to_string(), u);
     }
 
     // Since the queue is hard-limited to 100 entries, but has a catch-up snapshot prepended:
-    let polled = in_memory_poll("peer_b");
+    let polled = in_memory_poll("peer_q_b");
     // 1 catch-up snapshot + 100 updates = 101 polled items
     assert_eq!(polled.len(), 101);
 

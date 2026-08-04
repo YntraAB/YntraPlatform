@@ -144,3 +144,48 @@ pub struct SettingDefinition {
     pub default_value: String,
     pub tooltip: String,
 }
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct WorkspaceInvitation {
+    pub code: String,
+    pub workspace_id: String,
+    pub email: String,
+    pub full_name: String,
+    pub role: String,
+    pub activated: bool,
+    pub metadata: String,
+    pub updated_at: i64,
+    pub sync_status: String,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct WorkspaceRolePermission {
+    pub role_id: String,
+    pub role_name: String,
+    pub description: String,
+    pub permissions_json: String,
+    pub is_custom: bool,
+}
+

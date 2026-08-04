@@ -335,3 +335,108 @@ pub struct FuelReceiptRecord {
     pub erp_reference: Option<String>,
     pub created_at: i64,
 }
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct WorkspaceSubscription {
+    pub id: String,
+    pub workspace_id: String,
+    pub tier: String,
+    pub payment_platform: String,
+    pub external_subscription_id: Option<String>,
+    pub external_customer_id: Option<String>,
+    pub seats_allocated: u32,
+    pub seats_used: u32,
+    pub price_per_seat_monthly: f64,
+    pub currency: String,
+    pub billing_cycle: String,
+    pub status: String,
+    pub current_period_start: i64,
+    pub current_period_end: i64,
+    pub cancel_at_period_end: bool,
+    pub updated_at: i64,
+    pub sync_status: String,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct PlatformInvoice {
+    pub id: String,
+    pub workspace_id: String,
+    pub subscription_id: String,
+    pub invoice_number: String,
+    pub payment_platform: String,
+    pub amount_due: f64,
+    pub amount_paid: f64,
+    pub currency: String,
+    pub seat_count: u32,
+    pub period_start: i64,
+    pub period_end: i64,
+    pub status: String,
+    pub pdf_download_url: Option<String>,
+    pub created_at: i64,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct FeatureGateCheckResult {
+    pub allowed: bool,
+    pub required_tier: String,
+    pub current_tier: String,
+    pub reason: String,
+    pub upgrade_url: Option<String>,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct PaymentCheckoutSessionResult {
+    pub session_id: String,
+    pub payment_platform: String,
+    pub checkout_url: String,
+    pub client_secret: Option<String>,
+    pub tier: String,
+    pub seats_allocated: u32,
+    pub total_amount: f64,
+    pub currency: String,
+}
+

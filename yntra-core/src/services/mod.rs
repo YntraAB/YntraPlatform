@@ -18,3 +18,8 @@ pub mod dashboard;
 pub mod vehicles;
 pub mod school;
 pub mod recovery;
+pub mod updater;
+pub mod billing;
+pub mod support;
+pub mod telemetry;
+pub mod metrics;

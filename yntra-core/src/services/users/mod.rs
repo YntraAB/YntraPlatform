@@ -374,9 +374,161 @@ pub async fn delete_user(requester_user_id: String, user_id: String) -> Result<(
     }
 }
 
+#[uniffi::export]
+pub async fn export_user_personal_data(
+    requester_user_id: String,
+) -> Result<String, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let mut stmt = conn.prepare(
+        "SELECT id, workspace_id, email, full_name, phone, role, preferences, metadata, updated_at, sync_status FROM users WHERE id = ?1",
+    ).await?;
+
+    let user_data = stmt
+        .query_map(crate::params![&requester_user_id], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<String>(0)?,
+                "workspace_id": row.get::<Option<String>>(1)?,
+                "email": row.get::<String>(2)?,
+                "full_name": row.get::<Option<String>>(3)?,
+                "phone": row.get::<Option<String>>(4)?,
+                "role": row.get::<String>(5)?,
+                "preferences": row.get::<String>(6)?,
+                "metadata": row.get::<Option<String>>(7)?,
+                "updated_at": row.get::<i64>(8)?,
+                "sync_status": row.get::<String>(9)?,
+            }))
+        })
+        .await?
+        .pop()
+        .ok_or_else(|| YntraError::NotFoundError("User record not found".to_string()))?;
+
+    // Collect user signatures safely if table exists
+    let signatures = if let Ok(mut sig_stmt) = conn.prepare(
+        "SELECT id, action_type, payload_hash, zk_proof, timestamp FROM user_signatures WHERE user_id = ?1",
+    ).await {
+        sig_stmt
+            .query_map(crate::params![&requester_user_id], |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<String>(0)?,
+                    "action_type": row.get::<String>(1)?,
+                    "payload_hash": row.get::<String>(2)?,
+                    "zk_proof": row.get::<Option<String>>(3)?,
+                    "timestamp": row.get::<i64>(4)?,
+                }))
+            })
+            .await
+            .unwrap_or_default()
+    } else {
+        vec![]
+    };
+
+    let export_payload = serde_json::json!({
+        "schema_version": "1.0-GDPR-CCPA",
+        "exported_at": crate::infra::time::get_current_time_ms(),
+        "user_id": requester_user_id,
+        "workspace_id": auth.workspace_id,
+        "profile": user_data,
+        "signatures": signatures,
+        "compliance": {
+            "gdpr_article": "Article 20 - Right to data portability",
+            "ccpa_section": "1798.100 - Right to know personal information",
+            "data_controller": "Yntra Platform Local-First Node"
+        }
+    });
+
+    serde_json::to_string_pretty(&export_payload)
+        .map_err(|e| YntraError::DbError(format!("Failed to serialize export: {}", e)))
+}
+
+#[uniffi::export]
+pub async fn delete_user_account(
+    requester_user_id: String,
+    target_user_id: String,
+) -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let is_self = requester_user_id == target_user_id;
+
+    if !is_self && !auth.is_admin {
+        return Err(YntraError::AuthError(
+            "Access denied: you can only delete your own account or require admin rights".to_string(),
+        ));
+    }
+
+    conn.begin_transaction().await?;
+    let res = async {
+        let _ = conn.execute(
+            "DELETE FROM user_signatures WHERE user_id = ?1",
+            crate::params![&target_user_id],
+        )
+        .await;
+
+        conn.execute(
+            "DELETE FROM users WHERE id = ?1",
+            crate::params![&target_user_id],
+        )
+        .await?;
+
+        Ok(())
+    }
+    .await;
+
+
+    match res {
+        Ok(_) => {
+            conn.commit().await?;
+            crate::infra::auth::invalidate_auth_context_cache_for_user(&target_user_id);
+            notify_observers();
+            Ok(())
+        }
+        Err(e) => {
+            let _ = conn.rollback().await;
+            Err(e)
+        }
+    }
+}
+
+#[uniffi::export]
+pub async fn set_telemetry_opt_out(
+    requester_user_id: String,
+    opt_out: bool,
+) -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let existing_prefs: String = conn
+        .query_row(
+            "SELECT preferences FROM users WHERE id = ?1",
+            crate::params![&requester_user_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or_else(|_| "{}".to_string());
+
+    let mut prefs_val: serde_json::Value = serde_json::from_str(&existing_prefs).unwrap_or_default();
+    prefs_val["telemetry_opt_out"] = serde_json::json!(opt_out);
+
+    let updated_prefs = serde_json::to_string(&prefs_val).unwrap_or_default();
+    let now_ms = crate::infra::time::get_current_time_ms();
+
+    conn.execute(
+        "UPDATE users SET preferences = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
+        crate::params![updated_prefs, now_ms, &requester_user_id],
+    )
+    .await?;
+
+    crate::infra::auth::invalidate_auth_context_cache_for_user(&requester_user_id);
+    notify_observers();
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
 
     #[test]
     fn test_argon2_password_hashing() {
@@ -909,4 +1061,40 @@ mod tests {
         conn.execute("DELETE FROM users WHERE workspace_id IN (?1, ?2)", crate::params![&ws_a, &ws_b]).await.unwrap();
         conn.execute("DELETE FROM workspaces WHERE id IN (?1, ?2)", crate::params![&ws_a, &ws_b]).await.unwrap();
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_gdpr_compliance_export_and_deletion() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let ws_id = format!("ws-gdpr-{}", uuid::Uuid::new_v4());
+        let user_id = format!("u-gdpr-{}", uuid::Uuid::new_v4());
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'GDPR WS', '[]', '{}')", crate::params![&ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, full_name, role, preferences) VALUES (?1, ?2, 'gdpr@yntra.io', 'GDPR User', 'user', '{}')", crate::params![&user_id, &ws_id]).await.unwrap();
+
+        // 1. Test Data Export (GDPR Art. 20)
+        let export_res = export_user_personal_data(user_id.clone()).await;
+        assert!(export_res.is_ok(), "Export failed: {:?}", export_res);
+        let export_json = export_res.unwrap();
+        assert!(export_json.contains("Article 20"));
+        assert!(export_json.contains("gdpr@yntra.io"));
+
+        // 2. Test Telemetry Opt-Out
+        let opt_res = set_telemetry_opt_out(user_id.clone(), true).await;
+        assert!(opt_res.is_ok());
+
+        // 3. Test Account Deletion (GDPR Art. 17)
+        let del_res = delete_user_account(user_id.clone(), user_id.clone()).await;
+        assert!(del_res.is_ok());
+
+        // Verify erasure
+        let check_stmt: Option<String> = conn.query_row("SELECT email FROM users WHERE id = ?1", crate::params![&user_id], |r| r.get(0)).await.ok();
+        assert!(check_stmt.is_none());
+
+        // Cleanup WS
+        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![&ws_id]).await.unwrap();
+    }
 }
+

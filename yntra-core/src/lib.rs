@@ -35,6 +35,11 @@ pub use services::workspaces::*;
 pub use services::dashboard::*;
 pub use services::vehicles::*;
 pub use services::school::*;
+pub use services::updater::*;
+pub use services::billing::*;
+pub use services::support::*;
+pub use services::telemetry::*;
+pub use services::metrics::*;
 
 // Support absolute paths inside submodules that import modules re-exported at the root
 #[cfg(target_arch = "wasm32")]

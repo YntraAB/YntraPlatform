@@ -361,6 +361,99 @@ pub async fn get_audit_logs(requester_user_id: String) -> Result<Vec<AuditLogEnt
 }
 
 #[uniffi::export]
+pub async fn export_audit_logs_csv(
+    requester_user_id: String,
+    start_time: Option<i64>,
+    end_time: Option<i64>,
+    action_filter: Option<String>,
+) -> Result<String, YntraError> {
+    let logs = get_audit_logs(requester_user_id.clone()).await?;
+
+    let mut csv = String::from("id,workspace_id,actor_id,target_client_id,action_type,timestamp,prev_hash,curr_hash,seq,signature\n");
+
+    for entry in logs {
+        if let Some(st) = start_time {
+            if entry.timestamp < st {
+                continue;
+            }
+        }
+        if let Some(et) = end_time {
+            if entry.timestamp > et {
+                continue;
+            }
+        }
+        if let Some(ref filter) = action_filter {
+            if !filter.trim().is_empty() && !entry.action_type.to_lowercase().contains(&filter.to_lowercase()) {
+                continue;
+            }
+        }
+
+        let target = entry.target_client_id.as_deref().unwrap_or("");
+        let sig = entry.signature.as_deref().unwrap_or("");
+
+        csv.push_str(&format!(
+            "\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",{},\"{}\",\"{}\",{},\"{}\"\n",
+            entry.id,
+            entry.workspace_id,
+            entry.actor_id,
+            target,
+            entry.action_type,
+            entry.timestamp,
+            entry.prev_hash,
+            entry.curr_hash,
+            entry.seq,
+            sig
+        ));
+    }
+
+    Ok(csv)
+}
+
+#[uniffi::export]
+pub async fn export_audit_logs_json(
+    requester_user_id: String,
+    start_time: Option<i64>,
+    end_time: Option<i64>,
+    action_filter: Option<String>,
+) -> Result<String, YntraError> {
+    let logs = get_audit_logs(requester_user_id.clone()).await?;
+    let chain_valid = verify_audit_log_chain(requester_user_id.clone()).await.unwrap_or(false);
+
+    let filtered: Vec<AuditLogEntry> = logs.into_iter().filter(|entry| {
+        if let Some(st) = start_time {
+            if entry.timestamp < st {
+                return false;
+            }
+        }
+        if let Some(et) = end_time {
+            if entry.timestamp > et {
+                return false;
+            }
+        }
+        if let Some(ref filter) = action_filter {
+            if !filter.trim().is_empty() && !entry.action_type.to_lowercase().contains(&filter.to_lowercase()) {
+                return false;
+            }
+        }
+        true
+    }).collect();
+
+    let export_payload = serde_json::json!({
+        "export_metadata": {
+            "exported_by": requester_user_id,
+            "timestamp": crate::infra::time::get_current_time_ms(),
+            "chain_valid": chain_valid,
+            "record_count": filtered.len()
+        },
+        "logs": filtered
+    });
+
+    serde_json::to_string_pretty(&export_payload)
+        .map_err(|e| YntraError::DbError(format!("Failed to format audit JSON export: {}", e)))
+}
+
+
+#[uniffi::export]
 pub async fn verify_audit_log_chain(requester_user_id: String) -> Result<bool, YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;

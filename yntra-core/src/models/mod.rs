@@ -6,6 +6,7 @@ pub mod jobs;
 pub mod school;
 pub mod team;
 pub mod workspace;
+pub mod support;
 
 pub use audit::*;
 pub use auth::*;
@@ -15,3 +16,4 @@ pub use jobs::*;
 pub use school::*;
 pub use team::*;
 pub use workspace::*;
+pub use support::*;

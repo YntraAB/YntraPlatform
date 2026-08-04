@@ -847,6 +847,92 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             created_at INTEGER NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS workspace_subscriptions (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            tier TEXT NOT NULL DEFAULT 'starter',
+            payment_platform TEXT NOT NULL DEFAULT 'stripe',
+            external_subscription_id TEXT,
+            external_customer_id TEXT,
+            seats_allocated INTEGER NOT NULL DEFAULT 1,
+            seats_used INTEGER NOT NULL DEFAULT 1,
+            price_per_seat_monthly REAL NOT NULL DEFAULT 15.0,
+            currency TEXT NOT NULL DEFAULT 'USD',
+            billing_cycle TEXT NOT NULL DEFAULT 'monthly',
+            status TEXT NOT NULL DEFAULT 'active',
+            current_period_start INTEGER NOT NULL DEFAULT 0,
+            current_period_end INTEGER NOT NULL DEFAULT 0,
+            cancel_at_period_end INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS platform_invoices (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            subscription_id TEXT NOT NULL,
+            invoice_number TEXT NOT NULL,
+            payment_platform TEXT NOT NULL,
+            amount_due REAL NOT NULL,
+            amount_paid REAL NOT NULL,
+            currency TEXT NOT NULL DEFAULT 'USD',
+            seat_count INTEGER NOT NULL,
+            period_start INTEGER NOT NULL,
+            period_end INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'paid',
+            pdf_download_url TEXT,
+            created_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_workspace_subscriptions_ws ON workspace_subscriptions(workspace_id);
+        CREATE INDEX IF NOT EXISTS idx_platform_invoices_ws ON platform_invoices(workspace_id);
+
+        CREATE TABLE IF NOT EXISTS support_tickets (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            user_name TEXT NOT NULL,
+            user_email TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT 'technical',
+            priority TEXT NOT NULL DEFAULT 'medium',
+            status TEXT NOT NULL DEFAULT 'open',
+            messages_json TEXT NOT NULL DEFAULT '[]',
+            created_at INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS helpdesk_articles (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            category TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            content_markdown TEXT NOT NULL,
+            tags_json TEXT NOT NULL DEFAULT '[]',
+            views_count INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS user_tour_progress (
+            workspace_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            tour_name TEXT NOT NULL,
+            current_step INTEGER NOT NULL DEFAULT 0,
+            total_steps INTEGER NOT NULL DEFAULT 5,
+            completed INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY(workspace_id, user_id, tour_name)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_support_tickets_user ON support_tickets(user_id);
+        CREATE INDEX IF NOT EXISTS idx_support_tickets_ws ON support_tickets(workspace_id);
+        CREATE INDEX IF NOT EXISTS idx_helpdesk_articles_category ON helpdesk_articles(category);
+
         -- Indices
         CREATE INDEX IF NOT EXISTS idx_school_conflicts_entity ON school_conflicts(entity_table, entity_id);
         CREATE INDEX IF NOT EXISTS idx_local_blobs_workspace ON local_blobs(workspace_id);
