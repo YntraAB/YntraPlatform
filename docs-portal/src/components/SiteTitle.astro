@@ -1,0 +1,30 @@
+---
+import type { Props } from '@astrojs/starlight/props';
+import config from 'virtual:starlight/user-config';
+import logoSvg from '../assets/logo.svg?raw';
+
+const href = config.baseUrl;
+---
+
+<a href={href} class="site-title flex items-center gap-2.5 no-underline">
+  <span class="logo-icon w-7 h-7 flex items-center justify-center" set:html={logoSvg} />
+  <span class="title-text font-bold text-lg tracking-tight">{config.title}</span>
+</a>
+
+<style>
+  .site-title {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    text-decoration: none;
+    font-weight: 700;
+  }
+  .title-text {
+    color: var(--sl-color-text);
+  }
+  .logo-icon svg {
+    width: 1.75rem;
+    height: 1.75rem;
+    color: var(--logo-color, currentColor);
+  }
+</style>

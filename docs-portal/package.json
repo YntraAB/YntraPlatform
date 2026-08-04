@@ -1,0 +1,19 @@
+{
+  "name": "yntra-docs-portal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "predev": "node sync-docs.js",
+    "prebuild": "node sync-docs.js",
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.21.0",
+    "astro": "^4.5.0",
+    "sharp": "^0.33.0"
+  }
+}
