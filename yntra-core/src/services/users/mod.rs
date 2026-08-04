@@ -545,7 +545,7 @@ mod tests {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         let conn = database::acquire_connection().await.unwrap();
         let user_id = "test-bypass-user-123";
-        let email = "bypass@yntra.io";
+        let email = "bypass@yntra.se";
 
         conn.execute(
             "INSERT OR REPLACE INTO users (id, email, password_hash, role) VALUES (?1, ?2, NULL, 'user')",
@@ -568,7 +568,7 @@ mod tests {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         let conn = database::acquire_connection().await.unwrap();
         let user_id = "test-sensitive-user-123";
-        let email = "sensitive@yntra.io";
+        let email = "sensitive@yntra.se";
 
         conn.execute(
             "INSERT OR REPLACE INTO users (id, workspace_id, email, password_hash, role, metadata) VALUES (?1, 'workspace-1', ?2, NULL, 'user', '{\"personal_number\":\"19850101-9999\",\"siths_card_id\":\"card-123\",\"nfc_badge_uid\":\"badge-456\"}')",
@@ -605,12 +605,12 @@ mod tests {
         .unwrap();
 
         conn.execute(
-            "INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES (?1, 'workspace-1', 'user1@yntra.io', 'assistant', json_object('personal_number', ?2))",
+            "INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES (?1, 'workspace-1', 'user1@yntra.se', 'assistant', json_object('personal_number', ?2))",
             crate::params![user1_id, enc_pnum.clone()],
         ).await.unwrap();
 
         conn.execute(
-            "INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES (?1, 'workspace-1', 'user2@yntra.io', 'assistant', json_object('personal_number', ?2))",
+            "INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES (?1, 'workspace-1', 'user2@yntra.se', 'assistant', json_object('personal_number', ?2))",
             crate::params![user2_id, enc_pnum.clone()],
         ).await.unwrap();
 
@@ -640,9 +640,9 @@ mod tests {
         let ws_id = format!("ws-update-{}", uuid::Uuid::new_v4());
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Update WS', '[]', '{}')", crate::params![&ws_id]).await.unwrap();
 
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('test-admin', ?1, 'admin@yntra.io', 'platform_admin')", crate::params![&ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('test-admin', ?1, 'admin@yntra.se', 'platform_admin')", crate::params![&ws_id]).await.unwrap();
 
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('test-target', ?1, 'target@yntra.io', 'user')", crate::params![&ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('test-target', ?1, 'target@yntra.se', 'user')", crate::params![&ws_id]).await.unwrap();
 
         let res = update_user_role(
             "test-admin".to_string(),
@@ -1015,7 +1015,7 @@ mod tests {
         let ws_id = format!("ws-self-{}", uuid::Uuid::new_v4());
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Self WS', '[]', '{}')", crate::params![&ws_id]).await.unwrap();
 
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('test-user', ?1, 'user@yntra.io', 'user')", crate::params![&ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('test-user', ?1, 'user@yntra.se', 'user')", crate::params![&ws_id]).await.unwrap();
 
         // Standard user trying to change their own role (previously allowed via debug bypass)
         let res = update_user_role(
@@ -1049,11 +1049,11 @@ mod tests {
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'WS A', '[]', '{}')", crate::params![&ws_a]).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'WS B', '[]', '{}')", crate::params![&ws_b]).await.unwrap();
 
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('user-a', ?1, 'target@yntra.io', 'user')", crate::params![&ws_a]).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('user-b', ?1, 'other@yntra.io', 'user')", crate::params![&ws_b]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('user-a', ?1, 'target@yntra.se', 'user')", crate::params![&ws_a]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('user-b', ?1, 'other@yntra.se', 'user')", crate::params![&ws_b]).await.unwrap();
 
-        // User B attempts to query User A's email (target@yntra.io)
-        let res = get_user_by_email("user-b".to_string(), "target@yntra.io".to_string()).await;
+        // User B attempts to query User A's email (target@yntra.se)
+        let res = get_user_by_email("user-b".to_string(), "target@yntra.se".to_string()).await;
         assert!(res.is_ok());
         assert!(res.unwrap().is_none());
 
@@ -1072,14 +1072,14 @@ mod tests {
         let user_id = format!("u-gdpr-{}", uuid::Uuid::new_v4());
 
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'GDPR WS', '[]', '{}')", crate::params![&ws_id]).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, full_name, role, preferences) VALUES (?1, ?2, 'gdpr@yntra.io', 'GDPR User', 'user', '{}')", crate::params![&user_id, &ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, full_name, role, preferences) VALUES (?1, ?2, 'gdpr@yntra.se', 'GDPR User', 'user', '{}')", crate::params![&user_id, &ws_id]).await.unwrap();
 
         // 1. Test Data Export (GDPR Art. 20)
         let export_res = export_user_personal_data(user_id.clone()).await;
         assert!(export_res.is_ok(), "Export failed: {:?}", export_res);
         let export_json = export_res.unwrap();
         assert!(export_json.contains("Article 20"));
-        assert!(export_json.contains("gdpr@yntra.io"));
+        assert!(export_json.contains("gdpr@yntra.se"));
 
         // 2. Test Telemetry Opt-Out
         let opt_res = set_telemetry_opt_out(user_id.clone(), true).await;

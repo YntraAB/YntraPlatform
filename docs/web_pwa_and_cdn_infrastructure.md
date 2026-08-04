@@ -57,7 +57,7 @@ compatibility_date = "2026-08-04"
 
 [env.production]
 routes = [
-  { pattern = "app.yntra.io", custom_domain = true },
+  { pattern = "app.yntra.se", custom_domain = true },
   { pattern = "yntra.app", custom_domain = true }
 ]
 ```

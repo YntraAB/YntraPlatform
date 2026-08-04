@@ -241,7 +241,7 @@ mod tests {
         let conn = database::acquire_connection().await.unwrap();
 
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-media-1', 'Media WS', '[]', '{}')", ()).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-media-1', 'ws-media-1', 'media@yntra.io', 'admin')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-media-1', 'ws-media-1', 'media@yntra.se', 'admin')", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, created_at, updated_at, sync_status) VALUES ('job-m-1', 'ws-media-1', 'Photo Job', 'Desc', 'Addr', 'normal', 'open', '2026-08-04', '[]', 'now', 0, 'synced')", ()).await.unwrap();
 
         crate::infra::crypto::set_session_key("media-test-key".to_string().into_bytes(), "ws-media-1".to_string());

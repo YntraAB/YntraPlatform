@@ -29,7 +29,7 @@ Version: 0.1.0
 Section: utils
 Priority: optional
 Architecture: amd64
-Maintainer: Yntra Technologies <support@yntra.io>
+Maintainer: Yntra Technologies <support@yntra.se>
 Description: Yntra Platform - Dynamic Modular Workspace Engine
  Local-first operational OS engine built with Rust and Dioxus.
 EOF

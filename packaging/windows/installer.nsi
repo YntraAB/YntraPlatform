@@ -4,7 +4,7 @@
 !define PRODUCT_NAME "Yntra Platform"
 !define PRODUCT_VERSION "0.1.0"
 !define PRODUCT_PUBLISHER "Yntra Technologies"
-!define PRODUCT_WEB_SITE "https://yntra.io"
+!define PRODUCT_WEB_SITE "https://yntra.se"
 !define PRODUCT_DIR_REGKEY "Software\Microsoft\Windows\CurrentVersion\App Paths\yntra-ui.exe"
 !define PRODUCT_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"
 !define PRODUCT_UNINST_ROOT_KEY "HKLM"

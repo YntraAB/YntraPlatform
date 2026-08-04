@@ -590,7 +590,7 @@ mod tests {
         .unwrap();
 
         conn.execute(
-            "INSERT OR REPLACE INTO users (id, workspace_id, email, full_name, role) VALUES (?1, ?2, 'pkuser@yntra.io', 'Passkey User', 'admin')",
+            "INSERT OR REPLACE INTO users (id, workspace_id, email, full_name, role) VALUES (?1, ?2, 'pkuser@yntra.se', 'Passkey User', 'admin')",
             crate::params![&uid, &ws_id],
         )
         .await
@@ -622,7 +622,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(user.id, uid);
-        assert_eq!(user.email, "pkuser@yntra.io");
+        assert_eq!(user.email, "pkuser@yntra.se");
 
         // 4. Delete Passkey
         let deleted = delete_passkey_credential(uid.clone(), info.id).await.unwrap();

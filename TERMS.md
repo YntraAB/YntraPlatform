@@ -33,4 +33,4 @@ YNTRA PLATFORM IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND. IN NO EVENT SHA
 ---
 
 ## 5. Contact Information
-For legal and compliance inquiries, contact: `legal@yntra.io`.
+For legal and compliance inquiries, contact: `legal@yntra.se`.

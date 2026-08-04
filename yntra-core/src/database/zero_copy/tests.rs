@@ -917,12 +917,12 @@ async fn test_p2p_sync_workspace_access_control() {
 
     let peer_a = "000000000000000000000000000000000000000000000000000000000000001a";
     let peer_b = "000000000000000000000000000000000000000000000000000000000000001b";
-    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email) VALUES (?1, 'ws-sync-test', 'a@yntra.io')", crate::params![peer_a]).await.unwrap();
-    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email) VALUES (?1, 'ws-sync-test', 'b@yntra.io')", crate::params![peer_b]).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email) VALUES (?1, 'ws-sync-test', 'a@yntra.se')", crate::params![peer_a]).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email) VALUES (?1, 'ws-sync-test', 'b@yntra.se')", crate::params![peer_b]).await.unwrap();
 
     let peer_c = "000000000000000000000000000000000000000000000000000000000000001c";
     conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-sync-test-diff', 'Diff WS', '[]', '{}')", ()).await.unwrap();
-    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email) VALUES (?1, 'ws-sync-test-diff', 'c@yntra.io')", crate::params![peer_c]).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email) VALUES (?1, 'ws-sync-test-diff', 'c@yntra.se')", crate::params![peer_c]).await.unwrap();
 
     let auth_ab = super::sync::is_peer_authorized(peer_a, peer_b).await;
     assert!(auth_ab);

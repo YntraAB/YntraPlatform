@@ -1426,8 +1426,8 @@ mod tests {
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Workspace 2', '{}', '{}')", crate::params![&ws_id2]).await.unwrap();
 
         // Setup test users
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('ws-user-admin', ?1, 'wsadmin@yntra.io', 'admin')", crate::params![&ws_id1]).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('ws-user-padmin', ?1, 'wspadmin@yntra.io', 'platform_admin')", crate::params![&ws_id1]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('ws-user-admin', ?1, 'wsadmin@yntra.se', 'admin')", crate::params![&ws_id1]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('ws-user-padmin', ?1, 'wspadmin@yntra.se', 'platform_admin')", crate::params![&ws_id1]).await.unwrap();
 
         // Querying as standard admin user (should only see workspace-1)
         let list1 = get_workspaces("ws-user-admin".to_string()).await.unwrap();

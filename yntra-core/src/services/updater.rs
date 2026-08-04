@@ -198,7 +198,7 @@ mod tests {
         let pub_hex = const_hex::encode(signing_key.verifying_key().to_bytes());
 
         let version = "0.2.0";
-        let download_url = "https://releases.yntra.io/v0.2.0/yntra-ui.exe";
+        let download_url = "https://releases.yntra.se/v0.2.0/yntra-ui.exe";
         let sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
         let msg = construct_update_signature_message(version, download_url, sha256);

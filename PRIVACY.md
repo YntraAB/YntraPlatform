@@ -43,4 +43,4 @@ You have the absolute right to request the erasure of your personal data ("Right
 
 ## 4. Contact Data Protection Officer (DPO)
 For privacy requests or questions regarding our processing activities:
-**Data Protection Officer**: `dpo@yntra.io`
+**Data Protection Officer**: `dpo@yntra.se`

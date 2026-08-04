@@ -9,11 +9,11 @@ bucket = "target/dx/yntra-ui/release/web/public"
 # Custom Domain Mapping & SSL Termination
 [env.production]
 routes = [
-  { pattern = "app.yntra.io", custom_domain = true },
+  { pattern = "app.yntra.se", custom_domain = true },
   { pattern = "yntra.app", custom_domain = true }
 ]
 
 [env.staging]
 routes = [
-  { pattern = "staging.yntra.io", custom_domain = true }
+  { pattern = "staging.yntra.se", custom_domain = true }
 ]

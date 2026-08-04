@@ -1,8 +1,10 @@
 # Rust / Cargo
 /target/
 
-# Node / npm
-/node_modules/
+# Node / npm / Astro
+node_modules/
+.astro/
+dist/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

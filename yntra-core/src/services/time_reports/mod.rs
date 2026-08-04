@@ -1196,7 +1196,7 @@ mod tests {
         let conn = database::acquire_connection().await.unwrap();
 
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-geo-1', 'Geo WS', '[]', '{}')", ()).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-geo-1', 'ws-geo-1', 'geo@yntra.io', 'user')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-geo-1', 'ws-geo-1', 'geo@yntra.se', 'user')", ()).await.unwrap();
 
         crate::infra::crypto::set_session_key("geo-test-key".to_string().into_bytes(), "ws-geo-1".to_string());
 

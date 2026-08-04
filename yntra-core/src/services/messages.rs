@@ -264,8 +264,8 @@ mod tests {
         let _ = get_message_store("workspace-1").write_messages(Vec::new());
 
         // Insert two test users
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('test-msg-user-1', 'workspace-1', 'msg1@yntra.io', 'assistant')", ()).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('test-msg-user-2', 'workspace-1', 'msg2@yntra.io', 'assistant')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('test-msg-user-1', 'workspace-1', 'msg1@yntra.se', 'assistant')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('test-msg-user-2', 'workspace-1', 'msg2@yntra.se', 'assistant')", ()).await.unwrap();
 
         // Verify user 1 can get their own messages
         let res1 = get_messages("test-msg-user-1".to_string(), "test-msg-user-1".to_string()).await;

@@ -38,7 +38,7 @@ async fn test_damage_inspection_workflow() {
         "scratch".to_string(),
         "severe".to_string(),
         Some("Deep 15cm scratch on top surface near left corner prior to loading.".to_string()),
-        Some("https://storage.yntra.io/inspections/table_scratch_001.jpg".to_string()),
+        Some("https://storage.yntra.se/inspections/table_scratch_001.jpg".to_string()),
     ).await.unwrap();
 
     assert_eq!(inspection.item_name, "Antique Oak Dining Table");

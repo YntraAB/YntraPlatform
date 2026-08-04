@@ -167,7 +167,7 @@ pub async fn apply_note_loro_update(
 
         // Ensure the dummy 'remote_<workspace_id>' user exists to satisfy the FOREIGN KEY constraint on note_updates
         let remote_client_id = format!("remote_{}", workspace_id);
-        let remote_email = format!("remote-{}@yntra.io", workspace_id);
+        let remote_email = format!("remote-{}@yntra.se", workspace_id);
         let user_exists: i64 = conn.query_row(
             "SELECT COUNT(*) FROM users WHERE id = ?1",
             crate::params![&remote_client_id],

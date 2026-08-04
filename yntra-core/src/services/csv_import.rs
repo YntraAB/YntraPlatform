@@ -249,7 +249,7 @@ mod tests {
         let conn = database::acquire_connection().await.unwrap();
 
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-csv-1', 'CSV WS', '[]', '{}')", ()).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-csv-1', 'ws-csv-1', 'csv@yntra.io', 'admin')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-csv-1', 'ws-csv-1', 'csv@yntra.se', 'admin')", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO blocks (id, name, description, icon, category, created_at, fields_schema) VALUES ('blk-hvac', 'HVAC Work Orders', 'HVAC Block', 'wrench', 'HVAC', '2026-08-04', '[{\"name\":\"client_name\",\"label\":\"Customer Name\"},{\"name\":\"priority\",\"label\":\"Job Priority\"}]')", ()).await.unwrap();
 
 

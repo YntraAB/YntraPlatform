@@ -7,7 +7,7 @@ Yntra Platform is committed to maintaining high standards of cryptographic integ
 
 ## 1. Vulnerability Reporting & Disclosure
 If you discover a security vulnerability in `yntra-core`, UniFFI bindings, or `yntra-ui`:
-- **Email**: `security@yntra.io`
+- **Email**: `security@yntra.se`
 - **Response SLA**: Initial response within 24 hours; fix deployment target within 7 business days for critical issues.
 - **Encrypted Communication**: PGP key available upon request.
 

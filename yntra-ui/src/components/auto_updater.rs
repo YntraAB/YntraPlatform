@@ -18,7 +18,7 @@ pub fn AutoUpdateToast() -> Element {
             "version": "0.2.0",
             "release_notes": "Added cross-platform native installers, EV code signing, and automatic delta updates.",
             "pub_date": "2026-08-04T12:00:00Z",
-            "download_url": "https://releases.yntra.io/v0.2.0/yntra-ui.exe",
+            "download_url": "https://releases.yntra.se/v0.2.0/yntra-ui.exe",
             "signature": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
             "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
             "min_supported_version": "0.1.0"

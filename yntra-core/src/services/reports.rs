@@ -124,7 +124,7 @@ pub async fn add_report(
         let anon_user_id = format!("anonymous_{}", workspace_id);
         conn.execute(
             "INSERT OR IGNORE INTO users (id, workspace_id, email, role, preferences, updated_at, sync_status)
-             VALUES (?1, ?2, 'anonymous@yntra.io', 'anonymous', '{}', ?3, 'synced')",
+             VALUES (?1, ?2, 'anonymous@yntra.se', 'anonymous', '{}', ?3, 'synced')",
             crate::params![&anon_user_id, &workspace_id, &now_ms],
         ).await?;
         anon_user_id

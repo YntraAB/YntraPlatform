@@ -548,7 +548,7 @@ mod tests {
 
         let conn = database::acquire_connection().await.unwrap();
         let user_id = "test-client-user-999";
-        let email = "client-user@yntra.io";
+        let email = "client-user@yntra.se";
         let ws_id = "workspace-1";
         let personal_number = "19900101-1234";
 
@@ -613,7 +613,7 @@ mod tests {
         // Create workspace and admin user
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Delete Workspace', '[]', '{}')", crate::params![ws_id]).await.unwrap();
         conn.execute(
-            "INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES (?1, ?2, 'admin-delete@yntra.io', 'admin')",
+            "INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES (?1, ?2, 'admin-delete@yntra.se', 'admin')",
             crate::params![requester_user_id, ws_id],
         ).await.unwrap();
 
@@ -719,7 +719,7 @@ mod tests {
         // Create caregiver user
         let caregiver_id = "user-caregiver-1";
         conn.execute(
-            "INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES (?1, ?2, 'caregiver@yntra.io', 'role-care-caregiver')",
+            "INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES (?1, ?2, 'caregiver@yntra.se', 'role-care-caregiver')",
             crate::params![caregiver_id, ws_id],
         ).await.unwrap();
 
