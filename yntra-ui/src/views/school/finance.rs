@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 use crate::components::{Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, Input, LucideIcon, SuggestionInput};
 use crate::locales::t;
 use dioxus::prelude::*;
@@ -199,7 +200,7 @@ pub fn FinanceView(props: SchoolViewProps) -> Element {
                                     for inv in invoices.iter() {
                                         {
                                             let current_role = current_role.clone();
-                                            let inv_c = inv.clone();
+                                            let _inv_c = inv.clone();
                                             let inv_context = inv.clone();
                                             let inv_id = inv.id.clone();
                                             let is_unpaid = inv.status == "unpaid";
@@ -534,7 +535,7 @@ pub fn FinanceView(props: SchoolViewProps) -> Element {
                                             let role_c = current_role.clone();
                                             let mut payment_processing_c = payment_processing;
                                             let mut payment_success_c = payment_success;
-                                            let mut db_trigger_c = db_trigger;
+                                            let db_trigger_c = db_trigger;
                                             move |_| {
                                                 if let Some(inv_id_val) = selected_pay_invoice_id.read().clone() {
                                                     payment_processing_c.set(true);

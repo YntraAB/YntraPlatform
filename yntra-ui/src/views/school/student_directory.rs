@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 use crate::components::{Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, Input, LucideIcon, SuggestionInput};
 use crate::locales::t;
 use crate::views::school::academics::utils::{decrypt_field, decrypt_opt_field, encrypt_field_with_proof, encrypt_opt_field_with_proof};
@@ -577,7 +578,7 @@ pub fn StudentDirectoryView(props: SchoolViewProps) -> Element {
             // Context Menu Overlay
             if let Some(student) = context_menu_student.read().clone() {
                 {
-                    let std = student.clone();
+                    let _std = student.clone();
                     let std_edit = student.clone();
                     let std_link = student.clone();
                     let std_vac = student.clone();

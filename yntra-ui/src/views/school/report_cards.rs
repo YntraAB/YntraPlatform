@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 use crate::components::{Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, Input, LucideIcon, SuggestionInput};
 use crate::locales::t;
 use crate::views::school::academics::utils::{decrypt_field, decrypt_opt_field, encrypt_field_with_proof, encrypt_opt_field_with_proof};

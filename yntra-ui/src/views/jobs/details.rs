@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 use super::ChecklistItem;
 use crate::components;
 use crate::locales::t;

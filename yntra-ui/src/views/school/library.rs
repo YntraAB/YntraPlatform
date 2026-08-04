@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 use crate::components::{Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, Input, LucideIcon, SuggestionInput};
 use crate::locales::t;
 use dioxus::prelude::*;
@@ -34,7 +35,7 @@ pub fn LibraryView(props: SchoolViewProps) -> Element {
     let mut checkout_due = use_signal(|| "2026-08-01".to_string());
 
     let mut show_reserve_modal = use_signal(|| false);
-    let mut reserve_book_id = use_signal(String::new);
+    let reserve_book_id = use_signal(String::new);
     let mut reserve_student_id = use_signal(String::new);
 
     let mut context_menu_open = use_signal(|| false);
@@ -224,7 +225,7 @@ pub fn LibraryView(props: SchoolViewProps) -> Element {
                                                                 let ws_c = ws_id.clone();
                                                                 let role_c = current_role.clone();
                                                                 let students_c = students.clone();
-                                                                let mut db_trigger = db_trigger.clone();
+                                                                let db_trigger = db_trigger.clone();
                                                                 let mut show_reserve_modal = show_reserve_modal;
                                                                 let mut reserve_book_id = reserve_book_id;
                                                                 let mut reserve_student_id = reserve_student_id;

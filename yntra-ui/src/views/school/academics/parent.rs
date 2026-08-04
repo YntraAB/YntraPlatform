@@ -17,7 +17,7 @@ pub fn ParentPortal(
     mut selected_student_profile_id: Signal<String>,
 ) -> Element {
     let state = use_context::<crate::state::AppState>();
-    let mut db_trigger = state.trigger_school_academics;
+    let db_trigger = state.trigger_school_academics;
     let db_trigger_academics = state.trigger_school_academics;
     let db_trigger_attendance = state.trigger_school_attendance;
     let db_trigger_health = state.trigger_school_health;
@@ -31,7 +31,7 @@ pub fn ParentPortal(
     let mut show_absence_modal = use_signal(|| false);
     let mut absence_date = use_signal(String::new);
     let mut absence_reason = use_signal(|| "Sick Leave".to_string());
-    let mut link_error = use_signal(|| Option::<String>::None);
+    let link_error = use_signal(|| Option::<String>::None);
 
     // Resources specific to parent child tracking
     
@@ -221,7 +221,7 @@ pub fn ParentPortal(
                                 let ws_c = ws_id.clone();
                                 let mut link_input_c = link_input_id;
                                 let mut link_error_c = link_error;
-                                let mut db_trigger_c = db_trigger;
+                                let db_trigger_c = db_trigger;
                                 let locale_c = locale.clone();
                                 move |_| {
                                     let inp = link_input_c.read().trim().to_string();
@@ -582,7 +582,7 @@ pub fn ParentPortal(
                                             let state = state.clone();
                                             let date = absence_date.clone();
                                             let reason = absence_reason.clone();
-                                            let mut db_trigger = db_trigger.clone();
+                                            let db_trigger = db_trigger.clone();
                                             let toast = toast.clone();
                                             let locale_c = locale.clone();
                                             move |_| {

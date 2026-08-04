@@ -326,7 +326,7 @@ pub fn StudentClassworkTab(
                                                             let s_id = student_profile_id.clone();
                                                             let uid_c = active_user_id.clone();
                                                             let ws_c = workspace_id.clone();
-                                                            let mut db_trigger = db_trigger.clone();
+                                                            let db_trigger = db_trigger.clone();
                                                             let toast = toast.clone();
                                                             let locale_c = locale.clone();
                                                             move |_| {

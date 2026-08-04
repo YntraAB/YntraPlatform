@@ -84,7 +84,7 @@ pub fn NoteEdit(props: NoteEditProps) -> Element {
                                     let note_id = n_id.clone();
                                     let author = author_name.clone();
                                     let user_id = active_user.id.clone();
-                                    let user_role = active_user.role.clone();
+                                    let _user_role = active_user.role.clone();
                                     let is_enc = was_encrypted;
                                     let seed = used_seed.read().clone();
                                     let users_list = users.clone();

@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 use crate::components::{Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, Input, LucideIcon, SuggestionInput};
 use crate::locales::t;
 use crate::views::school::academics::utils::{decrypt_field, decrypt_opt_field, encrypt_field_with_proof, encrypt_opt_field_with_proof};
@@ -310,7 +311,7 @@ pub fn HealthClinicView(props: SchoolViewProps) -> Element {
                                                                 onclick: {
                                                                     let mut hr_update = hr_c.clone();
                                                                     let uid_c = user_id.clone();
-                                                                    let mut db_trigger = db_trigger.clone();
+                                                                    let db_trigger = db_trigger.clone();
                                                                     let role_c = current_role.clone();
                                                                     let state = state;
                                                                     move |_| {

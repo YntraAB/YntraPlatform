@@ -72,7 +72,7 @@ pub fn NoteCompose(props: NoteComposeProps) -> Element {
                                 let workspace_id = active_user.workspace_id.clone().unwrap_or_else(|| "workspace-1".to_string());
                                 let team_id = active_team_id.clone();
                                 let user_id = active_user.id.clone();
-                                let user_role = active_user.role.clone();
+                                let _user_role = active_user.role.clone();
                                 let is_enc = *encrypt_zero_copy.read();
                                 let seed = passkey_seed.read().clone();
                                 let users_list = users.clone();

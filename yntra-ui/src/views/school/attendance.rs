@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 use crate::components::{Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, Input, LucideIcon, SuggestionInput};
 use crate::locales::t;
 use crate::views::school::academics::utils::{decrypt_field, decrypt_opt_field, encrypt_field_with_proof, encrypt_opt_field_with_proof};
@@ -306,7 +307,7 @@ pub fn AttendanceView(props: SchoolViewProps) -> Element {
                 let record = attendance.iter().find(|a| a.student_id == s_id);
                 let record_id = record.map(|a| a.id.clone()).unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
                 let current_status = record.map(|a| a.status.clone()).unwrap_or_else(|| "Present".to_string());
-                let mut db_trig = db_trigger;
+                let db_trig = db_trigger;
 
                 rsx! {
                     Dialog {

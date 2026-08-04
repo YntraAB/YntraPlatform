@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 use crate::components;
 use crate::locales::t;
 use dioxus::prelude::*;
@@ -7,6 +8,7 @@ use yntra_core::{
     SkatteverketSubmitResult, BankIdAuthSession,
 };
 
+#[allow(dead_code)]
 fn trigger_download(toast: &dioxus_primitives::toast::Toasts, locale: &str, content: &str, file_name: &str) {
     #[cfg(target_arch = "wasm32")]
     {
@@ -123,12 +125,12 @@ pub fn JobsView(props: JobsViewProps) -> Element {
     } else {
         serde_json::Value::Null
     };
-    let show_rut = settings_json
+    let _show_rut = settings_json
         .get("show_rut_deduction")
         .and_then(|v| v.as_bool())
         .unwrap_or_else(|| region == "SE");
 
-    let has_skatteverket_cert = settings_json
+    let _has_skatteverket_cert = settings_json
         .get("skatteverket_corporate_cert")
         .and_then(|v| v.as_str())
         .map(|s| !s.trim().is_empty())
@@ -179,7 +181,7 @@ pub fn JobsView(props: JobsViewProps) -> Element {
         }
     });
 
-    let coords = coords_res.read().clone().unwrap_or_default();
+    let _coords = coords_res.read().clone().unwrap_or_default();
 
     // Selected job state
     let mut selected_job_id = use_signal(|| Option::<String>::None);

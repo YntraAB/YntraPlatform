@@ -37,7 +37,7 @@ pub fn StudentStreamTab(
                             let current_student_c = current_student.clone();
                             let ws = workspace_id.clone();
                             let uid = active_user_id.clone();
-                            let mut trig = db_trigger;
+                            let trig = db_trigger;
                             let courses_c = courses.clone();
                             move |_| {
                                 let text = new_announcement_text.read().clone();
@@ -131,7 +131,7 @@ pub fn StudentStreamTab(
                                                     onclick: {
                                                         let ann_id_c = ann_id.clone();
                                                         let uid_c = active_user_id.clone();
-                                                        let mut trig_c = db_trigger;
+                                                        let trig_c = db_trigger;
                                                         move |_| {
                                                             let uid_del = uid_c.clone();
                                                             let id_del = ann_id_c.clone();
@@ -166,9 +166,9 @@ pub fn StudentStreamTab(
                                                     class: "px-3 h-7 text-[10px] font-bold rounded-lg bg-primary text-primary-foreground",
                                                     disabled: edit_text.read().trim().is_empty(),
                                                     onclick: {
-                                                        let mut updated_ann = ann.clone();
+                                                        let updated_ann = ann.clone();
                                                         let uid_c = active_user_id.clone();
-                                                        let mut trig_c = db_trigger;
+                                                        let trig_c = db_trigger;
                                                         move |_| {
                                                             let text_val = edit_text.read().clone();
                                                             let mut item_val = updated_ann.clone();
@@ -243,7 +243,7 @@ pub fn StudentStreamTab(
                                                                                 onclick: {
                                                                                     let comm_id_c = comm_id.clone();
                                                                                     let uid_c = active_user_id.clone();
-                                                                                    let mut trig_c = db_trigger;
+                                                                                    let trig_c = db_trigger;
                                                                                     move |_| {
                                                                                         let uid_del = uid_c.clone();
                                                                                         let id_del = comm_id_c.clone();
@@ -278,9 +278,9 @@ pub fn StudentStreamTab(
                                                                                 class: "px-2 h-6 text-[9px] font-bold rounded-lg bg-primary text-primary-foreground",
                                                                                 disabled: edit_text.read().trim().is_empty(),
                                                                                 onclick: {
-                                                                                    let mut updated_comm = comm.clone();
+                                                                                    let updated_comm = comm.clone();
                                                                                     let uid_c = active_user_id.clone();
-                                                                                    let mut trig_c = db_trigger;
+                                                                                    let trig_c = db_trigger;
                                                                                     move |_| {
                                                                                         let text_val = edit_text.read().clone();
                                                                                         let mut item_val = updated_comm.clone();
@@ -328,7 +328,7 @@ pub fn StudentStreamTab(
                                                     let author_name = student_name.clone();
                                                     let uid = active_user_id.clone();
                                                     let text = comment_text.clone();
-                                                    let mut trig = db_trigger;
+                                                    let trig = db_trigger;
                                                     move |evt| {
                                                         if evt.key() == Key::Enter && !text.trim().is_empty() {
                                                             let val = text.clone();
@@ -365,7 +365,7 @@ pub fn StudentStreamTab(
                                                     let author_name = student_name.clone();
                                                     let uid = active_user_id.clone();
                                                     let text = comment_text.clone();
-                                                    let mut trig = db_trigger;
+                                                    let trig = db_trigger;
                                                     move |_| {
                                                         if !text.trim().is_empty() {
                                                             let val = text.clone();

@@ -299,7 +299,7 @@ pub fn ReportsList(props: ReportsListProps) -> Element {
             // Context Menu Overlay
             if let Some(rep) = context_menu_report.read().clone() {
                 {
-                    let rep_id = rep.id.clone();
+                    let _rep_id = rep.id.clone();
                     let rep_status = rep.status.clone();
                     let is_resolved = rep_status == "resolved";
                     let is_reviewed = rep_status == "reviewed";
