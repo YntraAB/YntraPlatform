@@ -19,8 +19,8 @@ pub async fn verify_zkp_if_encrypted(
         let proof = parts[1];
         let ciphertext = parts[2];
         let trust = crate::ZkCryptoTrust::new();
-        let ciphertext_bytes = const_hex::decode(ciphertext)
-            .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+        let ciphertext_bytes =
+            const_hex::decode(ciphertext).map_err(|e| YntraError::CryptoError(e.to_string()))?;
         let data_hash = blake3::hash(&ciphertext_bytes);
         let data_hash_hex = const_hex::encode(data_hash.as_bytes());
 
@@ -41,7 +41,9 @@ pub async fn verify_zkp_if_encrypted(
                  UNION \
                  SELECT id FROM users WHERE role = 'platform_admin' OR (role = 'admin' AND workspace_id = ?3)"
             ).await?;
-            let mut rows = stmt_candidates.query(crate::params![user_id, team_id, workspace_id]).await?;
+            let mut rows = stmt_candidates
+                .query(crate::params![user_id, team_id, workspace_id])
+                .await?;
             let mut pks = Vec::new();
             while let Some(row) = rows.next().await? {
                 let uid: String = row.get(0)?;
@@ -56,7 +58,8 @@ pub async fn verify_zkp_if_encrypted(
                     .flatten();
                 if let Some(ref meta) = metadata_str {
                     if let Ok(val) = serde_json::from_str::<serde_json::Value>(meta) {
-                        let pk = val.get("public_key")
+                        let pk = val
+                            .get("public_key")
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string())
                             .or_else(|| {

@@ -222,15 +222,25 @@ pub async fn create_payment_checkout_session(
     let tier_norm = tier.to_lowercase();
     let unit_price = get_tier_seat_price(&tier_norm);
     let total_amount = unit_price * (seats_allocated as f64);
-    let session_id = format!("cs_{}_{}", &platform_norm[..3], uuid::Uuid::new_v4().simple());
+    let session_id = format!(
+        "cs_{}_{}",
+        &platform_norm[..3],
+        uuid::Uuid::new_v4().simple()
+    );
 
     let (checkout_url, client_secret) = match platform_norm.as_str() {
         "revenuecat" => (
-            format!("https://app.revenuecat.com/subscribe/{}/{}", workspace_id, tier_norm),
+            format!(
+                "https://app.revenuecat.com/subscribe/{}/{}",
+                workspace_id, tier_norm
+            ),
             Some(format!("rc_sk_{}", uuid::Uuid::new_v4().simple())),
         ),
         "chargebee" => (
-            format!("https://yntra.chargebee.com/hosted_pages/plans/{}/checkout", tier_norm),
+            format!(
+                "https://yntra.chargebee.com/hosted_pages/plans/{}/checkout",
+                tier_norm
+            ),
             Some(format!("cb_token_{}", uuid::Uuid::new_v4().simple())),
         ),
         "stripe" | _ => (
@@ -274,7 +284,10 @@ pub async fn check_feature_tier_gate(
     };
 
     let reason = if is_allowed {
-        format!("Feature '{}' is unlocked on your {} tier.", feature_key, current_tier)
+        format!(
+            "Feature '{}' is unlocked on your {} tier.",
+            feature_key, current_tier
+        )
     } else {
         format!(
             "Feature '{}' requires the {} tier. Your workspace is currently on the {} tier.",
@@ -283,7 +296,10 @@ pub async fn check_feature_tier_gate(
     };
 
     let upgrade_url = if !is_allowed {
-        Some(format!("yntra://settings/billing/upgrade?required={}", required_tier))
+        Some(format!(
+            "yntra://settings/billing/upgrade?required={}",
+            required_tier
+        ))
     } else {
         None
     };
@@ -329,7 +345,11 @@ pub async fn generate_automated_invoice(
     let period_start = sub.current_period_start;
     let period_end = sub.current_period_end;
 
-    let annual_mult = if sub.billing_cycle == "annual" { 0.85 } else { 1.0 };
+    let annual_mult = if sub.billing_cycle == "annual" {
+        0.85
+    } else {
+        1.0
+    };
     let amount_due = sub.price_per_seat_monthly * (sub.seats_allocated as f64) * annual_mult;
     let pdf_url = format!("yntra://invoices/download/{}.pdf", invoice_id);
 
@@ -528,9 +548,13 @@ mod tests {
         assert_eq!(sub.payment_platform, "stripe");
 
         // 2. Test feature gate on starter tier
-        let gate_siths = check_feature_tier_gate(admin_uid.clone(), ws_id.clone(), "siths_integration".to_string())
-            .await
-            .unwrap();
+        let gate_siths = check_feature_tier_gate(
+            admin_uid.clone(),
+            ws_id.clone(),
+            "siths_integration".to_string(),
+        )
+        .await
+        .unwrap();
         assert!(!gate_siths.allowed);
         assert_eq!(gate_siths.required_tier, "enterprise");
 
@@ -551,9 +575,13 @@ mod tests {
         assert_eq!(updated.price_per_seat_monthly, 35.0);
 
         // 4. Test feature gate on Pro tier
-        let gate_analytics = check_feature_tier_gate(admin_uid.clone(), ws_id.clone(), "advanced_analytics".to_string())
-            .await
-            .unwrap();
+        let gate_analytics = check_feature_tier_gate(
+            admin_uid.clone(),
+            ws_id.clone(),
+            "advanced_analytics".to_string(),
+        )
+        .await
+        .unwrap();
         assert!(gate_analytics.allowed);
 
         // 5. Create checkout session for Enterprise tier via Chargebee

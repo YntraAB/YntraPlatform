@@ -7,10 +7,16 @@ pub async fn verify_school_write_zkp(
     role: &str,
     role_proof: Option<String>,
 ) -> Result<(), YntraError> {
-    let is_dev_bypass = !crate::infra::auth::is_production() && requester_user_id.starts_with("test-");
+    let is_dev_bypass =
+        !crate::infra::auth::is_production() && requester_user_id.starts_with("test-");
 
     if !is_dev_bypass {
-        let (u_role, workspace_id, role_signature, creator_public_key): (String, String, Option<String>, Option<String>) = match conn
+        let (u_role, workspace_id, role_signature, creator_public_key): (
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+        ) = match conn
             .query_row(
                 "SELECT u.role, u.workspace_id, u.role_signature, w.creator_public_key \
                  FROM users u \
@@ -22,7 +28,11 @@ pub async fn verify_school_write_zkp(
             .await
         {
             Ok(val) => val,
-            Err(_) => return Err(YntraError::AuthError("User or workspace not found".to_string())),
+            Err(_) => {
+                return Err(YntraError::AuthError(
+                    "User or workspace not found".to_string(),
+                ));
+            }
         };
 
         let sig = match role_signature {
@@ -31,7 +41,9 @@ pub async fn verify_school_write_zkp(
                 if !crate::infra::auth::is_production() {
                     return Ok(());
                 } else {
-                    return Err(YntraError::AuthError("Missing role signature: offline database tampering suspected".to_string()));
+                    return Err(YntraError::AuthError(
+                        "Missing role signature: offline database tampering suspected".to_string(),
+                    ));
                 }
             }
         };
@@ -41,14 +53,23 @@ pub async fn verify_school_write_zkp(
                 if !crate::infra::auth::is_production() {
                     return Ok(());
                 } else {
-                    return Err(YntraError::AuthError("Workspace public key not found".to_string()));
+                    return Err(YntraError::AuthError(
+                        "Workspace public key not found".to_string(),
+                    ));
                 }
             }
         };
 
-        if !crate::infra::crypto::verify_role_signature(&pk, requester_user_id, &u_role, &workspace_id, &sig) {
+        if !crate::infra::crypto::verify_role_signature(
+            &pk,
+            requester_user_id,
+            &u_role,
+            &workspace_id,
+            &sig,
+        ) {
             return Err(YntraError::CryptoError(
-                "Role signature verification failed: offline database tampering detected".to_string(),
+                "Role signature verification failed: offline database tampering detected"
+                    .to_string(),
             ));
         }
     }
@@ -61,7 +82,9 @@ pub async fn verify_school_write_zkp(
 
     if is_proof_required {
         let proof = role_proof.ok_or_else(|| {
-            YntraError::AuthError("Zero-Knowledge Role Proof is required for write operations".to_string())
+            YntraError::AuthError(
+                "Zero-Knowledge Role Proof is required for write operations".to_string(),
+            )
         })?;
 
         let metadata_str: Option<String> = conn
@@ -125,7 +148,13 @@ pub async fn check_school_permission(
 }
 
 pub fn has_school_permission(auth: &crate::AuthContext, permission_name: &str) -> bool {
-    if auth.role == "platform_admin" || auth.role == "admin" || auth.role == "school-admin" || auth.role == "role-school-admin" || auth.role == "principal" || auth.role == "role-school-principal" {
+    if auth.role == "platform_admin"
+        || auth.role == "admin"
+        || auth.role == "school-admin"
+        || auth.role == "role-school-admin"
+        || auth.role == "principal"
+        || auth.role == "role-school-principal"
+    {
         return true;
     }
     if let Some(ref settings_str) = auth.workspace_settings {
@@ -136,12 +165,20 @@ pub fn has_school_permission(auth: &crate::AuthContext, permission_name: &str) -
                     let r_name = r.get("name").and_then(|v| v.as_str()).unwrap_or("");
                     let is_match = r_id == auth.role
                         || r_id.ends_with(&format!("-{}", auth.role))
-                        || r_id.strip_prefix("role-").map(|s| s == auth.role).unwrap_or(false)
-                        || r_id.strip_prefix("role-school-").map(|s| s == auth.role).unwrap_or(false)
+                        || r_id
+                            .strip_prefix("role-")
+                            .map(|s| s == auth.role)
+                            .unwrap_or(false)
+                        || r_id
+                            .strip_prefix("role-school-")
+                            .map(|s| s == auth.role)
+                            .unwrap_or(false)
                         || r_name.to_lowercase() == auth.role.to_lowercase();
                     if is_match {
                         if let Some(permissions) = r.get("permissions") {
-                            if let Some(val) = permissions.get(permission_name).and_then(|v| v.as_bool()) {
+                            if let Some(val) =
+                                permissions.get(permission_name).and_then(|v| v.as_bool())
+                            {
                                 return val;
                             }
                         }
@@ -153,7 +190,10 @@ pub fn has_school_permission(auth: &crate::AuthContext, permission_name: &str) -
     false
 }
 
-pub fn verify_school_permission(auth: &crate::AuthContext, permission_name: &str) -> Result<(), YntraError> {
+pub fn verify_school_permission(
+    auth: &crate::AuthContext,
+    permission_name: &str,
+) -> Result<(), YntraError> {
     if has_school_permission(auth, permission_name) {
         Ok(())
     } else {
@@ -182,14 +222,18 @@ pub async fn verify_student_access(
                 |r| r.get(0),
             )
             .await
-            .map_err(|_| YntraError::NotFoundError(format!("Student profile not found: {}", student_id)))?;
+            .map_err(|_| {
+                YntraError::NotFoundError(format!("Student profile not found: {}", student_id))
+            })?;
 
         if let Some(uid) = profile_user_id {
             if uid == auth.user_id {
                 return Ok(());
             }
         }
-        return Err(YntraError::AuthError("Access denied: You can only view your own student records".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: You can only view your own student records".to_string(),
+        ));
     } else if role_lower == "parent" || role_lower == "role-school-parent" {
         let linked: Option<i64> = conn
             .query_row(
@@ -203,7 +247,9 @@ pub async fn verify_student_access(
         if linked.is_some() {
             return Ok(());
         }
-        return Err(YntraError::AuthError("Access denied: You are not linked to this student".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: You are not linked to this student".to_string(),
+        ));
     }
 
     Ok(())

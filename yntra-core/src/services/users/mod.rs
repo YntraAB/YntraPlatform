@@ -334,11 +334,11 @@ pub async fn delete_user(requester_user_id: String, user_id: String) -> Result<(
 
     let res = async {
         conn.execute("DELETE FROM team_members WHERE user_id = ?1", crate::params![&user_id]).await?;
-        
+
         conn.execute("UPDATE messages SET sender_id = NULL WHERE sender_id = ?1", crate::params![&user_id]).await?;
         conn.execute("UPDATE messages SET receiver_id = NULL WHERE receiver_id = ?1", crate::params![&user_id]).await?;
         conn.execute("UPDATE job_tickets SET assigned_user_id = NULL WHERE assigned_user_id = ?1", crate::params![&user_id]).await?;
-        
+
         let now_ms = crate::infra::time::get_current_time_ms();
         conn.execute("UPDATE time_reports SET note = NULL, sync_status = 'pending', updated_at = ?1 WHERE user_id = ?2", crate::params![now_ms, &user_id]).await?;
 
@@ -357,7 +357,7 @@ pub async fn delete_user(requester_user_id: String, user_id: String) -> Result<(
              WHERE id = ?3",
             crate::params![anon_email, now_ms, user_id],
         ).await?;
-        
+
         Ok(())
     }.await;
 
@@ -375,9 +375,7 @@ pub async fn delete_user(requester_user_id: String, user_id: String) -> Result<(
 }
 
 #[uniffi::export]
-pub async fn export_user_personal_data(
-    requester_user_id: String,
-) -> Result<String, YntraError> {
+pub async fn export_user_personal_data(requester_user_id: String) -> Result<String, YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
@@ -454,17 +452,19 @@ pub async fn delete_user_account(
 
     if !is_self && !auth.is_admin {
         return Err(YntraError::AuthError(
-            "Access denied: you can only delete your own account or require admin rights".to_string(),
+            "Access denied: you can only delete your own account or require admin rights"
+                .to_string(),
         ));
     }
 
     conn.begin_transaction().await?;
     let res = async {
-        let _ = conn.execute(
-            "DELETE FROM user_signatures WHERE user_id = ?1",
-            crate::params![&target_user_id],
-        )
-        .await;
+        let _ = conn
+            .execute(
+                "DELETE FROM user_signatures WHERE user_id = ?1",
+                crate::params![&target_user_id],
+            )
+            .await;
 
         conn.execute(
             "DELETE FROM users WHERE id = ?1",
@@ -475,7 +475,6 @@ pub async fn delete_user_account(
         Ok(())
     }
     .await;
-
 
     match res {
         Ok(_) => {
@@ -508,7 +507,8 @@ pub async fn set_telemetry_opt_out(
         .await
         .unwrap_or_else(|_| "{}".to_string());
 
-    let mut prefs_val: serde_json::Value = serde_json::from_str(&existing_prefs).unwrap_or_default();
+    let mut prefs_val: serde_json::Value =
+        serde_json::from_str(&existing_prefs).unwrap_or_default();
     prefs_val["telemetry_opt_out"] = serde_json::json!(opt_out);
 
     let updated_prefs = serde_json::to_string(&prefs_val).unwrap_or_default();
@@ -528,7 +528,6 @@ pub async fn set_telemetry_opt_out(
 #[cfg(test)]
 mod tests {
     use super::*;
-
 
     #[test]
     fn test_argon2_password_hashing() {
@@ -575,7 +574,10 @@ mod tests {
             crate::params![user_id, email],
         ).await.unwrap();
 
-        let res = get_user_by_email(user_id.to_string(), email.to_string()).await.unwrap().unwrap();
+        let res = get_user_by_email(user_id.to_string(), email.to_string())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(res.id, user_id);
         assert_eq!(res.email, email);
         assert!(res.personal_number.is_none());
@@ -591,7 +593,10 @@ mod tests {
     #[tokio::test]
     async fn test_get_users_self_decryption() {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
-        crate::infra::crypto::set_session_key("test-session-key".to_string().into_bytes(), "workspace-1".to_string());
+        crate::infra::crypto::set_session_key(
+            "test-session-key".to_string().into_bytes(),
+            "workspace-1".to_string(),
+        );
 
         let conn = database::acquire_connection().await.unwrap();
         let user1_id = "test-self-user-1";
@@ -887,9 +892,18 @@ mod tests {
         let user_id = "user-order-test";
 
         // Clean up
-        let _ = conn.execute("DELETE FROM users WHERE id = ?1", crate::params![user_id]).await;
-        let _ = conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await;
-        let _ = crate::infra::crypto::set_local_secret(&format!("creator_private_key_{}", ws_id), "").await;
+        let _ = conn
+            .execute("DELETE FROM users WHERE id = ?1", crate::params![user_id])
+            .await;
+        let _ = conn
+            .execute(
+                "DELETE FROM workspaces WHERE id = ?1",
+                crate::params![ws_id],
+            )
+            .await;
+        let _ =
+            crate::infra::crypto::set_local_secret(&format!("creator_private_key_{}", ws_id), "")
+                .await;
 
         // Insert workspace without creator_public_key
         conn.execute(
@@ -909,27 +923,45 @@ mod tests {
         assert!(res.is_ok());
 
         // Verify private key was written to keyring
-        let priv_key_opt = crate::infra::crypto::get_local_secret(&format!("creator_private_key_{}", ws_id)).await.unwrap();
+        let priv_key_opt =
+            crate::infra::crypto::get_local_secret(&format!("creator_private_key_{}", ws_id))
+                .await
+                .unwrap();
         assert!(priv_key_opt.is_some());
         let priv_key = priv_key_opt.unwrap();
         assert!(!priv_key.trim().is_empty());
 
         // Verify creator_public_key was updated in DB
-        let pub_key: String = conn.query_row(
-            "SELECT creator_public_key FROM workspaces WHERE id = ?1",
-            crate::params![ws_id],
-            |r| r.get(0),
-        ).await.unwrap();
+        let pub_key: String = conn
+            .query_row(
+                "SELECT creator_public_key FROM workspaces WHERE id = ?1",
+                crate::params![ws_id],
+                |r| r.get(0),
+            )
+            .await
+            .unwrap();
         assert!(!pub_key.trim().is_empty());
 
         // Verify that public key matches derived public key from the private key in keyring
-        let derived_pub = crate::infra::crypto::derive_public_key_from_private_key(&zeroize::Zeroizing::new(priv_key)).unwrap();
+        let derived_pub = crate::infra::crypto::derive_public_key_from_private_key(
+            &zeroize::Zeroizing::new(priv_key),
+        )
+        .unwrap();
         assert_eq!(pub_key, derived_pub);
 
         // Clean up
-        let _ = conn.execute("DELETE FROM users WHERE id = ?1", crate::params![user_id]).await;
-        let _ = conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await;
-        let _ = crate::infra::crypto::set_local_secret(&format!("creator_private_key_{}", ws_id), "").await;
+        let _ = conn
+            .execute("DELETE FROM users WHERE id = ?1", crate::params![user_id])
+            .await;
+        let _ = conn
+            .execute(
+                "DELETE FROM workspaces WHERE id = ?1",
+                crate::params![ws_id],
+            )
+            .await;
+        let _ =
+            crate::infra::crypto::set_local_secret(&format!("creator_private_key_{}", ws_id), "")
+                .await;
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -1033,8 +1065,18 @@ mod tests {
         }
 
         // Cleanup
-        conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![&ws_id]).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![&ws_id]).await.unwrap();
+        conn.execute(
+            "DELETE FROM users WHERE workspace_id = ?1",
+            crate::params![&ws_id],
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM workspaces WHERE id = ?1",
+            crate::params![&ws_id],
+        )
+        .await
+        .unwrap();
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -1058,8 +1100,18 @@ mod tests {
         assert!(res.unwrap().is_none());
 
         // Cleanup
-        conn.execute("DELETE FROM users WHERE workspace_id IN (?1, ?2)", crate::params![&ws_a, &ws_b]).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id IN (?1, ?2)", crate::params![&ws_a, &ws_b]).await.unwrap();
+        conn.execute(
+            "DELETE FROM users WHERE workspace_id IN (?1, ?2)",
+            crate::params![&ws_a, &ws_b],
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM workspaces WHERE id IN (?1, ?2)",
+            crate::params![&ws_a, &ws_b],
+        )
+        .await
+        .unwrap();
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -1090,11 +1142,22 @@ mod tests {
         assert!(del_res.is_ok());
 
         // Verify erasure
-        let check_stmt: Option<String> = conn.query_row("SELECT email FROM users WHERE id = ?1", crate::params![&user_id], |r| r.get(0)).await.ok();
+        let check_stmt: Option<String> = conn
+            .query_row(
+                "SELECT email FROM users WHERE id = ?1",
+                crate::params![&user_id],
+                |r| r.get(0),
+            )
+            .await
+            .ok();
         assert!(check_stmt.is_none());
 
         // Cleanup WS
-        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![&ws_id]).await.unwrap();
+        conn.execute(
+            "DELETE FROM workspaces WHERE id = ?1",
+            crate::params![&ws_id],
+        )
+        .await
+        .unwrap();
     }
 }
-

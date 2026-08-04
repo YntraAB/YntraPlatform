@@ -4,52 +4,54 @@ pub mod models;
 pub mod services;
 
 // Re-export error type and observer callback
+pub use database::proxy::RemoteSyncCoordinator;
 pub use database::sync::*;
+pub use database::thin_sync::*;
 pub use database::zero_copy::{
     EdgeSyncLoop, P2PMeshSyncRouter, ZeroCopyAuditStore, ZeroCopyMessageStore, ZeroCopyNoteStore,
     ZeroCopyStore, ZkCryptoTrust, create_peer_note_store, create_peer_store,
 };
-pub use database::proxy::RemoteSyncCoordinator;
 pub use infra::auth::AuthContext;
 pub use infra::errors::*;
 pub use infra::observer::*;
 pub use models::*;
 
 // Re-export all FFI service functions at the crate root
+pub use services::ai_automation::*;
 pub use services::audit::*;
 pub use services::auth::*;
+pub use services::billing::*;
 pub use services::blocks::*;
 pub use services::clients::*;
+pub use services::csv_import::*;
+pub use services::dashboard::*;
 pub use services::directory::*;
 pub use services::dynamic_entities::*;
+pub use services::in_app_notifications::*;
+pub use services::industry_templates::*;
+pub use services::integrations::*;
 pub use services::jobs::*;
 pub use services::messages::*;
+pub use services::metrics::*;
 pub use services::notes::*;
+pub use services::presence::*;
 pub use services::reports::*;
 pub use services::role_templates::*;
+pub use services::school::*;
+pub use services::semantic_guardrails::*;
+pub use services::support::*;
 pub use services::teams::*;
+pub use services::telemetry::*;
 pub use services::time_reports::*;
 pub use services::todos::*;
-pub use services::users::*;
-pub use services::workspaces::*;
-pub use services::dashboard::*;
-pub use services::vehicles::*;
-pub use services::school::*;
 pub use services::updater::*;
-pub use services::billing::*;
-pub use services::support::*;
-pub use services::telemetry::*;
-pub use services::metrics::*;
-pub use services::presence::*;
-pub use services::in_app_notifications::*;
-pub use services::ai_automation::*;
-pub use services::integrations::*;
-pub use services::industry_templates::*;
-pub use services::csv_import::*;
+pub use services::users::*;
+pub use services::vehicles::*;
+pub use services::workspaces::*;
 
 pub use services::auth::hardware::{
-    authenticate_with_passkey, delete_passkey_credential, get_user_passkeys,
-    register_passkey_credential, PasskeyCredentialInfo,
+    PasskeyCredentialInfo, authenticate_with_passkey, delete_passkey_credential, get_user_passkeys,
+    register_passkey_credential,
 };
 pub use services::users::{delete_user_account, export_user_personal_data};
 
@@ -57,8 +59,11 @@ pub use services::users::{delete_user_account, export_user_personal_data};
 #[cfg(target_arch = "wasm32")]
 pub use database::schema::setup_schema;
 pub use infra::crypto::{
-    SecureStorageProvider, clear_session_key, decrypt_field, encrypt_field, is_session_key_set,
-    load_local_workspace_key, register_secure_storage_provider, set_session_key,
+    EphemeralSessionToken, SecureStorageProvider, clear_active_session_token, clear_session_key,
+    decrypt_field, encrypt_field, is_session_key_set, load_local_workspace_key,
+    register_ephemeral_session_token, register_secure_storage_provider,
+    revoke_ephemeral_session_token, set_session_key, touch_session_sync_timestamp,
+    validate_active_session_token,
 };
 pub use infra::errors;
 pub use infra::observer;

@@ -9,16 +9,16 @@ use std::time::{Duration, Instant};
 /// Configuration for simulated network chaos conditions
 #[derive(Clone, Debug)]
 pub struct ChaosConfig {
-    pub dropout_rate: f64,       // Packet loss probability (0.0 = no loss, 1.0 = 100% loss)
-    pub min_latency_ms: u64,     // Minimum network latency injection in ms
-    pub max_latency_ms: u64,     // Maximum network latency injection in ms
+    pub dropout_rate: f64, // Packet loss probability (0.0 = no loss, 1.0 = 100% loss)
+    pub min_latency_ms: u64, // Minimum network latency injection in ms
+    pub max_latency_ms: u64, // Maximum network latency injection in ms
     pub enable_disconnections: bool, // Simulates link dropouts and recovery cycles
 }
 
 impl Default for ChaosConfig {
     fn default() -> Self {
         Self {
-            dropout_rate: 0.25,        // 25% dropout rate by default in chaos mode
+            dropout_rate: 0.25, // 25% dropout rate by default in chaos mode
             min_latency_ms: 20,
             max_latency_ms: 250,
             enable_disconnections: true,
@@ -76,7 +76,10 @@ impl ChaosNetworkProxy {
         }
 
         // Simulate network latency jitter
-        let latency_span = self.config.max_latency_ms.saturating_sub(self.config.min_latency_ms);
+        let latency_span = self
+            .config
+            .max_latency_ms
+            .saturating_sub(self.config.min_latency_ms);
         let jitter = if latency_span > 0 {
             (seq % latency_span) + self.config.min_latency_ms
         } else {
@@ -120,7 +123,10 @@ impl ChaosNetworkProxy {
     /// Flush and drain all queued packets for target peer
     pub fn drain_queue(&self, peer_id: &str) -> Vec<Vec<u8>> {
         let mut queues = self.peer_queues.lock().unwrap_or_else(|e| e.into_inner());
-        queues.get_mut(peer_id).map(|q| std::mem::take(q)).unwrap_or_default()
+        queues
+            .get_mut(peer_id)
+            .map(|q| std::mem::take(q))
+            .unwrap_or_default()
     }
 
     pub fn stats(&self) -> (u64, u64) {
@@ -169,10 +175,13 @@ pub async fn run_chaos_sync_load_test(
             let text = doc.get_text("chaos_shared_content");
             let peer_id = &peer_ids[idx];
             let entry = format!("[Dev_{} Mut_{}] ", idx, m);
-            text.insert(0, &entry).map_err(|e| YntraError::DbError(e.to_string()))?;
+            text.insert(0, &entry)
+                .map_err(|e| YntraError::DbError(e.to_string()))?;
 
             // Export delta snapshot and broadcast through Chaos Network Proxy
-            let snapshot = doc.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::DbError(e.to_string()))?;
+            let snapshot = doc
+                .export(loro::ExportMode::Snapshot)
+                .map_err(|e| YntraError::DbError(e.to_string()))?;
             proxy.broadcast(peer_id, snapshot).await;
         }
 
@@ -195,10 +204,14 @@ pub async fn run_chaos_sync_load_test(
 
     // Full Mesh Sync Exchange to ensure 100% convergence across all virtual devices
     for source_idx in 0..num_nodes {
-        let snapshot = docs[source_idx].export(loro::ExportMode::Snapshot).map_err(|e| YntraError::DbError(e.to_string()))?;
+        let snapshot = docs[source_idx]
+            .export(loro::ExportMode::Snapshot)
+            .map_err(|e| YntraError::DbError(e.to_string()))?;
         for target_idx in 0..num_nodes {
             if source_idx != target_idx {
-                docs[target_idx].import(&snapshot).map_err(|e| YntraError::DbError(e.to_string()))?;
+                docs[target_idx]
+                    .import(&snapshot)
+                    .map_err(|e| YntraError::DbError(e.to_string()))?;
             }
         }
     }
@@ -232,7 +245,10 @@ pub async fn run_chaos_sync_load_test(
     });
 
     if !all_converged {
-        Err(YntraError::SyncError("Multi-device CRDT chaos convergence test failed: state diverged across peers".to_string()))
+        Err(YntraError::SyncError(
+            "Multi-device CRDT chaos convergence test failed: state diverged across peers"
+                .to_string(),
+        ))
     } else {
         Ok(report.to_string())
     }

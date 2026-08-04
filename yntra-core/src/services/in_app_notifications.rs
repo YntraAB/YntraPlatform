@@ -26,8 +26,10 @@ pub async fn get_user_notifications(
     user_id: String,
 ) -> Result<Vec<InAppNotification>, YntraError> {
     let _ = requester_user_id;
-    let store = NOTIFICATION_STORES.lock().unwrap_or_else(|e| e.into_inner());
-    
+    let store = NOTIFICATION_STORES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+
     let mut all_notifs: Vec<InAppNotification> = Vec::new();
     for list in store.values() {
         for notif in list {
@@ -68,7 +70,9 @@ pub async fn create_in_app_notification(
     };
 
     {
-        let mut store = NOTIFICATION_STORES.lock().unwrap_or_else(|e| e.into_inner());
+        let mut store = NOTIFICATION_STORES
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let list = store.entry(workspace_id).or_insert_with(Vec::new);
         list.push(notif.clone());
     }
@@ -86,8 +90,10 @@ pub async fn mark_notification_read(
     notification_id: String,
 ) -> Result<(), YntraError> {
     let _ = requester_user_id;
-    let mut store = NOTIFICATION_STORES.lock().unwrap_or_else(|e| e.into_inner());
-    
+    let mut store = NOTIFICATION_STORES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+
     for list in store.values_mut() {
         if let Some(n) = list.iter_mut().find(|item| item.id == notification_id) {
             n.is_read = true;
@@ -107,8 +113,10 @@ pub async fn mark_all_notifications_read(
     user_id: String,
 ) -> Result<(), YntraError> {
     let _ = requester_user_id;
-    let mut store = NOTIFICATION_STORES.lock().unwrap_or_else(|e| e.into_inner());
-    
+    let mut store = NOTIFICATION_STORES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+
     for list in store.values_mut() {
         for item in list.iter_mut() {
             if item.recipient_id == user_id {
@@ -139,7 +147,10 @@ pub async fn dispatch_mention_notifications(
     let mention_tokens: Vec<&str> = content
         .split_whitespace()
         .filter(|w| w.starts_with('@') && w.len() > 1)
-        .map(|w| w.trim_start_matches('@').trim_matches(|c: char| !c.is_alphanumeric()))
+        .map(|w| {
+            w.trim_start_matches('@')
+                .trim_matches(|c: char| !c.is_alphanumeric())
+        })
         .collect();
 
     if mention_tokens.is_empty() {
@@ -219,13 +230,19 @@ mod tests {
         .await
         .unwrap();
 
-        let list = get_user_notifications(u2.clone(), u2.clone()).await.unwrap();
+        let list = get_user_notifications(u2.clone(), u2.clone())
+            .await
+            .unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].id, notif.id);
         assert!(!list[0].is_read);
 
-        mark_notification_read(u2.clone(), notif.id.clone()).await.unwrap();
-        let list_updated = get_user_notifications(u2.clone(), u2.clone()).await.unwrap();
+        mark_notification_read(u2.clone(), notif.id.clone())
+            .await
+            .unwrap();
+        let list_updated = get_user_notifications(u2.clone(), u2.clone())
+            .await
+            .unwrap();
         assert!(list_updated[0].is_read);
     }
 }

@@ -1,10 +1,12 @@
+use crate::AttendanceRecord;
 use crate::database;
 use crate::infra::errors::YntraError;
 use crate::infra::observer::notify_observers;
 use crate::services::notes::verify_zkp_if_encrypted;
-use crate::services::school::auth::{verify_school_write_zkp, verify_school_permission, verify_student_access};
+use crate::services::school::auth::{
+    verify_school_permission, verify_school_write_zkp, verify_student_access,
+};
 use crate::services::school::conflicts::record_school_conflict;
-use crate::AttendanceRecord;
 
 #[uniffi::export]
 pub async fn get_attendance_records(
@@ -16,7 +18,9 @@ pub async fn get_attendance_records(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let mut stmt = conn
@@ -50,7 +54,9 @@ pub async fn save_attendance_record(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != record.workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
@@ -58,7 +64,15 @@ pub async fn save_attendance_record(
 
     let team_id = "";
     if let Some(ref notes) = record.notes {
-        verify_zkp_if_encrypted(&conn, notes, &auth.user_id, &auth.role, &record.workspace_id, team_id).await?;
+        verify_zkp_if_encrypted(
+            &conn,
+            notes,
+            &auth.user_id,
+            &auth.role,
+            &record.workspace_id,
+            team_id,
+        )
+        .await?;
     }
 
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -79,7 +93,11 @@ pub async fn save_attendance_record(
     let mut status = record.status.clone();
     let mut notes = record.notes.clone();
 
-    let incoming_updated_at = if record.updated_at > now_ms + 5000 { now_ms } else { record.updated_at };
+    let incoming_updated_at = if record.updated_at > now_ms + 5000 {
+        now_ms
+    } else {
+        record.updated_at
+    };
     if let Some((old_status, old_notes, old_updated_at)) = existing {
         if old_updated_at > incoming_updated_at {
             let status_diff = old_status != record.status;
@@ -103,8 +121,15 @@ pub async fn save_attendance_record(
                         }
                     ]
                 });
-                
-                record_school_conflict(&conn, &record.workspace_id, "attendance_records", &record.id, mvr).await?;
+
+                record_school_conflict(
+                    &conn,
+                    &record.workspace_id,
+                    "attendance_records",
+                    &record.id,
+                    mvr,
+                )
+                .await?;
 
                 // Keep database clean using Last-Write-Wins (which is the database version, since old_updated_at > record.updated_at)
                 status = old_status;
@@ -143,7 +168,9 @@ pub async fn report_student_absence(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
@@ -179,7 +206,9 @@ pub async fn get_student_attendance_records(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     verify_student_access(&conn, &auth, &student_id).await?;

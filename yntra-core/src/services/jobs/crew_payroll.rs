@@ -20,10 +20,14 @@ async fn distribute_job_customer_tip_inner(
         .map_err(|_| YntraError::NotFoundError("Job ticket not found".to_string()))?;
 
     if auth.workspace_id != ws_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
-    let crew = crate::services::jobs::get_job_crew(requester_user_id.clone(), job_ticket_id.clone()).await?;
+    let crew =
+        crate::services::jobs::get_job_crew(requester_user_id.clone(), job_ticket_id.clone())
+            .await?;
     let crew_count = crew.len().max(1) as i32;
     let tip_per_member = (total_tip_amount_sek.max(0.0) / crew_count as f64).round();
 
@@ -64,7 +68,8 @@ pub async fn distribute_job_customer_tip(
     job_ticket_id: String,
     total_tip_amount_sek: f64,
 ) -> Result<CrewTipDistribution, YntraError> {
-    let fut = distribute_job_customer_tip_inner(requester_user_id, job_ticket_id, total_tip_amount_sek);
+    let fut =
+        distribute_job_customer_tip_inner(requester_user_id, job_ticket_id, total_tip_amount_sek);
     crate::database::wasm::SendFuture::new(fut).await
 }
 
@@ -149,7 +154,9 @@ async fn calculate_mover_job_payroll_split_inner(
         .map_err(|_| YntraError::NotFoundError("Job ticket not found".to_string()))?;
 
     if auth.workspace_id != ws_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     // Determine crew member role (driver vs mover)
@@ -162,11 +169,12 @@ async fn calculate_mover_job_payroll_split_inner(
         .await
         .unwrap_or_else(|_| "mover".to_string());
 
-    let driving_rate = if role.to_lowercase().contains("driver") || role.to_lowercase().contains("förare") {
-        230.0
-    } else {
-        210.0
-    };
+    let driving_rate =
+        if role.to_lowercase().contains("driver") || role.to_lowercase().contains("förare") {
+            230.0
+        } else {
+            210.0
+        };
 
     let loading_rate = 185.0;
 
@@ -217,7 +225,14 @@ pub async fn calculate_mover_job_payroll_split(
     loading_hours: f64,
     is_overnight_per_diem: bool,
 ) -> Result<MoverPayrollBreakdown, YntraError> {
-    let fut = calculate_mover_job_payroll_split_inner(requester_user_id, job_ticket_id, user_id, driving_hours, loading_hours, is_overnight_per_diem);
+    let fut = calculate_mover_job_payroll_split_inner(
+        requester_user_id,
+        job_ticket_id,
+        user_id,
+        driving_hours,
+        loading_hours,
+        is_overnight_per_diem,
+    );
     crate::database::wasm::SendFuture::new(fut).await
 }
 
@@ -231,5 +246,13 @@ pub async fn calculate_mover_job_payroll_split(
     loading_hours: f64,
     is_overnight_per_diem: bool,
 ) -> Result<MoverPayrollBreakdown, YntraError> {
-    calculate_mover_job_payroll_split_inner(requester_user_id, job_ticket_id, user_id, driving_hours, loading_hours, is_overnight_per_diem).await
+    calculate_mover_job_payroll_split_inner(
+        requester_user_id,
+        job_ticket_id,
+        user_id,
+        driving_hours,
+        loading_hours,
+        is_overnight_per_diem,
+    )
+    .await
 }

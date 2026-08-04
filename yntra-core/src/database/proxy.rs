@@ -1,5 +1,5 @@
 use crate::database;
-use crate::{YntraError, ZkCryptoTrust, ZeroCopyStore};
+use crate::{YntraError, ZeroCopyStore, ZkCryptoTrust};
 use std::sync::Arc;
 
 fn find_ignore_ascii_case(haystack: &str, needle: &str) -> Option<usize> {
@@ -49,7 +49,10 @@ fn parse_insert_columns_and_values(
         if let Some(end_cols) = cleaned[start_cols..].find(')') {
             let cols_str = &cleaned[start_cols + 1..start_cols + end_cols];
             for (idx, col) in cols_str.split(',').enumerate() {
-                let col_clean = col.trim().trim_matches(|c| c == '`' || c == '"' || c == '\'').to_lowercase();
+                let col_clean = col
+                    .trim()
+                    .trim_matches(|c| c == '`' || c == '"' || c == '\'')
+                    .to_lowercase();
                 if idx < params.len() {
                     map.insert(col_clean, params[idx].clone());
                 }
@@ -59,10 +62,7 @@ fn parse_insert_columns_and_values(
     map
 }
 
-fn normalize_clock_skew(
-    sql: &str,
-    params: &mut [serde_json::Value],
-) {
+fn normalize_clock_skew(sql: &str, params: &mut [serde_json::Value]) {
     if params.is_empty() || !contains_ignore_ascii_case(sql, "updated_at") {
         return;
     }
@@ -70,17 +70,22 @@ fn normalize_clock_skew(
     let now_ms = crate::infra::time::get_current_time_ms();
 
     // 1. Handle INSERT / REPLACE statements
-    if contains_ignore_ascii_case(&cleaned, "insert") || contains_ignore_ascii_case(&cleaned, "replace") {
+    if contains_ignore_ascii_case(&cleaned, "insert")
+        || contains_ignore_ascii_case(&cleaned, "replace")
+    {
         if let Some(start_cols) = cleaned.find('(') {
             if let Some(end_cols) = cleaned[start_cols..].find(')') {
                 let cols_str = &cleaned[start_cols + 1..start_cols + end_cols];
                 for (idx, col) in cols_str.split(',').enumerate() {
-                    let col_clean = col.trim().trim_matches(|c| c == '`' || c == '"' || c == '\'');
+                    let col_clean = col
+                        .trim()
+                        .trim_matches(|c| c == '`' || c == '"' || c == '\'');
                     if col_clean.eq_ignore_ascii_case("updated_at") && idx < params.len() {
                         if let Some(client_time) = params[idx].as_i64() {
                             // If client timestamp is in the future (plus a small 5-second tolerance for delays)
                             if client_time > now_ms + 5000 {
-                                params[idx] = serde_json::Value::Number(serde_json::Number::from(now_ms));
+                                params[idx] =
+                                    serde_json::Value::Number(serde_json::Number::from(now_ms));
                             }
                         }
                     }
@@ -95,16 +100,19 @@ fn normalize_clock_skew(
             if let Some(q_pos) = search_slice.find('?') {
                 let start_digits = pos + q_pos + 1;
                 let mut end_digits = start_digits;
-                while end_digits < cleaned.len() && cleaned.as_bytes()[end_digits].is_ascii_digit() {
+                while end_digits < cleaned.len() && cleaned.as_bytes()[end_digits].is_ascii_digit()
+                {
                     end_digits += 1;
                 }
                 if end_digits > start_digits {
-                    if let Ok(param_idx_1based) = cleaned[start_digits..end_digits].parse::<usize>() {
+                    if let Ok(param_idx_1based) = cleaned[start_digits..end_digits].parse::<usize>()
+                    {
                         let param_idx = param_idx_1based - 1;
                         if param_idx < params.len() {
                             if let Some(client_time) = params[param_idx].as_i64() {
                                 if client_time > now_ms + 5000 {
-                                    params[param_idx] = serde_json::Value::Number(serde_json::Number::from(now_ms));
+                                    params[param_idx] =
+                                        serde_json::Value::Number(serde_json::Number::from(now_ms));
                                 }
                             }
                         }
@@ -167,7 +175,9 @@ impl RemoteSyncCoordinator {
 
         if is_proof_required {
             let proof = role_proof.ok_or_else(|| {
-                YntraError::AuthError("Zero-Knowledge Role Proof is required for write operations".to_string())
+                YntraError::AuthError(
+                    "Zero-Knowledge Role Proof is required for write operations".to_string(),
+                )
             })?;
 
             #[cfg(not(target_arch = "wasm32"))]
@@ -187,7 +197,12 @@ impl RemoteSyncCoordinator {
             #[cfg(target_arch = "wasm32")]
             let is_valid = {
                 let trust = ZkCryptoTrust::new();
-                trust.verify_proof(proof, requester_user_id.clone(), role.clone(), public_key_hex.clone())
+                trust.verify_proof(
+                    proof,
+                    requester_user_id.clone(),
+                    role.clone(),
+                    public_key_hex.clone(),
+                )
             };
 
             if !is_valid {
@@ -209,7 +224,10 @@ impl RemoteSyncCoordinator {
 
         // 4. Enforce server-side Role-Based Access Control (RBAC) validations on SQL write payloads
         let role_lower = role.to_lowercase();
-        let is_unprivileged = role_lower == "student" || role_lower == "role-school-student" || role_lower == "parent" || role_lower == "role-school-parent";
+        let is_unprivileged = role_lower == "student"
+            || role_lower == "role-school-student"
+            || role_lower == "parent"
+            || role_lower == "role-school-parent";
 
         if is_unprivileged {
             let table_name_opt = database::parser::extract_table_name(&sql);
@@ -229,14 +247,16 @@ impl RemoteSyncCoordinator {
                 if let Some(grade) = col_vals.get("grade") {
                     if !grade.is_null() && grade.as_str() != Some("") {
                         return Err(YntraError::AuthError(
-                            "Access denied: Students and Parents cannot set or modify grades".to_string(),
+                            "Access denied: Students and Parents cannot set or modify grades"
+                                .to_string(),
                         ));
                     }
                 }
                 if let Some(feedback) = col_vals.get("feedback") {
                     if !feedback.is_null() && feedback.as_str() != Some("") {
                         return Err(YntraError::AuthError(
-                            "Access denied: Students and Parents cannot set or modify feedback".to_string(),
+                            "Access denied: Students and Parents cannot set or modify feedback"
+                                .to_string(),
                         ));
                     }
                 }
@@ -277,7 +297,8 @@ impl RemoteSyncCoordinator {
 
                         if !authorized {
                             return Err(YntraError::AuthError(
-                                "Access denied: You are not authorized to submit for this student".to_string(),
+                                "Access denied: You are not authorized to submit for this student"
+                                    .to_string(),
                             ));
                         }
                     }
@@ -290,23 +311,34 @@ impl RemoteSyncCoordinator {
             } else if table_name == "library_lending_logs" {
                 let lower_sql = sql.to_lowercase();
                 if lower_sql.contains("update") {
-                    let log_id = parsed_params.iter().find(|v| v.is_string() && (v.as_str().unwrap().starts_with("log-") || v.as_str().unwrap().starts_with("lend-")));
+                    let log_id = parsed_params.iter().find(|v| {
+                        v.is_string()
+                            && (v.as_str().unwrap().starts_with("log-")
+                                || v.as_str().unwrap().starts_with("lend-"))
+                    });
                     if let Some(log_id_val) = log_id {
                         let log_id_str = log_id_val.as_str().unwrap();
-                        let student_id: Option<String> = conn.query_row(
-                            "SELECT student_id FROM library_lending_logs WHERE id = ?1",
-                            crate::params![log_id_str],
-                            |r| r.get(0)
-                        ).await.ok();
+                        let student_id: Option<String> = conn
+                            .query_row(
+                                "SELECT student_id FROM library_lending_logs WHERE id = ?1",
+                                crate::params![log_id_str],
+                                |r| r.get(0),
+                            )
+                            .await
+                            .ok();
 
                         if let Some(sid) = student_id {
                             let mut authorized = false;
                             if role_lower == "student" || role_lower == "role-school-student" {
-                                let profile_uid: Option<String> = conn.query_row(
-                                    "SELECT user_id FROM student_profiles WHERE id = ?1",
-                                    crate::params![&sid],
-                                    |r| r.get(0)
-                                ).await.ok().flatten();
+                                let profile_uid: Option<String> = conn
+                                    .query_row(
+                                        "SELECT user_id FROM student_profiles WHERE id = ?1",
+                                        crate::params![&sid],
+                                        |r| r.get(0),
+                                    )
+                                    .await
+                                    .ok()
+                                    .flatten();
                                 if let Some(uid) = profile_uid {
                                     if uid == requester_user_id {
                                         authorized = true;
@@ -326,13 +358,19 @@ impl RemoteSyncCoordinator {
                                 return Err(YntraError::AuthError("Access denied: You are not authorized to modify this library log".to_string()));
                             }
                         } else {
-                            return Err(YntraError::NotFoundError("Lending log not found".to_string()));
+                            return Err(YntraError::NotFoundError(
+                                "Lending log not found".to_string(),
+                            ));
                         }
                     } else {
-                        return Err(YntraError::ValidationError("Missing library log ID".to_string()));
+                        return Err(YntraError::ValidationError(
+                            "Missing library log ID".to_string(),
+                        ));
                     }
                 } else {
-                    return Err(YntraError::AuthError("Access denied: Students/Parents can only update library logs".to_string()));
+                    return Err(YntraError::AuthError(
+                        "Access denied: Students/Parents can only update library logs".to_string(),
+                    ));
                 }
             } else {
                 return Err(YntraError::AuthError(format!(
@@ -436,7 +474,9 @@ impl RemoteSyncCoordinator {
 
         if is_proof_required {
             let proof = role_proof.ok_or_else(|| {
-                YntraError::AuthError("Zero-Knowledge Role Proof is required for write operations".to_string())
+                YntraError::AuthError(
+                    "Zero-Knowledge Role Proof is required for write operations".to_string(),
+                )
             })?;
 
             if !trust.verify_proof(
@@ -475,7 +515,8 @@ impl RemoteSyncCoordinator {
         }
 
         // 4. Apply to the primary store
-        store.apply_loro_update(update_bytes)
+        store
+            .apply_loro_update(update_bytes)
             .map_err(|e| YntraError::SyncError(e.to_string()))?;
 
         Ok(())
@@ -524,7 +565,9 @@ impl RemoteSyncCoordinator {
 
         if is_proof_required {
             let proof = role_proof.ok_or_else(|| {
-                YntraError::AuthError("Zero-Knowledge Role Proof is required for sync operations".to_string())
+                YntraError::AuthError(
+                    "Zero-Knowledge Role Proof is required for sync operations".to_string(),
+                )
             })?;
 
             let trust = ZkCryptoTrust::new();
@@ -567,7 +610,11 @@ impl RemoteSyncCoordinator {
                     let place_holders = if student_ids.is_empty() {
                         "''".to_string()
                     } else {
-                        student_ids.iter().map(|id| format!("'{}'", id.replace('\'', "''"))).collect::<Vec<_>>().join(",")
+                        student_ids
+                            .iter()
+                            .map(|id| format!("'{}'", id.replace('\'', "''")))
+                            .collect::<Vec<_>>()
+                            .join(",")
                     };
                     let query = format!(
                         "SELECT id, workspace_id, user_id, first_name, last_name, grade_level, parent_contact, updated_at FROM student_profiles WHERE workspace_id = ?1 AND (user_id = ?2 OR id IN ({}))",
@@ -581,7 +628,8 @@ impl RemoteSyncCoordinator {
                 } else if is_privileged {
                     stmt.query(crate::params![&auth.workspace_id]).await?
                 } else {
-                    stmt.query(crate::params![&auth.workspace_id, &auth.user_id]).await?
+                    stmt.query(crate::params![&auth.workspace_id, &auth.user_id])
+                        .await?
                 };
 
                 let mut list = Vec::new();
@@ -611,7 +659,11 @@ impl RemoteSyncCoordinator {
                     let place_holders = if student_ids.is_empty() {
                         "''".to_string()
                     } else {
-                        student_ids.iter().map(|id| format!("'{}'", id.replace('\'', "''"))).collect::<Vec<_>>().join(",")
+                        student_ids
+                            .iter()
+                            .map(|id| format!("'{}'", id.replace('\'', "''")))
+                            .collect::<Vec<_>>()
+                            .join(",")
                     };
                     let query = format!(
                         "SELECT id, workspace_id, student_id, course_id, date, status, notes, updated_at FROM attendance_records WHERE workspace_id = ?1 AND student_id IN ({})",
@@ -652,7 +704,11 @@ impl RemoteSyncCoordinator {
                     let place_holders = if student_ids.is_empty() {
                         "''".to_string()
                     } else {
-                        student_ids.iter().map(|id| format!("'{}'", id.replace('\'', "''"))).collect::<Vec<_>>().join(",")
+                        student_ids
+                            .iter()
+                            .map(|id| format!("'{}'", id.replace('\'', "''")))
+                            .collect::<Vec<_>>()
+                            .join(",")
                     };
                     let query = format!(
                         "SELECT id, workspace_id, student_id, visit_reason, treatment, checked_in_at, checked_out_at, notes, updated_at FROM health_incidents WHERE workspace_id = ?1 AND student_id IN ({})",
@@ -695,7 +751,11 @@ impl RemoteSyncCoordinator {
                     let place_holders = if student_ids.is_empty() {
                         "''".to_string()
                     } else {
-                        student_ids.iter().map(|id| format!("'{}'", id.replace('\'', "''"))).collect::<Vec<_>>().join(",")
+                        student_ids
+                            .iter()
+                            .map(|id| format!("'{}'", id.replace('\'', "''")))
+                            .collect::<Vec<_>>()
+                            .join(",")
                     };
                     let query = format!(
                         "SELECT id, workspace_id, student_id, course_id, term_name, final_grade, final_points, teacher_comments, updated_at FROM term_grades WHERE workspace_id = ?1 AND student_id IN ({})",
@@ -799,7 +859,11 @@ impl RemoteSyncCoordinator {
                     let place_holders = if student_ids.is_empty() {
                         "''".to_string()
                     } else {
-                        student_ids.iter().map(|id| format!("'{}'", id.replace('\'', "''"))).collect::<Vec<_>>().join(",")
+                        student_ids
+                            .iter()
+                            .map(|id| format!("'{}'", id.replace('\'', "''")))
+                            .collect::<Vec<_>>()
+                            .join(",")
                     };
                     let query = format!(
                         "SELECT id, workspace_id, student_id, title, amount, due_date, status, paid_at, updated_at FROM school_invoices WHERE workspace_id = ?1 AND student_id IN ({})",
@@ -841,7 +905,11 @@ impl RemoteSyncCoordinator {
                     let place_holders = if student_ids.is_empty() {
                         "''".to_string()
                     } else {
-                        student_ids.iter().map(|id| format!("'{}'", id.replace('\'', "''"))).collect::<Vec<_>>().join(",")
+                        student_ids
+                            .iter()
+                            .map(|id| format!("'{}'", id.replace('\'', "''")))
+                            .collect::<Vec<_>>()
+                            .join(",")
                     };
                     let query = format!(
                         "SELECT id, workspace_id, assignment_id, student_id, content, grade, feedback, submitted_at, updated_at FROM submissions WHERE workspace_id = ?1 AND student_id IN ({})",
@@ -884,7 +952,11 @@ impl RemoteSyncCoordinator {
                     let place_holders = if student_ids.is_empty() {
                         "''".to_string()
                     } else {
-                        student_ids.iter().map(|id| format!("'{}'", id.replace('\'', "''"))).collect::<Vec<_>>().join(",")
+                        student_ids
+                            .iter()
+                            .map(|id| format!("'{}'", id.replace('\'', "''")))
+                            .collect::<Vec<_>>()
+                            .join(",")
                     };
                     let query = format!(
                         "SELECT id, workspace_id, student_id, vaccine_name, status, administered_at, updated_at FROM health_records WHERE workspace_id = ?1 AND student_id IN ({})",
@@ -924,7 +996,11 @@ impl RemoteSyncCoordinator {
                     let place_holders = if student_ids.is_empty() {
                         "''".to_string()
                     } else {
-                        student_ids.iter().map(|id| format!("'{}'", id.replace('\'', "''"))).collect::<Vec<_>>().join(",")
+                        student_ids
+                            .iter()
+                            .map(|id| format!("'{}'", id.replace('\'', "''")))
+                            .collect::<Vec<_>>()
+                            .join(",")
                     };
                     let query = format!(
                         "SELECT id, workspace_id, student_id, term_name, gpa, principal_comments, status, updated_at FROM report_cards WHERE workspace_id = ?1 AND student_id IN ({})",
@@ -994,7 +1070,11 @@ impl RemoteSyncCoordinator {
                     let place_holders = if student_ids.is_empty() {
                         "''".to_string()
                     } else {
-                        student_ids.iter().map(|id| format!("'{}'", id.replace('\'', "''"))).collect::<Vec<_>>().join(",")
+                        student_ids
+                            .iter()
+                            .map(|id| format!("'{}'", id.replace('\'', "''")))
+                            .collect::<Vec<_>>()
+                            .join(",")
                     };
                     let query = format!(
                         "SELECT id, workspace_id, book_id, student_id, checked_out_at, due_date, returned_at, status, updated_at FROM library_lending_logs WHERE workspace_id = ?1 AND student_id IN ({})",
@@ -1036,7 +1116,11 @@ impl RemoteSyncCoordinator {
                     let place_holders = if student_ids.is_empty() {
                         "''".to_string()
                     } else {
-                        student_ids.iter().map(|id| format!("'{}'", id.replace('\'', "''"))).collect::<Vec<_>>().join(",")
+                        student_ids
+                            .iter()
+                            .map(|id| format!("'{}'", id.replace('\'', "''")))
+                            .collect::<Vec<_>>()
+                            .join(",")
                     };
                     let query = format!(
                         "SELECT id, workspace_id, invoice_id, amount, payment_method, paid_at, updated_at FROM school_payments WHERE workspace_id = ?1 AND invoice_id IN (SELECT id FROM school_invoices WHERE student_id IN ({}))",
@@ -1087,7 +1171,7 @@ impl RemoteSyncCoordinator {
                     let destination_address: Option<String> = row.get(14)?;
                     let assigned_vehicle_id: Option<String> = row.get(21)?;
                     let route_stops_json: Option<String> = row.get(22)?;
-                    
+
                     let item = serde_json::json!({
                         "id": row.get::<String>(0)?,
                         "workspace_id": row.get::<String>(1)?,
@@ -1261,8 +1345,7 @@ impl RemoteSyncCoordinator {
             }
         };
 
-        serde_json::to_string(&json_rows)
-            .map_err(|e| YntraError::SerializationError(e.to_string()))
+        serde_json::to_string(&json_rows).map_err(|e| YntraError::SerializationError(e.to_string()))
     }
 }
 
@@ -1276,7 +1359,9 @@ async fn get_authorized_student_ids_helper(
         let mut stmt = conn
             .prepare("SELECT id FROM student_profiles WHERE user_id = ?1 AND workspace_id = ?2")
             .await?;
-        let mut rows = stmt.query(crate::params![&auth.user_id, &auth.workspace_id]).await?;
+        let mut rows = stmt
+            .query(crate::params![&auth.user_id, &auth.workspace_id])
+            .await?;
         while let Some(row) = rows.next().await? {
             let id: String = row.get(0)?;
             student_ids.push(id);
@@ -1285,7 +1370,9 @@ async fn get_authorized_student_ids_helper(
         let mut stmt = conn
             .prepare("SELECT student_id FROM student_parents WHERE parent_user_id = ?1 AND workspace_id = ?2")
             .await?;
-        let mut rows = stmt.query(crate::params![&auth.user_id, &auth.workspace_id]).await?;
+        let mut rows = stmt
+            .query(crate::params![&auth.user_id, &auth.workspace_id])
+            .await?;
         while let Some(row) = rows.next().await? {
             let student_id: String = row.get(0)?;
             student_ids.push(student_id);
@@ -1312,7 +1399,8 @@ mod tests {
 
         let metadata = serde_json::json!({
             "public_key": public_key_hex
-        }).to_string();
+        })
+        .to_string();
 
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-proxy', 'Proxy WS', '[]', '{}')", ()).await.unwrap();
         conn.execute(
@@ -1323,29 +1411,43 @@ mod tests {
         let coordinator = RemoteSyncCoordinator::new();
 
         // 2. Generate a valid proof
-        let valid_proof = trust.generate_role_proof(passkey_seed.clone(), "u-proxy-tester".to_string(), "Admin".to_string()).unwrap();
+        let valid_proof = trust
+            .generate_role_proof(
+                passkey_seed.clone(),
+                "u-proxy-tester".to_string(),
+                "Admin".to_string(),
+            )
+            .unwrap();
 
         // 3. Verify valid SQL write transaction executes successfully
         let sql = "INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-proxy-updated', 'Updated Proxy WS', '[]', '{}')";
-        let res = coordinator.verify_and_execute_write(
-            "u-proxy-tester".to_string(),
-            "Admin".to_string(),
-            Some(valid_proof.clone()),
-            sql.to_string(),
-            "[]".to_string(),
-        ).await;
+        let res = coordinator
+            .verify_and_execute_write(
+                "u-proxy-tester".to_string(),
+                "Admin".to_string(),
+                Some(valid_proof.clone()),
+                sql.to_string(),
+                "[]".to_string(),
+            )
+            .await;
 
-        assert!(res.is_ok(), "Valid ZKP write transaction was rejected: {:?}", res.err());
+        assert!(
+            res.is_ok(),
+            "Valid ZKP write transaction was rejected: {:?}",
+            res.err()
+        );
 
         // 4. Verify invalid/tampered proof is rejected
         let invalid_proof = valid_proof.clone() + "tampered";
-        let res_invalid = coordinator.verify_and_execute_write(
-            "u-proxy-tester".to_string(),
-            "Admin".to_string(),
-            Some(invalid_proof),
-            sql.to_string(),
-            "[]".to_string(),
-        ).await;
+        let res_invalid = coordinator
+            .verify_and_execute_write(
+                "u-proxy-tester".to_string(),
+                "Admin".to_string(),
+                Some(invalid_proof),
+                sql.to_string(),
+                "[]".to_string(),
+            )
+            .await;
 
         assert!(res_invalid.is_err(), "Invalid/tampered proof was accepted");
         if let Err(e) = res_invalid {
@@ -1353,20 +1455,31 @@ mod tests {
         }
 
         // 5. Verify mismatched role is rejected
-        let res_mismatched_role = coordinator.verify_and_execute_write(
-            "u-proxy-tester".to_string(),
-            "Moderator".to_string(), // Mismatched role
-            Some(valid_proof),
-            sql.to_string(),
-            "[]".to_string(),
-        ).await;
+        let res_mismatched_role = coordinator
+            .verify_and_execute_write(
+                "u-proxy-tester".to_string(),
+                "Moderator".to_string(), // Mismatched role
+                Some(valid_proof),
+                sql.to_string(),
+                "[]".to_string(),
+            )
+            .await;
 
-        assert!(res_mismatched_role.is_err(), "Mismatched role proof was accepted");
+        assert!(
+            res_mismatched_role.is_err(),
+            "Mismatched role proof was accepted"
+        );
 
         // Cleanup
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-proxy'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-proxy'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-proxy-updated'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-proxy'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-proxy'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-proxy-updated'", ())
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -1381,7 +1494,8 @@ mod tests {
 
         let metadata = serde_json::json!({
             "public_key": public_key_hex
-        }).to_string();
+        })
+        .to_string();
 
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-proxy', 'Proxy WS', '[]', '{}')", ()).await.unwrap();
         conn.execute(
@@ -1395,10 +1509,13 @@ mod tests {
         // 2. Generate a valid Loro update (compliant with TodoItem schema)
         let doc_a = loro::LoroDoc::new();
         let db_map = doc_a.get_map("db");
-        let m = db_map.insert_container("todo-1", loro::LoroMap::new()).unwrap();
+        let m = db_map
+            .insert_container("todo-1", loro::LoroMap::new())
+            .unwrap();
         m.insert("id", uuid::Uuid::new_v4().to_string()).unwrap();
         m.insert("workspace_id", "ws-proxy".to_string()).unwrap();
-        m.insert("text", "Valid Loro Todo Item".to_string()).unwrap();
+        m.insert("text", "Valid Loro Todo Item".to_string())
+            .unwrap();
         m.insert("completed", false).unwrap();
         m.insert("updated_at", 12345i64).unwrap();
         m.insert("sync_status", "pending".to_string()).unwrap();
@@ -1406,65 +1523,82 @@ mod tests {
         let update_hex = const_hex::encode(&update_bytes);
 
         // Generate valid compliance & role proofs
-        let comp_proof = trust.generate_compliance_proof(
-            passkey_seed.clone(),
-            update_hex.clone(),
-            "u-proxy-tester".to_string(),
-            "Admin".to_string(),
-        ).unwrap();
+        let comp_proof = trust
+            .generate_compliance_proof(
+                passkey_seed.clone(),
+                update_hex.clone(),
+                "u-proxy-tester".to_string(),
+                "Admin".to_string(),
+            )
+            .unwrap();
 
-        let role_proof = trust.generate_role_proof(
-            passkey_seed.clone(),
-            "u-proxy-tester".to_string(),
-            "Admin".to_string(),
-        ).unwrap();
+        let role_proof = trust
+            .generate_role_proof(
+                passkey_seed.clone(),
+                "u-proxy-tester".to_string(),
+                "Admin".to_string(),
+            )
+            .unwrap();
 
         // 3. Verify valid Loro sync passes verification
-        let res = coordinator.verify_and_apply_loro_sync(
-            "u-proxy-tester".to_string(),
-            "Admin".to_string(),
-            Some(role_proof.clone()),
-            Some(comp_proof.clone()),
-            update_hex.clone(),
-            store.clone(),
-        ).await;
+        let res = coordinator
+            .verify_and_apply_loro_sync(
+                "u-proxy-tester".to_string(),
+                "Admin".to_string(),
+                Some(role_proof.clone()),
+                Some(comp_proof.clone()),
+                update_hex.clone(),
+                store.clone(),
+            )
+            .await;
 
         assert!(res.is_ok(), "Valid Loro sync was rejected: {:?}", res.err());
 
         // 4. Verify invalid Loro sync (violating schema constraints) is rejected
         let doc_b = loro::LoroDoc::new();
         let db_map_b = doc_b.get_map("db");
-        let m = db_map_b.insert_container("todo-2", loro::LoroMap::new()).unwrap();
+        let m = db_map_b
+            .insert_container("todo-2", loro::LoroMap::new())
+            .unwrap();
         m.insert("id", "invalid-uuid-format".to_string()).unwrap(); // Violates UUID schema
         m.insert("workspace_id", "ws-proxy".to_string()).unwrap();
-        m.insert("text", "Invalid Loro Todo Item".to_string()).unwrap();
+        m.insert("text", "Invalid Loro Todo Item".to_string())
+            .unwrap();
         m.insert("completed", false).unwrap();
         m.insert("updated_at", 12345i64).unwrap();
         m.insert("sync_status", "pending".to_string()).unwrap();
         let bad_update_bytes = doc_b.export(loro::ExportMode::Snapshot).unwrap();
         let bad_update_hex = const_hex::encode(&bad_update_bytes);
 
-        let bad_comp_proof = trust.generate_compliance_proof(
-            passkey_seed.clone(),
-            bad_update_hex.clone(),
-            "u-proxy-tester".to_string(),
-            "Admin".to_string(),
-        ).unwrap();
+        let bad_comp_proof = trust
+            .generate_compliance_proof(
+                passkey_seed.clone(),
+                bad_update_hex.clone(),
+                "u-proxy-tester".to_string(),
+                "Admin".to_string(),
+            )
+            .unwrap();
 
-        let res_bad = coordinator.verify_and_apply_loro_sync(
-            "u-proxy-tester".to_string(),
-            "Admin".to_string(),
-            Some(role_proof.clone()),
-            Some(bad_comp_proof.clone()),
-            bad_update_hex.clone(),
-            store.clone(),
-        ).await;
+        let res_bad = coordinator
+            .verify_and_apply_loro_sync(
+                "u-proxy-tester".to_string(),
+                "Admin".to_string(),
+                Some(role_proof.clone()),
+                Some(bad_comp_proof.clone()),
+                bad_update_hex.clone(),
+                store.clone(),
+            )
+            .await;
 
         assert!(res_bad.is_err(), "Invalid schema sync was accepted");
 
         // Cleanup
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-proxy'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-proxy'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-proxy'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-proxy'", ())
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -1488,7 +1622,7 @@ mod tests {
         let meta_parent = serde_json::json!({ "public_key": pk_parent }).to_string();
 
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-partition-test', 'Partition WS', '[]', '{}')", ()).await.unwrap();
-        
+
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-admin-p', 'ws-partition-test', 'admin@part.com', 'admin', ?1)", crate::params![&meta_admin]).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-student-p', 'ws-partition-test', 'stud@part.com', 'student', ?1)", crate::params![&meta_student]).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-parent-p', 'ws-partition-test', 'parent@part.com', 'parent', ?1)", crate::params![&meta_parent]).await.unwrap();
@@ -1512,18 +1646,52 @@ mod tests {
         let coordinator = RemoteSyncCoordinator::new();
 
         // 3. Generate ZK proofs
-        let proof_admin = trust.generate_role_proof(passkey_admin.clone(), "u-admin-p".to_string(), "admin".to_string()).unwrap();
-        let proof_student = trust.generate_role_proof(passkey_student.clone(), "u-student-p".to_string(), "student".to_string()).unwrap();
-        let proof_parent = trust.generate_role_proof(passkey_parent.clone(), "u-parent-p".to_string(), "parent".to_string()).unwrap();
+        let proof_admin = trust
+            .generate_role_proof(
+                passkey_admin.clone(),
+                "u-admin-p".to_string(),
+                "admin".to_string(),
+            )
+            .unwrap();
+        let proof_student = trust
+            .generate_role_proof(
+                passkey_student.clone(),
+                "u-student-p".to_string(),
+                "student".to_string(),
+            )
+            .unwrap();
+        let proof_parent = trust
+            .generate_role_proof(
+                passkey_parent.clone(),
+                "u-parent-p".to_string(),
+                "parent".to_string(),
+            )
+            .unwrap();
 
         // 4. Verify Admin receives all rows
-        let payload_admin = coordinator.generate_partitioned_sync_payload("u-admin-p".to_string(), "admin".to_string(), Some(proof_admin), "term_grades".to_string()).await.unwrap();
+        let payload_admin = coordinator
+            .generate_partitioned_sync_payload(
+                "u-admin-p".to_string(),
+                "admin".to_string(),
+                Some(proof_admin),
+                "term_grades".to_string(),
+            )
+            .await
+            .unwrap();
         let json_admin: serde_json::Value = serde_json::from_str(&payload_admin).unwrap();
         let arr_admin = json_admin.as_array().unwrap();
         assert_eq!(arr_admin.len(), 3);
 
         // 5. Verify Student receives only their own row
-        let payload_student = coordinator.generate_partitioned_sync_payload("u-student-p".to_string(), "student".to_string(), Some(proof_student), "term_grades".to_string()).await.unwrap();
+        let payload_student = coordinator
+            .generate_partitioned_sync_payload(
+                "u-student-p".to_string(),
+                "student".to_string(),
+                Some(proof_student),
+                "term_grades".to_string(),
+            )
+            .await
+            .unwrap();
         let json_student: serde_json::Value = serde_json::from_str(&payload_student).unwrap();
         let arr_student = json_student.as_array().unwrap();
         assert_eq!(arr_student.len(), 1);
@@ -1531,7 +1699,15 @@ mod tests {
         assert_eq!(arr_student[0]["final_grade"].as_str().unwrap(), "A");
 
         // 6. Verify Parent receives only their child's row
-        let payload_parent = coordinator.generate_partitioned_sync_payload("u-parent-p".to_string(), "parent".to_string(), Some(proof_parent.clone()), "term_grades".to_string()).await.unwrap();
+        let payload_parent = coordinator
+            .generate_partitioned_sync_payload(
+                "u-parent-p".to_string(),
+                "parent".to_string(),
+                Some(proof_parent.clone()),
+                "term_grades".to_string(),
+            )
+            .await
+            .unwrap();
         let json_parent: serde_json::Value = serde_json::from_str(&payload_parent).unwrap();
         let arr_parent = json_parent.as_array().unwrap();
         assert_eq!(arr_parent.len(), 1);
@@ -1540,16 +1716,53 @@ mod tests {
 
         // 7. Verify invalid ZK proof is rejected
         let bad_proof = proof_parent + "invalid";
-        let res_bad = coordinator.generate_partitioned_sync_payload("u-parent-p".to_string(), "parent".to_string(), Some(bad_proof), "term_grades".to_string()).await;
-        assert!(res_bad.is_err(), "Access should be blocked under invalid ZK proof");
+        let res_bad = coordinator
+            .generate_partitioned_sync_payload(
+                "u-parent-p".to_string(),
+                "parent".to_string(),
+                Some(bad_proof),
+                "term_grades".to_string(),
+            )
+            .await;
+        assert!(
+            res_bad.is_err(),
+            "Access should be blocked under invalid ZK proof"
+        );
 
         // Cleanup
-        conn.execute("DELETE FROM term_grades WHERE workspace_id = 'ws-partition-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM courses WHERE workspace_id = 'ws-partition-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM student_parents WHERE workspace_id = 'ws-partition-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM student_profiles WHERE workspace_id = 'ws-partition-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-partition-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-partition-test'", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM term_grades WHERE workspace_id = 'ws-partition-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM courses WHERE workspace_id = 'ws-partition-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM student_parents WHERE workspace_id = 'ws-partition-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM student_profiles WHERE workspace_id = 'ws-partition-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM users WHERE workspace_id = 'ws-partition-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-partition-test'", ())
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -1570,7 +1783,7 @@ mod tests {
         let meta_parent = serde_json::json!({ "public_key": pk_parent }).to_string();
 
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-rbac-test', 'RBAC WS', '[]', '{}')", ()).await.unwrap();
-        
+
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-rbac-student', 'ws-rbac-test', 'stud@rbac.com', 'student', ?1)", crate::params![&meta_student]).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-rbac-parent', 'ws-rbac-test', 'parent@rbac.com', 'parent', ?1)", crate::params![&meta_parent]).await.unwrap();
 
@@ -1594,8 +1807,20 @@ mod tests {
         conn.execute("INSERT OR REPLACE INTO library_lending_logs (id, workspace_id, book_id, student_id, checked_out_at, due_date, status, updated_at) VALUES ('log-rbac-2', 'ws-rbac-test', 'book-2', 'stud-rbac-2', '2026-07-01', '2026-07-15', 'borrowed', 0)", ()).await.unwrap();
 
         let coordinator = RemoteSyncCoordinator::new();
-        let proof_student = trust.generate_role_proof(passkey_student.clone(), "u-rbac-student".to_string(), "student".to_string()).unwrap();
-        let proof_parent = trust.generate_role_proof(passkey_parent.clone(), "u-rbac-parent".to_string(), "parent".to_string()).unwrap();
+        let proof_student = trust
+            .generate_role_proof(
+                passkey_student.clone(),
+                "u-rbac-student".to_string(),
+                "student".to_string(),
+            )
+            .unwrap();
+        let proof_parent = trust
+            .generate_role_proof(
+                passkey_parent.clone(),
+                "u-rbac-parent".to_string(),
+                "parent".to_string(),
+            )
+            .unwrap();
 
         // A. Verify student writing to courses is rejected
         let res_course = coordinator.verify_and_execute_write(
@@ -1606,7 +1831,14 @@ mod tests {
             "[]".to_string()
         ).await;
         assert!(res_course.is_err(), "Student allowed to write to courses");
-        assert!(res_course.err().unwrap().to_string().contains("does not have write permissions"), "Mismatched error message");
+        assert!(
+            res_course
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("does not have write permissions"),
+            "Mismatched error message"
+        );
 
         // B. Verify student submitting with mismatched student_id is rejected
         let res_sub_mismatched = coordinator.verify_and_execute_write(
@@ -1616,7 +1848,10 @@ mod tests {
             "INSERT OR REPLACE INTO submissions (id, workspace_id, assignment_id, student_id, content, grade, feedback, submitted_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)".to_string(),
             "[\"sub-1\", \"ws-rbac-test\", \"assign-1\", \"stud-rbac-2\", \"content\", null, null, \"2026-07-20\", 0]".to_string()
         ).await;
-        assert!(res_sub_mismatched.is_err(), "Student allowed to write other student's submission");
+        assert!(
+            res_sub_mismatched.is_err(),
+            "Student allowed to write other student's submission"
+        );
 
         // C. Verify student submitting with grade set is rejected
         let res_sub_grade = coordinator.verify_and_execute_write(
@@ -1626,7 +1861,10 @@ mod tests {
             "INSERT OR REPLACE INTO submissions (id, workspace_id, assignment_id, student_id, content, grade, feedback, submitted_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)".to_string(),
             "[\"sub-2\", \"ws-rbac-test\", \"assign-1\", \"stud-rbac-1\", \"content\", \"A\", null, \"2026-07-20\", 0]".to_string()
         ).await;
-        assert!(res_sub_grade.is_err(), "Student allowed to write submission with grade");
+        assert!(
+            res_sub_grade.is_err(),
+            "Student allowed to write submission with grade"
+        );
 
         // D. Verify student submitting with valid owned profile & null grade/feedback is allowed
         let res_sub_ok = coordinator.verify_and_execute_write(
@@ -1636,7 +1874,11 @@ mod tests {
             "INSERT OR REPLACE INTO submissions (id, workspace_id, assignment_id, student_id, content, grade, feedback, submitted_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)".to_string(),
             "[\"sub-ok-1\", \"ws-rbac-test\", \"assign-1\", \"stud-rbac-1\", \"my answers\", null, null, \"2026-07-20\", 0]".to_string()
         ).await;
-        assert!(res_sub_ok.is_ok(), "Student valid submission rejected: {:?}", res_sub_ok.err());
+        assert!(
+            res_sub_ok.is_ok(),
+            "Student valid submission rejected: {:?}",
+            res_sub_ok.err()
+        );
 
         // E. Verify student renewing their own book log is allowed
         let res_renew_student = coordinator.verify_and_execute_write(
@@ -1646,7 +1888,11 @@ mod tests {
             "UPDATE library_lending_logs SET due_date = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3".to_string(),
             "[\"2026-08-01\", 12345, \"log-rbac-1\"]".to_string()
         ).await;
-        assert!(res_renew_student.is_ok(), "Student renewing own book rejected: {:?}", res_renew_student.err());
+        assert!(
+            res_renew_student.is_ok(),
+            "Student renewing own book rejected: {:?}",
+            res_renew_student.err()
+        );
 
         // F. Verify student renewing someone else's book log is rejected
         let res_renew_bad = coordinator.verify_and_execute_write(
@@ -1656,7 +1902,10 @@ mod tests {
             "UPDATE library_lending_logs SET due_date = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3".to_string(),
             "[\"2026-08-01\", 12345, \"log-rbac-2\"]".to_string()
         ).await;
-        assert!(res_renew_bad.is_err(), "Student allowed to renew other's book");
+        assert!(
+            res_renew_bad.is_err(),
+            "Student allowed to renew other's book"
+        );
 
         // G. Verify parent renewing linked student's book is allowed
         let res_renew_parent_ok = coordinator.verify_and_execute_write(
@@ -1666,7 +1915,11 @@ mod tests {
             "UPDATE library_lending_logs SET due_date = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3".to_string(),
             "[\"2026-08-01\", 12345, \"log-rbac-1\"]".to_string()
         ).await;
-        assert!(res_renew_parent_ok.is_ok(), "Parent renewing child's book rejected: {:?}", res_renew_parent_ok.err());
+        assert!(
+            res_renew_parent_ok.is_ok(),
+            "Parent renewing child's book rejected: {:?}",
+            res_renew_parent_ok.err()
+        );
 
         // H. Verify parent renewing mismatched student's book is rejected
         let res_renew_parent_bad = coordinator.verify_and_execute_write(
@@ -1676,15 +1929,42 @@ mod tests {
             "UPDATE library_lending_logs SET due_date = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3".to_string(),
             "[\"2026-08-01\", 12345, \"log-rbac-2\"]".to_string()
         ).await;
-        assert!(res_renew_parent_bad.is_err(), "Parent allowed to renew unlinked book");
+        assert!(
+            res_renew_parent_bad.is_err(),
+            "Parent allowed to renew unlinked book"
+        );
 
         // Cleanup
-        conn.execute("DELETE FROM library_lending_logs WHERE workspace_id = 'ws-rbac-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM submissions WHERE workspace_id = 'ws-rbac-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM student_parents WHERE workspace_id = 'ws-rbac-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM student_profiles WHERE workspace_id = 'ws-rbac-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-rbac-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-rbac-test'", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM library_lending_logs WHERE workspace_id = 'ws-rbac-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM submissions WHERE workspace_id = 'ws-rbac-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM student_parents WHERE workspace_id = 'ws-rbac-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM student_profiles WHERE workspace_id = 'ws-rbac-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-rbac-test'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-rbac-test'", ())
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -1710,7 +1990,13 @@ mod tests {
         conn.execute("INSERT OR REPLACE INTO assignments (id, workspace_id, course_id, title, description, max_points, due_date, updated_at) VALUES ('assign-1', 'ws-skew-test', 'crs-skew-1', 'Assignment 1', 'Desc', 100, '2026-07-31', 0)", ()).await.unwrap();
 
         let coordinator = RemoteSyncCoordinator::new();
-        let proof_student = trust.generate_role_proof(passkey_student.clone(), "u-skew-student".to_string(), "student".to_string()).unwrap();
+        let proof_student = trust
+            .generate_role_proof(
+                passkey_student.clone(),
+                "u-skew-student".to_string(),
+                "student".to_string(),
+            )
+            .unwrap();
 
         // 2. Perform write with future updated_at timestamp (year 2030, ~1893456000000)
         let future_time = 1893456000000i64;
@@ -1721,27 +2007,67 @@ mod tests {
             "INSERT OR REPLACE INTO submissions (id, workspace_id, assignment_id, student_id, content, grade, feedback, submitted_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)".to_string(),
             format!("[\"sub-skew-1\", \"ws-skew-test\", \"assign-1\", \"stud-skew-1\", \"some answers\", null, null, \"2026-07-20\", {}]", future_time)
         ).await;
-        assert!(res.is_ok(), "Write with clock skew rejected: {:?}", res.err());
+        assert!(
+            res.is_ok(),
+            "Write with clock skew rejected: {:?}",
+            res.err()
+        );
 
         // 3. Query the inserted record to verify that updated_at was normalized (i.e. is not equal to future_time)
-        let inserted_updated_at: i64 = conn.query_row(
-            "SELECT updated_at FROM submissions WHERE id = 'sub-skew-1'",
-            (),
-            |r| r.get(0)
-        ).await.unwrap();
+        let inserted_updated_at: i64 = conn
+            .query_row(
+                "SELECT updated_at FROM submissions WHERE id = 'sub-skew-1'",
+                (),
+                |r| r.get(0),
+            )
+            .await
+            .unwrap();
 
-        assert!(inserted_updated_at < future_time, "Clock skew was not normalized on the server side: {} vs {}", inserted_updated_at, future_time);
-        
+        assert!(
+            inserted_updated_at < future_time,
+            "Clock skew was not normalized on the server side: {} vs {}",
+            inserted_updated_at,
+            future_time
+        );
+
         let now_ms = crate::infra::time::get_current_time_ms();
-        assert!(inserted_updated_at <= now_ms + 1000 && inserted_updated_at >= now_ms - 5000, "Clock skew was not normalized to current server time: {}", inserted_updated_at);
+        assert!(
+            inserted_updated_at <= now_ms + 1000 && inserted_updated_at >= now_ms - 5000,
+            "Clock skew was not normalized to current server time: {}",
+            inserted_updated_at
+        );
 
         // Cleanup
-        conn.execute("DELETE FROM submissions WHERE workspace_id = 'ws-skew-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM assignments WHERE workspace_id = 'ws-skew-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM courses WHERE workspace_id = 'ws-skew-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM student_profiles WHERE workspace_id = 'ws-skew-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-skew-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-skew-test'", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM submissions WHERE workspace_id = 'ws-skew-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM assignments WHERE workspace_id = 'ws-skew-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM courses WHERE workspace_id = 'ws-skew-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM student_profiles WHERE workspace_id = 'ws-skew-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-skew-test'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-skew-test'", ())
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -1775,39 +2101,132 @@ mod tests {
         conn.execute("INSERT OR REPLACE INTO move_signatures (id, workspace_id, job_ticket_id, signer_name, signature_data_base64, signed_at) VALUES ('sig-1', 'ws-moving-test', 'job-1', 'John Doe', 'base64-data', 0)", ()).await.unwrap();
 
         let coordinator = RemoteSyncCoordinator::new();
-        let proof_admin = trust.generate_role_proof(passkey_admin.clone(), "u-admin-m".to_string(), "admin".to_string()).unwrap();
+        let proof_admin = trust
+            .generate_role_proof(
+                passkey_admin.clone(),
+                "u-admin-m".to_string(),
+                "admin".to_string(),
+            )
+            .unwrap();
 
         // Verify payload lengths
-        let payload_jobs = coordinator.generate_partitioned_sync_payload("u-admin-m".to_string(), "admin".to_string(), Some(proof_admin.clone()), "job_tickets".to_string()).await.unwrap();
+        let payload_jobs = coordinator
+            .generate_partitioned_sync_payload(
+                "u-admin-m".to_string(),
+                "admin".to_string(),
+                Some(proof_admin.clone()),
+                "job_tickets".to_string(),
+            )
+            .await
+            .unwrap();
         let arr_jobs: serde_json::Value = serde_json::from_str(&payload_jobs).unwrap();
         assert_eq!(arr_jobs.as_array().unwrap().len(), 2);
 
-        let payload_inv = coordinator.generate_partitioned_sync_payload("u-admin-m".to_string(), "admin".to_string(), Some(proof_admin.clone()), "move_inventory".to_string()).await.unwrap();
+        let payload_inv = coordinator
+            .generate_partitioned_sync_payload(
+                "u-admin-m".to_string(),
+                "admin".to_string(),
+                Some(proof_admin.clone()),
+                "move_inventory".to_string(),
+            )
+            .await
+            .unwrap();
         let arr_inv: serde_json::Value = serde_json::from_str(&payload_inv).unwrap();
         assert_eq!(arr_inv.as_array().unwrap().len(), 1);
 
-        let payload_quotes = coordinator.generate_partitioned_sync_payload("u-admin-m".to_string(), "admin".to_string(), Some(proof_admin.clone()), "move_quotes".to_string()).await.unwrap();
+        let payload_quotes = coordinator
+            .generate_partitioned_sync_payload(
+                "u-admin-m".to_string(),
+                "admin".to_string(),
+                Some(proof_admin.clone()),
+                "move_quotes".to_string(),
+            )
+            .await
+            .unwrap();
         let arr_quotes: serde_json::Value = serde_json::from_str(&payload_quotes).unwrap();
         assert_eq!(arr_quotes.as_array().unwrap().len(), 1);
 
-        let payload_invoices = coordinator.generate_partitioned_sync_payload("u-admin-m".to_string(), "admin".to_string(), Some(proof_admin.clone()), "move_invoices".to_string()).await.unwrap();
+        let payload_invoices = coordinator
+            .generate_partitioned_sync_payload(
+                "u-admin-m".to_string(),
+                "admin".to_string(),
+                Some(proof_admin.clone()),
+                "move_invoices".to_string(),
+            )
+            .await
+            .unwrap();
         let arr_invoices: serde_json::Value = serde_json::from_str(&payload_invoices).unwrap();
         assert_eq!(arr_invoices.as_array().unwrap().len(), 1);
 
-        let payload_signatures = coordinator.generate_partitioned_sync_payload("u-admin-m".to_string(), "admin".to_string(), Some(proof_admin.clone()), "move_signatures".to_string()).await.unwrap();
+        let payload_signatures = coordinator
+            .generate_partitioned_sync_payload(
+                "u-admin-m".to_string(),
+                "admin".to_string(),
+                Some(proof_admin.clone()),
+                "move_signatures".to_string(),
+            )
+            .await
+            .unwrap();
         let arr_signatures: serde_json::Value = serde_json::from_str(&payload_signatures).unwrap();
         assert_eq!(arr_signatures.as_array().unwrap().len(), 1);
 
         // Cleanup
-        conn.execute("DELETE FROM move_signatures WHERE workspace_id = 'ws-moving-test'", ()).await.ok();
-        conn.execute("DELETE FROM move_invoices WHERE workspace_id = 'ws-moving-test'", ()).await.ok();
-        conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-moving-test'", ()).await.ok();
-        conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-moving-test'", ()).await.ok();
-        conn.execute("DELETE FROM job_packaging_items WHERE workspace_id = 'ws-moving-test'", ()).await.ok();
-        conn.execute("DELETE FROM job_crew WHERE job_ticket_id IN ('job-1', 'job-2')", ()).await.ok();
-        conn.execute("DELETE FROM time_reports WHERE workspace_id = 'ws-moving-test'", ()).await.ok();
-        conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-moving-test'", ()).await.ok();
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-moving-test'", ()).await.ok();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-moving-test'", ()).await.ok();
+        conn.execute(
+            "DELETE FROM move_signatures WHERE workspace_id = 'ws-moving-test'",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute(
+            "DELETE FROM move_invoices WHERE workspace_id = 'ws-moving-test'",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute(
+            "DELETE FROM move_quotes WHERE workspace_id = 'ws-moving-test'",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute(
+            "DELETE FROM move_inventory WHERE workspace_id = 'ws-moving-test'",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute(
+            "DELETE FROM job_packaging_items WHERE workspace_id = 'ws-moving-test'",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute(
+            "DELETE FROM job_crew WHERE job_ticket_id IN ('job-1', 'job-2')",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute(
+            "DELETE FROM time_reports WHERE workspace_id = 'ws-moving-test'",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute(
+            "DELETE FROM job_tickets WHERE workspace_id = 'ws-moving-test'",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute(
+            "DELETE FROM users WHERE workspace_id = 'ws-moving-test'",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-moving-test'", ())
+            .await
+            .ok();
     }
 }

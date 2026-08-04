@@ -1,9 +1,11 @@
 pub mod domain;
+pub mod ephemeral_session;
 pub mod keychain;
 pub mod signing;
 pub mod ssss;
 
 pub use domain::*;
+pub use ephemeral_session::*;
 pub use keychain::*;
 pub use signing::*;
 pub use ssss::*;
@@ -28,7 +30,8 @@ impl Zeroize for SessionKeys {
 }
 
 static SESSION_KEY: Mutex<Option<SessionKeys>> = Mutex::new(None);
-static SESSION_KEY_IS_POISONED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static SESSION_KEY_IS_POISONED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 struct PoisonGuard;
 impl Drop for PoisonGuard {
@@ -220,7 +223,10 @@ pub fn set_session_key(mut key_bytes: Vec<u8>, workspace_id: String) -> bool {
     }
     key_bytes.zeroize();
 
-    *lock = Some(SessionKeys { new_key: key_arr, workspace_id });
+    *lock = Some(SessionKeys {
+        new_key: key_arr,
+        workspace_id,
+    });
 
     if let Ok(mut cache) = get_workspace_key_cache().write() {
         cache.clear();
@@ -352,7 +358,9 @@ fn get_encryption_keys_internal(
                 session_key_bytes.copy_from_slice(blake3::hash(workspace_id.as_bytes()).as_bytes());
             } else {
                 hasher.zeroize();
-                return Err(YntraError::CryptoError("session_key_workspace_mismatch".to_string()));
+                return Err(YntraError::CryptoError(
+                    "session_key_workspace_mismatch".to_string(),
+                ));
             }
         } else if !crate::infra::auth::is_production() {
             session_key_bytes.copy_from_slice(blake3::hash(workspace_id.as_bytes()).as_bytes());
@@ -391,7 +399,9 @@ pub fn encrypt_field(data: &str, workspace_id: &str) -> Result<String, YntraErro
     cipher.encrypt(data).map_err(|e| {
         if let YntraError::CryptoError(ref msg) = e {
             if msg == "session_key_missing" {
-                return YntraError::CryptoError("Session key is missing. Please unlock the workspace.".to_string());
+                return YntraError::CryptoError(
+                    "Session key is missing. Please unlock the workspace.".to_string(),
+                );
             }
         }
         e
@@ -405,7 +415,9 @@ pub fn decrypt_field(encrypted_data: &str, workspace_id: &str) -> Result<String,
     cipher.decrypt(encrypted_data).map_err(|e| {
         if let YntraError::CryptoError(ref msg) = e {
             if msg == "session_key_missing" {
-                return YntraError::CryptoError("Session key is missing. Please unlock the workspace.".to_string());
+                return YntraError::CryptoError(
+                    "Session key is missing. Please unlock the workspace.".to_string(),
+                );
             }
         }
         e
@@ -463,7 +475,70 @@ pub fn decrypt_opt_field(encrypted_data: Option<String>, workspace_id: &str) -> 
     })
 }
 
-pub fn hash_anonymous_reporter(user_id: &str, workspace_id: &str, report_id: &str) -> Result<String, YntraError> {
+#[derive(uniffi::Record, Debug, Clone, PartialEq)]
+pub struct EncryptedSearchCandidate {
+    pub id: String,
+    pub blind_tokens: Vec<String>,
+    pub encrypted_content: String,
+}
+
+#[uniffi::export]
+pub fn hash_search_query_term(query_term: &str, workspace_id: &str) -> Result<String, YntraError> {
+    let key = get_encryption_keys_internal(workspace_id)?;
+    let normalized = query_term.trim().to_lowercase();
+
+    let context_str = CryptoDomain::UserKeyDerivation.get_context(2)?;
+    let mut hasher = blake3::Hasher::new_derive_key(context_str);
+    hasher.update(&*key);
+    hasher.update(&(workspace_id.len() as u64).to_be_bytes());
+    hasher.update(workspace_id.as_bytes());
+    hasher.update(&(normalized.len() as u64).to_be_bytes());
+    hasher.update(normalized.as_bytes());
+
+    let token_hex = const_hex::encode(hasher.finalize().as_bytes());
+    hasher.zeroize();
+    Ok(token_hex)
+}
+
+#[uniffi::export]
+pub fn generate_blind_search_tokens(text: &str, workspace_id: &str) -> Result<Vec<String>, YntraError> {
+    let words: Vec<&str> = text
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.len() >= 2)
+        .collect();
+
+    let mut tokens = Vec::new();
+    for word in words {
+        let token = hash_search_query_term(word, workspace_id)?;
+        if !tokens.contains(&token) {
+            tokens.push(token);
+        }
+    }
+    Ok(tokens)
+}
+
+#[uniffi::export]
+pub fn search_encrypted_records(
+    query_term: String,
+    workspace_id: String,
+    candidates: Vec<EncryptedSearchCandidate>,
+) -> Result<Vec<String>, YntraError> {
+    let target_token = hash_search_query_term(&query_term, &workspace_id)?;
+    let mut matching_ids = Vec::new();
+
+    for candidate in candidates {
+        if candidate.blind_tokens.contains(&target_token) {
+            matching_ids.push(candidate.id);
+        }
+    }
+    Ok(matching_ids)
+}
+
+pub fn hash_anonymous_reporter(
+    user_id: &str,
+    workspace_id: &str,
+    report_id: &str,
+) -> Result<String, YntraError> {
     let salt = get_system_salt_ref()?;
     let client_pepper = get_local_client_pepper()?;
 
@@ -617,7 +692,10 @@ mod tests {
     #[test]
     fn test_chacha_encryption_decryption() {
         let _test_lock = crate::database::DB_TEST_LOCK.lock().unwrap();
-        set_session_key("test-session-key".to_string().into_bytes(), "test-workspace-123".to_string());
+        set_session_key(
+            "test-session-key".to_string().into_bytes(),
+            "test-workspace-123".to_string(),
+        );
 
         let plaintext = "Sensitive whistleblowing report text";
         let workspace_id = "test-workspace-123";
@@ -672,7 +750,7 @@ mod tests {
     #[test]
     fn test_session_key_poisoning_recovery() {
         let _test_lock = crate::database::DB_TEST_LOCK.lock().unwrap();
-        
+
         // 1. Poison when None
         clear_session_key();
         let _ = std::panic::catch_unwind(|| {
@@ -749,16 +827,25 @@ mod tests {
         let plaintext = "Shared patient health data";
         let workspace_id = "shared-workspace-xyz";
 
-        set_session_key("shared-workspace-session-key".to_string().into_bytes(), "shared-workspace-xyz".to_string());
+        set_session_key(
+            "shared-workspace-session-key".to_string().into_bytes(),
+            "shared-workspace-xyz".to_string(),
+        );
         let encrypted_by_a = encrypt_field(plaintext, workspace_id).unwrap();
         clear_session_key();
 
-        set_session_key("different-workspace-session-key".to_string().into_bytes(), "shared-workspace-xyz".to_string());
+        set_session_key(
+            "different-workspace-session-key".to_string().into_bytes(),
+            "shared-workspace-xyz".to_string(),
+        );
         let decrypted_by_b_wrong = decrypt_field(&encrypted_by_a, workspace_id);
         assert!(decrypted_by_b_wrong.is_err());
         clear_session_key();
 
-        set_session_key("shared-workspace-session-key".to_string().into_bytes(), "shared-workspace-xyz".to_string());
+        set_session_key(
+            "shared-workspace-session-key".to_string().into_bytes(),
+            "shared-workspace-xyz".to_string(),
+        );
         let decrypted_by_b = decrypt_field(&encrypted_by_a, workspace_id).unwrap();
         assert_eq!(plaintext, decrypted_by_b);
 
@@ -769,7 +856,10 @@ mod tests {
     fn test_bulk_encryption_decryption() {
         let _test_lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         let workspace_id = "bulk-workspace-123";
-        set_session_key("bulk-session-key".to_string().into_bytes(), "bulk-workspace-123".to_string());
+        set_session_key(
+            "bulk-session-key".to_string().into_bytes(),
+            "bulk-workspace-123".to_string(),
+        );
 
         let plaintexts = vec![
             "Plaintext message 1".to_string(),
@@ -802,5 +892,41 @@ mod tests {
 
         let hash1_again = hash_anonymous_reporter(user_id, workspace_id, "report-1").unwrap();
         assert_eq!(hash1, hash1_again);
+    }
+
+    #[test]
+    fn test_blind_search_token_generation_and_matching() {
+        let _test_lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let ws_id = "ws-search-test";
+        set_session_key("search-key-data".to_string().into_bytes(), ws_id.to_string());
+
+        let text1 = "Safety hazard reported at site B building 4";
+        let text2 = "Scheduled maintenance completed for excavator 12";
+
+        let tokens1 = generate_blind_search_tokens(text1, ws_id).unwrap();
+        let tokens2 = generate_blind_search_tokens(text2, ws_id).unwrap();
+
+        let candidates = vec![
+            EncryptedSearchCandidate {
+                id: "rec-1".to_string(),
+                blind_tokens: tokens1,
+                encrypted_content: encrypt_field(text1, ws_id).unwrap(),
+            },
+            EncryptedSearchCandidate {
+                id: "rec-2".to_string(),
+                blind_tokens: tokens2,
+                encrypted_content: encrypt_field(text2, ws_id).unwrap(),
+            },
+        ];
+
+        let results = search_encrypted_records("hazard".to_string(), ws_id.to_string(), candidates.clone()).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], "rec-1");
+
+        let results_excavator = search_encrypted_records("excavator".to_string(), ws_id.to_string(), candidates).unwrap();
+        assert_eq!(results_excavator.len(), 1);
+        assert_eq!(results_excavator[0], "rec-2");
+
+        clear_session_key();
     }
 }

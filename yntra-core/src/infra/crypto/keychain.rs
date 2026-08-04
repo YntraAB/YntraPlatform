@@ -13,8 +13,9 @@ static SECURE_STORAGE_PROVIDER: std::sync::OnceLock<Box<dyn SecureStorageProvide
     std::sync::OnceLock::new();
 
 #[cfg(not(target_arch = "wasm32"))]
-static FALLBACK_KEYRING: std::sync::OnceLock<std::sync::RwLock<std::collections::HashMap<String, String>>> =
-    std::sync::OnceLock::new();
+static FALLBACK_KEYRING: std::sync::OnceLock<
+    std::sync::RwLock<std::collections::HashMap<String, String>>,
+> = std::sync::OnceLock::new();
 
 #[cfg(not(target_arch = "wasm32"))]
 fn get_fallback_keyring() -> &'static std::sync::RwLock<std::collections::HashMap<String, String>> {
@@ -75,7 +76,13 @@ pub(crate) fn get_local_client_pepper() -> Result<String, YntraError> {
             {
                 use std::os::unix::fs::OpenOptionsExt;
                 let mut options = fs::OpenOptions::new();
-                if let Ok(mut file) = options.write(true).create(true).truncate(true).mode(0o600).open(&path) {
+                if let Ok(mut file) = options
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .mode(0o600)
+                    .open(&path)
+                {
                     use std::io::Write;
                     let _ = file.write_all(new_pepper.as_bytes());
                 }
@@ -612,13 +619,17 @@ pub fn decrypt_workspace_key_with_password(
     let nonce_bytes = match const_hex::decode(nonce_str) {
         Ok(n) => n,
         Err(_) => {
-            return Err(YntraError::CryptoError("Invalid envelope nonce".to_string()));
+            return Err(YntraError::CryptoError(
+                "Invalid envelope nonce".to_string(),
+            ));
         }
     };
     let ciphertext = match const_hex::decode(ciphertext_str) {
         Ok(c) => c,
         Err(_) => {
-            return Err(YntraError::CryptoError("Invalid envelope ciphertext".to_string()));
+            return Err(YntraError::CryptoError(
+                "Invalid envelope ciphertext".to_string(),
+            ));
         }
     };
 
@@ -631,13 +642,20 @@ pub fn decrypt_workspace_key_with_password(
             "v2" => Params::new(19456, 3, 1, Some(32)),
             "v1" => Params::new(19456, 2, 1, Some(32)),
             _ => {
-                return Err(YntraError::CryptoError(format!("Unsupported envelope version: {}", v_str)));
+                return Err(YntraError::CryptoError(format!(
+                    "Unsupported envelope version: {}",
+                    v_str
+                )));
             }
-        }.map_err(|_| YntraError::CryptoError("Argon2 params invalid".to_string()))?;
+        }
+        .map_err(|_| YntraError::CryptoError("Argon2 params invalid".to_string()))?;
 
         let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
         let mut derived_key = zeroize::Zeroizing::new([0u8; 32]);
-        if argon2.hash_password_into(password_zeroed.as_bytes(), &salt, &mut *derived_key).is_ok() {
+        if argon2
+            .hash_password_into(password_zeroed.as_bytes(), &salt, &mut *derived_key)
+            .is_ok()
+        {
             let cipher = XChaCha20Poly1305::new(Key::from_slice(&*derived_key));
             let nonce = XNonce::from_slice(&nonce_bytes);
             if let Ok(plaintext) = cipher.decrypt(nonce, ciphertext.as_slice()) {
@@ -650,7 +668,10 @@ pub fn decrypt_workspace_key_with_password(
         let mut derived_key_v3 = zeroize::Zeroizing::new([0u8; 32]);
         if let Ok(params_v3) = Params::new(12288, 3, 1, Some(32)) {
             let argon2_v3 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params_v3);
-            if argon2_v3.hash_password_into(password_zeroed.as_bytes(), &salt, &mut *derived_key_v3).is_ok() {
+            if argon2_v3
+                .hash_password_into(password_zeroed.as_bytes(), &salt, &mut *derived_key_v3)
+                .is_ok()
+            {
                 let cipher = XChaCha20Poly1305::new(Key::from_slice(&*derived_key_v3));
                 let nonce = XNonce::from_slice(&nonce_bytes);
                 if let Ok(plaintext) = cipher.decrypt(nonce, ciphertext.as_slice()) {
@@ -664,7 +685,10 @@ pub fn decrypt_workspace_key_with_password(
             let mut derived_key_v2 = zeroize::Zeroizing::new([0u8; 32]);
             if let Ok(params_v2) = Params::new(19456, 3, 1, Some(32)) {
                 let argon2_v2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params_v2);
-                if argon2_v2.hash_password_into(password_zeroed.as_bytes(), &salt, &mut *derived_key_v2).is_ok() {
+                if argon2_v2
+                    .hash_password_into(password_zeroed.as_bytes(), &salt, &mut *derived_key_v2)
+                    .is_ok()
+                {
                     let cipher = XChaCha20Poly1305::new(Key::from_slice(&*derived_key_v2));
                     let nonce = XNonce::from_slice(&nonce_bytes);
                     if let Ok(plaintext) = cipher.decrypt(nonce, ciphertext.as_slice()) {
@@ -679,7 +703,10 @@ pub fn decrypt_workspace_key_with_password(
             let mut derived_key_v1 = zeroize::Zeroizing::new([0u8; 32]);
             if let Ok(params_v1) = Params::new(19456, 2, 1, Some(32)) {
                 let argon2_v1 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params_v1);
-                if argon2_v1.hash_password_into(password_zeroed.as_bytes(), &salt, &mut *derived_key_v1).is_ok() {
+                if argon2_v1
+                    .hash_password_into(password_zeroed.as_bytes(), &salt, &mut *derived_key_v1)
+                    .is_ok()
+                {
                     let cipher = XChaCha20Poly1305::new(Key::from_slice(&*derived_key_v1));
                     let nonce = XNonce::from_slice(&nonce_bytes);
                     if let Ok(plaintext) = cipher.decrypt(nonce, ciphertext.as_slice()) {
@@ -692,7 +719,9 @@ pub fn decrypt_workspace_key_with_password(
 
     match decrypted {
         Some(pt) => Ok(pt),
-        None => Err(YntraError::CryptoError("Envelope decryption failed".to_string())),
+        None => Err(YntraError::CryptoError(
+            "Envelope decryption failed".to_string(),
+        )),
     }
 }
 
@@ -794,7 +823,9 @@ mod keychain_tests {
         let mut derived_key = zeroize::Zeroizing::new([0u8; 32]);
         let params_v1 = Params::new(19456, 2, 1, Some(32)).unwrap();
         let argon2_v1 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params_v1);
-        argon2_v1.hash_password_into(password.as_bytes(), &salt, &mut *derived_key).unwrap();
+        argon2_v1
+            .hash_password_into(password.as_bytes(), &salt, &mut *derived_key)
+            .unwrap();
 
         let cipher = XChaCha20Poly1305::new(Key::from_slice(&*derived_key));
         let nonce = XNonce::from_slice(&nonce_bytes);
@@ -807,10 +838,13 @@ mod keychain_tests {
             const_hex::encode(&ciphertext)
         );
 
-        let decrypted = decrypt_workspace_key_with_password(password.to_string(), &envelope).unwrap();
+        let decrypted =
+            decrypt_workspace_key_with_password(password.to_string(), &envelope).unwrap();
         assert_eq!(decrypted, plaintext);
 
-        assert!(decrypt_workspace_key_with_password("wrong-password".to_string(), &envelope).is_err());
+        assert!(
+            decrypt_workspace_key_with_password("wrong-password".to_string(), &envelope).is_err()
+        );
     }
 
     #[test]
@@ -827,7 +861,9 @@ mod keychain_tests {
         let mut derived_key = zeroize::Zeroizing::new([0u8; 32]);
         let params_v2 = Params::new(19456, 3, 1, Some(32)).unwrap();
         let argon2_v2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params_v2);
-        argon2_v2.hash_password_into(password.as_bytes(), &salt, &mut *derived_key).unwrap();
+        argon2_v2
+            .hash_password_into(password.as_bytes(), &salt, &mut *derived_key)
+            .unwrap();
 
         let cipher = XChaCha20Poly1305::new(Key::from_slice(&*derived_key));
         let nonce = XNonce::from_slice(&nonce_bytes);
@@ -840,7 +876,8 @@ mod keychain_tests {
             const_hex::encode(&ciphertext)
         );
 
-        let decrypted = decrypt_workspace_key_with_password(password.to_string(), &envelope).unwrap();
+        let decrypted =
+            decrypt_workspace_key_with_password(password.to_string(), &envelope).unwrap();
         assert_eq!(decrypted, plaintext);
     }
 
@@ -849,10 +886,12 @@ mod keychain_tests {
         let password = "my-secure-password";
         let plaintext = b"workspace-secret-key-bytes-123456";
 
-        let envelope = encrypt_workspace_key_with_password(password.to_string(), plaintext.to_vec()).unwrap();
+        let envelope =
+            encrypt_workspace_key_with_password(password.to_string(), plaintext.to_vec()).unwrap();
         assert!(envelope.starts_with("envelope:v3:"));
 
-        let decrypted = decrypt_workspace_key_with_password(password.to_string(), &envelope).unwrap();
+        let decrypted =
+            decrypt_workspace_key_with_password(password.to_string(), &envelope).unwrap();
         assert_eq!(decrypted, plaintext);
     }
 
@@ -861,10 +900,15 @@ mod keychain_tests {
         let password = "my-secure-async-password";
         let plaintext = b"workspace-async-secret-key-bytes";
 
-        let envelope = encrypt_workspace_key_with_password_async(password.to_string(), plaintext.to_vec()).await.unwrap();
+        let envelope =
+            encrypt_workspace_key_with_password_async(password.to_string(), plaintext.to_vec())
+                .await
+                .unwrap();
         assert!(envelope.starts_with("envelope:v3:"));
 
-        let decrypted = decrypt_workspace_key_with_password_async(password.to_string(), envelope).await.unwrap();
+        let decrypted = decrypt_workspace_key_with_password_async(password.to_string(), envelope)
+            .await
+            .unwrap();
         assert_eq!(decrypted, plaintext);
     }
 
@@ -883,7 +927,13 @@ mod keychain_tests {
             {
                 use std::os::unix::fs::OpenOptionsExt;
                 let mut options = std::fs::OpenOptions::new();
-                if let Ok(mut file) = options.write(true).create(true).truncate(true).mode(0o600).open(&path) {
+                if let Ok(mut file) = options
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .mode(0o600)
+                    .open(&path)
+                {
                     use std::io::Write;
                     let _ = file.write_all(new_pepper.as_bytes());
                 }

@@ -1,7 +1,7 @@
-use crate::database;
-use crate::infra::observer::notify_observers;
-use crate::infra::errors::YntraError;
 use crate::JobTicket;
+use crate::database;
+use crate::infra::errors::YntraError;
+use crate::infra::observer::notify_observers;
 use uuid::Uuid;
 
 pub fn is_staff(auth: &crate::AuthContext) -> bool {
@@ -57,7 +57,9 @@ pub fn is_management_staff(auth: &crate::AuthContext) -> bool {
 
 fn validate_job_status(status: &str) -> Result<(), YntraError> {
     match status {
-        "pending" | "quote_requested" | "assigned" | "in_progress" | "completed" | "cancelled" => Ok(()),
+        "pending" | "quote_requested" | "assigned" | "in_progress" | "completed" | "cancelled" => {
+            Ok(())
+        }
         _ => Err(YntraError::ValidationError(format!(
             "Invalid job ticket status: {}",
             status
@@ -85,39 +87,46 @@ pub async fn get_job_tickets(requester_user_id: String) -> Result<Vec<JobTicket>
            ))",
     ).await?;
 
-    let is_staff_val = if is_management_staff(&auth) { 1i64 } else { 0i64 };
+    let is_staff_val = if is_management_staff(&auth) {
+        1i64
+    } else {
+        0i64
+    };
 
     let list = stmt
-        .query_map(crate::params![auth.workspace_id, is_staff_val, auth.user_id], |row| {
-            Ok(JobTicket {
-                id: row.get(0)?,
-                workspace_id: row.get(1)?,
-                title: row.get(2)?,
-                description: row.get(3)?,
-                location_address: row.get(4)?,
-                priority: row.get(5)?,
-                status: row.get(6)?,
-                assigned_user_id: row.get(7)?,
-                scheduled_date: row.get(8)?,
-                checklist_json: row.get(9)?,
-                completion_report: row.get(10)?,
-                created_at: row.get(11)?,
-                updated_at: row.get(12)?,
-                sync_status: row.get(13)?,
-                origin_address: row.get(14)?,
-                destination_address: row.get(15)?,
-                origin_floor: row.get(16)?,
-                destination_floor: row.get(17)?,
-                origin_has_elevator: row.get::<bool>(18)?,
-                destination_has_elevator: row.get::<bool>(19)?,
-                origin_parking_permit_needed: row.get::<bool>(20)?,
-                destination_parking_permit_needed: row.get::<bool>(21)?,
-                assigned_vehicle_id: row.get::<Option<String>>(22)?,
-                route_stops_json: row.get::<Option<String>>(23)?,
-                long_carry_meters: row.get::<i64>(24)? as i32,
-                toll_fees: row.get::<f64>(25)?,
-            })
-        })
+        .query_map(
+            crate::params![auth.workspace_id, is_staff_val, auth.user_id],
+            |row| {
+                Ok(JobTicket {
+                    id: row.get(0)?,
+                    workspace_id: row.get(1)?,
+                    title: row.get(2)?,
+                    description: row.get(3)?,
+                    location_address: row.get(4)?,
+                    priority: row.get(5)?,
+                    status: row.get(6)?,
+                    assigned_user_id: row.get(7)?,
+                    scheduled_date: row.get(8)?,
+                    checklist_json: row.get(9)?,
+                    completion_report: row.get(10)?,
+                    created_at: row.get(11)?,
+                    updated_at: row.get(12)?,
+                    sync_status: row.get(13)?,
+                    origin_address: row.get(14)?,
+                    destination_address: row.get(15)?,
+                    origin_floor: row.get(16)?,
+                    destination_floor: row.get(17)?,
+                    origin_has_elevator: row.get::<bool>(18)?,
+                    destination_has_elevator: row.get::<bool>(19)?,
+                    origin_parking_permit_needed: row.get::<bool>(20)?,
+                    destination_parking_permit_needed: row.get::<bool>(21)?,
+                    assigned_vehicle_id: row.get::<Option<String>>(22)?,
+                    route_stops_json: row.get::<Option<String>>(23)?,
+                    long_carry_meters: row.get::<i64>(24)? as i32,
+                    toll_fees: row.get::<f64>(25)?,
+                })
+            },
+        )
         .await?;
 
     Ok(list)
@@ -275,12 +284,14 @@ pub async fn update_job_moving_surcharges(
             |r| r.get::<i64>(0),
         )
         .await
-        .unwrap_or(0) > 0;
+        .unwrap_or(0)
+        > 0;
 
     if quote_exists {
         // Run quote recalculation
         drop(conn);
-        crate::services::jobs::moves::calculate_and_save_move_quote(requester_user_id, job_id).await?;
+        crate::services::jobs::moves::calculate_and_save_move_quote(requester_user_id, job_id)
+            .await?;
     }
 
     notify_observers();
@@ -322,7 +333,11 @@ pub async fn update_job_status(
         ));
     }
 
-    if status == "in_progress" || status == "in_transit" || status == "assigned" || status == "scheduled" {
+    if status == "in_progress"
+        || status == "in_transit"
+        || status == "assigned"
+        || status == "scheduled"
+    {
         let assigned_v_id: Option<String> = conn
             .query_row(
                 "SELECT assigned_vehicle_id FROM job_tickets WHERE id = ?1",
@@ -338,7 +353,8 @@ pub async fn update_job_status(
                 requester_user_id.clone(),
                 job_id.clone(),
                 vid,
-            ).await?;
+            )
+            .await?;
             conn = database::acquire_connection().await?;
         }
     }
@@ -349,13 +365,14 @@ pub async fn update_job_status(
     ).await?;
 
     if status == "in_progress" {
-        let customer_id = conn.query_row(
-            "SELECT id FROM users WHERE workspace_id = ?1 AND role = 'client' LIMIT 1",
-            crate::params![&job_ws],
-            |r| r.get::<String>(0),
-        )
-        .await
-        .unwrap_or_else(|_| "client-1".to_string());
+        let customer_id = conn
+            .query_row(
+                "SELECT id FROM users WHERE workspace_id = ?1 AND role = 'client' LIMIT 1",
+                crate::params![&job_ws],
+                |r| r.get::<String>(0),
+            )
+            .await
+            .unwrap_or_else(|_| "client-1".to_string());
 
         let _ = crate::services::jobs::notifications::send_external_notification(
             requester_user_id.clone(),
@@ -363,7 +380,8 @@ pub async fn update_job_status(
             customer_id,
             "arrival_reminder".to_string(),
             None,
-        ).await;
+        )
+        .await;
     }
 
     Ok(())
@@ -416,7 +434,8 @@ pub async fn schedule_job_ticket(
             requester_user_id.clone(),
             job_id.clone(),
             vid,
-        ).await?;
+        )
+        .await?;
         conn = database::acquire_connection().await?;
     }
 
@@ -506,13 +525,14 @@ pub async fn submit_job_completion(
         crate::params![checklist_json, completion_report, now_ms, job_id],
     ).await?;
 
-    let customer_id = conn.query_row(
-        "SELECT id FROM users WHERE workspace_id = ?1 AND role = 'client' LIMIT 1",
-        crate::params![&job_ws],
-        |r| r.get::<String>(0),
-    )
-    .await
-    .unwrap_or_else(|_| "client-1".to_string());
+    let customer_id = conn
+        .query_row(
+            "SELECT id FROM users WHERE workspace_id = ?1 AND role = 'client' LIMIT 1",
+            crate::params![&job_ws],
+            |r| r.get::<String>(0),
+        )
+        .await
+        .unwrap_or_else(|_| "client-1".to_string());
 
     let _ = crate::services::jobs::notifications::send_external_notification(
         requester_user_id.clone(),
@@ -520,7 +540,8 @@ pub async fn submit_job_completion(
         customer_id,
         "job_completion".to_string(),
         None,
-    ).await;
+    )
+    .await;
 
     Ok(())
 }
@@ -564,8 +585,8 @@ pub async fn update_route_stops(
         ));
     }
 
-    let stops_json = serde_json::to_string(&stops)
-        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+    let stops_json =
+        serde_json::to_string(&stops).map_err(|e| YntraError::SerializationError(e.to_string()))?;
 
     conn.execute(
         "UPDATE job_tickets SET route_stops_json = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
@@ -635,20 +656,29 @@ async fn optimize_job_route_inner(
         ));
     }
 
-    let origin = job.origin_address.clone().filter(|s| !s.trim().is_empty())
+    let origin = job
+        .origin_address
+        .clone()
+        .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| job.location_address.clone());
-    let destination = job.destination_address.clone().filter(|s| !s.trim().is_empty())
+    let destination = job
+        .destination_address
+        .clone()
+        .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| job.location_address.clone());
 
-    let stops_str = job.route_stops_json.clone().unwrap_or_else(|| "[]".to_string());
-    let stops: Vec<String> = serde_json::from_str(&stops_str)
-        .unwrap_or_default();
+    let stops_str = job
+        .route_stops_json
+        .clone()
+        .unwrap_or_else(|| "[]".to_string());
+    let stops: Vec<String> = serde_json::from_str(&stops_str).unwrap_or_default();
 
     if stops.is_empty() {
         return Ok(Vec::new());
     }
 
-    let optimized_stops = super::routing::optimize_route(&auth.workspace_id, &origin, &destination, &stops).await;
+    let optimized_stops =
+        super::routing::optimize_route(&auth.workspace_id, &origin, &destination, &stops).await;
 
     let optimized_json = serde_json::to_string(&optimized_stops)
         .map_err(|e| YntraError::SerializationError(e.to_string()))?;
@@ -746,7 +776,9 @@ pub async fn get_mover_field_sheet_manifest(
         .map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
 
     if auth.workspace_id != job_ws {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     // Verify assigned mover access or management staff
@@ -760,29 +792,39 @@ pub async fn get_mover_field_sheet_manifest(
         .unwrap_or(false);
 
     if !is_management_staff(&auth) && !is_assigned {
-        return Err(YntraError::AuthError("Access denied: unassigned mover field sheet".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: unassigned mover field sheet".to_string(),
+        ));
     }
 
     // Load Item Manifest (Read-Only)
-    let inventory_items = super::moves::get_move_inventory(requester_user_id.clone(), job_id.clone()).await.unwrap_or_default();
+    let inventory_items =
+        super::moves::get_move_inventory(requester_user_id.clone(), job_id.clone())
+            .await
+            .unwrap_or_default();
 
     // Load Assigned Crew Names
     let mut crew_stmt = conn.prepare("SELECT u.full_name FROM job_crew j JOIN users u ON j.user_id = u.id WHERE j.job_ticket_id = ?1").await?;
     let mut crew_rows = crew_stmt.query(crate::params![&job_id]).await?;
     let mut assigned_crew_names = Vec::new();
     while let Some(row) = crew_rows.next().await? {
-        let name: String = row.get::<Option<String>>(0)?.unwrap_or_else(|| "Mover".to_string());
+        let name: String = row
+            .get::<Option<String>>(0)?
+            .unwrap_or_else(|| "Mover".to_string());
         assigned_crew_names.push(name);
     }
 
     // Load Assigned Vehicle License Plate
     let mut assigned_vehicle_plate = None;
     if let Some(vid) = assigned_vehicle_id {
-        if let Ok(plate) = conn.query_row(
-            "SELECT license_plate FROM vehicles WHERE id = ?1",
-            crate::params![&vid],
-            |r| r.get::<String>(0),
-        ).await {
+        if let Ok(plate) = conn
+            .query_row(
+                "SELECT license_plate FROM vehicles WHERE id = ?1",
+                crate::params![&vid],
+                |r| r.get::<String>(0),
+            )
+            .await
+        {
             assigned_vehicle_plate = Some(plate);
         }
     }

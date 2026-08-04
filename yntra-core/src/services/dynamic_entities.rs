@@ -102,7 +102,9 @@ pub async fn get_field_permission_policies_internal(
     if let Some(cfg) = ui_config_str {
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&cfg) {
             if let Some(perms) = val.get("field_permissions") {
-                if let Ok(policies) = serde_json::from_value::<Vec<FieldPermissionPolicy>>(perms.clone()) {
+                if let Ok(policies) =
+                    serde_json::from_value::<Vec<FieldPermissionPolicy>>(perms.clone())
+                {
                     return policies;
                 }
             }
@@ -561,7 +563,11 @@ mod tests {
     fn test_field_level_rbac_filtering() {
         let policies = vec![FieldPermissionPolicy {
             role: "external_contractor".to_string(),
-            read_allowed_fields: vec!["id".to_string(), "task_name".to_string(), "status".to_string()],
+            read_allowed_fields: vec![
+                "id".to_string(),
+                "task_name".to_string(),
+                "status".to_string(),
+            ],
             write_allowed_fields: vec!["task_name".to_string(), "status".to_string()],
         }];
 
@@ -573,17 +579,26 @@ mod tests {
         assert!(admin_filtered.contains("ssn"));
 
         // Contractor only sees allowed fields
-        let contractor_filtered = filter_entity_data_for_role(raw_data, "external_contractor", &policies);
+        let contractor_filtered =
+            filter_entity_data_for_role(raw_data, "external_contractor", &policies);
         assert!(contractor_filtered.contains("task_name"));
         assert!(!contractor_filtered.contains("internal_margin"));
         assert!(!contractor_filtered.contains("ssn"));
 
         // Write validation: writing allowed field passes
-        let ok_write = validate_entity_data_write_permissions(r#"{"task_name": "Fix HVAC", "status": "completed"}"#, "external_contractor", &policies);
+        let ok_write = validate_entity_data_write_permissions(
+            r#"{"task_name": "Fix HVAC", "status": "completed"}"#,
+            "external_contractor",
+            &policies,
+        );
         assert!(ok_write.is_ok());
 
         // Write validation: writing forbidden field fails
-        let forbidden_write = validate_entity_data_write_permissions(r#"{"task_name": "Fix HVAC", "internal_margin": 999.0}"#, "external_contractor", &policies);
+        let forbidden_write = validate_entity_data_write_permissions(
+            r#"{"task_name": "Fix HVAC", "internal_margin": 999.0}"#,
+            "external_contractor",
+            &policies,
+        );
         assert!(forbidden_write.is_err());
     }
 }

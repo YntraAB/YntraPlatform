@@ -295,12 +295,32 @@ pub async fn run_schema_migrations(
         .await?;
 
         execute_migration_sql(conn, "ALTER TABLE move_inventory ADD COLUMN room_name TEXT").await?;
-        execute_migration_sql(conn, "ALTER TABLE move_inventory ADD COLUMN estimated_weight_kg REAL DEFAULT 0.0").await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE move_inventory ADD COLUMN estimated_weight_kg REAL DEFAULT 0.0",
+        )
+        .await?;
         execute_migration_sql(conn, "ALTER TABLE move_inventory ADD COLUMN preset_id TEXT").await?;
-        execute_migration_sql(conn, "ALTER TABLE move_inventory ADD COLUMN barcode_tag TEXT").await?;
-        execute_migration_sql(conn, "ALTER TABLE move_inventory ADD COLUMN scan_status TEXT DEFAULT 'unscanned'").await?;
-        execute_migration_sql(conn, "ALTER TABLE move_inventory ADD COLUMN last_scanned_at INTEGER").await?;
-        execute_migration_sql(conn, "ALTER TABLE move_inventory ADD COLUMN last_scanned_by TEXT").await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE move_inventory ADD COLUMN barcode_tag TEXT",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE move_inventory ADD COLUMN scan_status TEXT DEFAULT 'unscanned'",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE move_inventory ADD COLUMN last_scanned_at INTEGER",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE move_inventory ADD COLUMN last_scanned_by TEXT",
+        )
+        .await?;
         let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_move_inventory_barcode ON move_inventory(barcode_tag)", ()).await;
 
         execute_migration_batch(

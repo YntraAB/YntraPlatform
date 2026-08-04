@@ -532,7 +532,7 @@ pub async fn add_time_report(
     conn.begin_transaction().await?;
     let res = async {
         crate::services::audit::log_action_with_conn(&conn, user_id, None, "add_time_report".to_string()).await?;
-        
+
         conn.execute(
             "INSERT INTO time_reports (id, workspace_id, user_id, team_id, date, start_time, end_time, hours, note, status, created_at, updated_at, sync_status)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending_attest', ?10, ?11, 'pending')",
@@ -586,8 +586,8 @@ fn point_in_polygon(lat: f64, lon: f64, polygon: &[(f64, f64)]) -> bool {
     for i in 0..polygon.len() {
         let (xi, yi) = polygon[i];
         let (xj, yj) = polygon[j];
-        let intersect = ((yi > lon) != (yj > lon))
-            && (lat < (xj - xi) * (lon - yi) / (yj - yi + 1e-12) + xi);
+        let intersect =
+            ((yi > lon) != (yj > lon)) && (lat < (xj - xi) * (lon - yi) / (yj - yi + 1e-12) + xi);
         if intersect {
             inside = !inside;
         }
@@ -622,8 +622,9 @@ pub async fn clock_in_geofenced(
     }
 
     // 2. Geofence Distance / Polygon Intersection Check
-    let distance = haversine_distance_meters(latitude, longitude, target_latitude, target_longitude);
-    
+    let distance =
+        haversine_distance_meters(latitude, longitude, target_latitude, target_longitude);
+
     if let Some(poly_json) = polygon_coords_json {
         if let Ok(polygon) = serde_json::from_str::<Vec<(f64, f64)>>(&poly_json) {
             if !polygon.is_empty() && !point_in_polygon(latitude, longitude, &polygon) {
@@ -642,7 +643,10 @@ pub async fn clock_in_geofenced(
         )));
     }
 
-    let geo_note = format!("{} [SOTA GPS Verified: {:.5},{:.5} ({:.0}m inside geofence)]", note, latitude, longitude, distance);
+    let geo_note = format!(
+        "{} [SOTA GPS Verified: {:.5},{:.5} ({:.0}m inside geofence)]",
+        note, latitude, longitude, distance
+    );
 
     let now_str = crate::infra::time::get_current_datetime_str();
     let start_time_str = if now_str.len() >= 16 {
@@ -661,7 +665,8 @@ pub async fn clock_in_geofenced(
         geo_note,
         start_time_str,
         None,
-    ).await
+    )
+    .await
 }
 
 #[uniffi::export]
@@ -1198,34 +1203,73 @@ mod tests {
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-geo-1', 'Geo WS', '[]', '{}')", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-geo-1', 'ws-geo-1', 'geo@yntra.se', 'user')", ()).await.unwrap();
 
-        crate::infra::crypto::set_session_key("geo-test-key".to_string().into_bytes(), "ws-geo-1".to_string());
+        crate::infra::crypto::set_session_key(
+            "geo-test-key".to_string().into_bytes(),
+            "ws-geo-1".to_string(),
+        );
 
         // 1. Anti-Spoofing Rejection Test
         let spoof_res = clock_in_geofenced(
-            "u-geo-1".to_string(), "ws-geo-1".to_string(), "u-geo-1".to_string(), None,
-            "2026-08-04".to_string(), 8.0, "Spoofed Shift".to_string(),
-            59.3293, 18.0686, 59.3293, 18.0686, 250.0,
-            Some(true), None
-        ).await;
+            "u-geo-1".to_string(),
+            "ws-geo-1".to_string(),
+            "u-geo-1".to_string(),
+            None,
+            "2026-08-04".to_string(),
+            8.0,
+            "Spoofed Shift".to_string(),
+            59.3293,
+            18.0686,
+            59.3293,
+            18.0686,
+            250.0,
+            Some(true),
+            None,
+        )
+        .await;
         assert!(spoof_res.is_err());
-        assert!(matches!(spoof_res.err().unwrap(), YntraError::ValidationError(_)));
+        assert!(matches!(
+            spoof_res.err().unwrap(),
+            YntraError::ValidationError(_)
+        ));
 
         // 2. Out-of-bounds Radius Test (Stockholm to Gothenburg ~400km)
         let radius_res = clock_in_geofenced(
-            "u-geo-1".to_string(), "ws-geo-1".to_string(), "u-geo-1".to_string(), None,
-            "2026-08-04".to_string(), 8.0, "Distant Shift".to_string(),
-            57.7088, 11.9745, 59.3293, 18.0686, 250.0,
-            Some(false), None
-        ).await;
+            "u-geo-1".to_string(),
+            "ws-geo-1".to_string(),
+            "u-geo-1".to_string(),
+            None,
+            "2026-08-04".to_string(),
+            8.0,
+            "Distant Shift".to_string(),
+            57.7088,
+            11.9745,
+            59.3293,
+            18.0686,
+            250.0,
+            Some(false),
+            None,
+        )
+        .await;
         assert!(radius_res.is_err());
 
         // 3. Valid Inside-Radius Clock-In Test
         let valid_res = clock_in_geofenced(
-            "u-geo-1".to_string(), "ws-geo-1".to_string(), "u-geo-1".to_string(), None,
-            "2026-08-04".to_string(), 8.0, "Site Visit".to_string(),
-            59.3293, 18.0686, 59.3293, 18.0686, 250.0,
-            Some(false), None
-        ).await;
+            "u-geo-1".to_string(),
+            "ws-geo-1".to_string(),
+            "u-geo-1".to_string(),
+            None,
+            "2026-08-04".to_string(),
+            8.0,
+            "Site Visit".to_string(),
+            59.3293,
+            18.0686,
+            59.3293,
+            18.0686,
+            250.0,
+            Some(false),
+            None,
+        )
+        .await;
         assert!(valid_res.is_ok());
         let report = valid_res.unwrap();
         assert!(report.note.unwrap().contains("GPS Verified"));
@@ -1233,4 +1277,3 @@ mod tests {
         crate::infra::crypto::clear_session_key();
     }
 }
-

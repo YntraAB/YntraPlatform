@@ -1,7 +1,7 @@
 use crate::database;
 use crate::{TodoItem, YntraError};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex};
 
 static TODO_STORES: LazyLock<Mutex<HashMap<String, Arc<crate::ZeroCopyStore>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -24,7 +24,10 @@ fn get_todo_store_path(workspace_id: &str) -> String {
     }
     #[cfg(not(test))]
     {
-        crate::database::native::get_database_path(&format!("yntra_zero_copy_todos_{}.db", workspace_id))
+        crate::database::native::get_database_path(&format!(
+            "yntra_zero_copy_todos_{}.db",
+            workspace_id
+        ))
     }
 }
 
@@ -34,7 +37,10 @@ pub fn get_todo_store(workspace_id: &str) -> Arc<crate::ZeroCopyStore> {
         .entry(workspace_id.to_string())
         .or_insert_with(|| {
             let path = get_todo_store_path(workspace_id);
-            Arc::new(crate::ZeroCopyStore::new(path).expect("Failed to initialize ZeroCopyStore for Todos"))
+            Arc::new(
+                crate::ZeroCopyStore::new(path)
+                    .expect("Failed to initialize ZeroCopyStore for Todos"),
+            )
         })
         .clone()
 }
@@ -212,7 +218,17 @@ mod tests {
 
         // Cleanup
         let _ = get_todo_store(ws_id).write_todos(Vec::new());
-        let _ = conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await;
-        let _ = conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await;
+        let _ = conn
+            .execute(
+                "DELETE FROM users WHERE workspace_id = ?1",
+                crate::params![ws_id],
+            )
+            .await;
+        let _ = conn
+            .execute(
+                "DELETE FROM workspaces WHERE id = ?1",
+                crate::params![ws_id],
+            )
+            .await;
     }
 }

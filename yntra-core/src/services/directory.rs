@@ -342,8 +342,11 @@ mod tests {
 
         // 1. Insert a mock invitation with encrypted workspace key
         let test_key = vec![0u8; 32];
-        let enc_test_key =
-            crate::infra::crypto::encrypt_workspace_key_with_password("CODE123".to_string(), test_key).unwrap();
+        let enc_test_key = crate::infra::crypto::encrypt_workspace_key_with_password(
+            "CODE123".to_string(),
+            test_key,
+        )
+        .unwrap();
         conn.execute(
             "INSERT OR REPLACE INTO invitations (code, workspace_id, email, full_name, role, activated, updated_at, encrypted_workspace_key) VALUES ('CODE123', 'ws-dir-inv', 'guest@dir.io', 'Guest User', 'user', 0, 0, ?1)",
             crate::params![enc_test_key],
@@ -399,9 +402,11 @@ mod tests {
         let _ = crate::infra::crypto::set_local_secret("workspace_public_key_ws-dir-inv", "").await;
 
         let test_key_2 = vec![0u8; 32];
-        let enc_test_key_2 =
-            crate::infra::crypto::encrypt_workspace_key_with_password("CODE456".to_string(), test_key_2)
-                .unwrap();
+        let enc_test_key_2 = crate::infra::crypto::encrypt_workspace_key_with_password(
+            "CODE456".to_string(),
+            test_key_2,
+        )
+        .unwrap();
         conn.execute(
             "INSERT OR REPLACE INTO invitations (code, workspace_id, email, full_name, role, activated, updated_at, encrypted_workspace_key) VALUES ('CODE456', 'ws-dir-inv', 'guest2@dir.io', 'Guest User 2', 'user', 0, 0, ?1)",
             crate::params![enc_test_key_2],

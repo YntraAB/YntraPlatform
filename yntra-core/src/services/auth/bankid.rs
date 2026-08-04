@@ -33,8 +33,14 @@ fn check_bankid_mock_bypass_allowed() -> bool {
             for path in &[".env", "../.env"] {
                 if let Ok(content) = std::fs::read_to_string(path) {
                     for line in content.lines() {
-                        if let Some(stripped) = line.strip_prefix("YNTRA_ALLOW_BANKID_MOCK_PIN_BYPASS=") {
-                            let val = stripped.trim().trim_matches('"').trim_matches('\'').to_lowercase();
+                        if let Some(stripped) =
+                            line.strip_prefix("YNTRA_ALLOW_BANKID_MOCK_PIN_BYPASS=")
+                        {
+                            let val = stripped
+                                .trim()
+                                .trim_matches('"')
+                                .trim_matches('\'')
+                                .to_lowercase();
                             return val == "1" || val == "true";
                         }
                     }
@@ -467,16 +473,25 @@ pub async fn get_bankid_auth_session(
 }
 
 #[uniffi::export]
-pub async fn submit_bankid_pin(session_id: String, token: String, pin: String) -> Result<(), YntraError> {
+pub async fn submit_bankid_pin(
+    session_id: String,
+    token: String,
+    pin: String,
+) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
-    let db_token: String = conn.query_row(
-        "SELECT token FROM bankid_auth_sessions WHERE id = ?1",
-        crate::params![&session_id],
-        |r| r.get(0)
-    ).await.map_err(|_| YntraError::NotFoundError("Session not found".to_string()))?;
+    let db_token: String = conn
+        .query_row(
+            "SELECT token FROM bankid_auth_sessions WHERE id = ?1",
+            crate::params![&session_id],
+            |r| r.get(0),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Session not found".to_string()))?;
 
     if db_token != token {
-        return Err(YntraError::AuthError("Access denied: invalid session token".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: invalid session token".to_string(),
+        ));
     }
 
     let zeroizing_pin = zeroize::Zeroizing::new(pin);

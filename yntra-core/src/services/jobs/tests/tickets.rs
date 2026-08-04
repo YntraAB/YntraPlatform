@@ -1,7 +1,9 @@
-use crate::database;
-use crate::services::jobs::{create_job_ticket, get_job_tickets, get_job_tickets_rkyv, schedule_job_ticket};
-use crate::services::jobs::{get_job_signature, save_job_signature_with_audit_trail};
 use crate::JobTicket;
+use crate::database;
+use crate::services::jobs::{
+    create_job_ticket, get_job_tickets, get_job_tickets_rkyv, schedule_job_ticket,
+};
+use crate::services::jobs::{get_job_signature, save_job_signature_with_audit_trail};
 
 #[tokio::test]
 async fn test_job_tickets_workspace_scoping() {
@@ -128,41 +130,46 @@ async fn test_scheduling_and_sync() {
         .query_row(
             "SELECT scheduled_date, status, assigned_user_id FROM job_tickets WHERE id = ?1",
             crate::params![&job.id],
-            |r| Ok(JobTicket {
-                id: job.id.clone(),
-                workspace_id: "ws-sync-test".to_string(),
-                title: "".to_string(),
-                description: "".to_string(),
-                location_address: "".to_string(),
-                priority: "".to_string(),
-                status: r.get(1)?,
-                assigned_user_id: r.get(2)?,
-                scheduled_date: r.get(0)?,
-                checklist_json: "[]".to_string(),
-                completion_report: None,
-                created_at: "".to_string(),
-                updated_at: 0,
-                sync_status: "pending".to_string(),
-                origin_address: None,
-                destination_address: None,
-                origin_floor: 0,
-                destination_floor: 0,
-                origin_has_elevator: false,
-                destination_has_elevator: false,
-                origin_parking_permit_needed: false,
-                destination_parking_permit_needed: false,
-                assigned_vehicle_id: None,
-                route_stops_json: None,
-                long_carry_meters: 0,
-                toll_fees: 0.0,
-            }),
+            |r| {
+                Ok(JobTicket {
+                    id: job.id.clone(),
+                    workspace_id: "ws-sync-test".to_string(),
+                    title: "".to_string(),
+                    description: "".to_string(),
+                    location_address: "".to_string(),
+                    priority: "".to_string(),
+                    status: r.get(1)?,
+                    assigned_user_id: r.get(2)?,
+                    scheduled_date: r.get(0)?,
+                    checklist_json: "[]".to_string(),
+                    completion_report: None,
+                    created_at: "".to_string(),
+                    updated_at: 0,
+                    sync_status: "pending".to_string(),
+                    origin_address: None,
+                    destination_address: None,
+                    origin_floor: 0,
+                    destination_floor: 0,
+                    origin_has_elevator: false,
+                    destination_has_elevator: false,
+                    origin_parking_permit_needed: false,
+                    destination_parking_permit_needed: false,
+                    assigned_vehicle_id: None,
+                    route_stops_json: None,
+                    long_carry_meters: 0,
+                    toll_fees: 0.0,
+                })
+            },
         )
         .await
         .unwrap();
-    
+
     assert_eq!(updated_job.scheduled_date, "2026-08-15");
     assert_eq!(updated_job.status, "assigned");
-    assert_eq!(updated_job.assigned_user_id, Some("u-sync-staff".to_string()));
+    assert_eq!(
+        updated_job.assigned_user_id,
+        Some("u-sync-staff".to_string())
+    );
 
     // Verify calendar event created
     let (event_id, event_start, event_assignee): (String, String, Option<String>) = conn
@@ -218,10 +225,24 @@ async fn test_scheduling_and_sync() {
     assert_eq!(res_assignee, None);
 
     // Cleanup
-    conn.execute("DELETE FROM events WHERE id = ?1", crate::params![&event_id]).await.ok();
-    conn.execute("DELETE FROM job_tickets WHERE id = ?1", crate::params![&job.id]).await.unwrap();
-    conn.execute("DELETE FROM users WHERE id = 'u-sync-staff'", ()).await.unwrap();
-    conn.execute("DELETE FROM workspaces WHERE id = 'ws-sync-test'", ()).await.unwrap();
+    conn.execute(
+        "DELETE FROM events WHERE id = ?1",
+        crate::params![&event_id],
+    )
+    .await
+    .ok();
+    conn.execute(
+        "DELETE FROM job_tickets WHERE id = ?1",
+        crate::params![&job.id],
+    )
+    .await
+    .unwrap();
+    conn.execute("DELETE FROM users WHERE id = 'u-sync-staff'", ())
+        .await
+        .unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-sync-test'", ())
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -257,7 +278,9 @@ async fn test_digital_signature_capture() {
     .unwrap();
 
     // 1. Initially verify no signature exists
-    let sig_opt = get_job_signature("u-sig-staff".to_string(), job.id.clone()).await.unwrap();
+    let sig_opt = get_job_signature("u-sig-staff".to_string(), job.id.clone())
+        .await
+        .unwrap();
     assert!(sig_opt.is_none());
 
     // 2. Save signature with legal audit trail and transport terms (Bohag 2020)
@@ -271,10 +294,14 @@ async fn test_digital_signature_capture() {
         Some("59.3293,18.0686".to_string()),
         Some("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)".to_string()),
         Some("Bohag 2020".to_string()),
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
     // 3. Retrieve and verify signature details and legal audit trail
-    let sig_opt_2 = get_job_signature("u-sig-staff".to_string(), job.id.clone()).await.unwrap();
+    let sig_opt_2 = get_job_signature("u-sig-staff".to_string(), job.id.clone())
+        .await
+        .unwrap();
     assert!(sig_opt_2.is_some());
     let sig = sig_opt_2.unwrap();
     assert_eq!(sig.signer_name, "John Doe (Customer)");
@@ -288,10 +315,24 @@ async fn test_digital_signature_capture() {
     assert!(sig.signature_hash.is_some());
 
     // Cleanup
-    conn.execute("DELETE FROM move_signatures WHERE job_ticket_id = ?1", crate::params![&job.id]).await.unwrap();
-    conn.execute("DELETE FROM job_tickets WHERE id = ?1", crate::params![&job.id]).await.unwrap();
-    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-sig-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM workspaces WHERE id = 'ws-sig-test'", ()).await.unwrap();
+    conn.execute(
+        "DELETE FROM move_signatures WHERE job_ticket_id = ?1",
+        crate::params![&job.id],
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        "DELETE FROM job_tickets WHERE id = ?1",
+        crate::params![&job.id],
+    )
+    .await
+    .unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-sig-test'", ())
+        .await
+        .unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-sig-test'", ())
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -311,13 +352,19 @@ async fn test_external_notification_triggers() {
         "u-notif-client".to_string(),
         "booking_confirmation".to_string(),
         None,
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
     assert!(res == false || res == true);
 
     // 3. Clean up
-    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-notif-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM workspaces WHERE id = 'ws-notif-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-notif-test'", ())
+        .await
+        .unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-notif-test'", ())
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -340,7 +387,9 @@ async fn test_public_booking_lead_submission() {
         "Startvägen 1".to_string(),
         "Slutgränd 5".to_string(),
         items_json.to_string(),
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
     // 3. Verify user created
     let (uid, role, phone): (String, String, Option<String>) = conn
@@ -389,8 +438,20 @@ async fn test_public_booking_lead_submission() {
 
     // 7. Verify status transition for quote_requested ticket
     conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('staff-lead-test', 'ws-lead-test', 'staff@lead.se', 'admin')", ()).await.unwrap();
-    crate::services::users::ensure_user_role_signature(&conn, "staff-lead-test", "admin", "ws-lead-test").await.unwrap();
-    let update_res = update_job_status("staff-lead-test".to_string(), job_id.clone(), "assigned".to_string()).await;
+    crate::services::users::ensure_user_role_signature(
+        &conn,
+        "staff-lead-test",
+        "admin",
+        "ws-lead-test",
+    )
+    .await
+    .unwrap();
+    let update_res = update_job_status(
+        "staff-lead-test".to_string(),
+        job_id.clone(),
+        "assigned".to_string(),
+    )
+    .await;
     assert!(update_res.is_ok());
 
     // 6. Verify quote created using unified calculation engine (2.5 m3 * 500 = 1250 base_price, 800 distance_fee, 250 supplies_fee = 2300 total)
@@ -407,17 +468,36 @@ async fn test_public_booking_lead_submission() {
     assert_eq!(total_price, 2300.0);
 
     // 8. Cleanup
-    conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = ?1", crate::params![&job_id]).await.unwrap();
-    conn.execute("DELETE FROM move_quotes WHERE job_ticket_id = ?1", crate::params![&job_id]).await.unwrap();
-    conn.execute("DELETE FROM job_tickets WHERE id = ?1", crate::params![&job_id]).await.unwrap();
-    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-lead-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM workspaces WHERE id = 'ws-lead-test'", ()).await.unwrap();
+    conn.execute(
+        "DELETE FROM move_inventory WHERE job_ticket_id = ?1",
+        crate::params![&job_id],
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        "DELETE FROM move_quotes WHERE job_ticket_id = ?1",
+        crate::params![&job_id],
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        "DELETE FROM job_tickets WHERE id = ?1",
+        crate::params![&job_id],
+    )
+    .await
+    .unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-lead-test'", ())
+        .await
+        .unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-lead-test'", ())
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
 async fn test_public_lead_validation_and_rate_limiting() {
-    use crate::services::jobs::submit_public_booking_lead;
     use crate::infra::errors::YntraError;
+    use crate::services::jobs::submit_public_booking_lead;
 
     let _lock = database::DB_TEST_LOCK.lock().unwrap();
     let conn = database::acquire_connection().await.unwrap();
@@ -433,9 +513,13 @@ async fn test_public_lead_validation_and_rate_limiting() {
         "A".to_string(),
         "B".to_string(),
         "[]".to_string(),
-    ).await;
+    )
+    .await;
     assert!(err_email.is_err());
-    assert!(matches!(err_email.unwrap_err(), YntraError::ValidationError(_)));
+    assert!(matches!(
+        err_email.unwrap_err(),
+        YntraError::ValidationError(_)
+    ));
 
     // 2. Short name should fail validation
     let err_name = submit_public_booking_lead(
@@ -446,7 +530,8 @@ async fn test_public_lead_validation_and_rate_limiting() {
         "A".to_string(),
         "B".to_string(),
         "[]".to_string(),
-    ).await;
+    )
+    .await;
     assert!(err_name.is_err());
 
     // 3. Valid lead should succeed and set unverified_guest metadata
@@ -458,7 +543,8 @@ async fn test_public_lead_validation_and_rate_limiting() {
         "Start Str 1".to_string(),
         "End Str 2".to_string(),
         "[]".to_string(),
-    ).await;
+    )
+    .await;
     assert!(res_ok.is_ok());
 
     let guest_meta: String = conn.query_row(
@@ -477,29 +563,48 @@ async fn test_public_lead_validation_and_rate_limiting() {
         "Start Str 1".to_string(),
         "End Str 2".to_string(),
         "invalid-json-string".to_string(),
-    ).await;
+    )
+    .await;
     assert!(err_json.is_err());
     let bad_user_count: i64 = conn.query_row("SELECT COUNT(*) FROM users WHERE workspace_id = 'ws-lead-val-test' AND email = 'badjson@lead.se'", (), |r| r.get(0)).await.unwrap();
     assert_eq!(bad_user_count, 0);
 
     // Cleanup
-    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-lead-val-test'", ()).await.ok();
-    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-lead-val-test'", ()).await.ok();
-    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-lead-val-test'", ()).await.ok();
-    conn.execute("DELETE FROM workspaces WHERE id = 'ws-lead-val-test'", ()).await.ok();
+    conn.execute(
+        "DELETE FROM move_quotes WHERE workspace_id = 'ws-lead-val-test'",
+        (),
+    )
+    .await
+    .ok();
+    conn.execute(
+        "DELETE FROM job_tickets WHERE workspace_id = 'ws-lead-val-test'",
+        (),
+    )
+    .await
+    .ok();
+    conn.execute(
+        "DELETE FROM users WHERE workspace_id = 'ws-lead-val-test'",
+        (),
+    )
+    .await
+    .ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-lead-val-test'", ())
+        .await
+        .ok();
 }
 
 #[tokio::test]
 async fn test_third_party_lead_aggregator_webhooks() {
-    use crate::services::jobs::ingest_third_party_lead_webhook;
     use crate::infra::errors::YntraError;
+    use crate::services::jobs::ingest_third_party_lead_webhook;
 
     let _lock = database::DB_TEST_LOCK.lock().unwrap();
     let conn = database::acquire_connection().await.unwrap();
 
     let settings = serde_json::json!({
         "lead_webhook_api_key": "lead-secret-key-123"
-    }).to_string();
+    })
+    .to_string();
 
     conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-agg-test', 'Aggregator WS', '[\"moving_company\"]', ?1)", crate::params![&settings]).await.unwrap();
 
@@ -510,17 +615,24 @@ async fn test_third_party_lead_aggregator_webhooks() {
         "customerPhone": "+46700001111",
         "originAddress": "Google St 1",
         "destinationAddress": "Google St 2"
-    }).to_string();
+    })
+    .to_string();
 
     let g_job = ingest_third_party_lead_webhook(
         "ws-agg-test".to_string(),
         "google_lsa".to_string(),
         "lead-secret-key-123".to_string(),
         google_payload,
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
     let (g_title, g_prio): (String, String) = conn
-        .query_row("SELECT title, priority FROM job_tickets WHERE id = ?1", crate::params![&g_job], |r| Ok((r.get(0)?, r.get(1)?)))
+        .query_row(
+            "SELECT title, priority FROM job_tickets WHERE id = ?1",
+            crate::params![&g_job],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
         .await
         .unwrap();
 
@@ -534,17 +646,24 @@ async fn test_third_party_lead_aggregator_webhooks() {
         "user_phone": "+46700002222",
         "start_location": "Yelp St 10",
         "end_location": "Yelp St 20"
-    }).to_string();
+    })
+    .to_string();
 
     let y_job = ingest_third_party_lead_webhook(
         "ws-agg-test".to_string(),
         "yelp".to_string(),
         "lead-secret-key-123".to_string(),
         yelp_payload,
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
     let (y_title,): (String,) = conn
-        .query_row("SELECT title FROM job_tickets WHERE id = ?1", crate::params![&y_job], |r| Ok((r.get(0)?,)))
+        .query_row(
+            "SELECT title FROM job_tickets WHERE id = ?1",
+            crate::params![&y_job],
+            |r| Ok((r.get(0)?,)),
+        )
         .await
         .unwrap();
 
@@ -565,45 +684,79 @@ async fn test_third_party_lead_aggregator_webhooks() {
             "locality": "Stockholm",
             "zip": "11151"
         }
-    }).to_string();
+    })
+    .to_string();
 
     let a_job = ingest_third_party_lead_webhook(
         "ws-agg-test".to_string(),
         "angi".to_string(),
         "lead-secret-key-123".to_string(),
         angi_payload,
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
     let (a_orig, a_dest): (Option<String>, Option<String>) = conn
-        .query_row("SELECT origin_address, destination_address FROM job_tickets WHERE id = ?1", crate::params![&a_job], |r| Ok((r.get(0)?, r.get(1)?)))
+        .query_row(
+            "SELECT origin_address, destination_address FROM job_tickets WHERE id = ?1",
+            crate::params![&a_job],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
         .await
         .unwrap();
 
     assert_eq!(a_orig, Some("Kungsgatan 12, 11122 Stockholm".to_string()));
-    assert_eq!(a_dest, Some("Drottninggatan 45, 11151 Stockholm".to_string()));
+    assert_eq!(
+        a_dest,
+        Some("Drottninggatan 45, 11151 Stockholm".to_string())
+    );
 
     // 4. Webhook missing origin address should be rejected with ValidationError
     let invalid_payload = serde_json::json!({
         "customerName": "Dave NoAddress",
         "customerEmail": "dave@noaddress.com"
-    }).to_string();
+    })
+    .to_string();
 
     let inv_res = ingest_third_party_lead_webhook(
         "ws-agg-test".to_string(),
         "google_lsa".to_string(),
         "lead-secret-key-123".to_string(),
         invalid_payload,
-    ).await;
+    )
+    .await;
 
     assert!(inv_res.is_err());
-    assert!(matches!(inv_res.unwrap_err(), YntraError::ValidationError(_)));
+    assert!(matches!(
+        inv_res.unwrap_err(),
+        YntraError::ValidationError(_)
+    ));
 
     // Cleanup
-    conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-agg-test'", ()).await.ok();
-    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-agg-test'", ()).await.ok();
-    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-agg-test'", ()).await.ok();
-    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-agg-test'", ()).await.ok();
-    conn.execute("DELETE FROM workspaces WHERE id = 'ws-agg-test'", ()).await.ok();
+    conn.execute(
+        "DELETE FROM move_inventory WHERE workspace_id = 'ws-agg-test'",
+        (),
+    )
+    .await
+    .ok();
+    conn.execute(
+        "DELETE FROM move_quotes WHERE workspace_id = 'ws-agg-test'",
+        (),
+    )
+    .await
+    .ok();
+    conn.execute(
+        "DELETE FROM job_tickets WHERE workspace_id = 'ws-agg-test'",
+        (),
+    )
+    .await
+    .ok();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-agg-test'", ())
+        .await
+        .ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-agg-test'", ())
+        .await
+        .ok();
 }
 
 #[tokio::test]
@@ -631,8 +784,17 @@ async fn test_job_ticket_mover_visibility_scoping() {
         Some("u-scope-mover1".to_string()),
         "2026-08-10".to_string(),
         "[]".to_string(),
-        None, None, 0, 0, false, false, false, false,
-    ).await.unwrap();
+        None,
+        None,
+        0,
+        0,
+        false,
+        false,
+        false,
+        false,
+    )
+    .await
+    .unwrap();
 
     // 3. Create job 2 (Mover 2 is added as crew)
     let job2 = create_job_ticket(
@@ -645,8 +807,17 @@ async fn test_job_ticket_mover_visibility_scoping() {
         None,
         "2026-08-10".to_string(),
         "[]".to_string(),
-        None, None, 0, 0, false, false, false, false,
-    ).await.unwrap();
+        None,
+        None,
+        0,
+        0,
+        false,
+        false,
+        false,
+        false,
+    )
+    .await
+    .unwrap();
     conn.execute("INSERT INTO job_crew (job_ticket_id, user_id, role) VALUES (?1, 'u-scope-mover2', 'mover')", crate::params![&job2.id]).await.unwrap();
 
     // 4. Create job 3 (Unassigned to any specific mover)
@@ -660,8 +831,17 @@ async fn test_job_ticket_mover_visibility_scoping() {
         None,
         "2026-08-10".to_string(),
         "[]".to_string(),
-        None, None, 0, 0, false, false, false, false,
-    ).await.unwrap();
+        None,
+        None,
+        0,
+        0,
+        false,
+        false,
+        false,
+        false,
+    )
+    .await
+    .unwrap();
 
     // 5. Query tickets as Admin -> expects 3 jobs
     let admin_list = get_job_tickets("u-scope-admin".to_string()).await.unwrap();
@@ -678,10 +858,24 @@ async fn test_job_ticket_mover_visibility_scoping() {
     assert_eq!(mover2_list[0].id, job2.id);
 
     // Cleanup
-    conn.execute("DELETE FROM job_crew WHERE job_ticket_id IN (?1, ?2)", crate::params![&job1.id, &job2.id]).await.ok();
-    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-scope-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-scope-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM workspaces WHERE id = 'ws-scope-test'", ()).await.unwrap();
+    conn.execute(
+        "DELETE FROM job_crew WHERE job_ticket_id IN (?1, ?2)",
+        crate::params![&job1.id, &job2.id],
+    )
+    .await
+    .ok();
+    conn.execute(
+        "DELETE FROM job_tickets WHERE workspace_id = 'ws-scope-test'",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-scope-test'", ())
+        .await
+        .unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-scope-test'", ())
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -706,7 +900,12 @@ async fn test_customer_live_tracking_and_quote_deposit() {
         "[]".to_string(),
         None,
         None,
-        0, 0, true, true, false, false,
+        0,
+        0,
+        true,
+        true,
+        false,
+        false,
     )
     .await
     .unwrap();
@@ -715,7 +914,10 @@ async fn test_customer_live_tracking_and_quote_deposit() {
     conn.execute("UPDATE job_tickets SET assigned_user_id = 'u-track-staff', assigned_vehicle_id = 'v-track-1' WHERE id = ?1", crate::params![&job.id]).await.unwrap();
 
     // 1. Customer live GPS tracking portal
-    let portal = crate::services::jobs::notifications::get_customer_live_tracking_portal(job.id.clone()).await.unwrap();
+    let portal =
+        crate::services::jobs::notifications::get_customer_live_tracking_portal(job.id.clone())
+            .await
+            .unwrap();
     assert_eq!(portal.driver_name, "Leader Lars");
     assert_eq!(portal.driver_phone, Some("+46701112233".to_string()));
     assert_eq!(portal.vehicle_license_plate, Some("ABC-123".to_string()));
@@ -732,18 +934,43 @@ async fn test_customer_live_tracking_and_quote_deposit() {
     .await
     .unwrap();
 
-    let deposit_res = crate::services::jobs::accept_move_quote_with_deposit("u-track-client".to_string(), quote_id.clone(), "swish".to_string()).await.unwrap();
+    let deposit_res = crate::services::jobs::accept_move_quote_with_deposit(
+        "u-track-client".to_string(),
+        quote_id.clone(),
+        "swish".to_string(),
+    )
+    .await
+    .unwrap();
     assert!(deposit_res.success);
     assert_eq!(deposit_res.deposit_amount, 2500.0); // 25% of 10,000
     assert_eq!(deposit_res.remaining_balance, 7500.0);
     assert!(deposit_res.payment_session_url.unwrap().contains("swish"));
 
     // Cleanup
-    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-track-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-track-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM vehicles WHERE workspace_id = 'ws-track-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-track-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM workspaces WHERE id = 'ws-track-test'", ()).await.unwrap();
+    conn.execute(
+        "DELETE FROM move_quotes WHERE workspace_id = 'ws-track-test'",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        "DELETE FROM job_tickets WHERE workspace_id = 'ws-track-test'",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        "DELETE FROM vehicles WHERE workspace_id = 'ws-track-test'",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-track-test'", ())
+        .await
+        .unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-track-test'", ())
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -768,11 +995,28 @@ async fn test_coarse_grained_mover_permissions_and_field_sheet_scoping() {
         "[]".to_string(),
         Some("Origin Street 10".to_string()),
         Some("Dest Ave 20".to_string()),
-        2, 4, true, false, false, false,
-    ).await.unwrap();
+        2,
+        4,
+        true,
+        false,
+        false,
+        false,
+    )
+    .await
+    .unwrap();
 
-    conn.execute("UPDATE job_tickets SET assigned_vehicle_id = 'v-mover-1' WHERE id = ?1", crate::params![&job.id]).await.unwrap();
-    conn.execute("INSERT INTO job_crew (job_ticket_id, user_id, role) VALUES (?1, 'u-field-mover', 'mover')", crate::params![&job.id]).await.unwrap();
+    conn.execute(
+        "UPDATE job_tickets SET assigned_vehicle_id = 'v-mover-1' WHERE id = ?1",
+        crate::params![&job.id],
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        "INSERT INTO job_crew (job_ticket_id, user_id, role) VALUES (?1, 'u-field-mover', 'mover')",
+        crate::params![&job.id],
+    )
+    .await
+    .unwrap();
 
     let quote_id = "q-mover-perm-1".to_string();
     conn.execute(
@@ -781,15 +1025,28 @@ async fn test_coarse_grained_mover_permissions_and_field_sheet_scoping() {
     ).await.unwrap();
 
     // 1. Mover fetches read-only Field Sheet Manifest -> succeeds
-    let manifest = crate::services::jobs::get_mover_field_sheet_manifest("u-field-mover".to_string(), job.id.clone()).await.unwrap();
+    let manifest = crate::services::jobs::get_mover_field_sheet_manifest(
+        "u-field-mover".to_string(),
+        job.id.clone(),
+    )
+    .await
+    .unwrap();
     assert_eq!(manifest.title, "Assigned Field Job");
-    assert_eq!(manifest.assigned_vehicle_plate, Some("MOVER-888".to_string()));
+    assert_eq!(
+        manifest.assigned_vehicle_plate,
+        Some("MOVER-888".to_string())
+    );
     assert_eq!(manifest.origin_floor, 2);
     assert_eq!(manifest.destination_floor, 4);
-    assert!(manifest.assigned_crew_names.contains(&"Crew Carl".to_string()));
+    assert!(
+        manifest
+            .assigned_crew_names
+            .contains(&"Crew Carl".to_string())
+    );
 
     // 2. Mover attempts to view financial quotes -> blocked with AuthError
-    let quote_err = crate::services::jobs::get_move_quote("u-field-mover".to_string(), job.id.clone()).await;
+    let quote_err =
+        crate::services::jobs::get_move_quote("u-field-mover".to_string(), job.id.clone()).await;
     assert!(quote_err.is_err());
     if let Err(crate::infra::errors::YntraError::AuthError(msg)) = quote_err {
         assert!(msg.contains("mover role cannot view financial quotes"));
@@ -798,7 +1055,9 @@ async fn test_coarse_grained_mover_permissions_and_field_sheet_scoping() {
     }
 
     // 3. Mover attempts to view move invoice -> blocked with AuthError
-    let invoice_err = crate::services::jobs::get_move_invoice("u-field-mover".to_string(), quote_id.clone()).await;
+    let invoice_err =
+        crate::services::jobs::get_move_invoice("u-field-mover".to_string(), quote_id.clone())
+            .await;
     assert!(invoice_err.is_err());
     if let Err(crate::infra::errors::YntraError::AuthError(msg)) = invoice_err {
         assert!(msg.contains("mover role cannot view move invoices"));
@@ -807,10 +1066,37 @@ async fn test_coarse_grained_mover_permissions_and_field_sheet_scoping() {
     }
 
     // Cleanup
-    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-mover-perm-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM job_crew WHERE job_ticket_id = ?1", crate::params![&job.id]).await.unwrap();
-    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-mover-perm-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM vehicles WHERE workspace_id = 'ws-mover-perm-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-mover-perm-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM workspaces WHERE id = 'ws-mover-perm-test'", ()).await.unwrap();
+    conn.execute(
+        "DELETE FROM move_quotes WHERE workspace_id = 'ws-mover-perm-test'",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        "DELETE FROM job_crew WHERE job_ticket_id = ?1",
+        crate::params![&job.id],
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        "DELETE FROM job_tickets WHERE workspace_id = 'ws-mover-perm-test'",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        "DELETE FROM vehicles WHERE workspace_id = 'ws-mover-perm-test'",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        "DELETE FROM users WHERE workspace_id = 'ws-mover-perm-test'",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-mover-perm-test'", ())
+        .await
+        .unwrap();
 }

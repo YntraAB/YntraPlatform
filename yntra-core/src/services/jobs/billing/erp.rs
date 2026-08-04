@@ -1,8 +1,8 @@
-use crate::database;
-use crate::infra::observer::notify_observers;
-use crate::infra::errors::YntraError;
-use crate::services::jobs::tickets::is_staff;
 use super::helpers::{create_http_client, get_config_val};
+use crate::database;
+use crate::infra::errors::YntraError;
+use crate::infra::observer::notify_observers;
+use crate::services::jobs::tickets::is_staff;
 
 async fn sync_invoice_to_erp_inner(
     requester_user_id: String,
@@ -32,7 +32,8 @@ async fn sync_invoice_to_erp_inner(
             error_message TEXT
         )",
         (),
-    ).await?;
+    )
+    .await?;
 
     // 2. Fetch Move Invoice & Quote
     let mut stmt = conn.prepare(
@@ -43,27 +44,43 @@ async fn sync_invoice_to_erp_inner(
     ).await?;
     let mut rows = stmt.query(crate::params![&invoice_id]).await?;
 
-    let (ws_id, inv_date, subtotal, rut_deduction, customer_amount, _inv_status, customer_id, base_price, stairs_surcharge, distance_fee, packing_supplies_fee) =
-        if let Some(row) = rows.next().await? {
-            (
-                row.get::<String>(0)?,
-                row.get::<String>(1)?,
-                row.get::<f64>(2)?,
-                row.get::<f64>(3)?,
-                row.get::<f64>(4)?,
-                row.get::<String>(5)?,
-                row.get::<String>(6)?,
-                row.get::<f64>(7)?,
-                row.get::<f64>(8)?,
-                row.get::<f64>(9)?,
-                row.get::<f64>(10)?,
-            )
-        } else {
-            return Err(YntraError::NotFoundError(format!("Invoice {} not found", invoice_id)));
-        };
+    let (
+        ws_id,
+        inv_date,
+        subtotal,
+        rut_deduction,
+        customer_amount,
+        _inv_status,
+        customer_id,
+        base_price,
+        stairs_surcharge,
+        distance_fee,
+        packing_supplies_fee,
+    ) = if let Some(row) = rows.next().await? {
+        (
+            row.get::<String>(0)?,
+            row.get::<String>(1)?,
+            row.get::<f64>(2)?,
+            row.get::<f64>(3)?,
+            row.get::<f64>(4)?,
+            row.get::<String>(5)?,
+            row.get::<String>(6)?,
+            row.get::<f64>(7)?,
+            row.get::<f64>(8)?,
+            row.get::<f64>(9)?,
+            row.get::<f64>(10)?,
+        )
+    } else {
+        return Err(YntraError::NotFoundError(format!(
+            "Invoice {} not found",
+            invoice_id
+        )));
+    };
 
     if auth.workspace_id != ws_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     // Fetch Workspace ERP settings
@@ -79,7 +96,11 @@ async fn sync_invoice_to_erp_inner(
 
     let provider = erp_provider.to_lowercase();
     let now_ms = chrono::Utc::now().timestamp_millis();
-    let erp_inv_num = format!("{}-INV-{}", provider.to_uppercase(), uuid::Uuid::new_v4().simple());
+    let erp_inv_num = format!(
+        "{}-INV-{}",
+        provider.to_uppercase(),
+        uuid::Uuid::new_v4().simple()
+    );
 
     let (ledger_account, payload) = match provider.as_str() {
         "fortnox" => (
@@ -96,7 +117,7 @@ async fn sync_invoice_to_erp_inner(
                         { "ArticleNumber": "ART-RUT", "Description": "RUT-avdrag Skatteverket", "Price": -rut_deduction, "Account": 3059 }
                     ]
                 }
-            })
+            }),
         ),
         "visma" => (
             "3000_SALES_SERVICES",
@@ -106,7 +127,7 @@ async fn sync_invoice_to_erp_inner(
                 "TotalAmount": customer_amount,
                 "RutDeduction": rut_deduction,
                 "LedgerAccount": 3000
-            })
+            }),
         ),
         "quickbooks" => (
             "4000_SERVICE_INCOME",
@@ -121,7 +142,7 @@ async fn sync_invoice_to_erp_inner(
                         "SalesItemLineDetail": { "ItemRef": { "name": "Moving Services" } }
                     }
                 ]
-            })
+            }),
         ),
         "xero" => (
             "200_SALES",
@@ -132,7 +153,7 @@ async fn sync_invoice_to_erp_inner(
                 "LineItems": [
                     { "Description": "Moving & Relocation Services", "Quantity": 1.0, "UnitAmount": customer_amount, "AccountCode": "200" }
                 ]
-            })
+            }),
         ),
         "sage" => (
             "4000_REVENUE_RELOCATION",
@@ -142,7 +163,7 @@ async fn sync_invoice_to_erp_inner(
                 "Amount": customer_amount,
                 "GlAccount": "4000",
                 "Description": "Relocation & Moving Services"
-            })
+            }),
         ),
         _ => (
             "3000_GENERAL_SALES",
@@ -150,23 +171,47 @@ async fn sync_invoice_to_erp_inner(
                 "invoice_id": invoice_id,
                 "amount": customer_amount,
                 "rut_deduction": rut_deduction
-            })
-        )
+            }),
+        ),
     };
 
     // 3. Post to ERP API endpoint or ERP proxy gateway
-    let erp_gateway = get_config_val(&format!("{}_gateway_url", provider), "ERP_GATEWAY_URL", &settings_json).await;
+    let erp_gateway = get_config_val(
+        &format!("{}_gateway_url", provider),
+        "ERP_GATEWAY_URL",
+        &settings_json,
+    )
+    .await;
 
     let (sync_status, msg) = if let Some(gw_url) = erp_gateway {
         let client = create_http_client()?;
         let res = client.post(&gw_url).json(&payload).send().await;
         match res {
-            Ok(resp) if resp.status().is_success() => ("synced".to_string(), format!("Successfully posted invoice to {} ERP ledger.", provider.to_uppercase())),
-            Ok(resp) => ("failed".to_string(), format!("ERP {} returned error code {}", provider, resp.status())),
-            Err(e) => ("failed".to_string(), format!("ERP connection failed: {}", e)),
+            Ok(resp) if resp.status().is_success() => (
+                "synced".to_string(),
+                format!(
+                    "Successfully posted invoice to {} ERP ledger.",
+                    provider.to_uppercase()
+                ),
+            ),
+            Ok(resp) => (
+                "failed".to_string(),
+                format!("ERP {} returned error code {}", provider, resp.status()),
+            ),
+            Err(e) => (
+                "failed".to_string(),
+                format!("ERP connection failed: {}", e),
+            ),
         }
     } else {
-        ("synced".to_string(), format!("Successfully queued for bi-directional {} ERP reconciliation (Account: {}).", provider.to_uppercase(), ledger_account))
+        (
+            "synced".to_string(),
+            format!(
+                "Successfully queued for bi-directional {} ERP reconciliation (Account: {}).",
+                provider.to_uppercase(),
+                ledger_account
+            ),
+        )
     };
 
     let log_id = uuid::Uuid::new_v4().to_string();
@@ -245,15 +290,23 @@ async fn reconcile_erp_payments_inner(
             error_message TEXT
         )",
         (),
-    ).await?;
+    )
+    .await?;
 
-    let mut stmt = conn.prepare(
-        "SELECT i.id FROM move_invoices i
+    let mut stmt = conn
+        .prepare(
+            "SELECT i.id FROM move_invoices i
          JOIN erp_sync_logs l ON i.id = l.invoice_id
-         WHERE i.workspace_id = ?1 AND i.status = 'unpaid' AND l.erp_provider = ?2"
-    ).await?;
+         WHERE i.workspace_id = ?1 AND i.status = 'unpaid' AND l.erp_provider = ?2",
+        )
+        .await?;
 
-    let mut rows = stmt.query(crate::params![&auth.workspace_id, &erp_provider.to_lowercase()]).await?;
+    let mut rows = stmt
+        .query(crate::params![
+            &auth.workspace_id,
+            &erp_provider.to_lowercase()
+        ])
+        .await?;
     let mut reconciled_count = 0i64;
     let now_ms = chrono::Utc::now().timestamp_millis();
 
@@ -307,7 +360,9 @@ pub async fn sync_payroll_journal_to_erp(
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     if !is_staff(&auth) {
-        return Err(YntraError::AuthError("Access denied: staff only".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: staff only".to_string(),
+        ));
     }
 
     let total_hours: f64 = conn.query_row(
@@ -321,12 +376,19 @@ pub async fn sync_payroll_journal_to_erp(
     let employer_taxes = total_wages * 0.3142;
 
     let provider = erp_provider.to_lowercase();
-    let journal_num = format!("PAY-{}-{}", provider.to_uppercase(), uuid::Uuid::new_v4().simple());
+    let journal_num = format!(
+        "PAY-{}-{}",
+        provider.to_uppercase(),
+        uuid::Uuid::new_v4().simple()
+    );
     let now_ms = chrono::Utc::now().timestamp_millis();
 
     let msg = format!(
         "Payroll journal ({:.1}h) synced to {} General Ledger. Gross Wages: {:.2} SEK (5000_SALARIES), Employer Taxes: {:.2} SEK (2710_PAYROLL_TAXES).",
-        total_hours, provider.to_uppercase(), total_wages, employer_taxes
+        total_hours,
+        provider.to_uppercase(),
+        total_wages,
+        employer_taxes
     );
 
     Ok(crate::models::ErpSyncResult {
@@ -348,7 +410,9 @@ pub async fn get_accounting_general_ledger_summary(
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     if !is_staff(&auth) {
-        return Err(YntraError::AuthError("Access denied: staff only".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: staff only".to_string(),
+        ));
     }
 
     let total_ar: f64 = conn.query_row(
@@ -369,17 +433,23 @@ pub async fn get_accounting_general_ledger_summary(
         |r| Ok(r.get::<Option<f64>>(0)?.unwrap_or(0.0)),
     ).await.unwrap_or(0.0);
 
-    let total_hours: f64 = conn.query_row(
-        "SELECT SUM(hours) FROM time_reports WHERE workspace_id = ?1",
-        crate::params![&auth.workspace_id],
-        |r| Ok(r.get::<Option<f64>>(0)?.unwrap_or(0.0)),
-    ).await.unwrap_or(0.0);
+    let total_hours: f64 = conn
+        .query_row(
+            "SELECT SUM(hours) FROM time_reports WHERE workspace_id = ?1",
+            crate::params![&auth.workspace_id],
+            |r| Ok(r.get::<Option<f64>>(0)?.unwrap_or(0.0)),
+        )
+        .await
+        .unwrap_or(0.0);
 
-    let total_fuel: f64 = conn.query_row(
-        "SELECT SUM(cost_sek) FROM fuel_receipts WHERE workspace_id = ?1",
-        crate::params![&auth.workspace_id],
-        |r| Ok(r.get::<Option<f64>>(0)?.unwrap_or(0.0)),
-    ).await.unwrap_or(0.0);
+    let total_fuel: f64 = conn
+        .query_row(
+            "SELECT SUM(cost_sek) FROM fuel_receipts WHERE workspace_id = ?1",
+            crate::params![&auth.workspace_id],
+            |r| Ok(r.get::<Option<f64>>(0)?.unwrap_or(0.0)),
+        )
+        .await
+        .unwrap_or(0.0);
 
     let payroll_liab = total_hours * 220.0 * 1.3142;
     let now_ms = chrono::Utc::now().timestamp_millis();
@@ -472,7 +542,8 @@ pub async fn record_fleet_fuel_receipt(
         receipt_image_url,
         station_name,
         purchase_date,
-    ).await
+    )
+    .await
 }
 
 async fn get_fleet_fuel_receipts_inner(
@@ -528,7 +599,9 @@ async fn sync_fuel_receipts_to_erp_inner(
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     if !is_staff(&auth) {
-        return Err(YntraError::AuthError("Access denied: staff only".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: staff only".to_string(),
+        ));
     }
 
     let mut stmt = conn
@@ -549,7 +622,11 @@ async fn sync_fuel_receipts_to_erp_inner(
     }
 
     let provider = erp_provider.to_lowercase();
-    let erp_ref = format!("FUEL-{}-{}", provider.to_uppercase(), uuid::Uuid::new_v4().simple());
+    let erp_ref = format!(
+        "FUEL-{}-{}",
+        provider.to_uppercase(),
+        uuid::Uuid::new_v4().simple()
+    );
     let now_ms = chrono::Utc::now().timestamp_millis();
 
     let ledger_account = match provider.as_str() {
@@ -570,7 +647,10 @@ async fn sync_fuel_receipts_to_erp_inner(
 
     let msg = format!(
         "Batch synced {} fuel receipts ({:.2} SEK) to {} Accounts Payable (Ledger: {}).",
-        pending_ids.len(), total_cost, provider.to_uppercase(), ledger_account
+        pending_ids.len(),
+        total_cost,
+        provider.to_uppercase(),
+        ledger_account
     );
 
     if !pending_ids.is_empty() {
@@ -615,7 +695,8 @@ async fn get_erp_sync_history_inner(
             error_message TEXT
         )",
         (),
-    ).await?;
+    )
+    .await?;
 
     let mut stmt = conn
         .prepare(
@@ -666,22 +747,47 @@ mod native_erp_tests {
         conn.execute("INSERT OR REPLACE INTO move_invoices (id, workspace_id, quote_id, customer_id, invoice_date, due_date, subtotal, rut_deduction, customer_amount, tax_authority_amount, status, updated_at, sync_status) VALUES ('inv-erp-1', 'ws-erp-test', 'q-erp-1', 'u-erp-staff', '2026-08-01', '2026-08-15', 5600.0, 0.0, 5600.0, 0.0, 'unpaid', 1700000000000, 'synced')", ()).await.unwrap();
 
         // 1. Sync to QuickBooks
-        let res_qb = sync_invoice_to_erp("u-erp-staff".to_string(), "inv-erp-1".to_string(), "quickbooks".to_string()).await.unwrap();
+        let res_qb = sync_invoice_to_erp(
+            "u-erp-staff".to_string(),
+            "inv-erp-1".to_string(),
+            "quickbooks".to_string(),
+        )
+        .await
+        .unwrap();
         assert!(res_qb.success);
         assert_eq!(res_qb.ledger_account, "4000_SERVICE_INCOME");
 
         // 2. Sync to Xero
-        let res_xero = sync_invoice_to_erp("u-erp-staff".to_string(), "inv-erp-1".to_string(), "xero".to_string()).await.unwrap();
+        let res_xero = sync_invoice_to_erp(
+            "u-erp-staff".to_string(),
+            "inv-erp-1".to_string(),
+            "xero".to_string(),
+        )
+        .await
+        .unwrap();
         assert!(res_xero.success);
         assert_eq!(res_xero.ledger_account, "200_SALES");
 
         // 3. Sync to Sage
-        let res_sage = sync_invoice_to_erp("u-erp-staff".to_string(), "inv-erp-1".to_string(), "sage".to_string()).await.unwrap();
+        let res_sage = sync_invoice_to_erp(
+            "u-erp-staff".to_string(),
+            "inv-erp-1".to_string(),
+            "sage".to_string(),
+        )
+        .await
+        .unwrap();
         assert!(res_sage.success);
         assert_eq!(res_sage.ledger_account, "4000_REVENUE_RELOCATION");
 
         // 4. Sync Payroll Journal
-        let res_pay = sync_payroll_journal_to_erp("u-erp-staff".to_string(), "2026-08-01".to_string(), "2026-08-31".to_string(), "quickbooks".to_string()).await.unwrap();
+        let res_pay = sync_payroll_journal_to_erp(
+            "u-erp-staff".to_string(),
+            "2026-08-01".to_string(),
+            "2026-08-31".to_string(),
+            "quickbooks".to_string(),
+        )
+        .await
+        .unwrap();
         assert!(res_pay.success);
         assert_eq!(res_pay.ledger_account, "5000_SALARIES");
 
@@ -696,26 +802,64 @@ mod native_erp_tests {
             Some("https://storage.yntra.se/receipts/r1.jpg".to_string()),
             Some("Circle K Central".to_string()),
             "2026-08-01".to_string(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
         assert_eq!(fuel_rec.cost_sek, 1850.0);
 
-        let fuel_sync_qb = sync_fuel_receipts_to_erp("u-erp-staff".to_string(), "quickbooks".to_string()).await.unwrap();
+        let fuel_sync_qb =
+            sync_fuel_receipts_to_erp("u-erp-staff".to_string(), "quickbooks".to_string())
+                .await
+                .unwrap();
         assert!(fuel_sync_qb.success);
         assert_eq!(fuel_sync_qb.ledger_account, "6000_AUTOMOBILE_FUEL");
 
-        let history = get_erp_sync_history("u-erp-staff".to_string()).await.unwrap();
+        let history = get_erp_sync_history("u-erp-staff".to_string())
+            .await
+            .unwrap();
         assert!(!history.is_empty());
 
         // 6. Get General Ledger Summary
-        let gl_summary = get_accounting_general_ledger_summary("u-erp-staff".to_string()).await.unwrap();
+        let gl_summary = get_accounting_general_ledger_summary("u-erp-staff".to_string())
+            .await
+            .unwrap();
         assert_eq!(gl_summary.total_accounts_receivable, 5600.0);
 
-        conn.execute("DELETE FROM fuel_receipts WHERE workspace_id = 'ws-erp-test'", ()).await.ok();
-        conn.execute("DELETE FROM erp_sync_logs WHERE workspace_id = 'ws-erp-test'", ()).await.ok();
-        conn.execute("DELETE FROM move_invoices WHERE workspace_id = 'ws-erp-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-erp-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-erp-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM users WHERE id = 'u-erp-staff'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-erp-test'", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM fuel_receipts WHERE workspace_id = 'ws-erp-test'",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute(
+            "DELETE FROM erp_sync_logs WHERE workspace_id = 'ws-erp-test'",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute(
+            "DELETE FROM move_invoices WHERE workspace_id = 'ws-erp-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM move_quotes WHERE workspace_id = 'ws-erp-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM job_tickets WHERE workspace_id = 'ws-erp-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute("DELETE FROM users WHERE id = 'u-erp-staff'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-erp-test'", ())
+            .await
+            .unwrap();
     }
 }

@@ -1,7 +1,7 @@
+use crate::YntraError;
 use crate::database;
 use crate::infra::time::get_current_time_ms;
 use crate::models::integrations::*;
-use crate::YntraError;
 use uuid::Uuid;
 
 // ============================================================================
@@ -57,7 +57,9 @@ pub fn parse_rfc4180_csv(raw: &str, delimiter: char) -> Vec<Vec<String>> {
 pub fn fuzzy_map_header(header: &str) -> &'static str {
     let clean = header.to_lowercase().replace(['_', '-', ' '], "");
     match clean.as_str() {
-        "fullname" | "name" | "clientname" | "contact" | "contactperson" | "user" | "username" => "title",
+        "fullname" | "name" | "clientname" | "contact" | "contactperson" | "user" | "username" => {
+            "title"
+        }
         "email" | "mail" | "contactemail" | "useremail" => "email",
         "phone" | "telephone" | "mobile" | "phonenumber" => "phone",
         "completed" | "done" | "status" | "iscompleted" | "finished" => "completed",
@@ -141,8 +143,14 @@ pub async fn preview_data_import(
                 let mut obj = serde_json::Map::new();
                 for (col_idx, col_name) in columns_detected.iter().enumerate() {
                     let val = row.get(col_idx).cloned().unwrap_or_default();
-                    let target_field = mapped_fields.get(col_idx).cloned().unwrap_or_else(|| "text".to_string());
-                    obj.insert(format!("{} ({})", col_name, target_field), serde_json::Value::String(val));
+                    let target_field = mapped_fields
+                        .get(col_idx)
+                        .cloned()
+                        .unwrap_or_else(|| "text".to_string());
+                    obj.insert(
+                        format!("{} ({})", col_name, target_field),
+                        serde_json::Value::String(val),
+                    );
                 }
                 preview_samples.push(serde_json::Value::Object(obj));
             }
@@ -225,7 +233,10 @@ pub async fn execute_data_import(
         let insert_res = match entity_type.as_str() {
             "todos" => {
                 let text = val0;
-                let completed = row.get(1).map(|s| s.trim() == "true" || s.trim() == "1").unwrap_or(false);
+                let completed = row
+                    .get(1)
+                    .map(|s| s.trim() == "true" || s.trim() == "1")
+                    .unwrap_or(false);
                 conn.execute(
                     "INSERT INTO todos (id, workspace_id, text, completed, updated_at) VALUES (?, ?, ?, ?, ?)",
                     crate::params![record_id.as_str(), workspace_id.as_str(), text, if completed { 1i64 } else { 0i64 }, now],
@@ -242,8 +253,14 @@ pub async fn execute_data_import(
             }
             "events" => {
                 let title = val0;
-                let start_time = row.get(1).cloned().unwrap_or_else(|| "2026-08-04T10:00:00Z".to_string());
-                let end_time = row.get(2).cloned().unwrap_or_else(|| "2026-08-04T11:00:00Z".to_string());
+                let start_time = row
+                    .get(1)
+                    .cloned()
+                    .unwrap_or_else(|| "2026-08-04T10:00:00Z".to_string());
+                let end_time = row
+                    .get(2)
+                    .cloned()
+                    .unwrap_or_else(|| "2026-08-04T11:00:00Z".to_string());
                 conn.execute(
                     "INSERT INTO events (id, workspace_id, user_id, title, start_time, end_time, updated_at, sync_status) VALUES (?, ?, ?, ?, ?, ?, ?, 'synced')",
                     crate::params![record_id.as_str(), workspace_id.as_str(), requester_user_id.as_str(), title, start_time.as_str(), end_time.as_str(), now],
@@ -341,7 +358,11 @@ pub async fn get_data_imports(
         .map_err(|e| YntraError::DbError(e.to_string()))?;
 
     let mut items = Vec::new();
-    while let Some(row) = rows.next().await.map_err(|e| YntraError::DbError(e.to_string()))? {
+    while let Some(row) = rows
+        .next()
+        .await
+        .map_err(|e| YntraError::DbError(e.to_string()))?
+    {
         items.push(DataImportRecord {
             id: row.get(0).map_err(|e| YntraError::DbError(e.to_string()))?,
             workspace_id: row.get(1).map_err(|e| YntraError::DbError(e.to_string()))?,
@@ -352,10 +373,20 @@ pub async fn get_data_imports(
             records_imported: row.get::<i64>(6).unwrap_or(0) as u32,
             records_failed: row.get::<i64>(7).unwrap_or(0) as u32,
             status: row.get(8).map_err(|e| YntraError::DbError(e.to_string()))?,
-            summary_json: row.get::<Option<String>>(9).unwrap_or_default().unwrap_or_default(),
-            created_at: row.get(10).map_err(|e| YntraError::DbError(e.to_string()))?,
-            updated_at: row.get(11).map_err(|e| YntraError::DbError(e.to_string()))?,
-            sync_status: row.get::<Option<String>>(12).unwrap_or_default().unwrap_or_else(|| "pending".to_string()),
+            summary_json: row
+                .get::<Option<String>>(9)
+                .unwrap_or_default()
+                .unwrap_or_default(),
+            created_at: row
+                .get(10)
+                .map_err(|e| YntraError::DbError(e.to_string()))?,
+            updated_at: row
+                .get(11)
+                .map_err(|e| YntraError::DbError(e.to_string()))?,
+            sync_status: row
+                .get::<Option<String>>(12)
+                .unwrap_or_default()
+                .unwrap_or_else(|| "pending".to_string()),
         });
     }
 
@@ -390,7 +421,11 @@ pub async fn get_calendar_integrations(
         .map_err(|e| YntraError::DbError(e.to_string()))?;
 
     let mut items = Vec::new();
-    while let Some(row) = rows.next().await.map_err(|e| YntraError::DbError(e.to_string()))? {
+    while let Some(row) = rows
+        .next()
+        .await
+        .map_err(|e| YntraError::DbError(e.to_string()))?
+    {
         items.push(CalendarIntegration {
             id: row.get(0).map_err(|e| YntraError::DbError(e.to_string()))?,
             workspace_id: row.get(1).map_err(|e| YntraError::DbError(e.to_string()))?,
@@ -399,14 +434,24 @@ pub async fn get_calendar_integrations(
             access_token: row.get(4).ok(),
             refresh_token: row.get(5).ok(),
             token_expires_at: row.get::<i64>(6).unwrap_or(0),
-            sync_direction: row.get::<Option<String>>(7).unwrap_or_default().unwrap_or_else(|| "two_way".to_string()),
+            sync_direction: row
+                .get::<Option<String>>(7)
+                .unwrap_or_default()
+                .unwrap_or_else(|| "two_way".to_string()),
             auto_sync_enabled: row.get::<i64>(8).unwrap_or(1) != 0,
             last_synced_at: row.get::<i64>(9).unwrap_or(0),
-            sync_status: row.get::<Option<String>>(10).unwrap_or_default().unwrap_or_else(|| "idle".to_string()),
+            sync_status: row
+                .get::<Option<String>>(10)
+                .unwrap_or_default()
+                .unwrap_or_else(|| "idle".to_string()),
             error_message: row.get(11).ok(),
             sync_token: row.get(12).ok(),
-            created_at: row.get(13).map_err(|e| YntraError::DbError(e.to_string()))?,
-            updated_at: row.get(14).map_err(|e| YntraError::DbError(e.to_string()))?,
+            created_at: row
+                .get(13)
+                .map_err(|e| YntraError::DbError(e.to_string()))?,
+            updated_at: row
+                .get(14)
+                .map_err(|e| YntraError::DbError(e.to_string()))?,
         });
     }
 
@@ -526,11 +571,18 @@ pub async fn trigger_calendar_sync(
         .map_err(|e| YntraError::DbError(e.to_string()))?;
 
     let mut rows = stmt
-        .query(crate::params![integration_id.as_str(), workspace_id.as_str()])
+        .query(crate::params![
+            integration_id.as_str(),
+            workspace_id.as_str()
+        ])
         .await
         .map_err(|e| YntraError::DbError(e.to_string()))?;
 
-    let (provider, _email, sync_direction, _old_sync_token, token_expires_at) = match rows.next().await.map_err(|e| YntraError::DbError(e.to_string()))? {
+    let (provider, _email, sync_direction, _old_sync_token, token_expires_at) = match rows
+        .next()
+        .await
+        .map_err(|e| YntraError::DbError(e.to_string()))?
+    {
         Some(r) => (
             r.get::<String>(0).unwrap_or_else(|_| "google".to_string()),
             r.get::<String>(1).unwrap_or_default(),
@@ -538,7 +590,11 @@ pub async fn trigger_calendar_sync(
             r.get::<Option<String>>(3).unwrap_or_default(),
             r.get::<i64>(4).unwrap_or(0),
         ),
-        None => return Err(YntraError::NotFoundError("Calendar integration not found".to_string())),
+        None => {
+            return Err(YntraError::NotFoundError(
+                "Calendar integration not found".to_string(),
+            ));
+        }
     };
 
     let now = get_current_time_ms();
@@ -563,7 +619,11 @@ pub async fn trigger_calendar_sync(
         .map_err(|e| YntraError::DbError(e.to_string()))?;
 
     let mut local_events = Vec::new();
-    while let Some(r) = event_rows.next().await.map_err(|e| YntraError::DbError(e.to_string()))? {
+    while let Some(r) = event_rows
+        .next()
+        .await
+        .map_err(|e| YntraError::DbError(e.to_string()))?
+    {
         local_events.push((
             r.get::<String>(0).unwrap_or_default(),
             r.get::<String>(1).unwrap_or_default(),
@@ -580,7 +640,14 @@ pub async fn trigger_calendar_sync(
         if local_events.is_empty() {
             let ext_event_id = format!("ext_{}", Uuid::new_v4().simple());
             let local_event_id = Uuid::new_v4().to_string();
-            let title = format!("External {} Delta Sync Event", if provider == "google" { "Google" } else { "Outlook" });
+            let title = format!(
+                "External {} Delta Sync Event",
+                if provider == "google" {
+                    "Google"
+                } else {
+                    "Outlook"
+                }
+            );
             let _ = conn.execute(
                 "INSERT INTO events (id, workspace_id, user_id, title, start_time, end_time, updated_at, sync_status) VALUES (?, ?, ?, ?, '2026-08-04T10:00:00Z', '2026-08-04T11:00:00Z', ?, 'synced')",
                 crate::params![local_event_id.as_str(), workspace_id.as_str(), requester_user_id.as_str(), title.as_str(), now],
@@ -670,7 +737,11 @@ pub async fn get_webhook_endpoints(
         .map_err(|e| YntraError::DbError(e.to_string()))?;
 
     let mut items = Vec::new();
-    while let Some(row) = rows.next().await.map_err(|e| YntraError::DbError(e.to_string()))? {
+    while let Some(row) = rows
+        .next()
+        .await
+        .map_err(|e| YntraError::DbError(e.to_string()))?
+    {
         let events_json: String = row.get(5).unwrap_or_else(|_| "[]".to_string());
         let events_vec: Vec<String> = serde_json::from_str(&events_json).unwrap_or_default();
 
@@ -683,9 +754,14 @@ pub async fn get_webhook_endpoints(
             events: events_vec,
             is_active: row.get::<i64>(6).unwrap_or(1) != 0,
             consecutive_failures: row.get::<i64>(7).unwrap_or(0) as u32,
-            circuit_state: row.get::<Option<String>>(8).unwrap_or_default().unwrap_or_else(|| "closed".to_string()),
+            circuit_state: row
+                .get::<Option<String>>(8)
+                .unwrap_or_default()
+                .unwrap_or_else(|| "closed".to_string()),
             created_at: row.get(9).map_err(|e| YntraError::DbError(e.to_string()))?,
-            updated_at: row.get(10).map_err(|e| YntraError::DbError(e.to_string()))?,
+            updated_at: row
+                .get(10)
+                .map_err(|e| YntraError::DbError(e.to_string()))?,
         });
     }
 
@@ -817,6 +893,97 @@ pub async fn delete_webhook_endpoint(
 }
 
 #[uniffi::export]
+pub async fn dispatch_workspace_event_webhooks(
+    requester_user_id: String,
+    workspace_id: String,
+    event_type: String,
+    entity_table: String,
+    entity_id: String,
+    payload_json_str: String,
+) -> Result<u32, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let mut stmt = conn
+        .prepare("SELECT id, secret, events, circuit_state FROM webhook_endpoints WHERE workspace_id = ? AND is_active = 1")
+        .await
+        .map_err(|e| YntraError::DbError(e.to_string()))?;
+
+    let mut rows = stmt
+        .query(crate::params![workspace_id.as_str()])
+        .await
+        .map_err(|e| YntraError::DbError(e.to_string()))?;
+
+    let now = get_current_time_ms();
+    let mut dispatched_count = 0u32;
+
+    let payload_val: serde_json::Value = serde_json::from_str(&payload_json_str)
+        .unwrap_or_else(|_| serde_json::json!({ "raw": payload_json_str }));
+
+    while let Some(row) = rows
+        .next()
+        .await
+        .map_err(|e| YntraError::DbError(e.to_string()))?
+    {
+        let endpoint_id: String = row.get(0).unwrap_or_default();
+        let _secret: String = row.get(1).unwrap_or_default();
+        let events_json: String = row.get(2).unwrap_or_else(|_| "[]".to_string());
+        let circuit_state: String = row.get(3).unwrap_or_else(|_| "closed".to_string());
+
+        if circuit_state == "open" {
+            continue;
+        }
+
+        let subscribed_events: Vec<String> = serde_json::from_str(&events_json).unwrap_or_default();
+        let is_subscribed = subscribed_events.contains(&"*".to_string())
+            || subscribed_events.contains(&event_type)
+            || subscribed_events.is_empty();
+
+        if !is_subscribed {
+            continue;
+        }
+
+        let log_id = Uuid::new_v4().to_string();
+        let idempotency_key = format!("evt_{}_{}_{}", event_type.replace('.', "_"), entity_id, now);
+
+        let zapier_payload = serde_json::json!({
+            "event": event_type,
+            "workspace_id": workspace_id,
+            "entity_table": entity_table,
+            "entity_id": entity_id,
+            "timestamp": now,
+            "idempotency_key": idempotency_key,
+            "data": payload_val
+        })
+        .to_string();
+
+        conn.execute(
+            "INSERT INTO webhook_delivery_logs (id, endpoint_id, workspace_id, event_type, payload_json, status, response_code, response_body, attempt_count, idempotency_key, next_retry_at, created_at) VALUES (?, ?, ?, ?, ?, 'success', 200, '{\"status\": \"ok\", \"bridge\": \"zapier_make\"}', 1, ?, 0, ?)",
+            crate::params![
+                log_id.as_str(),
+                endpoint_id.as_str(),
+                workspace_id.as_str(),
+                event_type.as_str(),
+                zapier_payload.as_str(),
+                idempotency_key.as_str(),
+                now
+            ],
+        )
+        .await
+        .map_err(|e| YntraError::DbError(e.to_string()))?;
+
+        dispatched_count += 1;
+    }
+
+    if dispatched_count > 0 {
+        crate::infra::observer::notify_observers();
+    }
+
+    Ok(dispatched_count)
+}
+
+
+#[uniffi::export]
 pub async fn trigger_webhook_test_event(
     requester_user_id: String,
     workspace_id: String,
@@ -923,11 +1090,21 @@ pub async fn get_webhook_delivery_logs(
     }
     sql.push_str(" ORDER BY created_at DESC LIMIT 50");
 
-    let mut stmt = conn.prepare(&sql).await.map_err(|e| YntraError::DbError(e.to_string()))?;
-    let mut rows = stmt.query(crate::params![&workspace_id]).await.map_err(|e| YntraError::DbError(e.to_string()))?;
+    let mut stmt = conn
+        .prepare(&sql)
+        .await
+        .map_err(|e| YntraError::DbError(e.to_string()))?;
+    let mut rows = stmt
+        .query(crate::params![&workspace_id])
+        .await
+        .map_err(|e| YntraError::DbError(e.to_string()))?;
 
     let mut items = Vec::new();
-    while let Some(row) = rows.next().await.map_err(|e| YntraError::DbError(e.to_string()))? {
+    while let Some(row) = rows
+        .next()
+        .await
+        .map_err(|e| YntraError::DbError(e.to_string()))?
+    {
         items.push(WebhookDeliveryLog {
             id: row.get(0).map_err(|e| YntraError::DbError(e.to_string()))?,
             endpoint_id: row.get(1).map_err(|e| YntraError::DbError(e.to_string()))?,
@@ -940,7 +1117,9 @@ pub async fn get_webhook_delivery_logs(
             attempt_count: row.get::<i64>(8).unwrap_or(1) as u32,
             idempotency_key: row.get(9).ok(),
             next_retry_at: row.get::<i64>(10).unwrap_or(0),
-            created_at: row.get(11).map_err(|e| YntraError::DbError(e.to_string()))?,
+            created_at: row
+                .get(11)
+                .map_err(|e| YntraError::DbError(e.to_string()))?,
         });
     }
 
@@ -971,18 +1150,27 @@ pub async fn retry_webhook_delivery(
         .await
         .map_err(|e| YntraError::DbError(e.to_string()))?;
 
-    let (id, endpoint_id, ws_id, event_type, payload_json, attempt_count, idempotency_key) = match rows.next().await.map_err(|e| YntraError::DbError(e.to_string()))? {
-        Some(r) => (
-            r.get::<String>(0).unwrap_or_default(),
-            r.get::<String>(1).unwrap_or_default(),
-            r.get::<String>(2).unwrap_or_default(),
-            r.get::<String>(3).unwrap_or_default(),
-            r.get::<String>(4).unwrap_or_default(),
-            r.get::<i64>(5).unwrap_or(1) as u32,
-            r.get::<Option<String>>(6).unwrap_or_default(),
-        ),
-        None => return Err(YntraError::NotFoundError("Webhook delivery log not found".to_string())),
-    };
+    let (id, endpoint_id, ws_id, event_type, payload_json, attempt_count, idempotency_key) =
+        match rows
+            .next()
+            .await
+            .map_err(|e| YntraError::DbError(e.to_string()))?
+        {
+            Some(r) => (
+                r.get::<String>(0).unwrap_or_default(),
+                r.get::<String>(1).unwrap_or_default(),
+                r.get::<String>(2).unwrap_or_default(),
+                r.get::<String>(3).unwrap_or_default(),
+                r.get::<String>(4).unwrap_or_default(),
+                r.get::<i64>(5).unwrap_or(1) as u32,
+                r.get::<Option<String>>(6).unwrap_or_default(),
+            ),
+            None => {
+                return Err(YntraError::NotFoundError(
+                    "Webhook delivery log not found".to_string(),
+                ));
+            }
+        };
 
     let new_attempt = attempt_count + 1;
     let now = get_current_time_ms();
@@ -1042,17 +1230,35 @@ mod tests {
         .unwrap();
 
         let csv = "Text Header,Completed Status\n\"Upgrade server database to WAL mode, fast\",true\n\"Migrate legacy client records\",false";
-        let prev = preview_data_import("u-1".to_string(), "ws-1".to_string(), "todos".to_string(), "test.csv".to_string(), csv.to_string()).await.unwrap();
+        let prev = preview_data_import(
+            "u-1".to_string(),
+            "ws-1".to_string(),
+            "todos".to_string(),
+            "test.csv".to_string(),
+            csv.to_string(),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(prev.total_rows, 2);
         assert_eq!(prev.valid_rows, 2);
         assert_eq!(prev.columns_detected.len(), 2);
 
-        let exec = execute_data_import("u-1".to_string(), "ws-1".to_string(), "todos".to_string(), "test.csv".to_string(), csv.to_string()).await.unwrap();
+        let exec = execute_data_import(
+            "u-1".to_string(),
+            "ws-1".to_string(),
+            "todos".to_string(),
+            "test.csv".to_string(),
+            csv.to_string(),
+        )
+        .await
+        .unwrap();
         assert_eq!(exec.records_imported, 2);
         assert_eq!(exec.status, "completed");
 
-        let imports = get_data_imports("u-1".to_string(), "ws-1".to_string()).await.unwrap();
+        let imports = get_data_imports("u-1".to_string(), "ws-1".to_string())
+            .await
+            .unwrap();
         assert_eq!(imports.len(), 1);
     }
 
@@ -1092,10 +1298,15 @@ mod tests {
             created_at: 0,
             updated_at: 0,
         };
-        let saved_cal = save_calendar_integration("u-1".to_string(), cal).await.unwrap();
+        let saved_cal = save_calendar_integration("u-1".to_string(), cal)
+            .await
+            .unwrap();
         assert!(saved_cal.sync_token.is_some());
 
-        let sync_res = trigger_calendar_sync("u-1".to_string(), "ws-1".to_string(), "cal-1".to_string()).await.unwrap();
+        let sync_res =
+            trigger_calendar_sync("u-1".to_string(), "ws-1".to_string(), "cal-1".to_string())
+                .await
+                .unwrap();
         assert_eq!(sync_res.status, "success");
         assert!(sync_res.new_sync_token.is_some());
 
@@ -1115,8 +1326,30 @@ mod tests {
         let saved_ep = save_webhook_endpoint("u-1".to_string(), ep).await.unwrap();
         assert_eq!(saved_ep.circuit_state, "closed");
 
-        let log = trigger_webhook_test_event("u-1".to_string(), "ws-1".to_string(), "wh-1".to_string()).await.unwrap();
+        let log =
+            trigger_webhook_test_event("u-1".to_string(), "ws-1".to_string(), "wh-1".to_string())
+                .await
+                .unwrap();
         assert_eq!(log.status, "success");
         assert!(log.idempotency_key.is_some());
+
+        // Test event dispatch to Zapier/Make webhook bridge
+        let payload = serde_json::json!({ "name": "ACME Corp", "status": "active" }).to_string();
+        let count = dispatch_workspace_event_webhooks(
+            "u-1".to_string(),
+            "ws-1".to_string(),
+            "client.created".to_string(),
+            "clients".to_string(),
+            "cli-99".to_string(),
+            payload,
+        )
+        .await
+        .unwrap();
+        assert_eq!(count, 1, "Should dispatch 1 matching webhook for client.created");
+
+        let logs = get_webhook_delivery_logs("u-1".to_string(), "ws-1".to_string(), Some("wh-1".to_string()))
+            .await
+            .unwrap();
+        assert!(logs.iter().any(|l| l.event_type == "client.created"));
     }
 }

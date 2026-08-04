@@ -1,7 +1,9 @@
-use yntra_core::database::zero_copy::chaos::{run_chaos_sync_load_test, ChaosConfig, ChaosNetworkProxy};
-use yntra_core::database::zero_copy::ZeroCopyNoteStore;
-use yntra_core::models::DailyNote;
 use std::sync::Arc;
+use yntra_core::database::zero_copy::ZeroCopyNoteStore;
+use yntra_core::database::zero_copy::chaos::{
+    ChaosConfig, ChaosNetworkProxy, run_chaos_sync_load_test,
+};
+use yntra_core::models::DailyNote;
 
 #[tokio::test]
 async fn test_chaos_network_dropouts_and_latency_load() {
@@ -10,12 +12,13 @@ async fn test_chaos_network_dropouts_and_latency_load() {
     let dropout_rate = 0.30; // 30% packet loss simulation
     let max_latency_ms = 50;
 
-    let result_json = run_chaos_sync_load_test(num_devices, total_mutations, dropout_rate, max_latency_ms)
-        .await
-        .expect("Chaos & Sync Load Test execution failed");
+    let result_json =
+        run_chaos_sync_load_test(num_devices, total_mutations, dropout_rate, max_latency_ms)
+            .await
+            .expect("Chaos & Sync Load Test execution failed");
 
     let report: serde_json::Value = serde_json::from_str(&result_json).unwrap();
-    
+
     assert_eq!(report["status"], "PASSED");
     assert_eq!(report["converged"], true);
     assert_eq!(report["num_devices"], 10);
@@ -25,9 +28,18 @@ async fn test_chaos_network_dropouts_and_latency_load() {
 #[tokio::test]
 async fn test_multi_device_crdt_conflict_resolution_under_heavy_load() {
     let temp_dir = std::env::temp_dir();
-    let path_a = temp_dir.join(format!("chaos_crdt_a_{}.db", uuid::Uuid::new_v4())).to_string_lossy().to_string();
-    let path_b = temp_dir.join(format!("chaos_crdt_b_{}.db", uuid::Uuid::new_v4())).to_string_lossy().to_string();
-    let path_c = temp_dir.join(format!("chaos_crdt_c_{}.db", uuid::Uuid::new_v4())).to_string_lossy().to_string();
+    let path_a = temp_dir
+        .join(format!("chaos_crdt_a_{}.db", uuid::Uuid::new_v4()))
+        .to_string_lossy()
+        .to_string();
+    let path_b = temp_dir
+        .join(format!("chaos_crdt_b_{}.db", uuid::Uuid::new_v4()))
+        .to_string_lossy()
+        .to_string();
+    let path_c = temp_dir
+        .join(format!("chaos_crdt_c_{}.db", uuid::Uuid::new_v4()))
+        .to_string_lossy()
+        .to_string();
 
     let store_a = Arc::new(ZeroCopyNoteStore::new(path_a.clone()).unwrap());
     let store_b = Arc::new(ZeroCopyNoteStore::new(path_b.clone()).unwrap());

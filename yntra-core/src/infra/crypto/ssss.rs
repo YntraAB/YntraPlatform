@@ -1,10 +1,10 @@
-use std::sync::OnceLock;
 use crate::errors::YntraError;
-use curve25519_dalek::scalar::Scalar;
-use curve25519_dalek::edwards::CompressedEdwardsY;
-use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
+use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
+use curve25519_dalek::edwards::CompressedEdwardsY;
+use curve25519_dalek::scalar::Scalar;
+use std::sync::OnceLock;
 
 static GF256_EXP: OnceLock<[u8; 256]> = OnceLock::new();
 static GF256_LOG: OnceLock<[u8; 256]> = OnceLock::new();
@@ -53,7 +53,9 @@ fn gf256_mul(a: u8, b: u8) -> u8 {
 
 fn gf256_div(a: u8, b: u8) -> Result<u8, YntraError> {
     if b == 0 {
-        return Err(YntraError::CryptoError("Division by zero in GF(256)".to_string()));
+        return Err(YntraError::CryptoError(
+            "Division by zero in GF(256)".to_string(),
+        ));
     }
     if a == 0 {
         return Ok(0);
@@ -69,7 +71,9 @@ pub fn split_secret(
     total_shards: usize,
 ) -> Result<Vec<(u8, Vec<u8>)>, YntraError> {
     if threshold < 1 || total_shards < threshold || total_shards > 255 {
-        return Err(YntraError::CryptoError("Invalid SSSS parameters".to_string()));
+        return Err(YntraError::CryptoError(
+            "Invalid SSSS parameters".to_string(),
+        ));
     }
     let mut shards = vec![vec![0u8; secret.len()]; total_shards];
 
@@ -129,7 +133,9 @@ pub fn reconstruct_secret(
             return Err(YntraError::CryptoError("Invalid shard ID 0".to_string()));
         }
         if !seen_ids.insert(s.0) {
-            return Err(YntraError::CryptoError("Duplicate shard IDs detected".to_string()));
+            return Err(YntraError::CryptoError(
+                "Duplicate shard IDs detected".to_string(),
+            ));
         }
     }
 
@@ -164,7 +170,9 @@ pub fn encrypt_with_workspace_pubkey(
     let ed_pub_bytes = const_hex::decode(ws_pub_hex)
         .map_err(|e| YntraError::CryptoError(format!("Invalid public key hex: {:?}", e)))?;
     if ed_pub_bytes.len() != 32 {
-        return Err(YntraError::CryptoError("Invalid public key length".to_string()));
+        return Err(YntraError::CryptoError(
+            "Invalid public key length".to_string(),
+        ));
     }
     let mut ed_pub = [0u8; 32];
     ed_pub.copy_from_slice(&ed_pub_bytes);
@@ -174,8 +182,7 @@ pub fn encrypt_with_workspace_pubkey(
         .ok_or_else(|| YntraError::CryptoError("Invalid public key point".to_string()))?;
 
     let mut eph_priv_bytes = [0u8; 32];
-    getrandom::fill(&mut eph_priv_bytes)
-        .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+    getrandom::fill(&mut eph_priv_bytes).map_err(|e| YntraError::CryptoError(e.to_string()))?;
     let eph_scalar = Scalar::from_bytes_mod_order(eph_priv_bytes);
 
     let eph_pub_point = &ED25519_BASEPOINT_POINT * &eph_scalar;
@@ -189,8 +196,7 @@ pub fn encrypt_with_workspace_pubkey(
     let sym_key_bytes = hasher.finalize();
 
     let mut nonce_bytes = [0u8; 24];
-    getrandom::fill(&mut nonce_bytes)
-        .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+    getrandom::fill(&mut nonce_bytes).map_err(|e| YntraError::CryptoError(e.to_string()))?;
 
     let key = Key::from_slice(sym_key_bytes.as_bytes());
     let cipher = XChaCha20Poly1305::new(key);
@@ -214,7 +220,9 @@ pub fn decrypt_with_workspace_privkey(
 ) -> Result<Vec<u8>, YntraError> {
     let parts: Vec<&str> = payload.split(':').collect();
     if parts.len() != 3 {
-        return Err(YntraError::CryptoError("Invalid payload format".to_string()));
+        return Err(YntraError::CryptoError(
+            "Invalid payload format".to_string(),
+        ));
     }
     let eph_pub_bytes = const_hex::decode(parts[0])
         .map_err(|e| YntraError::CryptoError(format!("Invalid ephemeral public key: {:?}", e)))?;
@@ -224,7 +232,9 @@ pub fn decrypt_with_workspace_privkey(
         .map_err(|e| YntraError::CryptoError(format!("Invalid ciphertext: {:?}", e)))?;
 
     if eph_pub_bytes.len() != 32 || nonce_bytes.len() != 24 {
-        return Err(YntraError::CryptoError("Invalid parameter sizes".to_string()));
+        return Err(YntraError::CryptoError(
+            "Invalid parameter sizes".to_string(),
+        ));
     }
 
     let mut eph_pub = [0u8; 32];
@@ -237,7 +247,9 @@ pub fn decrypt_with_workspace_privkey(
     let ws_priv_bytes = const_hex::decode(ws_priv_hex)
         .map_err(|e| YntraError::CryptoError(format!("Invalid private key hex: {:?}", e)))?;
     if ws_priv_bytes.len() != 32 {
-        return Err(YntraError::CryptoError("Invalid private key length".to_string()));
+        return Err(YntraError::CryptoError(
+            "Invalid private key length".to_string(),
+        ));
     }
     let mut ws_priv = [0u8; 32];
     ws_priv.copy_from_slice(&ws_priv_bytes);
@@ -262,7 +274,7 @@ pub fn decrypt_with_workspace_privkey(
 }
 
 fn ed25519_seed_to_scalar(seed: &[u8; 32]) -> Scalar {
-    use sha2::{Sha512, Digest};
+    use sha2::{Digest, Sha512};
     let mut hasher = Sha512::new();
     hasher.update(seed);
     let hash = hasher.finalize();

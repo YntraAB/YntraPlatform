@@ -72,7 +72,10 @@ pub fn has_write_keyword(sql: &str) -> bool {
         }
         for i in 0..=(bytes.len() - len) {
             let window = &bytes[i..i + len];
-            let matches = window.iter().zip(*needle).all(|(&h, &n)| h.to_ascii_uppercase() == n);
+            let matches = window
+                .iter()
+                .zip(*needle)
+                .all(|(&h, &n)| h.to_ascii_uppercase() == n);
             if matches {
                 // Check word boundaries
                 let prev_ok = if i > 0 {
@@ -344,16 +347,17 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
                         return None;
                     }
                 }
-                let name =
-                    final_target.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
+                let name = final_target
+                    .trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
                 return Some(name.to_lowercase());
             }
         } else if first.eq_ignore_ascii_case("DELETE") {
             while let Some(w) = words.next() {
                 if w.eq_ignore_ascii_case("FROM") {
                     if let Some(target) = words.next() {
-                        let name =
-                            target.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
+                        let name = target.trim_matches(|c| {
+                            c == '`' || c == '"' || c == '[' || c == ']' || c == '\''
+                        });
                         return Some(name.to_lowercase());
                     }
                     break;
@@ -574,7 +578,10 @@ mod tests {
     #[test]
     fn test_extract_table_name_invalid_or_select() {
         assert_eq!(extract_table_name("SELECT * FROM todos"), None);
-        assert_eq!(extract_table_name("SELECT * FROM user_inserted_items"), None);
+        assert_eq!(
+            extract_table_name("SELECT * FROM user_inserted_items"),
+            None
+        );
         assert_eq!(extract_table_name("SELECT * FROM updated_logs"), None);
         assert_eq!(extract_table_name("SELECT * FROM deleted_todos"), None);
         assert_eq!(extract_table_name("INSERT INTO"), None);
@@ -588,7 +595,10 @@ mod tests {
         // test clean_sql handles escaped single quote correctly
         let sql = "SELECT * FROM users WHERE name = 'O''Brien' -- some comment";
         let cleaned = clean_sql(sql);
-        assert_eq!(cleaned.trim(), "SELECT * FROM users WHERE name = 'O''Brien'");
+        assert_eq!(
+            cleaned.trim(),
+            "SELECT * FROM users WHERE name = 'O''Brien'"
+        );
 
         // test extract_table_name works with CTE that contains escaped quotes
         let sql_cte = "WITH cte AS (SELECT id FROM users WHERE name = 'O''Brien') UPDATE profiles SET status = 1 WHERE user_id IN (SELECT id FROM cte)";
@@ -597,9 +607,9 @@ mod tests {
         // test SqlStatementSplitter splits correctly when statements contain escaped quotes
         let multi_sql = "INSERT INTO users (name) VALUES ('O''Brien'); SELECT 1;";
         let statements: Vec<&str> = SqlStatementSplitter::new(multi_sql).collect();
-        assert_eq!(statements, vec![
-            "INSERT INTO users (name) VALUES ('O''Brien')",
-            "SELECT 1"
-        ]);
+        assert_eq!(
+            statements,
+            vec!["INSERT INTO users (name) VALUES ('O''Brien')", "SELECT 1"]
+        );
     }
 }

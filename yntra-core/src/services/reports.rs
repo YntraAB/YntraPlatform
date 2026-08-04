@@ -292,21 +292,28 @@ pub async fn export_workspace_csv(
             let mut stmt = conn.prepare(
                 "SELECT id, workspace_id, text, completed, updated_at, sync_status FROM todos WHERE workspace_id = ?1 ORDER BY updated_at DESC"
             ).await?;
-            let rows = stmt.query_map(crate::params![&workspace_id], |row| {
-                Ok((
-                    row.get::<String>(0)?,
-                    row.get::<String>(1)?,
-                    row.get::<String>(2)?,
-                    row.get::<i32>(3)?,
-                    row.get::<i64>(4)?,
-                    row.get::<String>(5)?,
-                ))
-            }).await?;
+            let rows = stmt
+                .query_map(crate::params![&workspace_id], |row| {
+                    Ok((
+                        row.get::<String>(0)?,
+                        row.get::<String>(1)?,
+                        row.get::<String>(2)?,
+                        row.get::<i32>(3)?,
+                        row.get::<i64>(4)?,
+                        row.get::<String>(5)?,
+                    ))
+                })
+                .await?;
             for (id, ws, text, comp, updated, sync) in rows {
                 let escaped_text = text.replace('"', "\"\"");
                 csv_out.push_str(&format!(
                     "\"{}\",\"{}\",\"{}\",{},{},\"{}\"\n",
-                    id, ws, escaped_text, comp != 0, updated, sync
+                    id,
+                    ws,
+                    escaped_text,
+                    comp != 0,
+                    updated,
+                    sync
                 ));
             }
         }
@@ -315,21 +322,23 @@ pub async fn export_workspace_csv(
             let mut stmt = conn.prepare(
                 "SELECT id, workspace_id, user_id, date, hours, category, description, status, created_at, updated_at, sync_status FROM time_reports WHERE workspace_id = ?1 ORDER BY date DESC"
             ).await?;
-            let rows = stmt.query_map(crate::params![&workspace_id], |row| {
-                Ok((
-                    row.get::<String>(0)?,
-                    row.get::<String>(1)?,
-                    row.get::<String>(2)?,
-                    row.get::<String>(3)?,
-                    row.get::<f64>(4)?,
-                    row.get::<String>(5)?,
-                    row.get::<String>(6)?,
-                    row.get::<String>(7)?,
-                    row.get::<String>(8)?,
-                    row.get::<i64>(9)?,
-                    row.get::<String>(10)?,
-                ))
-            }).await?;
+            let rows = stmt
+                .query_map(crate::params![&workspace_id], |row| {
+                    Ok((
+                        row.get::<String>(0)?,
+                        row.get::<String>(1)?,
+                        row.get::<String>(2)?,
+                        row.get::<String>(3)?,
+                        row.get::<f64>(4)?,
+                        row.get::<String>(5)?,
+                        row.get::<String>(6)?,
+                        row.get::<String>(7)?,
+                        row.get::<String>(8)?,
+                        row.get::<i64>(9)?,
+                        row.get::<String>(10)?,
+                    ))
+                })
+                .await?;
             for (id, ws, uid, dt, hrs, cat, desc, st, cr, up, sync) in rows {
                 let escaped_desc = desc.replace('"', "\"\"");
                 let escaped_cat = cat.replace('"', "\"\"");
@@ -340,27 +349,39 @@ pub async fn export_workspace_csv(
             }
         }
         _ => {
-            csv_out.push_str("ID,WorkspaceID,UserID,Type,IsAnonymous,Status,CreatedAt,UpdatedAt,SyncStatus\n");
+            csv_out.push_str(
+                "ID,WorkspaceID,UserID,Type,IsAnonymous,Status,CreatedAt,UpdatedAt,SyncStatus\n",
+            );
             let mut stmt = conn.prepare(
                 "SELECT id, workspace_id, user_id, type, is_anonymous, status, created_at, updated_at, sync_status FROM reports WHERE workspace_id = ?1 ORDER BY created_at DESC"
             ).await?;
-            let rows = stmt.query_map(crate::params![&workspace_id], |row| {
-                Ok((
-                    row.get::<String>(0)?,
-                    row.get::<String>(1)?,
-                    row.get::<String>(2)?,
-                    row.get::<String>(3)?,
-                    row.get::<i32>(4)?,
-                    row.get::<String>(5)?,
-                    row.get::<String>(6)?,
-                    row.get::<i64>(7)?,
-                    row.get::<String>(8)?,
-                ))
-            }).await?;
+            let rows = stmt
+                .query_map(crate::params![&workspace_id], |row| {
+                    Ok((
+                        row.get::<String>(0)?,
+                        row.get::<String>(1)?,
+                        row.get::<String>(2)?,
+                        row.get::<String>(3)?,
+                        row.get::<i32>(4)?,
+                        row.get::<String>(5)?,
+                        row.get::<String>(6)?,
+                        row.get::<i64>(7)?,
+                        row.get::<String>(8)?,
+                    ))
+                })
+                .await?;
             for (id, ws, uid, tp, anon, st, cr, up, sync) in rows {
                 csv_out.push_str(&format!(
                     "\"{}\",\"{}\",\"{}\",\"{}\",{},\"{}\",\"{}\",{},\"{}\"\n",
-                    id, ws, uid, tp, anon != 0, st, cr, up, sync
+                    id,
+                    ws,
+                    uid,
+                    tp,
+                    anon != 0,
+                    st,
+                    cr,
+                    up,
+                    sync
                 ));
             }
         }
@@ -389,16 +410,18 @@ pub async fn export_workspace_json(
             let mut stmt = conn.prepare(
                 "SELECT id, workspace_id, text, completed, updated_at, sync_status FROM todos WHERE workspace_id = ?1 ORDER BY updated_at DESC"
             ).await?;
-            let rows = stmt.query_map(crate::params![&workspace_id], |row| {
-                Ok(serde_json::json!({
-                    "id": row.get::<String>(0)?,
-                    "workspace_id": row.get::<String>(1)?,
-                    "text": row.get::<String>(2)?,
-                    "completed": row.get::<i32>(3)? != 0,
-                    "updated_at": row.get::<i64>(4)?,
-                    "sync_status": row.get::<String>(5)?,
-                }))
-            }).await?;
+            let rows = stmt
+                .query_map(crate::params![&workspace_id], |row| {
+                    Ok(serde_json::json!({
+                        "id": row.get::<String>(0)?,
+                        "workspace_id": row.get::<String>(1)?,
+                        "text": row.get::<String>(2)?,
+                        "completed": row.get::<i32>(3)? != 0,
+                        "updated_at": row.get::<i64>(4)?,
+                        "sync_status": row.get::<String>(5)?,
+                    }))
+                })
+                .await?;
             let items: Vec<serde_json::Value> = rows.into_iter().collect();
             serde_json::Value::Array(items)
         }
@@ -406,21 +429,23 @@ pub async fn export_workspace_json(
             let mut stmt = conn.prepare(
                 "SELECT id, workspace_id, user_id, date, hours, category, description, status, created_at, updated_at, sync_status FROM time_reports WHERE workspace_id = ?1 ORDER BY date DESC"
             ).await?;
-            let rows = stmt.query_map(crate::params![&workspace_id], |row| {
-                Ok(serde_json::json!({
-                    "id": row.get::<String>(0)?,
-                    "workspace_id": row.get::<String>(1)?,
-                    "user_id": row.get::<String>(2)?,
-                    "date": row.get::<String>(3)?,
-                    "hours": row.get::<f64>(4)?,
-                    "category": row.get::<String>(5)?,
-                    "description": row.get::<String>(6)?,
-                    "status": row.get::<String>(7)?,
-                    "created_at": row.get::<String>(8)?,
-                    "updated_at": row.get::<i64>(9)?,
-                    "sync_status": row.get::<String>(10)?,
-                }))
-            }).await?;
+            let rows = stmt
+                .query_map(crate::params![&workspace_id], |row| {
+                    Ok(serde_json::json!({
+                        "id": row.get::<String>(0)?,
+                        "workspace_id": row.get::<String>(1)?,
+                        "user_id": row.get::<String>(2)?,
+                        "date": row.get::<String>(3)?,
+                        "hours": row.get::<f64>(4)?,
+                        "category": row.get::<String>(5)?,
+                        "description": row.get::<String>(6)?,
+                        "status": row.get::<String>(7)?,
+                        "created_at": row.get::<String>(8)?,
+                        "updated_at": row.get::<i64>(9)?,
+                        "sync_status": row.get::<String>(10)?,
+                    }))
+                })
+                .await?;
             let items: Vec<serde_json::Value> = rows.into_iter().collect();
             serde_json::Value::Array(items)
         }
@@ -428,19 +453,21 @@ pub async fn export_workspace_json(
             let mut stmt = conn.prepare(
                 "SELECT id, workspace_id, user_id, type, is_anonymous, status, created_at, updated_at, sync_status FROM reports WHERE workspace_id = ?1 ORDER BY created_at DESC"
             ).await?;
-            let rows = stmt.query_map(crate::params![&workspace_id], |row| {
-                Ok(serde_json::json!({
-                    "id": row.get::<String>(0)?,
-                    "workspace_id": row.get::<String>(1)?,
-                    "user_id": row.get::<String>(2)?,
-                    "type": row.get::<String>(3)?,
-                    "is_anonymous": row.get::<i32>(4)? != 0,
-                    "status": row.get::<String>(5)?,
-                    "created_at": row.get::<String>(6)?,
-                    "updated_at": row.get::<i64>(7)?,
-                    "sync_status": row.get::<String>(8)?,
-                }))
-            }).await?;
+            let rows = stmt
+                .query_map(crate::params![&workspace_id], |row| {
+                    Ok(serde_json::json!({
+                        "id": row.get::<String>(0)?,
+                        "workspace_id": row.get::<String>(1)?,
+                        "user_id": row.get::<String>(2)?,
+                        "type": row.get::<String>(3)?,
+                        "is_anonymous": row.get::<i32>(4)? != 0,
+                        "status": row.get::<String>(5)?,
+                        "created_at": row.get::<String>(6)?,
+                        "updated_at": row.get::<i64>(7)?,
+                        "sync_status": row.get::<String>(8)?,
+                    }))
+                })
+                .await?;
             let items: Vec<serde_json::Value> = rows.into_iter().collect();
             serde_json::Value::Array(items)
         }
@@ -495,7 +522,10 @@ mod tests {
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-rep-user2', 'ws-rep-2', 'user2@rep.io', 'user')", ()).await.unwrap();
 
         // Initialize key/salt for decrypting reports
-        crate::infra::crypto::set_session_key("rep-test-session-key".to_string().into_bytes(), "ws-rep-1".to_string());
+        crate::infra::crypto::set_session_key(
+            "rep-test-session-key".to_string().into_bytes(),
+            "ws-rep-1".to_string(),
+        );
 
         // 2. Add reports
         let r1 = add_report(
@@ -535,7 +565,10 @@ mod tests {
             .unwrap();
         assert_eq!(dummy_role, "anonymous");
 
-        crate::infra::crypto::set_session_key("rep-test-session-key-2".to_string().into_bytes(), "ws-rep-2".to_string());
+        crate::infra::crypto::set_session_key(
+            "rep-test-session-key-2".to_string().into_bytes(),
+            "ws-rep-2".to_string(),
+        );
 
         let r3 = add_report(
             "u-rep-user2".to_string(),
@@ -550,7 +583,10 @@ mod tests {
         .await
         .unwrap();
 
-        crate::infra::crypto::set_session_key("rep-test-session-key".to_string().into_bytes(), "ws-rep-1".to_string());
+        crate::infra::crypto::set_session_key(
+            "rep-test-session-key".to_string().into_bytes(),
+            "ws-rep-1".to_string(),
+        );
 
         // 3. Verify get_reports scoping:
 
@@ -626,7 +662,10 @@ mod tests {
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES (?1, ?2, 'user1@rep.io', 'user')", crate::params![user1_id, ws_id]).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES (?1, ?2, 'user2@rep.io', 'user')", crate::params![user2_id, ws_id]).await.unwrap();
 
-        crate::infra::crypto::set_session_key("idor-test-session".to_string().into_bytes(), ws_id.to_string());
+        crate::infra::crypto::set_session_key(
+            "idor-test-session".to_string().into_bytes(),
+            ws_id.to_string(),
+        );
 
         // User 2 logs a standard non-anonymous report
         let rep_user2 = add_report(
@@ -705,9 +744,24 @@ mod tests {
         assert!(csv.contains("Exportable task"));
 
         // Clean up
-        conn.execute("DELETE FROM todos WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
-        conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute(
+            "DELETE FROM todos WHERE workspace_id = ?1",
+            crate::params![ws_id],
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM users WHERE workspace_id = ?1",
+            crate::params![ws_id],
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM workspaces WHERE id = ?1",
+            crate::params![ws_id],
+        )
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
@@ -728,9 +782,10 @@ mod tests {
             crate::params![ws_id, &now_ms],
         ).await.unwrap();
 
-        let json_str = export_workspace_json(user_id.to_string(), ws_id.to_string(), "todos".to_string())
-            .await
-            .unwrap();
+        let json_str =
+            export_workspace_json(user_id.to_string(), ws_id.to_string(), "todos".to_string())
+                .await
+                .unwrap();
 
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         assert!(parsed.is_array());
@@ -738,8 +793,23 @@ mod tests {
         assert_eq!(parsed[0]["text"], "JSON Task");
 
         // Clean up
-        conn.execute("DELETE FROM todos WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
-        conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute(
+            "DELETE FROM todos WHERE workspace_id = ?1",
+            crate::params![ws_id],
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM users WHERE workspace_id = ?1",
+            crate::params![ws_id],
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM workspaces WHERE id = ?1",
+            crate::params![ws_id],
+        )
+        .await
+        .unwrap();
     }
 }

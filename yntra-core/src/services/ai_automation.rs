@@ -133,7 +133,8 @@ pub fn evaluate_ai_guardrails(
 
     if config.max_allowed_risk == "low" && action_type == "AutoApprove" {
         passed = false;
-        violation_reasons.push("Workspace policy prohibits AutoApprove under 'low' risk tolerance".to_string());
+        violation_reasons
+            .push("Workspace policy prohibits AutoApprove under 'low' risk tolerance".to_string());
     }
 
     if !passed {
@@ -175,13 +176,38 @@ pub async fn get_workspace_ai_config(
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
 
-    let provider = settings.get("ai_provider").and_then(|v| v.as_str()).unwrap_or("local_ast").to_string();
-    let raw_key = settings.get("ai_api_key").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let model_name = settings.get("ai_model_name").and_then(|v| v.as_str()).unwrap_or("gpt-4o-mini").to_string();
-    let guardrails_enabled = settings.get("ai_guardrails_enabled").and_then(|v| v.as_bool()).unwrap_or(true);
-    let max_allowed_risk = settings.get("ai_max_allowed_risk").and_then(|v| v.as_str()).unwrap_or("medium").to_string();
-    let require_human_approval_above_hours = settings.get("ai_require_human_approval_above_hours").and_then(|v| v.as_f64()).unwrap_or(8.0);
-    let min_auto_approve_confidence = settings.get("ai_min_auto_approve_confidence").and_then(|v| v.as_f64()).unwrap_or(0.90);
+    let provider = settings
+        .get("ai_provider")
+        .and_then(|v| v.as_str())
+        .unwrap_or("local_ast")
+        .to_string();
+    let raw_key = settings
+        .get("ai_api_key")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let model_name = settings
+        .get("ai_model_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("gpt-4o-mini")
+        .to_string();
+    let guardrails_enabled = settings
+        .get("ai_guardrails_enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let max_allowed_risk = settings
+        .get("ai_max_allowed_risk")
+        .and_then(|v| v.as_str())
+        .unwrap_or("medium")
+        .to_string();
+    let require_human_approval_above_hours = settings
+        .get("ai_require_human_approval_above_hours")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(8.0);
+    let min_auto_approve_confidence = settings
+        .get("ai_min_auto_approve_confidence")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.90);
 
     Ok(WorkspaceAiConfig {
         provider,
@@ -209,7 +235,9 @@ pub async fn set_workspace_ai_byok_config(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if !auth.is_admin {
-        return Err(YntraError::AuthError("Administrator privileges required".to_string()));
+        return Err(YntraError::AuthError(
+            "Administrator privileges required".to_string(),
+        ));
     }
 
     let settings_json: Option<String> = conn
@@ -226,13 +254,31 @@ pub async fn set_workspace_ai_byok_config(
         .and_then(|v| v.as_object().cloned())
         .unwrap_or_default();
 
-    settings.insert("ai_provider".to_string(), serde_json::Value::String(provider));
+    settings.insert(
+        "ai_provider".to_string(),
+        serde_json::Value::String(provider),
+    );
     settings.insert("ai_api_key".to_string(), serde_json::Value::String(api_key));
-    settings.insert("ai_model_name".to_string(), serde_json::Value::String(model_name));
-    settings.insert("ai_guardrails_enabled".to_string(), serde_json::Value::Bool(guardrails_enabled));
-    settings.insert("ai_max_allowed_risk".to_string(), serde_json::Value::String(max_allowed_risk));
-    settings.insert("ai_require_human_approval_above_hours".to_string(), serde_json::json!(require_human_approval_above_hours));
-    settings.insert("ai_min_auto_approve_confidence".to_string(), serde_json::json!(min_auto_approve_confidence));
+    settings.insert(
+        "ai_model_name".to_string(),
+        serde_json::Value::String(model_name),
+    );
+    settings.insert(
+        "ai_guardrails_enabled".to_string(),
+        serde_json::Value::Bool(guardrails_enabled),
+    );
+    settings.insert(
+        "ai_max_allowed_risk".to_string(),
+        serde_json::Value::String(max_allowed_risk),
+    );
+    settings.insert(
+        "ai_require_human_approval_above_hours".to_string(),
+        serde_json::json!(require_human_approval_above_hours),
+    );
+    settings.insert(
+        "ai_min_auto_approve_confidence".to_string(),
+        serde_json::json!(min_auto_approve_confidence),
+    );
 
     let updated_json = serde_json::to_string(&settings).unwrap_or_else(|_| "{}".to_string());
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -256,10 +302,21 @@ pub async fn set_workspace_ai_byok_config(
 }
 
 /// Multilingual Voice Parser (Swedish + English) with structured feature extraction
-pub fn parse_voice_transcript_to_report(transcript: &str, default_date: Option<&str>) -> VoiceReportProposal {
+pub fn parse_voice_transcript_to_report(
+    transcript: &str,
+    default_date: Option<&str>,
+) -> VoiceReportProposal {
     let text = transcript.to_lowercase();
-    let is_swedish = text.contains("timmar") || text.contains("tim") || text.contains("övertid") || text.contains("arbetade") || text.contains("reparation");
-    let language_detected = if is_swedish { "sv".to_string() } else { "en".to_string() };
+    let is_swedish = text.contains("timmar")
+        || text.contains("tim")
+        || text.contains("övertid")
+        || text.contains("arbetade")
+        || text.contains("reparation");
+    let language_detected = if is_swedish {
+        "sv".to_string()
+    } else {
+        "en".to_string()
+    };
 
     let mut hours: f64 = 8.0;
     let mut found_hours = false;
@@ -270,14 +327,27 @@ pub fn parse_voice_transcript_to_report(transcript: &str, default_date: Option<&
         if let Ok(num) = word.parse::<f64>() {
             if i + 1 < words.len() {
                 let next = words[i + 1].trim_matches(|c: char| !c.is_alphanumeric());
-                if next.starts_with("hour") || next.starts_with("hr") || next == "h" || next.starts_with("timm") || next == "t" {
+                if next.starts_with("hour")
+                    || next.starts_with("hr")
+                    || next == "h"
+                    || next.starts_with("timm")
+                    || next == "t"
+                {
                     hours = num;
                     found_hours = true;
                     break;
                 }
             }
-        } else if word.ends_with("h") || word.ends_with("hrs") || word.ends_with("hours") || word.ends_with("timmar") || word.ends_with("tim") {
-            let num_part: String = word.chars().take_while(|c| c.is_numeric() || *c == '.').collect();
+        } else if word.ends_with("h")
+            || word.ends_with("hrs")
+            || word.ends_with("hours")
+            || word.ends_with("timmar")
+            || word.ends_with("tim")
+        {
+            let num_part: String = word
+                .chars()
+                .take_while(|c| c.is_numeric() || *c == '.')
+                .collect();
             if let Ok(num) = num_part.parse::<f64>() {
                 hours = num;
                 found_hours = true;
@@ -286,17 +356,29 @@ pub fn parse_voice_transcript_to_report(transcript: &str, default_date: Option<&
         }
     }
 
-    let category = if text.contains("hvac") || text.contains("repair") || text.contains("reparation") || text.contains("underhåll") {
+    let category = if text.contains("hvac")
+        || text.contains("repair")
+        || text.contains("reparation")
+        || text.contains("underhåll")
+    {
         "HVAC Service".to_string()
-    } else if text.contains("consultation") || text.contains("client meeting") || text.contains("kundmöte") {
+    } else if text.contains("consultation")
+        || text.contains("client meeting")
+        || text.contains("kundmöte")
+    {
         "Client Advisory".to_string()
-    } else if text.contains("overtime") || text.contains("övertid") || text.contains("extra hours") {
+    } else if text.contains("overtime") || text.contains("övertid") || text.contains("extra hours")
+    {
         "Overtime".to_string()
     } else {
         "General Operations".to_string()
     };
 
-    let requires_approval = hours > 8.0 || text.contains("overtime") || text.contains("övertid") || text.contains("approval") || text.contains("godkännande");
+    let requires_approval = hours > 8.0
+        || text.contains("overtime")
+        || text.contains("övertid")
+        || text.contains("approval")
+        || text.contains("godkännande");
     let date_str = default_date.unwrap_or("2026-08-04").to_string();
     let confidence_score = if found_hours { 0.95 } else { 0.78 };
 
@@ -312,7 +394,10 @@ pub fn parse_voice_transcript_to_report(transcript: &str, default_date: Option<&
 }
 
 #[uniffi::export]
-pub fn parse_voice_report_to_proposal(transcript: String, date_override: Option<String>) -> VoiceReportProposal {
+pub fn parse_voice_report_to_proposal(
+    transcript: String,
+    date_override: Option<String>,
+) -> VoiceReportProposal {
     parse_voice_transcript_to_report(&transcript, date_override.as_deref())
 }
 
@@ -377,7 +462,10 @@ pub async fn submit_voice_time_report(
         &conn,
         requester_user_id.clone(),
         None,
-        format!("voice_time_report_created: {}h ({})", proposal.hours, proposal.language_detected),
+        format!(
+            "voice_time_report_created: {}h ({})",
+            proposal.hours, proposal.language_detected
+        ),
     )
     .await;
 
@@ -393,9 +481,13 @@ fn parse_natural_language_prompt(prompt: &str) -> (String, String, String, Strin
 
     // Check for compound boolean rules (e.g. "over 8h AND HVAC")
     let has_and = lower.contains(" and ") || lower.contains(" och ");
-    
+
     let (cond_type, cond_params) = if has_and {
-        let parts: Vec<&str> = if lower.contains(" and ") { lower.split(" and ").collect() } else { lower.split(" och ").collect() };
+        let parts: Vec<&str> = if lower.contains(" and ") {
+            lower.split(" and ").collect()
+        } else {
+            lower.split(" och ").collect()
+        };
         let mut sub_conditions = Vec::new();
 
         for part in parts {
@@ -408,16 +500,27 @@ fn parse_natural_language_prompt(prompt: &str) -> (String, String, String, Strin
                         break;
                     }
                 }
-                sub_conditions.push(serde_json::json!({ "type": "HoursGreaterThan", "threshold": threshold }));
+                sub_conditions.push(
+                    serde_json::json!({ "type": "HoursGreaterThan", "threshold": threshold }),
+                );
             } else if part.contains("hvac") || part.contains("repair") {
-                sub_conditions.push(serde_json::json!({ "type": "NoteContains", "keyword": "hvac" }));
+                sub_conditions
+                    .push(serde_json::json!({ "type": "NoteContains", "keyword": "hvac" }));
             } else if part.contains("overtime") || part.contains("övertid") {
-                sub_conditions.push(serde_json::json!({ "type": "NoteContains", "keyword": "overtime" }));
+                sub_conditions
+                    .push(serde_json::json!({ "type": "NoteContains", "keyword": "overtime" }));
             }
         }
 
-        ("CompoundAnd".to_string(), serde_json::json!({ "conditions": sub_conditions }).to_string())
-    } else if lower.contains("over") || lower.contains("över") || lower.contains("exceeds") || lower.contains(">") {
+        (
+            "CompoundAnd".to_string(),
+            serde_json::json!({ "conditions": sub_conditions }).to_string(),
+        )
+    } else if lower.contains("over")
+        || lower.contains("över")
+        || lower.contains("exceeds")
+        || lower.contains(">")
+    {
         let mut threshold = 8.0;
         for word in lower.split_whitespace() {
             let clean = word.trim_matches(|c: char| !c.is_numeric() && c != '.');
@@ -426,7 +529,10 @@ fn parse_natural_language_prompt(prompt: &str) -> (String, String, String, Strin
                 break;
             }
         }
-        ("HoursGreaterThan".to_string(), serde_json::json!({ "threshold": threshold }).to_string())
+        (
+            "HoursGreaterThan".to_string(),
+            serde_json::json!({ "threshold": threshold }).to_string(),
+        )
     } else if lower.contains("under") || lower.contains("<") {
         let mut threshold = 4.0;
         for word in lower.split_whitespace() {
@@ -436,17 +542,36 @@ fn parse_natural_language_prompt(prompt: &str) -> (String, String, String, Strin
                 break;
             }
         }
-        ("HoursLessThan".to_string(), serde_json::json!({ "threshold": threshold }).to_string())
+        (
+            "HoursLessThan".to_string(),
+            serde_json::json!({ "threshold": threshold }).to_string(),
+        )
     } else {
-        ("NoteContains".to_string(), serde_json::json!({ "keyword": "overtime" }).to_string())
+        (
+            "NoteContains".to_string(),
+            serde_json::json!({ "keyword": "overtime" }).to_string(),
+        )
     };
 
-    let (act_type, act_params) = if lower.contains("flag") || lower.contains("flagga") || lower.contains("approval") || lower.contains("godkännande") {
-        ("FlagForApproval".to_string(), serde_json::json!({ "target_status": "flagged_for_approval" }).to_string())
+    let (act_type, act_params) = if lower.contains("flag")
+        || lower.contains("flagga")
+        || lower.contains("approval")
+        || lower.contains("godkännande")
+    {
+        (
+            "FlagForApproval".to_string(),
+            serde_json::json!({ "target_status": "flagged_for_approval" }).to_string(),
+        )
     } else if lower.contains("auto approve") || lower.contains("godkänn") {
-        ("AutoApprove".to_string(), serde_json::json!({ "target_status": "approved" }).to_string())
+        (
+            "AutoApprove".to_string(),
+            serde_json::json!({ "target_status": "approved" }).to_string(),
+        )
     } else {
-        ("SendInAppNotification".to_string(), serde_json::json!({ "message": "Policy action triggered" }).to_string())
+        (
+            "SendInAppNotification".to_string(),
+            serde_json::json!({ "message": "Policy action triggered" }).to_string(),
+        )
     };
 
     (cond_type, cond_params, act_type, act_params)
@@ -461,12 +586,15 @@ pub async fn create_natural_language_trigger(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.role != "admin" {
-        return Err(YntraError::AuthError("Admin privileges required".to_string()));
+        return Err(YntraError::AuthError(
+            "Admin privileges required".to_string(),
+        ));
     }
 
     let id = Uuid::new_v4().to_string();
     let created_at = crate::infra::time::get_current_time_ms();
-    let (cond_type, cond_params, act_type, act_params) = parse_natural_language_prompt(&natural_language_prompt);
+    let (cond_type, cond_params, act_type, act_params) =
+        parse_natural_language_prompt(&natural_language_prompt);
 
     conn.execute(
         "INSERT INTO ai_action_triggers (id, workspace_id, created_by, natural_language_prompt, condition_type, condition_params, action_type, action_params, is_active, created_at, updated_at, sync_status)
@@ -543,10 +671,16 @@ pub async fn delete_action_trigger(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.role != "admin" {
-        return Err(YntraError::AuthError("Admin privileges required".to_string()));
+        return Err(YntraError::AuthError(
+            "Admin privileges required".to_string(),
+        ));
     }
 
-    conn.execute("DELETE FROM ai_action_triggers WHERE id = ?1", crate::params![&trigger_id]).await?;
+    conn.execute(
+        "DELETE FROM ai_action_triggers WHERE id = ?1",
+        crate::params![&trigger_id],
+    )
+    .await?;
     notify_observers();
     Ok(true)
 }
@@ -556,18 +690,29 @@ fn evaluate_ast_condition(cond_type: &str, cond_params: &str, report: &TimeRepor
     match cond_type {
         "HoursGreaterThan" => {
             let parsed: serde_json::Value = serde_json::from_str(cond_params).unwrap_or_default();
-            let threshold = parsed.get("threshold").and_then(|v| v.as_f64()).unwrap_or(8.0);
+            let threshold = parsed
+                .get("threshold")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(8.0);
             report.hours > threshold
         }
         "HoursLessThan" => {
             let parsed: serde_json::Value = serde_json::from_str(cond_params).unwrap_or_default();
-            let threshold = parsed.get("threshold").and_then(|v| v.as_f64()).unwrap_or(4.0);
+            let threshold = parsed
+                .get("threshold")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(4.0);
             report.hours < threshold
         }
         "NoteContains" => {
             let parsed: serde_json::Value = serde_json::from_str(cond_params).unwrap_or_default();
             let kw = parsed.get("keyword").and_then(|v| v.as_str()).unwrap_or("");
-            report.note.as_deref().unwrap_or("").to_lowercase().contains(&kw.to_lowercase())
+            report
+                .note
+                .as_deref()
+                .unwrap_or("")
+                .to_lowercase()
+                .contains(&kw.to_lowercase())
         }
         "CompoundAnd" => {
             let parsed: serde_json::Value = serde_json::from_str(cond_params).unwrap_or_default();
@@ -609,17 +754,25 @@ pub async fn evaluate_time_report_triggers_internal(
 
         if matches {
             actions_exec += 1;
-            let ai_config = get_workspace_ai_config("system".to_string(), workspace_id.to_string()).await.unwrap_or_else(|_| WorkspaceAiConfig {
-                provider: "local_ast".to_string(),
-                api_key_masked: "".to_string(),
-                model_name: "gpt-4o-mini".to_string(),
-                guardrails_enabled: true,
-                max_allowed_risk: "medium".to_string(),
-                require_human_approval_above_hours: 8.0,
-                min_auto_approve_confidence: 0.90,
-            });
+            let ai_config = get_workspace_ai_config("system".to_string(), workspace_id.to_string())
+                .await
+                .unwrap_or_else(|_| WorkspaceAiConfig {
+                    provider: "local_ast".to_string(),
+                    api_key_masked: "".to_string(),
+                    model_name: "gpt-4o-mini".to_string(),
+                    guardrails_enabled: true,
+                    max_allowed_risk: "medium".to_string(),
+                    require_human_approval_above_hours: 8.0,
+                    min_auto_approve_confidence: 0.90,
+                });
 
-            let guardrail_res = evaluate_ai_guardrails(ai_config, act_type.clone(), cond_params.clone(), report.hours, 0.95);
+            let guardrail_res = evaluate_ai_guardrails(
+                ai_config,
+                act_type.clone(),
+                cond_params.clone(),
+                report.hours,
+                0.95,
+            );
             let effective_action = guardrail_res.effective_action.clone();
 
             match effective_action.as_str() {
@@ -656,7 +809,10 @@ pub async fn evaluate_time_report_triggers_internal(
     Ok(TriggerEvaluationResult {
         triggers_evaluated: triggers_eval,
         actions_executed: actions_exec,
-        summary: format!("Evaluated {} triggers, executed {} automated actions", triggers_eval, actions_exec),
+        summary: format!(
+            "Evaluated {} triggers, executed {} automated actions",
+            triggers_eval, actions_exec
+        ),
     })
 }
 
@@ -684,7 +840,10 @@ pub async fn evaluate_pending_triggers(
     Ok(TriggerEvaluationResult {
         triggers_evaluated: total_eval,
         actions_executed: total_exec,
-        summary: format!("Evaluated {} triggers across time reports, executed {} actions", total_eval, total_exec),
+        summary: format!(
+            "Evaluated {} triggers across time reports, executed {} actions",
+            total_eval, total_exec
+        ),
     })
 }
 
@@ -722,7 +881,11 @@ pub async fn generate_daily_ai_digest(
     }
 
     // Statistical Anomaly Detection (Mean & Standard Deviation)
-    let mean_hours = if total_reports > 0 { total_hours / (total_reports as f64) } else { 0.0 };
+    let mean_hours = if total_reports > 0 {
+        total_hours / (total_reports as f64)
+    } else {
+        0.0
+    };
     let variance = if total_reports > 1 {
         let sum_sq_diff: f64 = hours_list.iter().map(|h| (h - mean_hours).powi(2)).sum();
         sum_sq_diff / ((total_reports - 1) as f64)
@@ -741,7 +904,9 @@ pub async fn generate_daily_ai_digest(
     let perf = get_performance_summary();
     let telemetry_json = serde_json::to_string(&perf).unwrap_or_else(|_| "{}".to_string());
 
-    let audit_logs = crate::get_audit_logs(requester_user_id.clone()).await.unwrap_or_default();
+    let audit_logs = crate::get_audit_logs(requester_user_id.clone())
+        .await
+        .unwrap_or_default();
     let audit_count = audit_logs.len() as u32;
 
     let summary_text = format!(
@@ -774,10 +939,22 @@ pub async fn generate_daily_ai_digest(
          ### 💡 AI Recommendations & Action Triggers\n\
          - {} time report(s) flagged for manager attestation or over 8h policy limit.\n\
          - {} statistical outlier shift(s) flagged for workload review.\n",
-        date, workspace_id, chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC"),
-        total_hours, total_reports, mean_hours, std_dev, flagged_reports, audit_count,
-        anomalies_count, perf.avg_ffi_latency_us, perf.avg_frame_render_ms, perf.sync_recon_count, perf.total_sync_bytes,
-        flagged_reports, anomalies_count
+        date,
+        workspace_id,
+        chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC"),
+        total_hours,
+        total_reports,
+        mean_hours,
+        std_dev,
+        flagged_reports,
+        audit_count,
+        anomalies_count,
+        perf.avg_ffi_latency_us,
+        perf.avg_frame_render_ms,
+        perf.sync_recon_count,
+        perf.total_sync_bytes,
+        flagged_reports,
+        anomalies_count
     );
 
     let digest_id = Uuid::new_v4().to_string();
@@ -792,7 +969,8 @@ pub async fn generate_daily_ai_digest(
         "anomalies_count": anomalies_count,
         "audit_count": audit_count,
         "summary": summary_text
-    }).to_string();
+    })
+    .to_string();
 
     conn.execute(
         "INSERT INTO ai_daily_digests (id, workspace_id, date, summary_text, total_hours_logged, total_reports_count, flagged_reports_count, audit_events_count, telemetry_summary_json, digest_json, created_at, updated_at, sync_status)
@@ -934,9 +1112,15 @@ pub async fn get_pending_ai_action_approvals(
         let updated: i64 = row.get(5)?;
 
         let rationale = if hours > 8.0 {
-            format!("Logged shift of {:.1}h exceeds maximum automated approval threshold (8.0h). User note: '{}'", hours, note)
+            format!(
+                "Logged shift of {:.1}h exceeds maximum automated approval threshold (8.0h). User note: '{}'",
+                hours, note
+            )
         } else {
-            format!("AI Policy Trigger flagged shift of {:.1}h by user '{}' for human attestation review.", hours, user_id)
+            format!(
+                "AI Policy Trigger flagged shift of {:.1}h by user '{}' for human attestation review.",
+                hours, user_id
+            )
         };
 
         let risk_score = if hours > 12.0 { 0.85 } else { 0.45 };
@@ -967,7 +1151,9 @@ pub async fn review_ai_action_approval(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.role != "admin" && auth.role != "manager" {
-        return Err(YntraError::AuthError("Manager or administrator privileges required".to_string()));
+        return Err(YntraError::AuthError(
+            "Manager or administrator privileges required".to_string(),
+        ));
     }
 
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -984,7 +1170,10 @@ pub async fn review_ai_action_approval(
         &conn,
         requester_user_id,
         None,
-        format!("ai_action_reviewed: id={} status={} notes={}", approval_id, new_status, notes_str),
+        format!(
+            "ai_action_reviewed: id={} status={} notes={}",
+            approval_id, new_status, notes_str
+        ),
     )
     .await;
 
@@ -1051,7 +1240,7 @@ mod tests {
         .await?;
 
         assert_eq!(report.hours, 9.5);
-        
+
         let updated_report = conn
             .query_row(
                 "SELECT status FROM time_reports WHERE id = ?1",
@@ -1069,13 +1258,31 @@ mod tests {
         .await?;
 
         assert!(digest.total_hours_logged >= 9.5);
-        assert!(digest.markdown_digest.contains("Yntra SOTA Automated AI Operations Digest"));
+        assert!(
+            digest
+                .markdown_digest
+                .contains("Yntra SOTA Automated AI Operations Digest")
+        );
 
-        conn.execute("DELETE FROM ai_action_triggers WHERE workspace_id = 'ws-sota-test'", ()).await?;
-        conn.execute("DELETE FROM ai_daily_digests WHERE workspace_id = 'ws-sota-test'", ()).await?;
-        conn.execute("DELETE FROM time_reports WHERE workspace_id = 'ws-sota-test'", ()).await?;
-        conn.execute("DELETE FROM users WHERE id = 'u-sota-admin'", ()).await?;
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-sota-test'", ()).await?;
+        conn.execute(
+            "DELETE FROM ai_action_triggers WHERE workspace_id = 'ws-sota-test'",
+            (),
+        )
+        .await?;
+        conn.execute(
+            "DELETE FROM ai_daily_digests WHERE workspace_id = 'ws-sota-test'",
+            (),
+        )
+        .await?;
+        conn.execute(
+            "DELETE FROM time_reports WHERE workspace_id = 'ws-sota-test'",
+            (),
+        )
+        .await?;
+        conn.execute("DELETE FROM users WHERE id = 'u-sota-admin'", ())
+            .await?;
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-sota-test'", ())
+            .await?;
 
         Ok(())
     }
@@ -1099,8 +1306,20 @@ mod tests {
             min_auto_approve_confidence: 0.90,
         };
 
-        let res1 = evaluate_ai_guardrails(config.clone(), "AutoApprove".to_string(), "hours > 6.0".to_string(), 7.0, 0.95);
-        let res2 = evaluate_ai_guardrails(config.clone(), "AutoApprove".to_string(), "hours > 6.0".to_string(), 7.0, 0.95);
+        let res1 = evaluate_ai_guardrails(
+            config.clone(),
+            "AutoApprove".to_string(),
+            "hours > 6.0".to_string(),
+            7.0,
+            0.95,
+        );
+        let res2 = evaluate_ai_guardrails(
+            config.clone(),
+            "AutoApprove".to_string(),
+            "hours > 6.0".to_string(),
+            7.0,
+            0.95,
+        );
 
         assert!(res1.passed);
         assert_eq!(res1.effective_action, "AutoApprove");
@@ -1120,13 +1339,30 @@ mod tests {
         };
 
         // Shift exceeding 8.0h threshold
-        let res_overtime = evaluate_ai_guardrails(config.clone(), "AutoApprove".to_string(), "hours > 8.0".to_string(), 9.5, 0.95);
+        let res_overtime = evaluate_ai_guardrails(
+            config.clone(),
+            "AutoApprove".to_string(),
+            "hours > 8.0".to_string(),
+            9.5,
+            0.95,
+        );
         assert!(!res_overtime.passed);
         assert_eq!(res_overtime.effective_action, "FlagForApproval");
-        assert!(res_overtime.violation_reason.unwrap().contains("exceed auto-approve threshold"));
+        assert!(
+            res_overtime
+                .violation_reason
+                .unwrap()
+                .contains("exceed auto-approve threshold")
+        );
 
         // Low confidence score
-        let res_low_conf = evaluate_ai_guardrails(config.clone(), "AutoApprove".to_string(), "hours > 5.0".to_string(), 6.0, 0.85);
+        let res_low_conf = evaluate_ai_guardrails(
+            config.clone(),
+            "AutoApprove".to_string(),
+            "hours > 5.0".to_string(),
+            6.0,
+            0.85,
+        );
         assert!(!res_low_conf.passed);
         assert_eq!(res_low_conf.effective_action, "FlagForApproval");
     }
@@ -1147,22 +1383,45 @@ mod tests {
         ).await?;
 
         // 1. Get pending approvals
-        let approvals = get_pending_ai_action_approvals("u-mgr-1".to_string(), "ws-ai-app".to_string()).await?;
+        let approvals =
+            get_pending_ai_action_approvals("u-mgr-1".to_string(), "ws-ai-app".to_string()).await?;
         assert_eq!(approvals.len(), 1);
         assert_eq!(approvals[0].id, "tr-ai-overtime");
-        assert!(approvals[0].explainability_rationale.contains("exceeds maximum automated approval threshold"));
+        assert!(
+            approvals[0]
+                .explainability_rationale
+                .contains("exceeds maximum automated approval threshold")
+        );
 
         // 2. Manager reviews & approves AI proposal
-        let ok = review_ai_action_approval("u-mgr-1".to_string(), "ws-ai-app".to_string(), "tr-ai-overtime".to_string(), true, Some("Approved overtime".to_string())).await?;
+        let ok = review_ai_action_approval(
+            "u-mgr-1".to_string(),
+            "ws-ai-app".to_string(),
+            "tr-ai-overtime".to_string(),
+            true,
+            Some("Approved overtime".to_string()),
+        )
+        .await?;
         assert!(ok);
 
-        let status: String = conn.query_row("SELECT status FROM time_reports WHERE id = 'tr-ai-overtime'", (), |r| r.get(0)).await?;
+        let status: String = conn
+            .query_row(
+                "SELECT status FROM time_reports WHERE id = 'tr-ai-overtime'",
+                (),
+                |r| r.get(0),
+            )
+            .await?;
         assert_eq!(status, "approved");
 
-        conn.execute("DELETE FROM time_reports WHERE workspace_id = 'ws-ai-app'", ()).await?;
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-ai-app'", ()).await?;
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-ai-app'", ()).await?;
+        conn.execute(
+            "DELETE FROM time_reports WHERE workspace_id = 'ws-ai-app'",
+            (),
+        )
+        .await?;
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-ai-app'", ())
+            .await?;
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-ai-app'", ())
+            .await?;
         Ok(())
     }
 }
-

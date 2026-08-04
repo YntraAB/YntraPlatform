@@ -1,9 +1,9 @@
+use crate::TimetableSlot;
 use crate::database;
 use crate::infra::errors::YntraError;
 use crate::infra::observer::notify_observers;
-use crate::services::school::auth::{verify_school_write_zkp, verify_school_permission};
+use crate::services::school::auth::{verify_school_permission, verify_school_write_zkp};
 use crate::services::school::conflicts::record_school_conflict;
-use crate::TimetableSlot;
 
 #[uniffi::export]
 pub async fn get_timetable_slots(
@@ -13,7 +13,9 @@ pub async fn get_timetable_slots(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let mut stmt = conn
@@ -47,7 +49,9 @@ pub async fn save_timetable_slot(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != slot.workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
@@ -62,7 +66,14 @@ pub async fn save_timetable_slot(
             .await?;
         let mut rows = stmt.query(crate::params![&slot.id]).await?;
         if let Some(row) = rows.next().await? {
-            Some((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
+            Some((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+            ))
         } else {
             None
         }
@@ -74,8 +85,20 @@ pub async fn save_timetable_slot(
     let mut end_time = slot.end_time.clone();
     let mut classroom = slot.classroom.clone();
 
-    let incoming_updated_at = if slot.updated_at > now_ms + 5000 { now_ms } else { slot.updated_at };
-    if let Some((old_course_id, old_day_of_week, old_start_time, old_end_time, old_classroom, old_updated_at)) = existing {
+    let incoming_updated_at = if slot.updated_at > now_ms + 5000 {
+        now_ms
+    } else {
+        slot.updated_at
+    };
+    if let Some((
+        old_course_id,
+        old_day_of_week,
+        old_start_time,
+        old_end_time,
+        old_classroom,
+        old_updated_at,
+    )) = existing
+    {
         if old_updated_at > incoming_updated_at {
             let course_diff = old_course_id != slot.course_id;
             let day_diff = old_day_of_week != slot.day_of_week as i64;
@@ -107,8 +130,9 @@ pub async fn save_timetable_slot(
                         }
                     ]
                 });
-                
-                record_school_conflict(&conn, &slot.workspace_id, "timetable_slots", &slot.id, mvr).await?;
+
+                record_school_conflict(&conn, &slot.workspace_id, "timetable_slots", &slot.id, mvr)
+                    .await?;
 
                 // Keep database clean using Last-Write-Wins (which is the database version, since old_updated_at > slot.updated_at)
                 course_id = old_course_id;

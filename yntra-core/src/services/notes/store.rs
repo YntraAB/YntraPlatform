@@ -1,7 +1,7 @@
 use crate::ZeroCopyNoteStore;
 use crate::infra::errors::YntraError;
 use std::collections::HashMap;
-use std::sync::{Mutex, LazyLock};
+use std::sync::{LazyLock, Mutex};
 
 static NOTE_STORES: LazyLock<Mutex<HashMap<String, ZeroCopyNoteStore>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -19,7 +19,10 @@ fn get_note_store_path(workspace_id: &str) -> String {
             .to_string_lossy()
             .to_string()
     } else {
-        crate::database::native::get_database_path(&format!("yntra_zero_copy_notes_{}.db", workspace_id))
+        crate::database::native::get_database_path(&format!(
+            "yntra_zero_copy_notes_{}.db",
+            workspace_id
+        ))
     }
 }
 

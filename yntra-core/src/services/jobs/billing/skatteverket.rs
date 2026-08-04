@@ -1,9 +1,9 @@
-use crate::database;
-use crate::infra::observer::notify_observers;
-use crate::infra::errors::YntraError;
-use crate::services::jobs::tickets::is_staff;
 use super::helpers::{create_http_client, get_config_val};
 use super::invoices::calculate_eligible_labor_cost;
+use crate::database;
+use crate::infra::errors::YntraError;
+use crate::infra::observer::notify_observers;
+use crate::services::jobs::tickets::is_staff;
 use chrono::Datelike;
 
 #[uniffi::export]
@@ -27,13 +27,14 @@ pub async fn get_rut_invoices(
          JOIN users u ON i.customer_id = u.id
          WHERE i.workspace_id = ?1 AND i.rut_deduction > 0.0"
     ).await?;
-    
+
     let mut rows = stmt.query(crate::params![&auth.workspace_id]).await?;
     let mut list = Vec::new();
     while let Some(row) = rows.next().await? {
         let metadata_str = row.get::<String>(6)?;
-        let metadata_json: serde_json::Value = serde_json::from_str(&metadata_str).unwrap_or_default();
-        
+        let metadata_json: serde_json::Value =
+            serde_json::from_str(&metadata_str).unwrap_or_default();
+
         let raw_pnum = metadata_json
             .get("personal_number")
             .and_then(|v| v.as_str())
@@ -41,7 +42,8 @@ pub async fn get_rut_invoices(
             .to_string();
 
         let customer_pnum = if raw_pnum.starts_with("enc:") || raw_pnum.len() > 30 {
-            crate::infra::crypto::decrypt_field(&raw_pnum, &auth.workspace_id).unwrap_or_else(|_| "DECRYPTION_FAILED".to_string())
+            crate::infra::crypto::decrypt_field(&raw_pnum, &auth.workspace_id)
+                .unwrap_or_else(|_| "DECRYPTION_FAILED".to_string())
         } else {
             raw_pnum
         };
@@ -53,7 +55,10 @@ pub async fn get_rut_invoices(
             payment_date: row.get::<String>(1)?,
             rut_amount: row.get::<f64>(2)?,
             job_title: row.get::<String>(4)?,
-            customer_name: row.get::<Option<String>>(5).unwrap_or(None).unwrap_or_else(|| "Kund".to_string()),
+            customer_name: row
+                .get::<Option<String>>(5)
+                .unwrap_or(None)
+                .unwrap_or_else(|| "Kund".to_string()),
             customer_pnum,
             status,
         });
@@ -124,7 +129,9 @@ pub async fn export_skatteverket_claims_with_options(
              WHERE i.id = ?1 AND i.workspace_id = ?2"
         ).await?;
 
-        let mut rows = stmt.query(crate::params![inv_id, &auth.workspace_id]).await?;
+        let mut rows = stmt
+            .query(crate::params![inv_id, &auth.workspace_id])
+            .await?;
         if let Some(row) = rows.next().await? {
             let inv_date = row.get::<String>(1)?;
             let rut_deduction = row.get::<f64>(2)?;
@@ -136,17 +143,24 @@ pub async fn export_skatteverket_claims_with_options(
             let packing_supplies_fee = row.get::<f64>(8)?;
             let additional_charges = row.get::<Option<f64>>(9)?.unwrap_or(0.0);
 
-            let mut user_stmt = conn.prepare(
-                "SELECT metadata FROM users WHERE id = ?1"
-            ).await?;
+            let mut user_stmt = conn
+                .prepare("SELECT metadata FROM users WHERE id = ?1")
+                .await?;
             let mut user_rows = user_stmt.query(crate::params![&customer_id]).await?;
             let raw_pnum = if let Some(user_row) = user_rows.next().await? {
                 let metadata_str = user_row.get::<String>(0)?;
-                let metadata_json: serde_json::Value = serde_json::from_str(&metadata_str).unwrap_or_default();
-                if let Some(p) = metadata_json.get("personal_number").and_then(|v| v.as_str()) {
+                let metadata_json: serde_json::Value =
+                    serde_json::from_str(&metadata_str).unwrap_or_default();
+                if let Some(p) = metadata_json
+                    .get("personal_number")
+                    .and_then(|v| v.as_str())
+                {
                     p.to_string()
                 } else {
-                    let reason = format!("Customer '{}' has no personal_number in metadata", customer_id);
+                    let reason = format!(
+                        "Customer '{}' has no personal_number in metadata",
+                        customer_id
+                    );
                     let warn = format!("Invoice '{}' omitted: {}", inv_id, reason);
                     tracing::warn!("{}", warn);
                     omitted_warnings.push(warn);
@@ -159,7 +173,10 @@ pub async fn export_skatteverket_claims_with_options(
                         omitted_rut_amount: rut_deduction,
                     });
                     if !is_csv {
-                        xml.push_str(&format!("  <!-- WARNING: Invoice '{}' omitted -->\n", inv_id));
+                        xml.push_str(&format!(
+                            "  <!-- WARNING: Invoice '{}' omitted -->\n",
+                            inv_id
+                        ));
                     }
                     continue;
                 }
@@ -177,16 +194,24 @@ pub async fn export_skatteverket_claims_with_options(
                     omitted_rut_amount: rut_deduction,
                 });
                 if !is_csv {
-                    xml.push_str(&format!("  <!-- WARNING: Invoice '{}' omitted -->\n", inv_id));
+                    xml.push_str(&format!(
+                        "  <!-- WARNING: Invoice '{}' omitted -->\n",
+                        inv_id
+                    ));
                 }
                 continue;
             };
 
             let customer_pnum = if raw_pnum.starts_with("enc:") || raw_pnum.len() > 30 {
-                if let Ok(decrypted) = crate::infra::crypto::decrypt_field(&raw_pnum, &auth.workspace_id) {
+                if let Ok(decrypted) =
+                    crate::infra::crypto::decrypt_field(&raw_pnum, &auth.workspace_id)
+                {
                     decrypted
                 } else {
-                    let reason = format!("Personal number decryption failed for customer '{}'", customer_id);
+                    let reason = format!(
+                        "Personal number decryption failed for customer '{}'",
+                        customer_id
+                    );
                     let warn = format!("Invoice '{}' omitted: {}", inv_id, reason);
                     tracing::warn!("{}", warn);
                     omitted_warnings.push(warn);
@@ -199,7 +224,10 @@ pub async fn export_skatteverket_claims_with_options(
                         omitted_rut_amount: rut_deduction,
                     });
                     if !is_csv {
-                        xml.push_str(&format!("  <!-- WARNING: Invoice '{}' omitted -->\n", inv_id));
+                        xml.push_str(&format!(
+                            "  <!-- WARNING: Invoice '{}' omitted -->\n",
+                            inv_id
+                        ));
                     }
                     continue;
                 }
@@ -208,10 +236,16 @@ pub async fn export_skatteverket_claims_with_options(
             };
 
             let current_year = chrono::Utc::now().year();
-            let normalized_pnum = match crate::services::clients::normalize_swedish_pnum(&customer_pnum, current_year) {
+            let normalized_pnum = match crate::services::clients::normalize_swedish_pnum(
+                &customer_pnum,
+                current_year,
+            ) {
                 Some(p) => p,
                 None => {
-                    let reason = format!("Personal number '{}' failed Luhn checksum validation", customer_pnum);
+                    let reason = format!(
+                        "Personal number '{}' failed Luhn checksum validation",
+                        customer_pnum
+                    );
                     let warn = format!("Invoice '{}' omitted: {}", inv_id, reason);
                     tracing::warn!("{}", warn);
                     omitted_warnings.push(warn);
@@ -224,13 +258,18 @@ pub async fn export_skatteverket_claims_with_options(
                         omitted_rut_amount: rut_deduction,
                     });
                     if !is_csv {
-                        xml.push_str(&format!("  <!-- WARNING: Invoice '{}' omitted -->\n", inv_id));
+                        xml.push_str(&format!(
+                            "  <!-- WARNING: Invoice '{}' omitted -->\n",
+                            inv_id
+                        ));
                     }
                     continue;
                 }
             };
 
-            let eligible_labor = calculate_eligible_labor_cost(&conn, &job_ticket_id, base_price, &settings_json).await?;
+            let eligible_labor =
+                calculate_eligible_labor_cost(&conn, &job_ticket_id, base_price, &settings_json)
+                    .await?;
             let labor_cost = eligible_labor + stairs_surcharge;
 
             let hours = if pricing_model == "hourly" {
@@ -247,35 +286,78 @@ pub async fn export_skatteverket_claims_with_options(
                 drop(inv_rows);
                 drop(inv_stmt);
 
-                let hours_per_m3 = crate::services::workspaces::get_setting_f64(&settings_json, "moving_hours_per_m3");
-                let minimum_hours = crate::services::workspaces::get_setting_f64(&settings_json, "moving_minimum_hours");
+                let hours_per_m3 = crate::services::workspaces::get_setting_f64(
+                    &settings_json,
+                    "moving_hours_per_m3",
+                );
+                let minimum_hours = crate::services::workspaces::get_setting_f64(
+                    &settings_json,
+                    "moving_minimum_hours",
+                );
                 if total_volume > 0.0 {
                     (total_volume * hours_per_m3).max(minimum_hours).round() as i64
                 } else {
-                    let hourly_rate = crate::services::workspaces::get_setting_f64(&settings_json, "moving_hourly_rate_per_mover");
+                    let hourly_rate = crate::services::workspaces::get_setting_f64(
+                        &settings_json,
+                        "moving_hourly_rate_per_mover",
+                    );
                     (eligible_labor / hourly_rate).max(minimum_hours).round() as i64
                 }
             } else {
-                let hourly_rate = crate::services::workspaces::get_setting_f64(&settings_json, "moving_hourly_rate_per_mover");
-                let minimum_hours = crate::services::workspaces::get_setting_f64(&settings_json, "moving_minimum_hours");
+                let hourly_rate = crate::services::workspaces::get_setting_f64(
+                    &settings_json,
+                    "moving_hourly_rate_per_mover",
+                );
+                let minimum_hours = crate::services::workspaces::get_setting_f64(
+                    &settings_json,
+                    "moving_minimum_hours",
+                );
                 (eligible_labor / hourly_rate).max(minimum_hours).round() as i64
             };
 
             if is_csv {
                 csv_rows.push_str(&format!(
                     "{},{},{},{},{},{},{},{}\n",
-                    inv_id, org_number, normalized_pnum, inv_date, labor_cost.round() as i64, rut_deduction.round() as i64, hours, hours
+                    inv_id,
+                    org_number,
+                    normalized_pnum,
+                    inv_date,
+                    labor_cost.round() as i64,
+                    rut_deduction.round() as i64,
+                    hours,
+                    hours
                 ));
             } else {
                 xml.push_str("  <Arende>\n");
-                xml.push_str(&format!("    <UtforareOrgNr>{}</UtforareOrgNr>\n", org_number));
-                xml.push_str(&format!("    <KoparePersnr>{}</KoparePersnr>\n", normalized_pnum));
-                xml.push_str(&format!("    <BetalningsDatum>{}</BetalningsDatum>\n", inv_date));
-                xml.push_str(&format!("    <Arbetskostnad>{}</Arbetskostnad>\n", labor_cost.round() as i64));
-                xml.push_str(&format!("    <BegartBelopp>{}</BegartBelopp>\n", rut_deduction.round() as i64));
+                xml.push_str(&format!(
+                    "    <UtforareOrgNr>{}</UtforareOrgNr>\n",
+                    org_number
+                ));
+                xml.push_str(&format!(
+                    "    <KoparePersnr>{}</KoparePersnr>\n",
+                    normalized_pnum
+                ));
+                xml.push_str(&format!(
+                    "    <BetalningsDatum>{}</BetalningsDatum>\n",
+                    inv_date
+                ));
+                xml.push_str(&format!(
+                    "    <Arbetskostnad>{}</Arbetskostnad>\n",
+                    labor_cost.round() as i64
+                ));
+                xml.push_str(&format!(
+                    "    <BegartBelopp>{}</BegartBelopp>\n",
+                    rut_deduction.round() as i64
+                ));
                 xml.push_str(&format!("    <ArbetadeTimmar>{}</ArbetadeTimmar>\n", hours));
-                xml.push_str(&format!("    <Materialkostnad>{}</Materialkostnad>\n", packing_supplies_fee.round() as i64));
-                xml.push_str(&format!("    <OvrigKostnad>{}</OvrigKostnad>\n", (distance_fee + additional_charges).round() as i64));
+                xml.push_str(&format!(
+                    "    <Materialkostnad>{}</Materialkostnad>\n",
+                    packing_supplies_fee.round() as i64
+                ));
+                xml.push_str(&format!(
+                    "    <OvrigKostnad>{}</OvrigKostnad>\n",
+                    (distance_fee + additional_charges).round() as i64
+                ));
                 xml.push_str("    <RutArbete>\n");
                 xml.push_str(&format!("      <Flyttjanster>{}</Flyttjanster>\n", hours));
                 xml.push_str("    </RutArbete>\n");
@@ -297,16 +379,25 @@ pub async fn export_skatteverket_claims_with_options(
                 omitted_rut_amount: 0.0,
             });
             if !is_csv {
-                xml.push_str(&format!("  <!-- WARNING: Invoice '{}' omitted -->\n", inv_id));
+                xml.push_str(&format!(
+                    "  <!-- WARNING: Invoice '{}' omitted -->\n",
+                    inv_id
+                ));
             }
         }
     }
 
     if !allow_partial && omitted_count > 0 {
-        let omitted_ids: Vec<String> = omitted_claims.iter().map(|c| c.invoice_id.clone()).collect();
+        let omitted_ids: Vec<String> = omitted_claims
+            .iter()
+            .map(|c| c.invoice_id.clone())
+            .collect();
         return Err(YntraError::ValidationError(format!(
             "Skatteverket export aborted: {} of {} invoice(s) omitted (invoices: [{}]), risking {:.2} SEK in uncollected RUT tax deductions. Fix customer personal numbers or allow partial export.",
-            omitted_count, total_requested, omitted_ids.join(", "), total_omitted_amount
+            omitted_count,
+            total_requested,
+            omitted_ids.join(", "),
+            total_omitted_amount
         )));
     }
 
@@ -331,7 +422,11 @@ pub async fn export_skatteverket_claims_with_options(
 
     Ok(crate::models::SkatteverketExportManifest {
         payload,
-        format_type: if is_csv { "csv".to_string() } else { "xml".to_string() },
+        format_type: if is_csv {
+            "csv".to_string()
+        } else {
+            "xml".to_string()
+        },
         total_requested,
         exported_count,
         omitted_count,
@@ -347,7 +442,9 @@ pub async fn export_skatteverket_claims(
     invoice_ids: Vec<String>,
     format_type: String,
 ) -> Result<String, YntraError> {
-    let manifest = export_skatteverket_claims_with_options(requester_user_id, invoice_ids, format_type, true).await?;
+    let manifest =
+        export_skatteverket_claims_with_options(requester_user_id, invoice_ids, format_type, true)
+            .await?;
     Ok(manifest.payload)
 }
 
@@ -357,7 +454,9 @@ pub async fn export_skatteverket_claims_strict(
     invoice_ids: Vec<String>,
     format_type: String,
 ) -> Result<String, YntraError> {
-    let manifest = export_skatteverket_claims_with_options(requester_user_id, invoice_ids, format_type, false).await?;
+    let manifest =
+        export_skatteverket_claims_with_options(requester_user_id, invoice_ids, format_type, false)
+            .await?;
     Ok(manifest.payload)
 }
 
@@ -426,7 +525,11 @@ pub async fn validate_skatteverket_claim_batch(
             .and_then(|meta_str: String| {
                 serde_json::from_str::<serde_json::Value>(&meta_str)
                     .ok()
-                    .and_then(|v| v.get("personal_number").and_then(|p| p.as_str()).map(|s| s.to_string()))
+                    .and_then(|v| {
+                        v.get("personal_number")
+                            .and_then(|p| p.as_str())
+                            .map(|s| s.to_string())
+                    })
             });
 
         let raw_pnum = match raw_pnum {
@@ -436,7 +539,10 @@ pub async fn validate_skatteverket_claim_batch(
                 omitted_claims.push(crate::models::SkatteverketOmittedClaim {
                     invoice_id: inv_id.clone(),
                     customer_id: customer_id.clone(),
-                    reason: format!("Customer '{}' has no personal_number in metadata", customer_id),
+                    reason: format!(
+                        "Customer '{}' has no personal_number in metadata",
+                        customer_id
+                    ),
                     omitted_rut_amount: rut_deduction,
                 });
                 continue;
@@ -461,7 +567,8 @@ pub async fn validate_skatteverket_claim_batch(
             raw_pnum
         };
 
-        if crate::services::clients::normalize_swedish_pnum(&customer_pnum, current_year).is_some() {
+        if crate::services::clients::normalize_swedish_pnum(&customer_pnum, current_year).is_some()
+        {
             valid_count += 1;
             total_valid_amount += rut_deduction;
         } else {
@@ -469,7 +576,10 @@ pub async fn validate_skatteverket_claim_batch(
             omitted_claims.push(crate::models::SkatteverketOmittedClaim {
                 invoice_id: inv_id.clone(),
                 customer_id: customer_id.clone(),
-                reason: format!("Personal number '{}' failed Luhn checksum or format validation", customer_pnum),
+                reason: format!(
+                    "Personal number '{}' failed Luhn checksum or format validation",
+                    customer_pnum
+                ),
                 omitted_rut_amount: rut_deduction,
             });
         }
@@ -491,7 +601,7 @@ pub async fn initiate_bankid_skatteverket_session(
 ) -> Result<crate::models::BankIdAuthSession, YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    
+
     if !is_staff(&auth) {
         return Err(YntraError::AuthError(
             "Access denied: only staff can initiate Skatteverket BankID sessions".to_string(),
@@ -507,14 +617,15 @@ pub async fn initiate_bankid_skatteverket_session(
         .await
         .unwrap_or_else(|_| "{}".to_string());
     let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
-    let api_base_url = get_config_val("api_base_url", "API_BASE_URL", &settings_json).await
+    let api_base_url = get_config_val("api_base_url", "API_BASE_URL", &settings_json)
+        .await
         .unwrap_or_else(|| "https://api.yntra.se".to_string());
     let api_base_url = api_base_url.trim_end_matches('/');
-    
+
     let session_id = uuid::Uuid::new_v4().to_string();
     let token = uuid::Uuid::new_v4().to_string();
     let now_ms = chrono::Utc::now().timestamp_millis();
-    
+
     let session = crate::models::BankIdAuthSession {
         id: session_id.clone(),
         token: token.clone(),
@@ -528,7 +639,7 @@ pub async fn initiate_bankid_skatteverket_session(
         created_at: now_ms.to_string(),
         challenge: Some("skatteverket-rut-signing".to_string()),
     };
-    
+
     conn.execute(
         "INSERT INTO bankid_auth_sessions (id, target_role, provider, status, error_message, qr_data, progress, authenticated_user_id, created_at, challenge, token) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         crate::params![
@@ -545,7 +656,7 @@ pub async fn initiate_bankid_skatteverket_session(
             session.token
         ],
     ).await?;
-    
+
     Ok(session)
 }
 
@@ -625,28 +736,40 @@ async fn submit_skatteverket_claim_direct_inner(
 ) -> Result<crate::models::SkatteverketSubmitResult, YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    
+
     if !is_staff(&auth) {
         return Err(YntraError::AuthError(
             "Access denied: only staff can submit Skatteverket claims".to_string(),
         ));
     }
-    
-    let bankid_status: String = conn.query_row(
-        "SELECT status FROM bankid_auth_sessions WHERE id = ?1",
-        crate::params![&session_id],
-        |r| r.get(0)
-    ).await.map_err(|_| YntraError::AuthError("BankID signature session not found".to_string()))?;
-    
+
+    let bankid_status: String = conn
+        .query_row(
+            "SELECT status FROM bankid_auth_sessions WHERE id = ?1",
+            crate::params![&session_id],
+            |r| r.get(0),
+        )
+        .await
+        .map_err(|_| YntraError::AuthError("BankID signature session not found".to_string()))?;
+
     if bankid_status != "success" {
-        return Err(YntraError::AuthError(format!("BankID signature verification not completed (current status: {})", bankid_status)));
+        return Err(YntraError::AuthError(format!(
+            "BankID signature verification not completed (current status: {})",
+            bankid_status
+        )));
     }
-    
-    let manifest = export_skatteverket_claims_with_options(requester_user_id.clone(), invoice_ids.clone(), "xml".to_string(), false).await?;
+
+    let manifest = export_skatteverket_claims_with_options(
+        requester_user_id.clone(),
+        invoice_ids.clone(),
+        "xml".to_string(),
+        false,
+    )
+    .await?;
     let xml_payload = manifest.payload;
     let total_claims = manifest.exported_count;
     let total_amount = manifest.total_exported_amount;
-    
+
     let settings_str: String = conn
         .query_row(
             "SELECT settings FROM workspaces WHERE id = ?1",
@@ -673,28 +796,39 @@ async fn submit_skatteverket_claim_direct_inner(
         .get("skatteverket_api_url")
         .and_then(|v| v.as_str())
         .unwrap_or("https://test.skatteverket.se/service/rotrut/v6");
-        
-    let res = client.post(skatteverket_url)
+
+    let res = client
+        .post(skatteverket_url)
         .header("Content-Type", "application/xml")
         .body(xml_payload)
         .send()
         .await;
-        
+
     let (status, reference_number, message) = match res {
         Ok(resp) if resp.status().is_success() => {
             let body_txt = resp.text().await.unwrap_or_default();
             let ref_num = extract_skatteverket_receipt_reference(&body_txt);
-            ("accepted".to_string(), ref_num, "Successfully transmitted to Skatteverket. Processing approved.".to_string())
+            (
+                "accepted".to_string(),
+                ref_num,
+                "Successfully transmitted to Skatteverket. Processing approved.".to_string(),
+            )
         }
         Ok(resp) => {
             let err_txt = resp.text().await.unwrap_or_default();
-            ("rejected".to_string(), "".to_string(), format!("Skatteverket rejected request: {}", err_txt))
+            (
+                "rejected".to_string(),
+                "".to_string(),
+                format!("Skatteverket rejected request: {}", err_txt),
+            )
         }
-        Err(e) => {
-            ("failed".to_string(), "".to_string(), format!("Skatteverket connection failed: {}", e))
-        }
+        Err(e) => (
+            "failed".to_string(),
+            "".to_string(),
+            format!("Skatteverket connection failed: {}", e),
+        ),
     };
-    
+
     if status == "accepted" {
         for inv_id in &invoice_ids {
             conn.execute(
@@ -712,7 +846,7 @@ async fn submit_skatteverket_claim_direct_inner(
         }
         notify_observers();
     }
-    
+
     Ok(crate::models::SkatteverketSubmitResult {
         reference_number,
         total_claims,

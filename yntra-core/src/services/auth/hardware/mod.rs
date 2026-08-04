@@ -362,9 +362,12 @@ pub async fn authenticate_with_passkey(
         let ws_id: Option<String> = row.get(2)?;
 
         if !challenge_hex.is_empty() && !signature_hex.is_empty() {
-            let ch_bytes = const_hex::decode(&challenge_hex).map_err(|_| YntraError::ValidationError("Invalid challenge hex".to_string()))?;
-            let pk_bytes = const_hex::decode(&pub_key_hex).map_err(|_| YntraError::ValidationError("Invalid public key hex".to_string()))?;
-            let sig_bytes = const_hex::decode(&signature_hex).map_err(|_| YntraError::ValidationError("Invalid signature hex".to_string()))?;
+            let ch_bytes = const_hex::decode(&challenge_hex)
+                .map_err(|_| YntraError::ValidationError("Invalid challenge hex".to_string()))?;
+            let pk_bytes = const_hex::decode(&pub_key_hex)
+                .map_err(|_| YntraError::ValidationError("Invalid public key hex".to_string()))?;
+            let sig_bytes = const_hex::decode(&signature_hex)
+                .map_err(|_| YntraError::ValidationError("Invalid signature hex".to_string()))?;
 
             if pk_bytes.len() == 32 && sig_bytes.len() == 64 {
                 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
@@ -373,9 +376,14 @@ pub async fn authenticate_with_passkey(
                 let mut sig_arr = [0u8; 64];
                 sig_arr.copy_from_slice(&sig_bytes);
 
-                let verifier = VerifyingKey::from_bytes(&pk_arr).map_err(|e| YntraError::CryptoError(e.to_string()))?;
+                let verifier = VerifyingKey::from_bytes(&pk_arr)
+                    .map_err(|e| YntraError::CryptoError(e.to_string()))?;
                 let sig = Signature::from_bytes(&sig_arr);
-                verifier.verify(&ch_bytes, &sig).map_err(|_| YntraError::AuthError("Passkey Ed25519 signature verification failed".to_string()))?;
+                verifier.verify(&ch_bytes, &sig).map_err(|_| {
+                    YntraError::AuthError(
+                        "Passkey Ed25519 signature verification failed".to_string(),
+                    )
+                })?;
             }
         }
 
@@ -403,7 +411,9 @@ pub async fn authenticate_with_passkey(
             public_key: Some(pub_key_hex),
         })
     } else {
-        Err(YntraError::NotFoundError("Passkey credential not found".to_string()))
+        Err(YntraError::NotFoundError(
+            "Passkey credential not found".to_string(),
+        ))
     }
 }
 
@@ -441,7 +451,12 @@ pub async fn delete_passkey_credential(
     let conn = database::acquire_connection().await?;
     let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    let res = conn.execute("DELETE FROM passkey_credentials WHERE id = ?1 AND user_id = ?2", crate::params![&credential_id, &requester_user_id]).await?;
+    let res = conn
+        .execute(
+            "DELETE FROM passkey_credentials WHERE id = ?1 AND user_id = ?2",
+            crate::params![&credential_id, &requester_user_id],
+        )
+        .await?;
 
     crate::infra::observer::notify_observers();
 
@@ -460,7 +475,10 @@ mod tests {
 
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-hw-1', 'HW WS 1', '[]', '{}')", ()).await.unwrap();
 
-        crate::infra::crypto::set_session_key("hw-test-session-key".to_string().into_bytes(), "ws-hw-1".to_string());
+        crate::infra::crypto::set_session_key(
+            "hw-test-session-key".to_string().into_bytes(),
+            "ws-hw-1".to_string(),
+        );
 
         let pnum = "19950505-5555";
         let enc_pnum =
@@ -625,7 +643,9 @@ mod tests {
         assert_eq!(user.email, "pkuser@yntra.se");
 
         // 4. Delete Passkey
-        let deleted = delete_passkey_credential(uid.clone(), info.id).await.unwrap();
+        let deleted = delete_passkey_credential(uid.clone(), info.id)
+            .await
+            .unwrap();
         assert!(deleted);
     }
 }

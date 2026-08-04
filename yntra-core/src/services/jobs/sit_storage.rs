@@ -1,6 +1,6 @@
 use crate::database;
 use crate::infra::errors::YntraError;
-use crate::models::jobs::{WarehouseVaultLocation, SitBillingSummary};
+use crate::models::jobs::{SitBillingSummary, WarehouseVaultLocation};
 
 async fn assign_job_to_warehouse_vault_inner(
     requester_user_id: String,
@@ -25,7 +25,9 @@ async fn assign_job_to_warehouse_vault_inner(
         .map_err(|_| YntraError::NotFoundError("Job ticket not found".to_string()))?;
 
     if auth.workspace_id != ws_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let vault_id = format!("vault_{}", uuid::Uuid::new_v4().simple());
@@ -84,7 +86,14 @@ pub async fn assign_job_to_warehouse_vault(
     estimated_move_out_date: Option<String>,
 ) -> Result<WarehouseVaultLocation, YntraError> {
     let fut = assign_job_to_warehouse_vault_inner(
-        requester_user_id, job_ticket_id, vault_number, warehouse_name, allocated_volume_m3, monthly_rate_sek, move_in_date, estimated_move_out_date,
+        requester_user_id,
+        job_ticket_id,
+        vault_number,
+        warehouse_name,
+        allocated_volume_m3,
+        monthly_rate_sek,
+        move_in_date,
+        estimated_move_out_date,
     );
     crate::database::wasm::SendFuture::new(fut).await
 }
@@ -102,8 +111,16 @@ pub async fn assign_job_to_warehouse_vault(
     estimated_move_out_date: Option<String>,
 ) -> Result<WarehouseVaultLocation, YntraError> {
     assign_job_to_warehouse_vault_inner(
-        requester_user_id, job_ticket_id, vault_number, warehouse_name, allocated_volume_m3, monthly_rate_sek, move_in_date, estimated_move_out_date,
-    ).await
+        requester_user_id,
+        job_ticket_id,
+        vault_number,
+        warehouse_name,
+        allocated_volume_m3,
+        monthly_rate_sek,
+        move_in_date,
+        estimated_move_out_date,
+    )
+    .await
 }
 
 async fn get_job_warehouse_vaults_inner(
@@ -177,7 +194,9 @@ async fn release_job_from_warehouse_vault_inner(
         .map_err(|_| YntraError::NotFoundError("Warehouse vault not found".to_string()))?;
 
     if auth.workspace_id != ws_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let now_ms = chrono::Utc::now().timestamp_millis();
@@ -221,12 +240,17 @@ async fn calculate_sit_recurring_billing_summary_inner(
     let conn = database::acquire_connection().await?;
     let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    let vaults = get_job_warehouse_vaults_inner(requester_user_id.clone(), job_ticket_id.clone()).await?;
+    let vaults =
+        get_job_warehouse_vaults_inner(requester_user_id.clone(), job_ticket_id.clone()).await?;
 
     let vault_count = vaults.len() as i32;
     let total_volume_m3: f64 = vaults.iter().map(|v| v.allocated_volume_m3).sum();
     let monthly_rate_total: f64 = vaults.iter().map(|v| v.monthly_rate_sek).sum();
-    let rate_per_m3 = if total_volume_m3 > 0.0 { monthly_rate_total / total_volume_m3 } else { 150.0 };
+    let rate_per_m3 = if total_volume_m3 > 0.0 {
+        monthly_rate_total / total_volume_m3
+    } else {
+        150.0
+    };
 
     let earliest_move_in = vaults
         .iter()

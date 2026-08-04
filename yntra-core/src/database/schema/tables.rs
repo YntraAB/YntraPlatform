@@ -1126,7 +1126,25 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             created_at INTEGER NOT NULL,
             FOREIGN KEY(endpoint_id) REFERENCES webhook_endpoints(id)
         );
-        CREATE INDEX IF NOT EXISTS idx_webhook_logs_endpoint ON webhook_delivery_logs(endpoint_id, created_at DESC);"
+        CREATE INDEX IF NOT EXISTS idx_webhook_logs_endpoint ON webhook_delivery_logs(endpoint_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS crdt_semantic_conflicts (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            domain TEXT NOT NULL,
+            entity_table TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            colliding_entity_id TEXT,
+            conflict_type TEXT NOT NULL,
+            severity TEXT NOT NULL DEFAULT 'medium',
+            conflict_details_json TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'flagged_for_review',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT DEFAULT 'pending',
+            FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_crdt_conflicts_ws ON crdt_semantic_conflicts(workspace_id, status);"
     )
     .await
     .map_err(|e| YntraError::DbError(e.to_string()))?;

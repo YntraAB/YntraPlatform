@@ -106,8 +106,8 @@ pub async fn create_support_ticket(
         timestamp: now_ms,
     };
 
-    let messages_json = serde_json::to_string(&vec![first_msg])
-        .map_err(|e| YntraError::DbError(e.to_string()))?;
+    let messages_json =
+        serde_json::to_string(&vec![first_msg]).map_err(|e| YntraError::DbError(e.to_string()))?;
 
     conn.execute(
         "INSERT INTO support_tickets (\
@@ -200,8 +200,8 @@ pub async fn add_support_ticket_message(
         timestamp: now_ms,
     });
 
-    let new_messages_json = serde_json::to_string(&messages)
-        .map_err(|e| YntraError::DbError(e.to_string()))?;
+    let new_messages_json =
+        serde_json::to_string(&messages).map_err(|e| YntraError::DbError(e.to_string()))?;
 
     let new_status = if is_staff { "in_progress" } else { "open" };
 
@@ -334,7 +334,9 @@ pub async fn search_helpdesk_articles(
     let filtered = articles
         .into_iter()
         .filter(|art| {
-            let matches_cat = cat_clean.is_empty() || cat_clean == "all" || art.category.to_lowercase() == cat_clean;
+            let matches_cat = cat_clean.is_empty()
+                || cat_clean == "all"
+                || art.category.to_lowercase() == cat_clean;
             let matches_q = q_clean.is_empty()
                 || art.title.to_lowercase().contains(&q_clean)
                 || art.summary.to_lowercase().contains(&q_clean)
@@ -633,9 +635,13 @@ mod tests {
         assert_eq!(resolved.status, "resolved");
 
         // 5. Search helpdesk articles
-        let articles = search_helpdesk_articles(user_uid.clone(), "onboarding".to_string(), "all".to_string())
-            .await
-            .unwrap();
+        let articles = search_helpdesk_articles(
+            user_uid.clone(),
+            "onboarding".to_string(),
+            "all".to_string(),
+        )
+        .await
+        .unwrap();
         assert!(!articles.is_empty());
         assert!(articles[0].title.contains("Onboarding"));
 
@@ -645,20 +651,33 @@ mod tests {
             .unwrap();
         assert_eq!(steps.len(), 5);
 
-        let prog1 = get_user_tour_progress(user_uid.clone(), ws_id.clone(), "onboarding_tour".to_string())
-            .await
-            .unwrap();
+        let prog1 = get_user_tour_progress(
+            user_uid.clone(),
+            ws_id.clone(),
+            "onboarding_tour".to_string(),
+        )
+        .await
+        .unwrap();
         assert_eq!(prog1.current_step, 1);
         assert!(!prog1.completed);
 
-        let prog5 = complete_product_tour_step(user_uid.clone(), ws_id.clone(), "onboarding_tour".to_string(), 5)
-            .await
-            .unwrap();
+        let prog5 = complete_product_tour_step(
+            user_uid.clone(),
+            ws_id.clone(),
+            "onboarding_tour".to_string(),
+            5,
+        )
+        .await
+        .unwrap();
         assert!(prog5.completed);
 
-        let reset_prog = reset_product_tour(user_uid.clone(), ws_id.clone(), "onboarding_tour".to_string())
-            .await
-            .unwrap();
+        let reset_prog = reset_product_tour(
+            user_uid.clone(),
+            ws_id.clone(),
+            "onboarding_tour".to_string(),
+        )
+        .await
+        .unwrap();
         assert_eq!(reset_prog.current_step, 1);
         assert!(!reset_prog.completed);
     }

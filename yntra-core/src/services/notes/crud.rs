@@ -1,10 +1,10 @@
 use crate::database;
-use crate::observer::notify_observers;
 use crate::infra::errors::YntraError;
-use crate::{DailyNote, EditHistoryEntry};
+use crate::observer::notify_observers;
+use crate::services::notes::crdt::{apply_diff_to_loro, get_merged_loro_doc, parse_loro_state};
 use crate::services::notes::crypto::verify_zkp_if_encrypted;
 use crate::services::notes::store::get_note_store;
-use crate::services::notes::crdt::{parse_loro_state, apply_diff_to_loro, get_merged_loro_doc};
+use crate::{DailyNote, EditHistoryEntry};
 
 #[uniffi::export]
 pub async fn get_notes(
@@ -240,7 +240,15 @@ pub async fn add_note(
 ) -> Result<DailyNote, YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    verify_zkp_if_encrypted(&conn, &content, &auth.user_id, &auth.role, &workspace_id, &team_id).await?;
+    verify_zkp_if_encrypted(
+        &conn,
+        &content,
+        &auth.user_id,
+        &auth.role,
+        &workspace_id,
+        &team_id,
+    )
+    .await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
         return Err(YntraError::AuthError(
             "Access denied: workspace mismatch".to_string(),
@@ -419,7 +427,7 @@ pub async fn update_note(
         // Compute history entry using plain content
         let mut history: Vec<EditHistoryEntry> = serde_json::from_str(&old_note.edit_history)
             .unwrap_or_default();
-        
+
         let mut changed = false;
         let mut entry = EditHistoryEntry {
             edited_by: edited_by_name,
@@ -449,7 +457,7 @@ pub async fn update_note(
 
         let text = doc.get_text("content");
         apply_diff_to_loro(&text, &old_content_plain, &content)?;
-        
+
         let snapshot_bytes = doc.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
         let incremental_bytes = doc.export(loro::ExportMode::updates(&vv)).map_err(|e| YntraError::SerializationError(e.to_string()))?;
         let update_data_hex = crate::infra::crypto::hex_encode(&incremental_bytes);
@@ -564,8 +572,11 @@ pub async fn delete_note(requester_user_id: String, note_id: String) -> Result<(
         .await?;
         conn.execute("DELETE FROM notes WHERE id = ?1", crate::params![&note_id])
             .await?;
-        conn.execute("DELETE FROM notes_fts WHERE id = ?1", crate::params![&note_id])
-            .await?;
+        conn.execute(
+            "DELETE FROM notes_fts WHERE id = ?1",
+            crate::params![&note_id],
+        )
+        .await?;
         Ok(())
     }
     .await;

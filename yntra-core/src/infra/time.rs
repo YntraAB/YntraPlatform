@@ -1,7 +1,68 @@
 use chrono::Utc;
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicI64, Ordering};
+
+static CLOCK_SKEW_OFFSET_MS: AtomicI64 = AtomicI64::new(0);
+
+#[derive(uniffi::Record, Debug, Clone, PartialEq)]
+pub struct VerifiedTimestampRecord {
+    pub timestamp_ms: i64,
+    pub is_clock_tampered: bool,
+    pub detected_skew_ms: i64,
+}
+
+#[uniffi::export]
+pub fn update_network_time_offset(server_time_ms: i64) {
+    let local_wall = Utc::now().timestamp_millis();
+    let skew = server_time_ms - local_wall;
+    CLOCK_SKEW_OFFSET_MS.store(skew, Ordering::Relaxed);
+}
+
+struct MonotonicAnchor {
+    wall_start_ms: i64,
+    #[cfg(not(target_arch = "wasm32"))]
+    instant_start: std::time::Instant,
+}
+
+fn get_anchor() -> &'static std::sync::Mutex<MonotonicAnchor> {
+    static ANCHOR: OnceLock<std::sync::Mutex<MonotonicAnchor>> = OnceLock::new();
+    ANCHOR.get_or_init(|| {
+        std::sync::Mutex::new(MonotonicAnchor {
+            wall_start_ms: Utc::now().timestamp_millis(),
+            #[cfg(not(target_arch = "wasm32"))]
+            instant_start: std::time::Instant::now(),
+        })
+    })
+}
+
+#[uniffi::export]
+pub fn get_verified_timestamp_ms() -> VerifiedTimestampRecord {
+    let raw_wall = Utc::now().timestamp_millis();
+    let skew = CLOCK_SKEW_OFFSET_MS.load(Ordering::Relaxed);
+    let calibrated = raw_wall + skew;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let (is_tampered, drift) = {
+        let anchor = get_anchor().lock().unwrap();
+        let elapsed = anchor.instant_start.elapsed().as_millis() as i64;
+        let expected_wall = anchor.wall_start_ms + elapsed;
+        let drift = (raw_wall - expected_wall).abs();
+        (drift > 300_000, drift)
+    };
+
+    #[cfg(target_arch = "wasm32")]
+    let (is_tampered, drift) = (false, 0i64);
+
+    VerifiedTimestampRecord {
+        timestamp_ms: calibrated,
+        is_clock_tampered: is_tampered,
+        detected_skew_ms: drift,
+    }
+}
 
 pub fn get_current_time_ms() -> i64 {
-    Utc::now().timestamp_millis()
+    let verified = get_verified_timestamp_ms();
+    verified.timestamp_ms
 }
 
 pub fn get_current_datetime_str() -> String {
@@ -59,7 +120,8 @@ pub async fn sleep_ms(ms: u64) {
         let _ = SendFuture {
             inner: wasm_bindgen_futures::JsFuture::from(promise),
             thread_id: std::thread::current().id(),
-        }.await;
+        }
+        .await;
     }
 }
 
@@ -83,5 +145,16 @@ mod tests {
         let hm = get_current_time_str_hm();
         assert_eq!(hm.len(), 5);
         assert_eq!(&hm[2..3], ":");
+    }
+
+    #[test]
+    fn test_network_offset_calibration() {
+        let local_now = Utc::now().timestamp_millis();
+        let simulated_server_now = local_now + 10_000;
+        update_network_time_offset(simulated_server_now);
+
+        let verified = get_verified_timestamp_ms();
+        assert!(verified.timestamp_ms >= local_now + 9_000);
+        assert!(!verified.is_clock_tampered);
     }
 }

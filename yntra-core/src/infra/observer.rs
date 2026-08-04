@@ -89,8 +89,10 @@ pub fn notify_observers() {
     let dispatch_fn = move || {
         if !records.is_empty() || !tables.is_empty() {
             // 1. Deduplicate records and count updates per table
-            let mut unique_records: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
-            let mut record_counts_per_table: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+            let mut unique_records: std::collections::HashSet<(String, String)> =
+                std::collections::HashSet::new();
+            let mut record_counts_per_table: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
 
             for (table, id) in records {
                 if unique_records.insert((table.clone(), id)) {
@@ -229,9 +231,18 @@ mod tests {
 
         notify_observers();
 
-        assert!(obs.record_called.load(Ordering::SeqCst), "Record notification should be fired");
-        assert!(obs.table_called.load(Ordering::SeqCst), "Table notification should be fired even when records exist");
-        assert!(!obs.db_called.load(Ordering::SeqCst), "DB fallback notification should not fire when specific events exist");
+        assert!(
+            obs.record_called.load(Ordering::SeqCst),
+            "Record notification should be fired"
+        );
+        assert!(
+            obs.table_called.load(Ordering::SeqCst),
+            "Table notification should be fired even when records exist"
+        );
+        assert!(
+            !obs.db_called.load(Ordering::SeqCst),
+            "DB fallback notification should not fire when specific events exist"
+        );
 
         clear_observers();
     }
@@ -277,8 +288,16 @@ mod tests {
         notify_observers();
 
         // 10 records for "messages" should collapse into 1 table-level notification
-        assert_eq!(record_count.load(Ordering::SeqCst), 0, "Per-record notifications should be suppressed during bulk updates");
-        assert_eq!(table_count.load(Ordering::SeqCst), 1, "Bulk updates should trigger exactly 1 table-level notification");
+        assert_eq!(
+            record_count.load(Ordering::SeqCst),
+            0,
+            "Per-record notifications should be suppressed during bulk updates"
+        );
+        assert_eq!(
+            table_count.load(Ordering::SeqCst),
+            1,
+            "Bulk updates should trigger exactly 1 table-level notification"
+        );
 
         clear_observers();
     }

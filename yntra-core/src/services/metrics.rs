@@ -63,28 +63,36 @@ pub fn is_telemetry_opted_in() -> bool {
 
 #[uniffi::export]
 pub fn record_tti_metric(duration_ms: u64) {
-    if !is_telemetry_opted_in() { return; }
+    if !is_telemetry_opted_in() {
+        return;
+    }
     TTI_MILLIS.store(duration_ms, Ordering::SeqCst);
     tracing::debug!("Recorded Time to Interactive (TTI): {} ms", duration_ms);
 }
 
 #[uniffi::export]
 pub fn record_ffi_latency(duration_micros: u64) {
-    if !is_telemetry_opted_in() { return; }
+    if !is_telemetry_opted_in() {
+        return;
+    }
     FFI_TOTAL_CALLS.fetch_add(1, Ordering::SeqCst);
     FFI_TOTAL_MICROS.fetch_add(duration_micros, Ordering::SeqCst);
 }
 
 #[uniffi::export]
 pub fn record_frame_render_time(duration_micros: u64) {
-    if !is_telemetry_opted_in() { return; }
+    if !is_telemetry_opted_in() {
+        return;
+    }
     FRAME_RENDER_TOTAL_CALLS.fetch_add(1, Ordering::SeqCst);
     FRAME_RENDER_TOTAL_MICROS.fetch_add(duration_micros, Ordering::SeqCst);
 }
 
 #[uniffi::export]
 pub fn record_sync_reconciliation(duration_micros: u64, payload_bytes: u64) {
-    if !is_telemetry_opted_in() { return; }
+    if !is_telemetry_opted_in() {
+        return;
+    }
     SYNC_RECON_TOTAL_CALLS.fetch_add(1, Ordering::SeqCst);
     SYNC_RECON_TOTAL_MICROS.fetch_add(duration_micros, Ordering::SeqCst);
     SYNC_RECON_BYTES_PROCESSED.fetch_add(payload_bytes, Ordering::SeqCst);
@@ -104,11 +112,23 @@ pub fn get_performance_summary() -> PerformanceMetricSummary {
     PerformanceMetricSummary {
         tti_ms: tti,
         ffi_calls_count: ffi_count,
-        avg_ffi_latency_us: if ffi_count > 0 { ffi_micros as f64 / ffi_count as f64 } else { 0.0 },
+        avg_ffi_latency_us: if ffi_count > 0 {
+            ffi_micros as f64 / ffi_count as f64
+        } else {
+            0.0
+        },
         frame_renders_count: frame_count,
-        avg_frame_render_ms: if frame_count > 0 { (frame_micros as f64 / frame_count as f64) / 1000.0 } else { 0.0 },
+        avg_frame_render_ms: if frame_count > 0 {
+            (frame_micros as f64 / frame_count as f64) / 1000.0
+        } else {
+            0.0
+        },
         sync_recon_count: sync_count,
-        avg_sync_recon_ms: if sync_count > 0 { (sync_micros as f64 / sync_count as f64) / 1000.0 } else { 0.0 },
+        avg_sync_recon_ms: if sync_count > 0 {
+            (sync_micros as f64 / sync_count as f64) / 1000.0
+        } else {
+            0.0
+        },
         total_sync_bytes: sync_bytes,
     }
 }

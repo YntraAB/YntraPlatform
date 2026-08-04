@@ -1,5 +1,5 @@
 use crate::database;
-use crate::{AcademicOverview, LibraryOverview, FinanceOverview, YntraError};
+use crate::{AcademicOverview, FinanceOverview, LibraryOverview, YntraError};
 
 #[uniffi::export]
 pub async fn get_academic_overview(
@@ -241,7 +241,7 @@ mod tests {
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, preferences) VALUES ('user-test-dash', 'ws-test-dash', 'test@test.com', 'admin', '{}')", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO courses (id, workspace_id, name, subject, updated_at) VALUES ('course-1', 'ws-test-dash', 'Math', 'Calculus', 12345)", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO timetable_slots (id, workspace_id, course_id, day_of_week, start_time, end_time, updated_at) VALUES ('slot-1', 'ws-test-dash', 'course-1', 1, '09:00', '10:00', 12345)", ()).await.unwrap();
-        
+
         // Insert library book
         conn.execute(
             "INSERT OR REPLACE INTO library_books (id, workspace_id, title, author, isbn, copies_available, total_copies, updated_at) VALUES ('book-1', 'ws-test-dash', 'Intro to Algorithms', 'CLRS', '123', 3, 5, 12345)",
@@ -260,47 +260,97 @@ mod tests {
             ()
         ).await.unwrap();
 
-
-        let ac_ov = get_academic_overview("user-test-dash".to_string(), "ws-test-dash".to_string()).await.unwrap();
+        let ac_ov = get_academic_overview("user-test-dash".to_string(), "ws-test-dash".to_string())
+            .await
+            .unwrap();
         assert_eq!(ac_ov.course_count, 1);
         assert_eq!(ac_ov.slot_count, 1);
 
-        let lib_ov = get_library_overview("user-test-dash".to_string(), "ws-test-dash".to_string()).await.unwrap();
+        let lib_ov = get_library_overview("user-test-dash".to_string(), "ws-test-dash".to_string())
+            .await
+            .unwrap();
         assert_eq!(lib_ov.total_books, 5);
         assert_eq!(lib_ov.available_copies, 3);
 
-        let fin_ov = get_finance_overview("user-test-dash".to_string(), "ws-test-dash".to_string()).await.unwrap();
+        let fin_ov = get_finance_overview("user-test-dash".to_string(), "ws-test-dash".to_string())
+            .await
+            .unwrap();
         assert_eq!(fin_ov.unpaid_invoice_count, 1);
         assert_eq!(fin_ov.total_due_amount, 1500.0);
 
         // Verify search library book (positive case)
-        let book_found = search_library_book("user-test-dash".to_string(), "ws-test-dash".to_string(), "Intro".to_string()).await.unwrap();
+        let book_found = search_library_book(
+            "user-test-dash".to_string(),
+            "ws-test-dash".to_string(),
+            "Intro".to_string(),
+        )
+        .await
+        .unwrap();
         assert!(book_found.is_some());
         let book = book_found.unwrap();
         assert_eq!(book.title, "Intro to Algorithms");
         assert_eq!(book.copies_available, 3);
 
         // Verify search library book (negative case)
-        let book_not_found = search_library_book("user-test-dash".to_string(), "ws-test-dash".to_string(), "Nonexistent".to_string()).await.unwrap();
+        let book_not_found = search_library_book(
+            "user-test-dash".to_string(),
+            "ws-test-dash".to_string(),
+            "Nonexistent".to_string(),
+        )
+        .await
+        .unwrap();
         assert!(book_not_found.is_none());
 
         // Verify pay outstanding invoices
-        pay_outstanding_invoices("user-test-dash".to_string(), "ws-test-dash".to_string()).await.unwrap();
+        pay_outstanding_invoices("user-test-dash".to_string(), "ws-test-dash".to_string())
+            .await
+            .unwrap();
 
         // Check updated finance overview
-        let fin_ov_after = get_finance_overview("user-test-dash".to_string(), "ws-test-dash".to_string()).await.unwrap();
+        let fin_ov_after =
+            get_finance_overview("user-test-dash".to_string(), "ws-test-dash".to_string())
+                .await
+                .unwrap();
         assert_eq!(fin_ov_after.unpaid_invoice_count, 0);
         assert_eq!(fin_ov_after.total_due_amount, 0.0);
 
         // Clean up
-        conn.execute("DELETE FROM timetable_slots WHERE workspace_id = 'ws-test-dash'", ()).await.unwrap();
-        conn.execute("DELETE FROM courses WHERE workspace_id = 'ws-test-dash'", ()).await.unwrap();
-        conn.execute("DELETE FROM school_invoices WHERE workspace_id = 'ws-test-dash'", ()).await.unwrap();
-        conn.execute("DELETE FROM student_profiles WHERE workspace_id = 'ws-test-dash'", ()).await.unwrap();
-        conn.execute("DELETE FROM library_books WHERE workspace_id = 'ws-test-dash'", ()).await.unwrap();
-        conn.execute("DELETE FROM users WHERE id = 'user-test-dash'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-test-dash'", ()).await.unwrap();
-
+        conn.execute(
+            "DELETE FROM timetable_slots WHERE workspace_id = 'ws-test-dash'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM courses WHERE workspace_id = 'ws-test-dash'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM school_invoices WHERE workspace_id = 'ws-test-dash'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM student_profiles WHERE workspace_id = 'ws-test-dash'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM library_books WHERE workspace_id = 'ws-test-dash'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute("DELETE FROM users WHERE id = 'user-test-dash'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-test-dash'", ())
+            .await
+            .unwrap();
     }
 }
 

@@ -37,10 +37,14 @@ pub async fn setup_schema(conn: &DbConnection) -> Result<(), YntraError> {
         let mut rand_bytes = [0u8; 32];
         if getrandom::fill(&mut rand_bytes).is_ok() {
             let new_pepper = const_hex::encode(&rand_bytes);
-            if conn.execute(
-                "INSERT INTO system_settings (key, value) VALUES ('client_pepper', ?1)",
-                crate::params![&new_pepper],
-            ).await.is_ok() {
+            if conn
+                .execute(
+                    "INSERT INTO system_settings (key, value) VALUES ('client_pepper', ?1)",
+                    crate::params![&new_pepper],
+                )
+                .await
+                .is_ok()
+            {
                 let _ = crate::infra::crypto::set_database_pepper(new_pepper);
             }
         }

@@ -1,28 +1,58 @@
-use crate::database;
-use crate::infra::observer::notify_observers;
-use crate::infra::errors::YntraError;
 use crate::MoveSignature;
-use sha2::{Sha256, Digest};
+use crate::database;
+use crate::infra::errors::YntraError;
+use crate::infra::observer::notify_observers;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 pub const DEFAULT_BOHAG_TERMS: &str = "Allkort & Bohag 2010 / Bohag 2020 Allmänna Bestämmelser för Bohagsettlement & Bohagsflyttning (Sveriges Åkeriföretag). Ansvarighet och försäkring i enlighet med Konsumentverket & Transportavtalet.";
 
 pub fn get_regional_legal_terms(region: &str) -> &'static str {
     match region.to_uppercase().as_str() {
-        "US" => "US DOT / FMCSA Carmack Amendment (49 U.S.C. § 14706) & STB Released Value Liability Terms. Bill of Lading contract & Valuation.",
-        "UK" => "British Association of Removers (BAR) Model Terms & Conditions for Removal & Storage.",
-        "EU" => "EU Consumer Rights Directive (2011/83/EU) & CMR Convention International Carriage Terms.",
+        "US" => {
+            "US DOT / FMCSA Carmack Amendment (49 U.S.C. § 14706) & STB Released Value Liability Terms. Bill of Lading contract & Valuation."
+        }
+        "UK" => {
+            "British Association of Removers (BAR) Model Terms & Conditions for Removal & Storage."
+        }
+        "EU" => {
+            "EU Consumer Rights Directive (2011/83/EU) & CMR Convention International Carriage Terms."
+        }
         _ => DEFAULT_BOHAG_TERMS,
     }
 }
 
 async fn ensure_signature_audit_schema(conn: &database::DbConnection) -> Result<(), YntraError> {
-    let _ = conn.execute("ALTER TABLE move_signatures ADD COLUMN ip_address TEXT", ()).await;
-    let _ = conn.execute("ALTER TABLE move_signatures ADD COLUMN geolocation TEXT", ()).await;
-    let _ = conn.execute("ALTER TABLE move_signatures ADD COLUMN device_fingerprint TEXT", ()).await;
-    let _ = conn.execute("ALTER TABLE move_signatures ADD COLUMN terms_version TEXT", ()).await;
-    let _ = conn.execute("ALTER TABLE move_signatures ADD COLUMN terms_hash TEXT", ()).await;
-    let _ = conn.execute("ALTER TABLE move_signatures ADD COLUMN signature_hash TEXT", ()).await;
+    let _ = conn
+        .execute("ALTER TABLE move_signatures ADD COLUMN ip_address TEXT", ())
+        .await;
+    let _ = conn
+        .execute(
+            "ALTER TABLE move_signatures ADD COLUMN geolocation TEXT",
+            (),
+        )
+        .await;
+    let _ = conn
+        .execute(
+            "ALTER TABLE move_signatures ADD COLUMN device_fingerprint TEXT",
+            (),
+        )
+        .await;
+    let _ = conn
+        .execute(
+            "ALTER TABLE move_signatures ADD COLUMN terms_version TEXT",
+            (),
+        )
+        .await;
+    let _ = conn
+        .execute("ALTER TABLE move_signatures ADD COLUMN terms_hash TEXT", ())
+        .await;
+    let _ = conn
+        .execute(
+            "ALTER TABLE move_signatures ADD COLUMN signature_hash TEXT",
+            (),
+        )
+        .await;
     Ok(())
 }
 
@@ -96,25 +126,38 @@ pub async fn save_job_signature_with_audit_trail(
         .unwrap_or_else(|_| ("SE".to_string(),));
 
     let legal_terms_text = get_regional_legal_terms(&region_val);
-    let selected_terms_version = terms_version.unwrap_or_else(|| match region_val.to_uppercase().as_str() {
-        "US" => "US DOT FMCSA Carmack 2024".to_string(),
-        "UK" => "UK BAR Terms 2024".to_string(),
-        "EU" => "EU CMR Consumer Terms 2024".to_string(),
-        _ => "Bohag 2020".to_string(),
-    });
-    
+    let selected_terms_version =
+        terms_version.unwrap_or_else(|| match region_val.to_uppercase().as_str() {
+            "US" => "US DOT FMCSA Carmack 2024".to_string(),
+            "UK" => "UK BAR Terms 2024".to_string(),
+            "EU" => "EU CMR Consumer Terms 2024".to_string(),
+            _ => "Bohag 2020".to_string(),
+        });
+
     // Hash terms text
     let mut terms_hasher = Sha256::new();
     terms_hasher.update(format!("{}:{}", selected_terms_version, legal_terms_text).as_bytes());
     let terms_hash_bytes = terms_hasher.finalize();
-    let terms_hash: String = terms_hash_bytes.iter().map(|b| format!("{:02x}", b)).collect();
+    let terms_hash: String = terms_hash_bytes
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect();
 
     // Compute signature manifest sha256 hash
     let mut sig_hasher = Sha256::new();
     let ip_str = ip_address.as_deref().unwrap_or("0.0.0.0");
-    sig_hasher.update(format!("{}:{}:{}:{}:{}:{}", signer_name, signature_data_base64, now_ms, selected_terms_version, terms_hash, ip_str).as_bytes());
+    sig_hasher.update(
+        format!(
+            "{}:{}:{}:{}:{}:{}",
+            signer_name, signature_data_base64, now_ms, selected_terms_version, terms_hash, ip_str
+        )
+        .as_bytes(),
+    );
     let sig_hash_bytes = sig_hasher.finalize();
-    let signature_hash: String = sig_hash_bytes.iter().map(|b| format!("{:02x}", b)).collect();
+    let signature_hash: String = sig_hash_bytes
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect();
 
     conn.execute(
         "INSERT OR REPLACE INTO move_signatures (id, workspace_id, job_ticket_id, signer_name, signature_data_base64, signed_at, sync_status, ip_address, geolocation, device_fingerprint, terms_version, terms_hash, signature_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7, ?8, ?9, ?10, ?11, ?12)",
@@ -225,15 +268,51 @@ async fn ensure_bol_schema(conn: &database::DbConnection) -> Result<(), YntraErr
             carrier_dot_number TEXT
         )",
         (),
-    ).await?;
+    )
+    .await?;
 
-    let _ = conn.execute("ALTER TABLE bill_of_ladings ADD COLUMN origin_signature_hash TEXT", ()).await;
-    let _ = conn.execute("ALTER TABLE bill_of_ladings ADD COLUMN destination_signature_hash TEXT", ()).await;
-    let _ = conn.execute("ALTER TABLE bill_of_ladings ADD COLUMN signed_origin_at INTEGER", ()).await;
-    let _ = conn.execute("ALTER TABLE bill_of_ladings ADD COLUMN signed_destination_at INTEGER", ()).await;
-    let _ = conn.execute("ALTER TABLE bill_of_ladings ADD COLUMN document_tamper_hash TEXT", ()).await;
-    let _ = conn.execute("ALTER TABLE bill_of_ladings ADD COLUMN inventory_manifest_json TEXT", ()).await;
-    let _ = conn.execute("ALTER TABLE bill_of_ladings ADD COLUMN carrier_dot_number TEXT", ()).await;
+    let _ = conn
+        .execute(
+            "ALTER TABLE bill_of_ladings ADD COLUMN origin_signature_hash TEXT",
+            (),
+        )
+        .await;
+    let _ = conn
+        .execute(
+            "ALTER TABLE bill_of_ladings ADD COLUMN destination_signature_hash TEXT",
+            (),
+        )
+        .await;
+    let _ = conn
+        .execute(
+            "ALTER TABLE bill_of_ladings ADD COLUMN signed_origin_at INTEGER",
+            (),
+        )
+        .await;
+    let _ = conn
+        .execute(
+            "ALTER TABLE bill_of_ladings ADD COLUMN signed_destination_at INTEGER",
+            (),
+        )
+        .await;
+    let _ = conn
+        .execute(
+            "ALTER TABLE bill_of_ladings ADD COLUMN document_tamper_hash TEXT",
+            (),
+        )
+        .await;
+    let _ = conn
+        .execute(
+            "ALTER TABLE bill_of_ladings ADD COLUMN inventory_manifest_json TEXT",
+            (),
+        )
+        .await;
+    let _ = conn
+        .execute(
+            "ALTER TABLE bill_of_ladings ADD COLUMN carrier_dot_number TEXT",
+            (),
+        )
+        .await;
     Ok(())
 }
 
@@ -293,7 +372,9 @@ pub async fn generate_bill_of_lading(
         .map_err(|_| YntraError::NotFoundError("Job ticket not found".to_string()))?;
 
     if auth.workspace_id != ws_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let settings_str: String = conn
@@ -305,24 +386,44 @@ pub async fn generate_bill_of_lading(
         .await
         .unwrap_or_else(|_| "{}".to_string());
     let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
-    let carrier_dot = settings_json.get("usdot_number").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let carrier_dot = settings_json
+        .get("usdot_number")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
-    let origin_address = orig_opt.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| loc_addr.clone());
-    let destination_address = dest_opt.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| loc_addr.clone());
+    let origin_address = orig_opt
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| loc_addr.clone());
+    let destination_address = dest_opt
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| loc_addr.clone());
 
     let val_opt = valuation_option.to_lowercase();
     let (val_code, val_premium) = if val_opt == "full_value_protection" || val_opt == "full" {
-        ("full_value_protection".to_string(), (declared_value * 0.01).max(50.0))
+        (
+            "full_value_protection".to_string(),
+            (declared_value * 0.01).max(50.0),
+        )
     } else {
         ("released_value_060".to_string(), 0.0)
     };
 
-    let est_weight_lbs = match crate::services::jobs::moves::get_move_inventory_summary(requester_user_id.clone(), job_id.clone()).await {
+    let est_weight_lbs = match crate::services::jobs::moves::get_move_inventory_summary(
+        requester_user_id.clone(),
+        job_id.clone(),
+    )
+    .await
+    {
         Ok(summary) if summary.total_weight_lbs > 0.0 => summary.total_weight_lbs,
         _ => 0.0,
     };
 
-    let manifest_json = match crate::services::jobs::moves::get_inventory_scan_manifest(requester_user_id.clone(), job_id.clone()).await {
+    let manifest_json = match crate::services::jobs::moves::get_inventory_scan_manifest(
+        requester_user_id.clone(),
+        job_id.clone(),
+    )
+    .await
+    {
         Ok(m) => serde_json::to_string(&m).unwrap_or_else(|_| "{}".to_string()),
         Err(_) => "{}".to_string(),
     };
@@ -358,7 +459,8 @@ pub async fn generate_bill_of_lading(
     conn.execute(
         "DELETE FROM bill_of_ladings WHERE job_ticket_id = ?1",
         crate::params![&job_id],
-    ).await?;
+    )
+    .await?;
 
     conn.execute(
         "INSERT INTO bill_of_ladings (bol_number, workspace_id, job_ticket_id, carrier_name, shipper_name, origin_address, destination_address, valuation_option, valuation_declared_amount, valuation_deductible, valuation_premium, total_estimated_weight_lbs, legal_terms, customer_signature_hash, created_at, origin_signature_hash, destination_signature_hash, signed_origin_at, signed_destination_at, document_tamper_hash, inventory_manifest_json, carrier_dot_number) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
@@ -393,7 +495,8 @@ pub async fn generate_bill_of_lading(
         requester_user_id,
         None,
         format!("bol_generated_{}", bol_num),
-    ).await;
+    )
+    .await;
 
     notify_observers();
 
@@ -435,11 +538,14 @@ pub async fn sign_bill_of_lading_phase(
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     ensure_bol_schema(&conn).await?;
 
-    let existing = get_bill_of_lading(job_id.clone()).await?
-        .ok_or_else(|| YntraError::NotFoundError("Bill of lading does not exist yet".to_string()))?;
+    let existing = get_bill_of_lading(job_id.clone()).await?.ok_or_else(|| {
+        YntraError::NotFoundError("Bill of lading does not exist yet".to_string())
+    })?;
 
     if auth.workspace_id != existing.workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -452,13 +558,22 @@ pub async fn sign_bill_of_lading_phase(
         None,
         Some("YntraPlatform/PhaseSigner".to_string()),
         Some(existing.legal_terms.clone()),
-    ).await?;
+    )
+    .await?;
 
-    let sig = get_job_signature(requester_user_id.clone(), job_id.clone()).await?
-        .ok_or_else(|| YntraError::ValidationError("Failed to retrieve signature after save".to_string()))?;
+    let sig = get_job_signature(requester_user_id.clone(), job_id.clone())
+        .await?
+        .ok_or_else(|| {
+            YntraError::ValidationError("Failed to retrieve signature after save".to_string())
+        })?;
 
     let is_dest = phase.to_lowercase().contains("dest") || phase.to_lowercase().contains("deliver");
-    let (origin_sig, origin_at, dest_sig, dest_at): (Option<String>, Option<i64>, Option<String>, Option<i64>) = if is_dest {
+    let (origin_sig, origin_at, dest_sig, dest_at): (
+        Option<String>,
+        Option<i64>,
+        Option<String>,
+        Option<i64>,
+    ) = if is_dest {
         (
             existing.origin_signature_hash.clone(),
             existing.signed_origin_at,
@@ -513,11 +628,14 @@ pub async fn sign_bill_of_lading_phase(
         requester_user_id,
         None,
         format!("bol_signed_phase_{}", phase),
-    ).await;
+    )
+    .await;
 
     notify_observers();
 
-    get_bill_of_lading(job_id).await?.ok_or_else(|| YntraError::NotFoundError("Failed to reload BOL".to_string()))
+    get_bill_of_lading(job_id)
+        .await?
+        .ok_or_else(|| YntraError::NotFoundError("Failed to reload BOL".to_string()))
 }
 
 #[uniffi::export]
@@ -528,8 +646,9 @@ pub async fn validate_bill_of_lading_fmcsa_compliance(
     let conn = database::acquire_connection().await?;
     let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    let bol = get_bill_of_lading(job_id.clone()).await?
-        .ok_or_else(|| YntraError::NotFoundError(format!("No Bill of Lading found for job {}", job_id)))?;
+    let bol = get_bill_of_lading(job_id.clone()).await?.ok_or_else(|| {
+        YntraError::NotFoundError(format!("No Bill of Lading found for job {}", job_id))
+    })?;
 
     if bol.origin_signature_hash.is_none() {
         return Err(YntraError::ValidationError(
@@ -632,7 +751,16 @@ mod tests {
         conn.execute("INSERT OR REPLACE INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, scheduled_date, checklist_json, created_at, updated_at, sync_status) VALUES ('job-bol-1', 'ws-bol-test', 'Job BOL', 'Desc', '123 Main St', 'normal', 'scheduled', 0, 0, 1, 1, '2026-08-01', '[]', 1700000000000, 1700000000000, 'synced')", ()).await.unwrap();
 
         // 1. Released Value Protection ($0.60/lb)
-        let bol_rel = generate_bill_of_lading("u-bol-staff".to_string(), "job-bol-1".to_string(), "North American Moving Corp".to_string(), "released_value_060".to_string(), 0.0, 0.0).await.unwrap();
+        let bol_rel = generate_bill_of_lading(
+            "u-bol-staff".to_string(),
+            "job-bol-1".to_string(),
+            "North American Moving Corp".to_string(),
+            "released_value_060".to_string(),
+            0.0,
+            0.0,
+        )
+        .await
+        .unwrap();
         assert_eq!(bol_rel.valuation_option, "released_value_060");
         assert_eq!(bol_rel.valuation_premium, 0.0);
         assert!(bol_rel.legal_terms.contains("Carmack"));
@@ -651,16 +779,34 @@ mod tests {
             Some("US DOT FMCSA Carmack 2024".to_string()),
         ).await.unwrap();
 
-        let bol_full = generate_bill_of_lading("u-bol-staff".to_string(), "job-bol-1".to_string(), "North American Moving Corp".to_string(), "full_value_protection".to_string(), 25000.0, 250.0).await.unwrap();
+        let bol_full = generate_bill_of_lading(
+            "u-bol-staff".to_string(),
+            "job-bol-1".to_string(),
+            "North American Moving Corp".to_string(),
+            "full_value_protection".to_string(),
+            25000.0,
+            250.0,
+        )
+        .await
+        .unwrap();
         assert_eq!(bol_full.valuation_option, "full_value_protection");
         assert_eq!(bol_full.valuation_declared_amount, 25000.0);
         assert_eq!(bol_full.valuation_premium, 250.0); // 1% of 25000 = 250
         assert!(bol_full.customer_signature_hash.is_some());
 
         // 2.5 FMCSA Compliance check before destination sign-off fails due to missing delivery signature
-        let fmcsa_fail = validate_bill_of_lading_fmcsa_compliance("u-bol-staff".to_string(), "job-bol-1".to_string()).await;
+        let fmcsa_fail = validate_bill_of_lading_fmcsa_compliance(
+            "u-bol-staff".to_string(),
+            "job-bol-1".to_string(),
+        )
+        .await;
         assert!(fmcsa_fail.is_err());
-        assert!(fmcsa_fail.unwrap_err().to_string().contains("Destination delivery signature is missing"));
+        assert!(
+            fmcsa_fail
+                .unwrap_err()
+                .to_string()
+                .contains("Destination delivery signature is missing")
+        );
 
         // 3. Phase-2 Destination Sign-off
         let bol_dest = sign_bill_of_lading_phase(
@@ -676,21 +822,47 @@ mod tests {
         assert!(!bol_dest.document_tamper_hash.is_empty());
 
         // 3.5 FMCSA Compliance check after destination delivery sign-off succeeds
-        let fmcsa_pass = validate_bill_of_lading_fmcsa_compliance("u-bol-staff".to_string(), "job-bol-1".to_string()).await;
+        let fmcsa_pass = validate_bill_of_lading_fmcsa_compliance(
+            "u-bol-staff".to_string(),
+            "job-bol-1".to_string(),
+        )
+        .await;
         assert!(fmcsa_pass.is_ok());
         assert!(fmcsa_pass.unwrap());
 
         // 4. Fetch BOL
-        let fetched = get_bill_of_lading("job-bol-1".to_string()).await.unwrap().unwrap();
+        let fetched = get_bill_of_lading("job-bol-1".to_string())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(fetched.valuation_option, "full_value_protection");
         assert!(fetched.customer_signature_hash.is_some());
         assert!(fetched.destination_signature_hash.is_some());
         assert_eq!(fetched.document_tamper_hash, bol_dest.document_tamper_hash);
 
-        conn.execute("DELETE FROM move_signatures WHERE workspace_id = 'ws-bol-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM bill_of_ladings WHERE workspace_id = 'ws-bol-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-bol-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-bol-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-bol-test'", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM move_signatures WHERE workspace_id = 'ws-bol-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM bill_of_ladings WHERE workspace_id = 'ws-bol-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM job_tickets WHERE workspace_id = 'ws-bol-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-bol-test'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-bol-test'", ())
+            .await
+            .unwrap();
     }
 }

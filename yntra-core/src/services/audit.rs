@@ -1,7 +1,7 @@
 use crate::database;
 use crate::{AuditLogEntry, YntraError};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex};
 use uuid::Uuid;
 
 static AUDIT_STORES: LazyLock<Mutex<HashMap<String, Arc<crate::ZeroCopyAuditStore>>>> =
@@ -25,7 +25,10 @@ fn get_audit_store_path(workspace_id: &str) -> String {
     }
     #[cfg(not(test))]
     {
-        crate::database::native::get_database_path(&format!("yntra_zero_copy_audit_{}.db", workspace_id))
+        crate::database::native::get_database_path(&format!(
+            "yntra_zero_copy_audit_{}.db",
+            workspace_id
+        ))
     }
 }
 
@@ -35,7 +38,10 @@ pub(crate) fn get_audit_store(workspace_id: &str) -> Arc<crate::ZeroCopyAuditSto
         .entry(workspace_id.to_string())
         .or_insert_with(|| {
             let path = get_audit_store_path(workspace_id);
-            Arc::new(crate::ZeroCopyAuditStore::new(path).expect("Failed to initialize ZeroCopyAuditStore for Audit Logs"))
+            Arc::new(
+                crate::ZeroCopyAuditStore::new(path)
+                    .expect("Failed to initialize ZeroCopyAuditStore for Audit Logs"),
+            )
         })
         .clone()
 }
@@ -369,7 +375,9 @@ pub async fn export_audit_logs_csv(
 ) -> Result<String, YntraError> {
     let logs = get_audit_logs(requester_user_id.clone()).await?;
 
-    let mut csv = String::from("id,workspace_id,actor_id,target_client_id,action_type,timestamp,prev_hash,curr_hash,seq,signature\n");
+    let mut csv = String::from(
+        "id,workspace_id,actor_id,target_client_id,action_type,timestamp,prev_hash,curr_hash,seq,signature\n",
+    );
 
     for entry in logs {
         if let Some(st) = start_time {
@@ -383,7 +391,12 @@ pub async fn export_audit_logs_csv(
             }
         }
         if let Some(ref filter) = action_filter {
-            if !filter.trim().is_empty() && !entry.action_type.to_lowercase().contains(&filter.to_lowercase()) {
+            if !filter.trim().is_empty()
+                && !entry
+                    .action_type
+                    .to_lowercase()
+                    .contains(&filter.to_lowercase())
+            {
                 continue;
             }
         }
@@ -417,26 +430,36 @@ pub async fn export_audit_logs_json(
     action_filter: Option<String>,
 ) -> Result<String, YntraError> {
     let logs = get_audit_logs(requester_user_id.clone()).await?;
-    let chain_valid = verify_audit_log_chain(requester_user_id.clone()).await.unwrap_or(false);
+    let chain_valid = verify_audit_log_chain(requester_user_id.clone())
+        .await
+        .unwrap_or(false);
 
-    let filtered: Vec<AuditLogEntry> = logs.into_iter().filter(|entry| {
-        if let Some(st) = start_time {
-            if entry.timestamp < st {
-                return false;
+    let filtered: Vec<AuditLogEntry> = logs
+        .into_iter()
+        .filter(|entry| {
+            if let Some(st) = start_time {
+                if entry.timestamp < st {
+                    return false;
+                }
             }
-        }
-        if let Some(et) = end_time {
-            if entry.timestamp > et {
-                return false;
+            if let Some(et) = end_time {
+                if entry.timestamp > et {
+                    return false;
+                }
             }
-        }
-        if let Some(ref filter) = action_filter {
-            if !filter.trim().is_empty() && !entry.action_type.to_lowercase().contains(&filter.to_lowercase()) {
-                return false;
+            if let Some(ref filter) = action_filter {
+                if !filter.trim().is_empty()
+                    && !entry
+                        .action_type
+                        .to_lowercase()
+                        .contains(&filter.to_lowercase())
+                {
+                    return false;
+                }
             }
-        }
-        true
-    }).collect();
+            true
+        })
+        .collect();
 
     let export_payload = serde_json::json!({
         "export_metadata": {
@@ -451,7 +474,6 @@ pub async fn export_audit_logs_json(
     serde_json::to_string_pretty(&export_payload)
         .map_err(|e| YntraError::DbError(format!("Failed to format audit JSON export: {}", e)))
 }
-
 
 #[uniffi::export]
 pub async fn verify_audit_log_chain(requester_user_id: String) -> Result<bool, YntraError> {
@@ -609,8 +631,15 @@ mod tests {
         assert!(res.unwrap());
 
         // Clean up
-        conn.execute("DELETE FROM users WHERE id = 'u-verify-admin'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'workspace-test-verify'", ()).await.unwrap();
+        conn.execute("DELETE FROM users WHERE id = 'u-verify-admin'", ())
+            .await
+            .unwrap();
+        conn.execute(
+            "DELETE FROM workspaces WHERE id = 'workspace-test-verify'",
+            (),
+        )
+        .await
+        .unwrap();
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -664,7 +693,9 @@ mod tests {
         assert!(entry.signature.is_some());
 
         // Verify the entire chain is valid
-        let chain_ok = verify_audit_log_chain("test-actor-1".to_string()).await.unwrap();
+        let chain_ok = verify_audit_log_chain("test-actor-1".to_string())
+            .await
+            .unwrap();
         assert!(chain_ok);
 
         // Clean up

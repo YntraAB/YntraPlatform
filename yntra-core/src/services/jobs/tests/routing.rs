@@ -1,6 +1,8 @@
 use crate::database;
-use crate::services::jobs::{create_job_ticket, get_directions_url, optimize_job_route, get_job_tickets, update_route_stops};
 use crate::services::jobs::routing::{geocode, mock_geocode};
+use crate::services::jobs::{
+    create_job_ticket, get_directions_url, get_job_tickets, optimize_job_route, update_route_stops,
+};
 
 #[tokio::test]
 async fn test_gps_routing_urls() {
@@ -35,8 +37,13 @@ async fn test_gps_routing_urls() {
     .unwrap();
 
     // Verify routing URL with both origin and destination
-    let url1 = get_directions_url("u-gps-staff".to_string(), job1.id.clone()).await.unwrap();
-    assert_eq!(url1, "https://www.google.com/maps/dir/?api=1&origin=Origin%20St%201&destination=Dest%20St%205&travelmode=truck&dirflg=t");
+    let url1 = get_directions_url("u-gps-staff".to_string(), job1.id.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        url1,
+        "https://www.google.com/maps/dir/?api=1&origin=Origin%20St%201&destination=Dest%20St%205&travelmode=truck&dirflg=t"
+    );
 
     // 2. Create job ticket with destination only (relying on fallback to location_address)
     let job2 = create_job_ticket(
@@ -61,13 +68,27 @@ async fn test_gps_routing_urls() {
     .await
     .unwrap();
 
-    let url2 = get_directions_url("u-gps-staff".to_string(), job2.id.clone()).await.unwrap();
-    assert_eq!(url2, "https://www.google.com/maps/dir/?api=1&destination=Location%20St%2020&travelmode=truck&dirflg=t");
+    let url2 = get_directions_url("u-gps-staff".to_string(), job2.id.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        url2,
+        "https://www.google.com/maps/dir/?api=1&destination=Location%20St%2020&travelmode=truck&dirflg=t"
+    );
 
     // Cleanup
-    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-gps-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-gps-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM workspaces WHERE id = 'ws-gps-test'", ()).await.unwrap();
+    conn.execute(
+        "DELETE FROM job_tickets WHERE workspace_id = 'ws-gps-test'",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-gps-test'", ())
+        .await
+        .unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-gps-test'", ())
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -80,7 +101,8 @@ async fn test_country_aware_geocoding_fallbacks() {
         "company_country": "US",
         "geocoder_provider": "nominatim",
         "geocoder_url": "http://invalid.local",
-    }).to_string();
+    })
+    .to_string();
     conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-geo-us', 'US WS', '[\"moving_company\"]', ?1)", crate::params![&settings_us]).await.unwrap();
 
     let coords_us = geocode("ws-geo-us", "123 Main St").await;
@@ -92,7 +114,8 @@ async fn test_country_aware_geocoding_fallbacks() {
         "company_country": "DE",
         "geocoder_provider": "nominatim",
         "geocoder_url": "http://invalid.local",
-    }).to_string();
+    })
+    .to_string();
     conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-geo-de', 'DE WS', '[\"moving_company\"]', ?1)", crate::params![&settings_de]).await.unwrap();
 
     let coords_de = geocode("ws-geo-de", "123 Main St").await;
@@ -100,7 +123,12 @@ async fn test_country_aware_geocoding_fallbacks() {
     assert!((coords_de.0 - 52.5200).abs() < 0.5);
 
     // Cleanup
-    conn.execute("DELETE FROM workspaces WHERE id IN ('ws-geo-us', 'ws-geo-de')", ()).await.unwrap();
+    conn.execute(
+        "DELETE FROM workspaces WHERE id IN ('ws-geo-us', 'ws-geo-de')",
+        (),
+    )
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
@@ -139,10 +167,7 @@ async fn test_multi_stop_route_optimization() {
     assert_eq!(job.route_stops_json, Some("[]".to_string()));
 
     // 3. Update route stops
-    let stops = vec![
-        "Recycling Center".to_string(),
-        "Pickup A".to_string(),
-    ];
+    let stops = vec!["Recycling Center".to_string(), "Pickup A".to_string()];
     update_route_stops("u-route-staff".to_string(), job.id.clone(), stops.clone())
         .await
         .unwrap();
@@ -159,18 +184,19 @@ async fn test_multi_stop_route_optimization() {
     let optimized = optimize_job_route("u-route-staff".to_string(), job.id.clone())
         .await
         .unwrap();
-    
+
     assert_eq!(optimized.len(), 2);
     let tickets2 = get_job_tickets("u-route-staff".to_string()).await.unwrap();
     let reloaded2 = tickets2.iter().find(|t| t.id == job.id).unwrap();
-    let reloaded_stops: Vec<String> = serde_json::from_str(reloaded2.route_stops_json.as_deref().unwrap()).unwrap();
+    let reloaded_stops: Vec<String> =
+        serde_json::from_str(reloaded2.route_stops_json.as_deref().unwrap()).unwrap();
     assert_eq!(reloaded_stops, optimized);
 
     // 5. Directions URL verification
     let directions_url = get_directions_url("u-route-staff".to_string(), job.id.clone())
         .await
         .unwrap();
-    
+
     assert!(directions_url.contains("origin=Warehouse"));
     assert!(directions_url.contains("destination=Drop-off%20B"));
     assert!(directions_url.contains("waypoints="));
@@ -178,9 +204,18 @@ async fn test_multi_stop_route_optimization() {
     assert!(directions_url.contains("Pickup%20A"));
 
     // Cleanup
-    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-route-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-route-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM workspaces WHERE id = 'ws-route-test'", ()).await.unwrap();
+    conn.execute(
+        "DELETE FROM job_tickets WHERE workspace_id = 'ws-route-test'",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-route-test'", ())
+        .await
+        .unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-route-test'", ())
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -197,7 +232,7 @@ async fn test_real_time_geocoding_with_fallback() {
     // Test that fallback works for a random address string
     let _mock_coords = mock_geocode("Random non-existent address 12345");
     let coords_fallback = geocode("ws-route-test", "Random non-existent address 12345").await;
-    
+
     // It should either resolve to actual coords or fall back to mock coords
     assert!(coords_fallback.0 != 0.0);
 }
@@ -219,7 +254,9 @@ async fn test_geocoding_provider_selection() {
     assert!(coords.0 != 0.0);
     assert!(coords.1 != 0.0);
 
-    conn.execute("DELETE FROM workspaces WHERE id = 'ws-geo-test'", ()).await.unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-geo-test'", ())
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -227,7 +264,9 @@ async fn test_commercial_truck_routing_and_restrictions() {
     let _lock = database::DB_TEST_LOCK.lock().unwrap();
     let conn = database::acquire_connection().await.unwrap();
 
-    use crate::services::jobs::{get_commercial_truck_directions_url, verify_commercial_route_restrictions};
+    use crate::services::jobs::{
+        get_commercial_truck_directions_url, verify_commercial_route_restrictions,
+    };
 
     conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-truck-test', 'Truck Test WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
     conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-truck-staff', 'ws-truck-test', 'staff@truck.io', 'admin')", ()).await.unwrap();
@@ -244,8 +283,15 @@ async fn test_commercial_truck_routing_and_restrictions() {
         "[]".to_string(),
         Some("Kungsgatan 2, Stockholm".to_string()),
         Some("Vasagatan 10, Stockholm".to_string()),
-        0, 0, true, true, true, true,
-    ).await.unwrap();
+        0,
+        0,
+        true,
+        true,
+        true,
+        true,
+    )
+    .await
+    .unwrap();
 
     // 1. Verify commercial heavy truck directions URL
     let truck_url = get_commercial_truck_directions_url(
@@ -254,7 +300,9 @@ async fn test_commercial_truck_routing_and_restrictions() {
         Some(4.1),
         Some(18.0),
         Some("google_truck".to_string()),
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
     assert!(truck_url.contains("travelmode=truck"));
     assert!(truck_url.contains("dirflg=t"));
@@ -265,10 +313,12 @@ async fn test_commercial_truck_routing_and_restrictions() {
     let restrictions = verify_commercial_route_restrictions(
         "u-truck-staff".to_string(),
         job.id.clone(),
-        4.1,   // 4.1m height (> 3.8m limit) -> low bridge warning
-        18.0,  // 18.0t weight (> 3.5t limit) -> weight limit warning
+        4.1,                         // 4.1m height (> 3.8m limit) -> low bridge warning
+        18.0,                        // 18.0t weight (> 3.5t limit) -> weight limit warning
         "Euro 4 Diesel".to_string(), // Euro 4 Diesel in Stockholm -> environmental zone warning
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
     assert!(restrictions.low_bridge_warning);
     assert!(restrictions.environmental_zone_warning);
@@ -276,7 +326,16 @@ async fn test_commercial_truck_routing_and_restrictions() {
     assert!(restrictions.parking_permit_required);
     assert!(restrictions.restriction_details.len() >= 4);
 
-    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-truck-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-truck-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM workspaces WHERE id = 'ws-truck-test'", ()).await.unwrap();
+    conn.execute(
+        "DELETE FROM job_tickets WHERE workspace_id = 'ws-truck-test'",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-truck-test'", ())
+        .await
+        .unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-truck-test'", ())
+        .await
+        .unwrap();
 }

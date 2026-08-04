@@ -188,4 +188,3 @@ pub struct WorkspaceRolePermission {
     pub permissions_json: String,
     pub is_custom: bool,
 }
-

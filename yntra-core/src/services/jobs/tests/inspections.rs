@@ -26,8 +26,15 @@ async fn test_damage_inspection_workflow() {
         "[]".to_string(),
         Some("Kungsgatan 1".to_string()),
         Some("Sveavägen 50".to_string()),
-        0, 0, false, false, false, false,
-    ).await.unwrap();
+        0,
+        0,
+        false,
+        false,
+        false,
+        false,
+    )
+    .await
+    .unwrap();
 
     // 3. Record pre-existing damage prior to loading
     let inspection = record_damage_inspection(
@@ -39,7 +46,9 @@ async fn test_damage_inspection_workflow() {
         "severe".to_string(),
         Some("Deep 15cm scratch on top surface near left corner prior to loading.".to_string()),
         Some("https://storage.yntra.se/inspections/table_scratch_001.jpg".to_string()),
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
     assert_eq!(inspection.item_name, "Antique Oak Dining Table");
     assert_eq!(inspection.damage_type, "scratch");
@@ -47,7 +56,9 @@ async fn test_damage_inspection_workflow() {
     assert!(!inspection.client_acknowledged);
 
     // 4. Fetch job inspections list
-    let list = get_job_damage_inspections("u-dmg-crew".to_string(), job.id.clone()).await.unwrap();
+    let list = get_job_damage_inspections("u-dmg-crew".to_string(), job.id.clone())
+        .await
+        .unwrap();
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].id, inspection.id);
 
@@ -56,20 +67,40 @@ async fn test_damage_inspection_workflow() {
         "u-dmg-crew".to_string(),
         inspection.id.clone(),
         Some("<svg>signature_data</svg>".to_string()),
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
-    let list_after_ack = get_job_damage_inspections("u-dmg-crew".to_string(), job.id.clone()).await.unwrap();
+    let list_after_ack = get_job_damage_inspections("u-dmg-crew".to_string(), job.id.clone())
+        .await
+        .unwrap();
     assert!(list_after_ack[0].client_acknowledged);
-    assert_eq!(list_after_ack[0].client_signature_svg.as_deref(), Some("<svg>signature_data</svg>"));
+    assert_eq!(
+        list_after_ack[0].client_signature_svg.as_deref(),
+        Some("<svg>signature_data</svg>")
+    );
 
     // 6. Delete inspection record
-    delete_damage_inspection("u-dmg-crew".to_string(), inspection.id.clone()).await.unwrap();
+    delete_damage_inspection("u-dmg-crew".to_string(), inspection.id.clone())
+        .await
+        .unwrap();
 
-    let list_empty = get_job_damage_inspections("u-dmg-crew".to_string(), job.id.clone()).await.unwrap();
+    let list_empty = get_job_damage_inspections("u-dmg-crew".to_string(), job.id.clone())
+        .await
+        .unwrap();
     assert_eq!(list_empty.len(), 0);
 
     // Cleanup
-    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-dmg-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-dmg-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM workspaces WHERE id = 'ws-dmg-test'", ()).await.unwrap();
+    conn.execute(
+        "DELETE FROM job_tickets WHERE workspace_id = 'ws-dmg-test'",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-dmg-test'", ())
+        .await
+        .unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-dmg-test'", ())
+        .await
+        .unwrap();
 }

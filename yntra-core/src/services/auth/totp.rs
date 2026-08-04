@@ -80,7 +80,8 @@ fn verify_totp(secret: String, code: &str, timestamp: u64) -> bool {
         let min_valid_step = current_step.saturating_sub(1);
 
         let should_prune = {
-            static LAST_PRUNE_TIME: std::sync::Mutex<Option<chrono::DateTime<chrono::Utc>>> = std::sync::Mutex::new(None);
+            static LAST_PRUNE_TIME: std::sync::Mutex<Option<chrono::DateTime<chrono::Utc>>> =
+                std::sync::Mutex::new(None);
             let mut last_prune = LAST_PRUNE_TIME.lock().unwrap_or_else(|e| e.into_inner());
             match *last_prune {
                 None => {
@@ -199,7 +200,7 @@ mod tests {
         let _lock = TOTP_TEST_LOCK.lock().unwrap();
         let secret1 = generate_totp_secret();
         let secret2 = generate_totp_secret();
-        
+
         let secret_bytes1 = Secret::Encoded(secret1.clone()).to_bytes().unwrap();
         let totp1 = TOTP::new(Algorithm::SHA1, 6, 1, 30, secret_bytes1).unwrap();
 

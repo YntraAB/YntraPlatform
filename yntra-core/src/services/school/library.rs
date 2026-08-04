@@ -1,7 +1,9 @@
 use crate::database;
 use crate::infra::errors::YntraError;
 use crate::infra::observer::notify_observers;
-use crate::services::school::auth::{verify_school_write_zkp, verify_school_permission, verify_student_access};
+use crate::services::school::auth::{
+    verify_school_permission, verify_school_write_zkp, verify_student_access,
+};
 use crate::{LibraryBook, LibraryLendingLogInfo};
 use uuid::Uuid;
 
@@ -13,7 +15,9 @@ pub async fn get_library_books(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let mut stmt = conn
@@ -47,7 +51,9 @@ pub async fn save_library_book(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != book.workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
@@ -84,7 +90,9 @@ pub async fn checkout_book(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
@@ -101,7 +109,9 @@ pub async fn checkout_book(
     if let Some((available, _total)) = book_opt {
         if available <= 0 {
             let _ = conn.rollback().await;
-            return Err(YntraError::ValidationError("No copies available for checkout".to_string()));
+            return Err(YntraError::ValidationError(
+                "No copies available for checkout".to_string(),
+            ));
         }
 
         let now_ms = crate::infra::time::get_current_time_ms();
@@ -145,7 +155,9 @@ pub async fn return_book(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
@@ -153,23 +165,31 @@ pub async fn return_book(
 
     conn.begin_transaction().await?;
 
-    let log_opt: Option<(String, String)> = conn.query_row(
-        "SELECT book_id, status FROM library_lending_logs WHERE id = ?1 AND workspace_id = ?2",
-        crate::params![&lending_log_id, &workspace_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
-    ).await.ok();
+    let log_opt: Option<(String, String)> = conn
+        .query_row(
+            "SELECT book_id, status FROM library_lending_logs WHERE id = ?1 AND workspace_id = ?2",
+            crate::params![&lending_log_id, &workspace_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .await
+        .ok();
 
     if let Some((book_id, status)) = log_opt {
         if status == "returned" {
             let _ = conn.rollback().await;
-            return Err(YntraError::ValidationError("Book already returned".to_string()));
+            return Err(YntraError::ValidationError(
+                "Book already returned".to_string(),
+            ));
         }
 
-        let available: i64 = conn.query_row(
-            "SELECT copies_available FROM library_books WHERE id = ?1",
-            crate::params![&book_id],
-            |r| r.get(0)
-        ).await.unwrap_or(0);
+        let available: i64 = conn
+            .query_row(
+                "SELECT copies_available FROM library_books WHERE id = ?1",
+                crate::params![&book_id],
+                |r| r.get(0),
+            )
+            .await
+            .unwrap_or(0);
 
         let now_ms = crate::infra::time::get_current_time_ms();
         let now_str = crate::infra::time::get_current_datetime_str();
@@ -189,7 +209,9 @@ pub async fn return_book(
         Ok(())
     } else {
         let _ = conn.rollback().await;
-        Err(YntraError::NotFoundError("Lending log not found".to_string()))
+        Err(YntraError::NotFoundError(
+            "Lending log not found".to_string(),
+        ))
     }
 }
 
@@ -203,7 +225,9 @@ pub async fn renew_book(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
@@ -216,13 +240,17 @@ pub async fn renew_book(
 
     if let Some((student_id, status)) = log_opt {
         if status != "borrowed" {
-            return Err(YntraError::ValidationError("Book is not currently borrowed".to_string()));
+            return Err(YntraError::ValidationError(
+                "Book is not currently borrowed".to_string(),
+            ));
         }
 
         verify_student_access(&conn, &auth, &student_id).await?;
 
         let now_ms = crate::infra::time::get_current_time_ms();
-        let new_due_date = (chrono::Local::now() + chrono::Duration::days(14)).format("%Y-%m-%d").to_string();
+        let new_due_date = (chrono::Local::now() + chrono::Duration::days(14))
+            .format("%Y-%m-%d")
+            .to_string();
 
         conn.execute(
             "UPDATE library_lending_logs SET due_date = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
@@ -232,7 +260,9 @@ pub async fn renew_book(
         notify_observers();
         Ok(())
     } else {
-        Err(YntraError::NotFoundError("Lending log not found".to_string()))
+        Err(YntraError::NotFoundError(
+            "Lending log not found".to_string(),
+        ))
     }
 }
 
@@ -247,7 +277,9 @@ pub async fn reserve_book(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
@@ -264,13 +296,17 @@ pub async fn reserve_book(
     if let Some((available, _total)) = book_opt {
         if available <= 0 {
             let _ = conn.rollback().await;
-            return Err(YntraError::ValidationError("No copies available for reservation".to_string()));
+            return Err(YntraError::ValidationError(
+                "No copies available for reservation".to_string(),
+            ));
         }
 
         let now_ms = crate::infra::time::get_current_time_ms();
         let log_id = Uuid::new_v4().to_string();
         let now_str = crate::infra::time::get_current_datetime_str();
-        let due_date = (chrono::Local::now() + chrono::Duration::days(14)).format("%Y-%m-%d").to_string();
+        let due_date = (chrono::Local::now() + chrono::Duration::days(14))
+            .format("%Y-%m-%d")
+            .to_string();
 
         conn.execute(
             "UPDATE library_books SET copies_available = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
@@ -307,7 +343,9 @@ pub async fn get_library_lending_logs(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let role_lower = auth.role.to_lowercase();
@@ -334,7 +372,11 @@ pub async fn get_library_lending_logs(
 
     let mut stmt = conn.prepare(query_str).await?;
 
-    let list = if role_lower == "student" || role_lower == "role-school-student" || role_lower == "parent" || role_lower == "role-school-parent" {
+    let list = if role_lower == "student"
+        || role_lower == "role-school-student"
+        || role_lower == "parent"
+        || role_lower == "role-school-parent"
+    {
         stmt.query_map(crate::params![workspace_id, &auth.user_id], |row| {
             Ok(LibraryLendingLogInfo {
                 id: row.get(0)?,
@@ -346,7 +388,8 @@ pub async fn get_library_lending_logs(
                 status: row.get(6)?,
                 student_id: row.get(7)?,
             })
-        }).await?
+        })
+        .await?
     } else {
         stmt.query_map(crate::params![workspace_id], |row| {
             Ok(LibraryLendingLogInfo {
@@ -359,7 +402,8 @@ pub async fn get_library_lending_logs(
                 status: row.get(6)?,
                 student_id: row.get(7)?,
             })
-        }).await?
+        })
+        .await?
     };
 
     Ok(list)

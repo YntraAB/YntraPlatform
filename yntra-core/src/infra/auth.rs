@@ -11,12 +11,7 @@ pub fn validate_id(id: &str, field_name: &str) -> Result<(), YntraError> {
         )));
     }
     if !id.chars().all(|c| {
-        c.is_ascii_alphanumeric()
-            || c == '-'
-            || c == '_'
-            || c == '.'
-            || c == '@'
-            || c == ':'
+        c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '@' || c == ':'
     }) {
         return Err(YntraError::ValidationError(format!(
             "{} contains invalid characters",
@@ -61,7 +56,11 @@ fn compute_is_production() -> bool {
                     }
                     for var_name in &["YNTRA_ENV=", "RUST_ENV=", "ENV=", "NODE_ENV="] {
                         if let Some(stripped) = trimmed.strip_prefix(var_name) {
-                            let val = stripped.trim().trim_matches('"').trim_matches('\'').to_lowercase();
+                            let val = stripped
+                                .trim()
+                                .trim_matches('"')
+                                .trim_matches('\'')
+                                .to_lowercase();
                             if val == "production" || val == "prod" {
                                 return true;
                             }
@@ -86,7 +85,11 @@ fn compute_is_production() -> bool {
             }
             if let Ok(location) = window.location().hostname() {
                 let host = location.to_lowercase();
-                if !host.is_empty() && host != "localhost" && host != "127.0.0.1" && host != "0.0.0.0" {
+                if !host.is_empty()
+                    && host != "localhost"
+                    && host != "127.0.0.1"
+                    && host != "0.0.0.0"
+                {
                     return true;
                 }
             }
@@ -122,8 +125,14 @@ fn compute_insecure_dev_bypass() -> bool {
         for path in &[".env", "../.env"] {
             if let Ok(content) = std::fs::read_to_string(path) {
                 for line in content.lines() {
-                    if let Some(stripped) = line.strip_prefix("YNTRA_INSECURE_DEV_BYPASS_SIGNATURES=") {
-                        let val = stripped.trim().trim_matches('"').trim_matches('\'').to_lowercase();
+                    if let Some(stripped) =
+                        line.strip_prefix("YNTRA_INSECURE_DEV_BYPASS_SIGNATURES=")
+                    {
+                        let val = stripped
+                            .trim()
+                            .trim_matches('"')
+                            .trim_matches('\'')
+                            .to_lowercase();
                         return val == "1" || val == "true";
                     }
                 }
@@ -146,10 +155,12 @@ fn check_insecure_dev_bypass() -> bool {
 }
 pub fn invalidate_auth_context_cache() {
     if let Ok(mut cache) = AUTH_CONTEXT_CACHE
-        .get_or_init(|| RwLock::new(BoundedAuthCache {
-            map: HashMap::new(),
-            order: VecDeque::new(),
-        }))
+        .get_or_init(|| {
+            RwLock::new(BoundedAuthCache {
+                map: HashMap::new(),
+                order: VecDeque::new(),
+            })
+        })
         .write()
     {
         cache.map.clear();
@@ -159,10 +170,12 @@ pub fn invalidate_auth_context_cache() {
 
 pub fn invalidate_auth_context_cache_for_user(user_id: &str) {
     if let Ok(mut cache) = AUTH_CONTEXT_CACHE
-        .get_or_init(|| RwLock::new(BoundedAuthCache {
-            map: HashMap::new(),
-            order: VecDeque::new(),
-        }))
+        .get_or_init(|| {
+            RwLock::new(BoundedAuthCache {
+                map: HashMap::new(),
+                order: VecDeque::new(),
+            })
+        })
         .write()
     {
         cache.map.remove(user_id);
@@ -171,22 +184,28 @@ pub fn invalidate_auth_context_cache_for_user(user_id: &str) {
 
 pub fn invalidate_auth_context_cache_for_workspace(workspace_id: &str) {
     if let Ok(mut cache) = AUTH_CONTEXT_CACHE
-        .get_or_init(|| RwLock::new(BoundedAuthCache {
-            map: HashMap::new(),
-            order: VecDeque::new(),
-        }))
+        .get_or_init(|| {
+            RwLock::new(BoundedAuthCache {
+                map: HashMap::new(),
+                order: VecDeque::new(),
+            })
+        })
         .write()
     {
-        cache.map.retain(|_, context| context.workspace_id != workspace_id);
+        cache
+            .map
+            .retain(|_, context| context.workspace_id != workspace_id);
     }
 }
 
 pub fn insert_auth_context_cache(user_id: &str, context: AuthContext) {
     if let Ok(mut cache) = AUTH_CONTEXT_CACHE
-        .get_or_init(|| RwLock::new(BoundedAuthCache {
-            map: HashMap::new(),
-            order: VecDeque::new(),
-        }))
+        .get_or_init(|| {
+            RwLock::new(BoundedAuthCache {
+                map: HashMap::new(),
+                order: VecDeque::new(),
+            })
+        })
         .write()
     {
         while cache.map.len() >= CACHE_LIMIT {
@@ -206,10 +225,12 @@ pub fn insert_auth_context_cache(user_id: &str, context: AuthContext) {
 
 pub fn get_auth_context_cache(user_id: &str) -> Option<AuthContext> {
     if let Ok(cache) = AUTH_CONTEXT_CACHE
-        .get_or_init(|| RwLock::new(BoundedAuthCache {
-            map: HashMap::new(),
-            order: VecDeque::new(),
-        }))
+        .get_or_init(|| {
+            RwLock::new(BoundedAuthCache {
+                map: HashMap::new(),
+                order: VecDeque::new(),
+            })
+        })
         .read()
     {
         cache.map.get(user_id).cloned()
@@ -269,10 +290,12 @@ fn extract_where_target_ids(sql: &str, table: &str) -> Option<Vec<String>> {
 
 pub fn invalidate_auth_context_cache_for_sql(sql: &str, table: &str) {
     if let Ok(mut cache_guard) = AUTH_CONTEXT_CACHE
-        .get_or_init(|| RwLock::new(BoundedAuthCache {
-            map: HashMap::new(),
-            order: VecDeque::new(),
-        }))
+        .get_or_init(|| {
+            RwLock::new(BoundedAuthCache {
+                map: HashMap::new(),
+                order: VecDeque::new(),
+            })
+        })
         .write()
     {
         let BoundedAuthCache { map, order } = &mut *cache_guard;
@@ -286,7 +309,9 @@ pub fn invalidate_auth_context_cache_for_sql(sql: &str, table: &str) {
                     order.retain(|id| !target_ids.contains(id));
                 } else if table == "workspaces" {
                     map.retain(|_, context| {
-                        !target_ids.iter().any(|ws_id| ws_id == &context.workspace_id)
+                        !target_ids
+                            .iter()
+                            .any(|ws_id| ws_id == &context.workspace_id)
                     });
                     order.retain(|id| map.contains_key(id));
                 }
@@ -320,7 +345,10 @@ fn extract_auth_epoch(settings_str: &str) -> Result<u64, YntraError> {
     }
     match serde_json::from_str::<Settings>(settings_str) {
         Ok(s) => Ok(s.auth_epoch.unwrap_or(0)),
-        Err(e) => Err(YntraError::AuthError(format!("Malformed workspace settings: {}", e))),
+        Err(e) => Err(YntraError::AuthError(format!(
+            "Malformed workspace settings: {}",
+            e
+        ))),
     }
 }
 
@@ -328,10 +356,12 @@ impl AuthContext {
     pub async fn authorize(conn: &DbConnection, user_id: &str) -> Result<Self, YntraError> {
         validate_id(user_id, "User ID")?;
         if let Ok(cache) = AUTH_CONTEXT_CACHE
-            .get_or_init(|| RwLock::new(BoundedAuthCache {
-                map: HashMap::new(),
-                order: VecDeque::new(),
-            }))
+            .get_or_init(|| {
+                RwLock::new(BoundedAuthCache {
+                    map: HashMap::new(),
+                    order: VecDeque::new(),
+                })
+            })
             .read()
         {
             if let Some(cached) = cache.map.get(user_id) {
@@ -405,7 +435,9 @@ impl AuthContext {
                         .map(|s| !s.trim().is_empty())
                         .unwrap_or(false);
                     if !bypass {
-                        tracing::warn!("Insecure Dev Bypass signature check is active: cryptographic signature verification is bypassed because creator_pk is empty.");
+                        tracing::warn!(
+                            "Insecure Dev Bypass signature check is active: cryptographic signature verification is bypassed because creator_pk is empty."
+                        );
                     }
                     bypass
                 } else {
@@ -470,14 +502,19 @@ impl AuthContext {
                         crate::infra::crypto::get_local_secret(&priv_setting).await?
                     {
                         let priv_hex = zeroize::Zeroizing::new(priv_hex_raw);
-                        let derived_pk = crate::infra::crypto::derive_public_key_from_private_key(&priv_hex)
-                            .map_err(|e| YntraError::AuthError(format!("Failed to derive public key from local private key: {:?}", e)))?;
+                        let derived_pk =
+                            crate::infra::crypto::derive_public_key_from_private_key(&priv_hex)
+                                .map_err(|e| {
+                                    YntraError::AuthError(format!(
+                                        "Failed to derive public key from local private key: {:?}",
+                                        e
+                                    ))
+                                })?;
                         if derived_pk != pk {
                             return Err(YntraError::AuthError("Workspace public key mismatch with creator private key. Local database tampering suspected.".to_string()));
                         }
                         // Cache the verified public key in the secure keyring and memory cache
-                        crate::infra::crypto::set_local_secret(&key_setting, &derived_pk)
-                            .await?;
+                        crate::infra::crypto::set_local_secret(&key_setting, &derived_pk).await?;
                         verified_pk = derived_pk;
                     } else {
                         // Trust on first use for collaborators/invited users
@@ -954,17 +991,17 @@ mod tests {
             std::env::remove_var("YNTRA_INSECURE_DEV_BYPASS_SIGNATURES");
         }
         assert!(!check_insecure_dev_bypass());
-        
+
         unsafe {
             std::env::set_var("YNTRA_INSECURE_DEV_BYPASS_SIGNATURES", "true");
         }
         assert!(check_insecure_dev_bypass());
-        
+
         unsafe {
             std::env::set_var("YNTRA_INSECURE_DEV_BYPASS_SIGNATURES", "1");
         }
         assert!(check_insecure_dev_bypass());
-        
+
         unsafe {
             std::env::set_var("YNTRA_INSECURE_DEV_BYPASS_SIGNATURES", "false");
         }
@@ -1143,31 +1180,46 @@ mod tests {
         let u2 = "user-target-2".to_string();
         let ws1 = "workspace-target-1".to_string();
 
-        insert_auth_context_cache(&u1, AuthContext {
-            user_id: u1.clone(),
-            workspace_id: ws1.clone(),
-            role: "admin".to_string(),
-            is_admin: true,
-            workspace_settings: None,
-        });
+        insert_auth_context_cache(
+            &u1,
+            AuthContext {
+                user_id: u1.clone(),
+                workspace_id: ws1.clone(),
+                role: "admin".to_string(),
+                is_admin: true,
+                workspace_settings: None,
+            },
+        );
 
-        insert_auth_context_cache(&u2, AuthContext {
-            user_id: u2.clone(),
-            workspace_id: ws1.clone(),
-            role: "user".to_string(),
-            is_admin: false,
-            workspace_settings: None,
-        });
+        insert_auth_context_cache(
+            &u2,
+            AuthContext {
+                user_id: u2.clone(),
+                workspace_id: ws1.clone(),
+                role: "user".to_string(),
+                is_admin: false,
+                workspace_settings: None,
+            },
+        );
 
         assert!(get_auth_context_cache(&u1).is_some());
         assert!(get_auth_context_cache(&u2).is_some());
 
         // Parameterized write query targeting user-target-1 specifically with literal and placeholder
-        invalidate_auth_context_cache_for_sql("UPDATE users SET name = ? WHERE id = 'user-target-1'", "users");
+        invalidate_auth_context_cache_for_sql(
+            "UPDATE users SET name = ? WHERE id = 'user-target-1'",
+            "users",
+        );
 
         // user-target-1 should be invalidated, but user-target-2 should stay cached!
-        assert!(get_auth_context_cache(&u1).is_none(), "Targeted user-target-1 should be invalidated");
-        assert!(get_auth_context_cache(&u2).is_some(), "Non-targeted user-target-2 should remain cached");
+        assert!(
+            get_auth_context_cache(&u1).is_none(),
+            "Targeted user-target-1 should be invalidated"
+        );
+        assert!(
+            get_auth_context_cache(&u2).is_some(),
+            "Non-targeted user-target-2 should remain cached"
+        );
 
         invalidate_auth_context_cache();
     }

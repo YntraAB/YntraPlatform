@@ -13,6 +13,8 @@ pub use schema::setup_schema;
 
 pub mod parser;
 pub mod sync;
+pub mod thin_sync;
+pub use thin_sync::*;
 pub mod zero_copy;
 pub use zero_copy::{
     EdgeSyncLoop, P2PMeshSyncRouter, ZeroCopyAuditStore, ZeroCopyMessageStore, ZeroCopyNoteStore,
@@ -71,7 +73,9 @@ pub fn track_write(sql: &str) {
             let has_users = contains_word_ignore_ascii_case(sql, "users");
             let has_workspaces = contains_word_ignore_ascii_case(sql, "workspaces");
             if has_users || has_workspaces {
-                tracing::warn!("SQL write parser failed to extract table name. Invalidating entire auth context cache to ensure security.");
+                tracing::warn!(
+                    "SQL write parser failed to extract table name. Invalidating entire auth context cache to ensure security."
+                );
                 crate::infra::auth::invalidate_auth_context_cache();
             }
         }
@@ -90,7 +94,9 @@ pub fn track_write_batch(sql: &str) {
                 let has_users = contains_word_ignore_ascii_case(stmt, "users");
                 let has_workspaces = contains_word_ignore_ascii_case(stmt, "workspaces");
                 if has_users || has_workspaces {
-                    tracing::warn!("SQL batch write parser failed to extract table name. Invalidating entire auth context cache to ensure security.");
+                    tracing::warn!(
+                        "SQL batch write parser failed to extract table name. Invalidating entire auth context cache to ensure security."
+                    );
                     crate::infra::auth::invalidate_auth_context_cache();
                 }
             }
@@ -150,13 +156,16 @@ mod tests {
         let _lock = DB_TEST_LOCK.lock().unwrap();
         let ws_id = "test-fallback-ws".to_string();
         let user_id = "test-fallback-user".to_string();
-        crate::infra::auth::insert_auth_context_cache(&user_id, crate::infra::auth::AuthContext {
-            user_id: user_id.clone(),
-            workspace_id: ws_id.clone(),
-            role: "admin".to_string(),
-            is_admin: true,
-            workspace_settings: None,
-        });
+        crate::infra::auth::insert_auth_context_cache(
+            &user_id,
+            crate::infra::auth::AuthContext {
+                user_id: user_id.clone(),
+                workspace_id: ws_id.clone(),
+                role: "admin".to_string(),
+                is_admin: true,
+                workspace_settings: None,
+            },
+        );
 
         // Ensure it is cached
         assert!(crate::infra::auth::get_auth_context_cache(&user_id).is_some());

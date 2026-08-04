@@ -1,10 +1,8 @@
-use crate::database;
-use crate::infra::observer::notify_observers;
-use crate::infra::errors::YntraError;
-use crate::services::jobs::tickets::is_staff;
 use crate::WorkspaceUser;
-
-
+use crate::database;
+use crate::infra::errors::YntraError;
+use crate::infra::observer::notify_observers;
+use crate::services::jobs::tickets::is_staff;
 
 #[uniffi::export]
 pub async fn validate_vehicle_dispatch_capacity(
@@ -80,16 +78,26 @@ pub async fn validate_vehicle_dispatch_capacity(
     }
 
     if let Some(payload) = max_payload_kg {
-        let crew_size = settings_json.get("moving_default_crew_size").and_then(|v| v.as_f64()).unwrap_or(2.0);
+        let crew_size = settings_json
+            .get("moving_default_crew_size")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(2.0);
         let crew_weight_kg = crew_size * 85.0;
-        let equipment_and_fuel_buffer_kg = settings_json.get("vehicle_tare_equipment_buffer_kg").and_then(|v| v.as_f64()).unwrap_or(300.0);
+        let equipment_and_fuel_buffer_kg = settings_json
+            .get("vehicle_tare_equipment_buffer_kg")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(300.0);
         let operational_tare_buffer = crew_weight_kg + equipment_and_fuel_buffer_kg;
         let total_operational_payload = total_weight + operational_tare_buffer;
 
         if payload > 0.0 && total_operational_payload > payload {
             return Err(YntraError::ValidationError(format!(
                 "Cannot dispatch vehicle {}: total operational payload ({:.1} kg cargo + {:.1} kg crew/equipment/fuel = {:.1} kg) exceeds vehicle max payload limit ({:.1} kg)",
-                vehicle_name, total_weight, operational_tare_buffer, total_operational_payload, payload
+                vehicle_name,
+                total_weight,
+                operational_tare_buffer,
+                total_operational_payload,
+                payload
             )));
         }
     }
@@ -130,7 +138,8 @@ pub async fn assign_vehicle_to_job(
 
     if let Some(ref vehicle_id) = assigned_vehicle_id {
         drop(conn);
-        validate_vehicle_dispatch_capacity(requester_user_id, job_id.clone(), vehicle_id.clone()).await?;
+        validate_vehicle_dispatch_capacity(requester_user_id, job_id.clone(), vehicle_id.clone())
+            .await?;
         let conn = database::acquire_connection().await?;
         conn.execute(
             "UPDATE job_tickets SET assigned_vehicle_id = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
@@ -198,16 +207,20 @@ pub async fn add_crew_member(
 
     // Validate driver license class (C/CE vs B) and EU Tachograph compliance if role is driver
     let role_lower = role.to_lowercase();
-    if role_lower.contains("driver") || role_lower.contains("förare") || role_lower.contains("forare") {
+    if role_lower.contains("driver")
+        || role_lower.contains("förare")
+        || role_lower.contains("forare")
+    {
         let compliance = validate_driver_tachograph_compliance(
             requester_user_id.clone(),
             user_id.clone(),
             job_id.clone(),
-        ).await?;
+        )
+        .await?;
 
         if !compliance.is_compliant {
             return Err(YntraError::ValidationError(
-                compliance.compliance_warnings.join(" ")
+                compliance.compliance_warnings.join(" "),
             ));
         }
     }
@@ -215,7 +228,8 @@ pub async fn add_crew_member(
     conn.execute(
         "INSERT OR REPLACE INTO job_crew (job_ticket_id, user_id, role) VALUES (?1, ?2, ?3)",
         crate::params![job_id, user_id, role],
-    ).await?;
+    )
+    .await?;
 
     let quote_exists: bool = conn
         .query_row(
@@ -224,11 +238,14 @@ pub async fn add_crew_member(
             |r| r.get::<i64>(0),
         )
         .await
-        .unwrap_or(0) > 0;
+        .unwrap_or(0)
+        > 0;
 
     if quote_exists {
         drop(conn);
-        let _ = crate::services::jobs::moves::calculate_and_save_move_quote(requester_user_id, job_id).await;
+        let _ =
+            crate::services::jobs::moves::calculate_and_save_move_quote(requester_user_id, job_id)
+                .await;
     }
 
     notify_observers();
@@ -268,7 +285,8 @@ pub async fn remove_crew_member(
     conn.execute(
         "DELETE FROM job_crew WHERE job_ticket_id = ?1 AND user_id = ?2",
         crate::params![job_id, user_id],
-    ).await?;
+    )
+    .await?;
 
     let quote_exists: bool = conn
         .query_row(
@@ -277,11 +295,14 @@ pub async fn remove_crew_member(
             |r| r.get::<i64>(0),
         )
         .await
-        .unwrap_or(0) > 0;
+        .unwrap_or(0)
+        > 0;
 
     if quote_exists {
         drop(conn);
-        let _ = crate::services::jobs::moves::calculate_and_save_move_quote(requester_user_id, job_id).await;
+        let _ =
+            crate::services::jobs::moves::calculate_and_save_move_quote(requester_user_id, job_id)
+                .await;
     }
 
     notify_observers();
@@ -406,7 +427,9 @@ pub async fn validate_driver_tachograph_compliance(
         .map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
 
     if auth.workspace_id != job_ws {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let user_meta_str: Option<String> = conn
@@ -421,7 +444,11 @@ pub async fn validate_driver_tachograph_compliance(
     let user_license = user_meta_str
         .as_deref()
         .and_then(|m| serde_json::from_str::<serde_json::Value>(m).ok())
-        .and_then(|v| v.get("driver_license_class").and_then(|l| l.as_str()).map(|s| s.to_string()))
+        .and_then(|v| {
+            v.get("driver_license_class")
+                .and_then(|l| l.as_str())
+                .map(|s| s.to_string())
+        })
         .unwrap_or_else(|| "B".to_string());
 
     let (vehicle_capacity, vehicle_name) = if let Some(ref v_id) = assigned_vehicle_id {
@@ -510,7 +537,9 @@ pub async fn get_recommended_crew_dispatch_equipment(
         .map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
 
     if auth.workspace_id != job_ws {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let mut inv_stmt = conn.prepare(
@@ -518,7 +547,10 @@ pub async fn get_recommended_crew_dispatch_equipment(
     ).await?;
     let mut inv_rows = inv_stmt.query(crate::params![&job_id]).await?;
 
-    let mut equipment = vec!["Standard Moving Blankets (x20)".to_string(), "Cargo Tie-Down Straps (x6)".to_string()];
+    let mut equipment = vec![
+        "Standard Moving Blankets (x20)".to_string(),
+        "Cargo Tie-Down Straps (x6)".to_string(),
+    ];
     let mut total_weight = 0.0;
     let mut has_piano = false;
     let mut has_safe = false;
@@ -536,16 +568,29 @@ pub async fn get_recommended_crew_dispatch_equipment(
         if combined.contains("piano") || combined.contains("flygel") {
             has_piano = true;
         }
-        if combined.contains("kassaskåp") || combined.contains("safe") || combined.contains("vault") {
+        if combined.contains("kassaskåp") || combined.contains("safe") || combined.contains("vault")
+        {
             has_safe = true;
         }
-        if combined.contains("glaskupa") || combined.contains("marmor") || combined.contains("skör") || combined.contains("fragile") {
+        if combined.contains("glaskupa")
+            || combined.contains("marmor")
+            || combined.contains("skör")
+            || combined.contains("fragile")
+        {
             has_fragile = true;
         }
     }
 
-    let max_stairs = if !org_elev && org_floor > 0 { org_floor } else { 0 }
-        .max(if !dest_elev && dest_floor > 0 { dest_floor } else { 0 });
+    let max_stairs = if !org_elev && org_floor > 0 {
+        org_floor
+    } else {
+        0
+    }
+    .max(if !dest_elev && dest_floor > 0 {
+        dest_floor
+    } else {
+        0
+    });
 
     if max_stairs >= 2 || total_weight > 400.0 {
         equipment.push("Electric Stair Climber Dolly (Trappklättrare)".to_string());
@@ -565,11 +610,14 @@ pub async fn get_recommended_crew_dispatch_equipment(
     }
 
     if let Some(v_id) = assigned_v_id {
-        let capacity_m3: f64 = conn.query_row(
-            "SELECT capacity_m3 FROM vehicles WHERE id = ?1",
-            crate::params![v_id],
-            |r| r.get(0),
-        ).await.unwrap_or(0.0);
+        let capacity_m3: f64 = conn
+            .query_row(
+                "SELECT capacity_m3 FROM vehicles WHERE id = ?1",
+                crate::params![v_id],
+                |r| r.get(0),
+            )
+            .await
+            .unwrap_or(0.0);
 
         if capacity_m3 > 20.0 {
             equipment.push("Aluminum Heavy-Duty Vehicle Loading Ramp".to_string());
@@ -597,14 +645,19 @@ pub async fn validate_crew_equipment_and_physical_matching(
         .map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
 
     if auth.workspace_id != job_ws {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
-    let crew_count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM job_crew WHERE job_ticket_id = ?1",
-        crate::params![&job_id],
-        |r| r.get(0),
-    ).await.unwrap_or(0);
+    let crew_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM job_crew WHERE job_ticket_id = ?1",
+            crate::params![&job_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or(0);
 
     let mut inv_stmt = conn.prepare(
         "SELECT quantity, estimated_volume_m3, estimated_weight_kg FROM move_inventory WHERE job_ticket_id = ?1"
@@ -634,14 +687,21 @@ pub async fn validate_crew_equipment_and_physical_matching(
             "SELECT capacity_m3, name FROM vehicles WHERE id = ?1",
             crate::params![v_id],
             |r| Ok((r.get::<f64>(0)?, r.get::<String>(1)?)),
-        ).await.unwrap_or((0.0, "".to_string()))
+        )
+        .await
+        .unwrap_or((0.0, "".to_string()))
     } else {
         (0.0, "".to_string())
     };
 
-    let required_license_class = if vehicle_capacity > 20.0 { "C/CE".to_string() } else { "B".to_string() };
+    let required_license_class = if vehicle_capacity > 20.0 {
+        "C/CE".to_string()
+    } else {
+        "B".to_string()
+    };
 
-    let required_equipment = get_recommended_crew_dispatch_equipment(requester_user_id, job_id.clone()).await?;
+    let required_equipment =
+        get_recommended_crew_dispatch_equipment(requester_user_id, job_id.clone()).await?;
 
     let mut warnings = Vec::new();
     let mut is_matched = true;
@@ -655,15 +715,27 @@ pub async fn validate_crew_equipment_and_physical_matching(
     }
 
     if vehicle_capacity > 20.0 {
-        let mut crew_users = conn.prepare("SELECT user_id FROM job_crew WHERE job_ticket_id = ?1").await?;
+        let mut crew_users = conn
+            .prepare("SELECT user_id FROM job_crew WHERE job_ticket_id = ?1")
+            .await?;
         let mut rows = crew_users.query(crate::params![&job_id]).await?;
         let mut has_c_driver = false;
         while let Some(row) = rows.next().await? {
             let uid: String = row.get(0)?;
-            let meta_str: Option<String> = conn.query_row("SELECT metadata FROM users WHERE id = ?1", crate::params![&uid], |r| r.get(0)).await.unwrap_or(None);
+            let meta_str: Option<String> = conn
+                .query_row(
+                    "SELECT metadata FROM users WHERE id = ?1",
+                    crate::params![&uid],
+                    |r| r.get(0),
+                )
+                .await
+                .unwrap_or(None);
             if let Some(m) = meta_str {
                 if let Ok(meta_v) = serde_json::from_str::<serde_json::Value>(&m) {
-                    let lic = meta_v.get("driver_license_class").and_then(|l| l.as_str()).unwrap_or("");
+                    let lic = meta_v
+                        .get("driver_license_class")
+                        .and_then(|l| l.as_str())
+                        .unwrap_or("");
                     if lic.to_uppercase().contains('C') || lic.to_uppercase().contains("CE") {
                         has_c_driver = true;
                         break;
@@ -706,18 +778,43 @@ mod dispatch_matching_tests {
 
         conn.execute("INSERT OR REPLACE INTO move_inventory (id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, estimated_weight_kg) VALUES ('inv-p1', 'job-disp-1', 'Musikinstrument', 'Flygel Piano', 1, 3.5, 320.0)", ()).await.unwrap();
 
-        let equipment = get_recommended_crew_dispatch_equipment("u-disp-staff".to_string(), "job-disp-1".to_string()).await.unwrap();
-        assert!(equipment.iter().any(|e| e.contains("Stair Climber") || e.contains("Trappklättrare")));
+        let equipment = get_recommended_crew_dispatch_equipment(
+            "u-disp-staff".to_string(),
+            "job-disp-1".to_string(),
+        )
+        .await
+        .unwrap();
+        assert!(
+            equipment
+                .iter()
+                .any(|e| e.contains("Stair Climber") || e.contains("Trappklättrare"))
+        );
         assert!(equipment.iter().any(|e| e.contains("Piano Skid Board")));
         assert!(equipment.iter().any(|e| e.contains("Hoisting Straps")));
 
-        let req = validate_crew_equipment_and_physical_matching("u-disp-staff".to_string(), "job-disp-1".to_string()).await.unwrap();
+        let req = validate_crew_equipment_and_physical_matching(
+            "u-disp-staff".to_string(),
+            "job-disp-1".to_string(),
+        )
+        .await
+        .unwrap();
         assert!(!req.is_matched); // No crew assigned yet
         assert_eq!(req.assigned_crew_count, 0);
 
-        conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = 'job-disp-1'", ()).await.unwrap();
-        conn.execute("DELETE FROM job_tickets WHERE id = 'job-disp-1'", ()).await.unwrap();
-        conn.execute("DELETE FROM users WHERE id = 'u-disp-staff'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-disp-test'", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM move_inventory WHERE job_ticket_id = 'job-disp-1'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute("DELETE FROM job_tickets WHERE id = 'job-disp-1'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM users WHERE id = 'u-disp-staff'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-disp-test'", ())
+            .await
+            .unwrap();
     }
 }

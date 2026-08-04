@@ -1,7 +1,10 @@
 use crate::database;
-use crate::infra::observer::notify_observers;
 use crate::infra::errors::YntraError;
-use crate::{MoveInventoryItem, MoveQuote, JobPackagingItem, FurniturePreset, MoveInventorySummary, InventoryScanManifest};
+use crate::infra::observer::notify_observers;
+use crate::{
+    FurniturePreset, InventoryScanManifest, JobPackagingItem, MoveInventoryItem,
+    MoveInventorySummary, MoveQuote,
+};
 
 #[uniffi::export]
 pub async fn get_move_inventory(
@@ -54,7 +57,9 @@ pub async fn get_move_inventory(
                 estimated_weight_kg: row.get::<Option<f64>>(11)?.unwrap_or(0.0),
                 preset_id: row.get(12)?,
                 barcode_tag: row.get(13)?,
-                scan_status: row.get::<Option<String>>(14)?.unwrap_or_else(|| "unscanned".to_string()),
+                scan_status: row
+                    .get::<Option<String>>(14)?
+                    .unwrap_or_else(|| "unscanned".to_string()),
                 last_scanned_at: row.get(15)?,
                 last_scanned_by: row.get(16)?,
             })
@@ -163,13 +168,14 @@ pub async fn accept_move_quote(
         crate::params![now_ms, now_ms, quote_id],
     ).await?;
 
-    let customer_id = conn.query_row(
-        "SELECT id FROM users WHERE workspace_id = ?1 AND role = 'client' LIMIT 1",
-        crate::params![&quote_ws],
-        |r| r.get::<String>(0),
-    )
-    .await
-    .unwrap_or_else(|_| "client-1".to_string());
+    let customer_id = conn
+        .query_row(
+            "SELECT id FROM users WHERE workspace_id = ?1 AND role = 'client' LIMIT 1",
+            crate::params![&quote_ws],
+            |r| r.get::<String>(0),
+        )
+        .await
+        .unwrap_or_else(|_| "client-1".to_string());
 
     let _ = crate::services::jobs::notifications::send_external_notification(
         requester_user_id.clone(),
@@ -177,7 +183,8 @@ pub async fn accept_move_quote(
         customer_id,
         "booking_confirmation".to_string(),
         None,
-    ).await;
+    )
+    .await;
 
     let existing_invoice_rut: Option<bool> = conn
         .query_row(
@@ -227,7 +234,9 @@ pub async fn update_customer_personal_number(
         .map_err(|_| YntraError::NotFoundError("Customer user not found".to_string()))?;
 
     if auth.workspace_id != target_ws && !auth.is_admin {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let mut meta_json: serde_json::Value = raw_meta
@@ -242,7 +251,8 @@ pub async fn update_customer_personal_number(
     conn.execute(
         "UPDATE users SET metadata = ?1 WHERE id = ?2",
         crate::params![meta_json.to_string(), customer_id],
-    ).await?;
+    )
+    .await?;
 
     notify_observers();
     Ok(normalized)
@@ -259,7 +269,9 @@ pub async fn accept_move_quote_with_rut(
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" {
-        return Err(YntraError::AuthError("Access denied: insufficient permissions".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: insufficient permissions".to_string(),
+        ));
     }
 
     let (quote_ws,): (String,) = conn
@@ -272,7 +284,9 @@ pub async fn accept_move_quote_with_rut(
         .map_err(|_| YntraError::NotFoundError("Quote not found".to_string()))?;
 
     if auth.workspace_id != quote_ws {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let customer_id = conn
@@ -286,7 +300,8 @@ pub async fn accept_move_quote_with_rut(
 
     if use_rut {
         if let Some(pn) = personal_number {
-            update_customer_personal_number(requester_user_id.clone(), customer_id.clone(), pn).await?;
+            update_customer_personal_number(requester_user_id.clone(), customer_id.clone(), pn)
+                .await?;
         } else {
             let user_pnum: Option<String> = conn
                 .query_row(
@@ -299,9 +314,11 @@ pub async fn accept_move_quote_with_rut(
                 .flatten();
 
             let cipher = crate::infra::crypto::WorkspaceCipher::new(&quote_ws).ok();
-            let decrypted_pnum = user_pnum
-                .as_deref()
-                .and_then(|pn| cipher.as_ref().and_then(|c| c.decrypt_opt(Some(pn.to_string()))));
+            let decrypted_pnum = user_pnum.as_deref().and_then(|pn| {
+                cipher
+                    .as_ref()
+                    .and_then(|c| c.decrypt_opt(Some(pn.to_string())))
+            });
 
             use chrono::Datelike;
             let current_year = chrono::Utc::now().year();
@@ -324,7 +341,8 @@ pub async fn accept_move_quote_with_rut(
         requester_user_id.clone(),
         quote_id.clone(),
         use_rut,
-    ).await?;
+    )
+    .await?;
 
     // 2. Only after invoice generation succeeds, update quote status to 'accepted' and send booking confirmation
     let conn = database::acquire_connection().await?;
@@ -340,7 +358,8 @@ pub async fn accept_move_quote_with_rut(
         customer_id,
         "booking_confirmation".to_string(),
         None,
-    ).await;
+    )
+    .await;
 
     notify_observers();
 
@@ -383,7 +402,6 @@ pub fn get_furniture_catalog() -> Vec<FurniturePreset> {
             default_weight_kg: 18.0,
             default_handling_notes: None,
         },
-
         // Bedroom
         FurniturePreset {
             id: "bed-king".to_string(),
@@ -417,7 +435,6 @@ pub fn get_furniture_catalog() -> Vec<FurniturePreset> {
             default_weight_kg: 40.0,
             default_handling_notes: None,
         },
-
         // Kitchen & Dining
         FurniturePreset {
             id: "fridge-double".to_string(),
@@ -443,7 +460,6 @@ pub fn get_furniture_catalog() -> Vec<FurniturePreset> {
             default_weight_kg: 65.0,
             default_handling_notes: None,
         },
-
         // Office & Workspace
         FurniturePreset {
             id: "desk-office".to_string(),
@@ -453,7 +469,6 @@ pub fn get_furniture_catalog() -> Vec<FurniturePreset> {
             default_weight_kg: 40.0,
             default_handling_notes: None,
         },
-
         // Boxes & Supplies
         FurniturePreset {
             id: "box-std".to_string(),
@@ -471,7 +486,6 @@ pub fn get_furniture_catalog() -> Vec<FurniturePreset> {
             default_weight_kg: 12.0,
             default_handling_notes: None,
         },
-
         // Garage / Outdoor
         FurniturePreset {
             id: "bicycle".to_string(),
@@ -550,7 +564,8 @@ pub async fn create_move_inventory_item_with_details(
         if let Some(ref status) = job_status {
             if status == "completed" || status == "in_transit" {
                 return Err(YntraError::ValidationError(
-                    "Cannot modify inventory after job ticket has been completed or is in transit.".to_string(),
+                    "Cannot modify inventory after job ticket has been completed or is in transit."
+                        .to_string(),
                 ));
             }
         }
@@ -572,8 +587,16 @@ pub async fn create_move_inventory_item_with_details(
     };
     let job_clean = job_ticket_id.replace('-', "").to_uppercase();
     let id_clean = id.replace('-', "").to_uppercase();
-    let job_part = if job_clean.len() >= 12 { &job_clean[..12] } else { &job_clean };
-    let id_part = if id_clean.len() >= 12 { &id_clean[..12] } else { &id_clean };
+    let job_part = if job_clean.len() >= 12 {
+        &job_clean[..12]
+    } else {
+        &job_clean
+    };
+    let id_part = if id_clean.len() >= 12 {
+        &id_clean[..12]
+    } else {
+        &id_clean
+    };
     let base_barcode = format!("YNT-{}-{}", job_part, id_part);
 
     conn.execute(
@@ -619,8 +642,9 @@ pub async fn scan_inventory_item_by_barcode(
     let clean_barcode = barcode_tag.trim().to_uppercase();
     let now_ms = chrono::Utc::now().timestamp_millis();
 
-    let mut stmt = conn.prepare(
-        "SELECT id FROM move_inventory
+    let mut stmt = conn
+        .prepare(
+            "SELECT id FROM move_inventory
          WHERE job_ticket_id = ?1
            AND (
              UPPER(barcode_tag) = ?2
@@ -637,9 +661,12 @@ pub async fn scan_inventory_item_by_barcode(
              ELSE 2
            END,
            LENGTH(barcode_tag) DESC,
-           id ASC"
-    ).await?;
-    let mut rows = stmt.query(crate::params![&job_ticket_id, &clean_barcode]).await?;
+           id ASC",
+        )
+        .await?;
+    let mut rows = stmt
+        .query(crate::params![&job_ticket_id, &clean_barcode])
+        .await?;
     let mut matching_ids = Vec::new();
     while let Some(row) = rows.next().await? {
         let item_id: String = row.get(0)?;
@@ -663,10 +690,16 @@ pub async fn scan_inventory_item_by_barcode(
         notify_observers();
 
         let items = get_move_inventory(requester_user_id, job_ticket_id).await?;
-        let updated = items.into_iter().find(|i| i.id == item_id).ok_or_else(|| YntraError::NotFoundError("Item not found after update".to_string()))?;
+        let updated = items
+            .into_iter()
+            .find(|i| i.id == item_id)
+            .ok_or_else(|| YntraError::NotFoundError("Item not found after update".to_string()))?;
         Ok(updated)
     } else {
-        Err(YntraError::NotFoundError(format!("No item matching barcode '{}' found on this job", barcode_tag)))
+        Err(YntraError::NotFoundError(format!(
+            "No item matching barcode '{}' found on this job",
+            barcode_tag
+        )))
     }
 }
 
@@ -757,7 +790,11 @@ pub fn calculate_volume_from_dimensions_cm(length_cm: f64, width_cm: f64, height
 }
 
 #[uniffi::export]
-pub fn calculate_volume_from_dimensions_inches(length_in: f64, width_in: f64, height_in: f64) -> f64 {
+pub fn calculate_volume_from_dimensions_inches(
+    length_in: f64,
+    width_in: f64,
+    height_in: f64,
+) -> f64 {
     let cu_in = length_in * width_in * height_in;
     let cu_ft = cu_in / 1728.0;
     (cu_ft * 100.0).round() / 100.0
@@ -838,12 +875,12 @@ pub async fn get_move_inventory_summary(
 
     // Heavy / Specialty item adjustment (> 150kg single item, piano, safe, or jacuzzi)
     let has_heavy_item = items.iter().any(|i| {
-        i.estimated_weight_kg >= 150.0 ||
-        i.item_category.to_lowercase().contains("piano") ||
-        i.item_name.to_lowercase().contains("piano") ||
-        i.item_name.to_lowercase().contains("kassaskåp") ||
-        i.item_name.to_lowercase().contains("safe") ||
-        i.item_name.to_lowercase().contains("jacuzzi")
+        i.estimated_weight_kg >= 150.0
+            || i.item_category.to_lowercase().contains("piano")
+            || i.item_name.to_lowercase().contains("piano")
+            || i.item_name.to_lowercase().contains("kassaskåp")
+            || i.item_name.to_lowercase().contains("safe")
+            || i.item_name.to_lowercase().contains("jacuzzi")
     });
 
     if has_heavy_item && (base_crew + access_crew_boost) < 3 {
@@ -898,11 +935,18 @@ pub async fn get_move_inventory_summary(
                             )
                             .await
                             .unwrap_or_else(|_| "{}".to_string());
-                        let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
+                        let settings_json: serde_json::Value =
+                            serde_json::from_str(&settings_str).unwrap_or_default();
 
-                        let crew_size = settings_json.get("moving_default_crew_size").and_then(|v| v.as_f64()).unwrap_or(2.0);
+                        let crew_size = settings_json
+                            .get("moving_default_crew_size")
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(2.0);
                         let crew_weight_kg = crew_size * 85.0; // 85 kg per crew member
-                        let equipment_and_fuel_buffer_kg = settings_json.get("vehicle_tare_equipment_buffer_kg").and_then(|v| v.as_f64()).unwrap_or(300.0); // Fuel, tailgate, ramps, dollies, blankets
+                        let equipment_and_fuel_buffer_kg = settings_json
+                            .get("vehicle_tare_equipment_buffer_kg")
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(300.0); // Fuel, tailgate, ramps, dollies, blankets
                         let operational_tare_buffer = crew_weight_kg + equipment_and_fuel_buffer_kg;
                         let total_operational_payload = total_weight + operational_tare_buffer;
 
@@ -910,7 +954,10 @@ pub async fn get_move_inventory_summary(
                             truck_capacity_exceeded = true;
                             let msg = format!(
                                 "Total operational payload ({:.1} kg cargo + {:.1} kg crew/equipment/fuel = {:.1} kg) exceeds vehicle max payload limit ({:.1} kg)",
-                                total_weight, operational_tare_buffer, total_operational_payload, payload
+                                total_weight,
+                                operational_tare_buffer,
+                                total_operational_payload,
+                                payload
                             );
                             truck_capacity_warning = match truck_capacity_warning {
                                 Some(prev) => Some(format!("{}; {}", prev, msg)),
@@ -990,7 +1037,8 @@ pub async fn delete_move_inventory_item(
     conn.execute(
         "DELETE FROM move_inventory WHERE id = ?1",
         crate::params![item_id],
-    ).await?;
+    )
+    .await?;
 
     drop(conn);
     let _ = calculate_and_save_move_quote(requester_user_id, job_ticket_id).await;
@@ -1014,9 +1062,21 @@ pub fn calculate_item_specialty_surcharge(
 
     // 1. Piano / Keyboard / Heavy Instruments
     let piano_keywords = [
-        "piano", "flygel", "grand piano", "upright piano", "organ", "orgel",
-        "pianostol", "fortepiano", "cembalo", "harpsichord", "spinet", "spinetta",
-        "pianolyft", "klaver", "pianino"
+        "piano",
+        "flygel",
+        "grand piano",
+        "upright piano",
+        "organ",
+        "orgel",
+        "pianostol",
+        "fortepiano",
+        "cembalo",
+        "harpsichord",
+        "spinet",
+        "spinetta",
+        "pianolyft",
+        "klaver",
+        "pianino",
     ];
     for kw in piano_keywords {
         if text.contains(kw) {
@@ -1026,10 +1086,27 @@ pub fn calculate_item_specialty_surcharge(
 
     // 2. Safe / Vault / Heavy Metallic / Machinery
     let safe_keywords = [
-        "safe", "kassaskåp", "kassaskap", "värdeskåp", "vardeskap", "gun safe",
-        "vapenskåp", "vapenskap", "heavy safe", "fireproof safe", "skåp tungt",
-        "skap tungt", "tunglyft", "valv", "penning-skåp", "penningskåp", "server rack",
-        "racksling", "heavy machinery", "säkerhetsskåp", "sakerhetsskap"
+        "safe",
+        "kassaskåp",
+        "kassaskap",
+        "värdeskåp",
+        "vardeskap",
+        "gun safe",
+        "vapenskåp",
+        "vapenskap",
+        "heavy safe",
+        "fireproof safe",
+        "skåp tungt",
+        "skap tungt",
+        "tunglyft",
+        "valv",
+        "penning-skåp",
+        "penningskåp",
+        "server rack",
+        "racksling",
+        "heavy machinery",
+        "säkerhetsskåp",
+        "sakerhetsskap",
     ];
     for kw in safe_keywords {
         if text.contains(kw) {
@@ -1039,8 +1116,20 @@ pub fn calculate_item_specialty_surcharge(
 
     // 3. Jacuzzi / Bath / Spa / Sauna
     let jacuzzi_keywords = [
-        "jacuzzi", "badkar", "bathtub", "spa", "spabad", "hot tub", "hottub",
-        "whirlpool", "bastu", "sauna", "bubbelpool", "bubbelbad", "isbad", "massagebadkar"
+        "jacuzzi",
+        "badkar",
+        "bathtub",
+        "spa",
+        "spabad",
+        "hot tub",
+        "hottub",
+        "whirlpool",
+        "bastu",
+        "sauna",
+        "bubbelpool",
+        "bubbelbad",
+        "isbad",
+        "massagebadkar",
     ];
     for kw in jacuzzi_keywords {
         if text.contains(kw) {
@@ -1050,11 +1139,38 @@ pub fn calculate_item_specialty_surcharge(
 
     // 4. Fragile / Fine Art / Glass / Mirrors / Antiques
     let fragile_keywords = [
-        "konst", "tavla", "painting", "fragile", "skör", "skor", "bräcklig",
-        "bracklig", "glass", "glas", "mirror", "spegel", "kristall", "crystal",
-        "sculpture", "skulptur", "målning", "malning", "antikt", "antique",
-        "porslin", "porcelain", "akvarium", "aquarium", "ljuskrona", "chandelier",
-        "marmor", "marble", "stenskiva", "stone slab", "vitrinskåp", "vitrinskap"
+        "konst",
+        "tavla",
+        "painting",
+        "fragile",
+        "skör",
+        "skor",
+        "bräcklig",
+        "bracklig",
+        "glass",
+        "glas",
+        "mirror",
+        "spegel",
+        "kristall",
+        "crystal",
+        "sculpture",
+        "skulptur",
+        "målning",
+        "malning",
+        "antikt",
+        "antique",
+        "porslin",
+        "porcelain",
+        "akvarium",
+        "aquarium",
+        "ljuskrona",
+        "chandelier",
+        "marmor",
+        "marble",
+        "stenskiva",
+        "stone slab",
+        "vitrinskåp",
+        "vitrinskap",
     ];
     for kw in fragile_keywords {
         if text.contains(kw) {
@@ -1082,17 +1198,32 @@ pub fn calculate_item_specialty_surcharge_extended(
     let text = format!("{} {} {}", item_category, item_name, notes_str).to_lowercase();
 
     // 1. Server Rack / IT Server Equipment
-    if text.contains("server rack") || text.contains("racksling") || text.contains("ups batteri") || text.contains("serverstativ") {
+    if text.contains("server rack")
+        || text.contains("racksling")
+        || text.contains("ups batteri")
+        || text.contains("serverstativ")
+    {
         return surcharge_server_rack;
     }
 
     // 2. Heavy Fitness Equipment
-    if text.contains("treadmill") || text.contains("löpband") || text.contains("lopband") || text.contains("roddmaskin") || text.contains("crosstrainer") || text.contains("gym") {
+    if text.contains("treadmill")
+        || text.contains("löpband")
+        || text.contains("lopband")
+        || text.contains("roddmaskin")
+        || text.contains("crosstrainer")
+        || text.contains("gym")
+    {
         return surcharge_fitness_equipment;
     }
 
     // 3. Marble / Glass Tabletops
-    if text.contains("marmorbord") || text.contains("glasbord") || text.contains("glass table") || text.contains("marble table") || text.contains("stenskiva") {
+    if text.contains("marmorbord")
+        || text.contains("glasbord")
+        || text.contains("glass table")
+        || text.contains("marble table")
+        || text.contains("stenskiva")
+    {
         return surcharge_marble_glass;
     }
 
@@ -1123,24 +1254,26 @@ pub fn calculate_eligible_stair_labor_surcharge(
     mult_narrow: f64,
     mult_outdoor: f64,
 ) -> f64 {
-    let get_stair_multiplier = |stype: Option<&str>| match stype.unwrap_or("standard").to_lowercase().as_str() {
-        "spiral" | "spiraltrappa" => mult_spiral,
-        "narrow" | "trång" | "trang" => mult_narrow,
-        "outdoor" | "utomhustrappa" => mult_outdoor,
-        _ => 1.0,
-    };
+    let get_stair_multiplier =
+        |stype: Option<&str>| match stype.unwrap_or("standard").to_lowercase().as_str() {
+            "spiral" | "spiraltrappa" => mult_spiral,
+            "narrow" | "trång" | "trang" => mult_narrow,
+            "outdoor" | "utomhustrappa" => mult_outdoor,
+            _ => 1.0,
+        };
 
     let origin_stair_mult = get_stair_multiplier(origin_staircase_type.as_deref());
     let dest_stair_mult = get_stair_multiplier(destination_staircase_type.as_deref());
 
     let mut stairs_surcharge: f64 = 0.0;
 
-    let is_small_elevator = |size: Option<&String>| {
-        size.map(|s| s.to_lowercase()) == Some("small".to_string())
-    };
+    let is_small_elevator =
+        |size: Option<&String>| size.map(|s| s.to_lowercase()) == Some("small".to_string());
 
     // Origin stair surcharge
-    if (!origin_has_elevator || is_small_elevator(origin_elevator_size.as_ref())) && origin_floor != 0 {
+    if (!origin_has_elevator || is_small_elevator(origin_elevator_size.as_ref()))
+        && origin_floor != 0
+    {
         let base_stair = (origin_floor.abs() as f64) * stairs_surcharge_per_floor;
         stairs_surcharge += base_stair * origin_stair_mult;
     }
@@ -1149,7 +1282,9 @@ pub fn calculate_eligible_stair_labor_surcharge(
     }
 
     // Destination stair surcharge
-    if (!destination_has_elevator || is_small_elevator(destination_elevator_size.as_ref())) && destination_floor != 0 {
+    if (!destination_has_elevator || is_small_elevator(destination_elevator_size.as_ref()))
+        && destination_floor != 0
+    {
         let base_stair = (destination_floor.abs() as f64) * stairs_surcharge_per_floor;
         stairs_surcharge += base_stair * dest_stair_mult;
     }
@@ -1322,7 +1457,17 @@ pub async fn calculate_and_save_move_quote(
         "SELECT workspace_id, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, COALESCE(long_carry_meters, 0), COALESCE(toll_fees, 0.0), scheduled_date, route_stops_json FROM job_tickets WHERE id = ?1",
     ).await?;
     let mut rows = stmt.query(crate::params![&job_ticket_id]).await?;
-    let (job_ws, origin_floor, destination_floor, origin_has_elevator, destination_has_elevator, long_carry_meters, toll_fees, scheduled_date, route_stops_json) = if let Some(row) = rows.next().await? {
+    let (
+        job_ws,
+        origin_floor,
+        destination_floor,
+        origin_has_elevator,
+        destination_has_elevator,
+        long_carry_meters,
+        toll_fees,
+        scheduled_date,
+        route_stops_json,
+    ) = if let Some(row) = rows.next().await? {
         (
             row.get::<String>(0)?,
             row.get::<i64>(1)? as i32,
@@ -1369,13 +1514,20 @@ pub async fn calculate_and_save_move_quote(
     let mut total_volume = 0.0;
     let mut specialty_surcharge = 0.0;
 
-    let surcharge_piano = crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_piano");
-    let surcharge_safe = crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_safe");
-    let surcharge_jacuzzi = crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_jacuzzi");
-    let surcharge_fragile = crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_fragile");
-    let surcharge_server_rack = crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_server_rack");
-    let surcharge_fitness_equipment = crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_fitness_equipment");
-    let surcharge_marble_glass = crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_marble_glass");
+    let surcharge_piano =
+        crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_piano");
+    let surcharge_safe =
+        crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_safe");
+    let surcharge_jacuzzi =
+        crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_jacuzzi");
+    let surcharge_fragile =
+        crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_fragile");
+    let surcharge_server_rack =
+        crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_server_rack");
+    let surcharge_fitness_equipment =
+        crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_fitness_equipment");
+    let surcharge_marble_glass =
+        crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_marble_glass");
 
     while let Some(row) = inv_rows.next().await? {
         let quantity: i64 = row.get(0)?;
@@ -1402,10 +1554,18 @@ pub async fn calculate_and_save_move_quote(
     total_volume = (total_volume * 1000.0).round() / 1000.0;
 
     // 4. Quoting Calculations:
-    let base_rate_per_m3 = crate::services::workspaces::get_setting_f64(&settings_json, "moving_base_rate_per_m3");
-    let distance_fee_flat = crate::services::workspaces::get_setting_f64(&settings_json, "moving_distance_fee_flat");
-    let stairs_surcharge_per_floor = crate::services::workspaces::get_setting_f64(&settings_json, "moving_stairs_surcharge_per_floor");
-    let packing_supplies_fee_per_m3 = crate::services::workspaces::get_setting_f64(&settings_json, "moving_packing_supplies_fee_per_m3");
+    let base_rate_per_m3 =
+        crate::services::workspaces::get_setting_f64(&settings_json, "moving_base_rate_per_m3");
+    let distance_fee_flat =
+        crate::services::workspaces::get_setting_f64(&settings_json, "moving_distance_fee_flat");
+    let stairs_surcharge_per_floor = crate::services::workspaces::get_setting_f64(
+        &settings_json,
+        "moving_stairs_surcharge_per_floor",
+    );
+    let packing_supplies_fee_per_m3 = crate::services::workspaces::get_setting_f64(
+        &settings_json,
+        "moving_packing_supplies_fee_per_m3",
+    );
 
     // Dynamic Multipliers & Tariffs
     // Inspect job-specific route metadata first to prevent global workspace settings pollution across concurrent jobs
@@ -1420,7 +1580,11 @@ pub async fn calculate_and_save_move_quote(
         });
 
     let distance_km = job_distance_km
-        .or_else(|| settings_json.get("estimated_distance_km").and_then(|v| v.as_f64()))
+        .or_else(|| {
+            settings_json
+                .get("estimated_distance_km")
+                .and_then(|v| v.as_f64())
+        })
         .unwrap_or(0.0);
 
     // Depot & Round-Trip Distance Accounting
@@ -1428,21 +1592,33 @@ pub async fn calculate_and_save_move_quote(
         .as_deref()
         .and_then(|json_str| serde_json::from_str::<serde_json::Value>(json_str).ok())
         .and_then(|v| v.get("depot_to_origin_km").and_then(|d| d.as_f64()))
-        .or_else(|| settings_json.get("depot_to_origin_km").and_then(|v| v.as_f64()))
+        .or_else(|| {
+            settings_json
+                .get("depot_to_origin_km")
+                .and_then(|v| v.as_f64())
+        })
         .unwrap_or(0.0);
 
     let destination_to_depot_km = route_stops_json
         .as_deref()
         .and_then(|json_str| serde_json::from_str::<serde_json::Value>(json_str).ok())
         .and_then(|v| v.get("destination_to_depot_km").and_then(|d| d.as_f64()))
-        .or_else(|| settings_json.get("destination_to_depot_km").and_then(|v| v.as_f64()))
+        .or_else(|| {
+            settings_json
+                .get("destination_to_depot_km")
+                .and_then(|v| v.as_f64())
+        })
         .unwrap_or(0.0);
 
     let is_roundtrip = route_stops_json
         .as_deref()
         .and_then(|json_str| serde_json::from_str::<serde_json::Value>(json_str).ok())
         .and_then(|v| v.get("include_roundtrip").and_then(|b| b.as_bool()))
-        .or_else(|| settings_json.get("moving_include_roundtrip").and_then(|v| v.as_bool()))
+        .or_else(|| {
+            settings_json
+                .get("moving_include_roundtrip")
+                .and_then(|v| v.as_bool())
+        })
         .unwrap_or(false);
 
     let effective_distance_km = if is_roundtrip {
@@ -1451,8 +1627,10 @@ pub async fn calculate_and_save_move_quote(
         distance_km + depot_to_origin_km + destination_to_depot_km
     };
 
-    let local_radius = crate::services::workspaces::get_setting_f64(&settings_json, "moving_local_radius_km");
-    let per_km_rate = crate::services::workspaces::get_setting_f64(&settings_json, "moving_per_km_rate");
+    let local_radius =
+        crate::services::workspaces::get_setting_f64(&settings_json, "moving_local_radius_km");
+    let per_km_rate =
+        crate::services::workspaces::get_setting_f64(&settings_json, "moving_per_km_rate");
 
     let mut distance_fee = distance_fee_flat;
     if effective_distance_km > local_radius {
@@ -1461,7 +1639,11 @@ pub async fn calculate_and_save_move_quote(
     distance_fee += toll_fees;
 
     // Base hourly/labor rate depending on configured pricing model
-    let pricing_model_str = crate::services::workspaces::get_setting_str(&settings_json, "moving_pricing_model", "volume");
+    let pricing_model_str = crate::services::workspaces::get_setting_str(
+        &settings_json,
+        "moving_pricing_model",
+        "volume",
+    );
     let pricing_model = pricing_model_str.as_str();
 
     let mut base_price = if pricing_model == "hourly" {
@@ -1474,7 +1656,10 @@ pub async fn calculate_and_save_move_quote(
             .await
             .unwrap_or(0);
 
-        let default_crew_size = crate::services::workspaces::get_setting_f64(&settings_json, "moving_default_crew_size");
+        let default_crew_size = crate::services::workspaces::get_setting_f64(
+            &settings_json,
+            "moving_default_crew_size",
+        );
 
         let active_crew_size = if crew_count > 0 {
             crew_count as f64
@@ -1482,9 +1667,15 @@ pub async fn calculate_and_save_move_quote(
             default_crew_size
         };
 
-        let hourly_rate_per_mover = crate::services::workspaces::get_setting_f64(&settings_json, "moving_hourly_rate_per_mover");
+        let hourly_rate_per_mover = crate::services::workspaces::get_setting_f64(
+            &settings_json,
+            "moving_hourly_rate_per_mover",
+        );
 
-        let hourly_rate_vehicle = crate::services::workspaces::get_setting_f64(&settings_json, "moving_hourly_rate_vehicle");
+        let hourly_rate_vehicle = crate::services::workspaces::get_setting_f64(
+            &settings_json,
+            "moving_hourly_rate_vehicle",
+        );
 
         let hourly_rate = if settings_json.get("moving_hourly_rate_per_mover").is_some()
             || settings_json.get("moving_hourly_rate_vehicle").is_some()
@@ -1494,8 +1685,10 @@ pub async fn calculate_and_save_move_quote(
             crate::services::workspaces::get_setting_f64(&settings_json, "moving_hourly_rate")
         };
 
-        let hours_per_m3 = crate::services::workspaces::get_setting_f64(&settings_json, "moving_hours_per_m3");
-        let minimum_hours = crate::services::workspaces::get_setting_f64(&settings_json, "moving_minimum_hours");
+        let hours_per_m3 =
+            crate::services::workspaces::get_setting_f64(&settings_json, "moving_hours_per_m3");
+        let minimum_hours =
+            crate::services::workspaces::get_setting_f64(&settings_json, "moving_minimum_hours");
         let estimated_hours = (total_volume * hours_per_m3).max(minimum_hours);
         estimated_hours * hourly_rate
     } else {
@@ -1511,12 +1704,18 @@ pub async fn calculate_and_save_move_quote(
         let is_peak_season = day_of_month >= 25 || day_of_month <= 3;
 
         let weekend_multiplier = if is_weekend {
-            crate::services::workspaces::get_setting_f64(&settings_json, "moving_weekend_multiplier")
+            crate::services::workspaces::get_setting_f64(
+                &settings_json,
+                "moving_weekend_multiplier",
+            )
         } else {
             1.0
         };
         let peak_multiplier = if is_peak_season {
-            crate::services::workspaces::get_setting_f64(&settings_json, "moving_peak_season_multiplier")
+            crate::services::workspaces::get_setting_f64(
+                &settings_json,
+                "moving_peak_season_multiplier",
+            )
         } else {
             1.0
         };
@@ -1527,9 +1726,14 @@ pub async fn calculate_and_save_move_quote(
     // Add specialty/heavy item handling fees to base labor price
     base_price += specialty_surcharge;
 
-    let surcharge_long_carry_per_meter = crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_long_carry_per_meter");
-    let surcharge_crane_hoist = crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_crane_hoist");
-    let surcharge_small_elevator = crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_small_elevator");
+    let surcharge_long_carry_per_meter = crate::services::workspaces::get_setting_f64(
+        &settings_json,
+        "surcharge_long_carry_per_meter",
+    );
+    let surcharge_crane_hoist =
+        crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_crane_hoist");
+    let surcharge_small_elevator =
+        crate::services::workspaces::get_setting_f64(&settings_json, "surcharge_small_elevator");
 
     let route_meta_json: Option<serde_json::Value> = route_stops_json
         .as_deref()
@@ -1538,36 +1742,59 @@ pub async fn calculate_and_save_move_quote(
     let origin_staircase_type = route_meta_json
         .as_ref()
         .and_then(|v| v.get("origin_staircase_type").and_then(|s| s.as_str()))
-        .or_else(|| settings_json.get("origin_staircase_type").and_then(|v| v.as_str()))
+        .or_else(|| {
+            settings_json
+                .get("origin_staircase_type")
+                .and_then(|v| v.as_str())
+        })
         .map(|s| s.to_string());
 
     let destination_staircase_type = route_meta_json
         .as_ref()
         .and_then(|v| v.get("destination_staircase_type").and_then(|s| s.as_str()))
-        .or_else(|| settings_json.get("destination_staircase_type").and_then(|v| v.as_str()))
+        .or_else(|| {
+            settings_json
+                .get("destination_staircase_type")
+                .and_then(|v| v.as_str())
+        })
         .map(|s| s.to_string());
 
     let origin_elevator_size = route_meta_json
         .as_ref()
         .and_then(|v| v.get("origin_elevator_size").and_then(|s| s.as_str()))
-        .or_else(|| settings_json.get("origin_elevator_size").and_then(|v| v.as_str()))
+        .or_else(|| {
+            settings_json
+                .get("origin_elevator_size")
+                .and_then(|v| v.as_str())
+        })
         .map(|s| s.to_string());
 
     let destination_elevator_size = route_meta_json
         .as_ref()
         .and_then(|v| v.get("destination_elevator_size").and_then(|s| s.as_str()))
-        .or_else(|| settings_json.get("destination_elevator_size").and_then(|v| v.as_str()))
+        .or_else(|| {
+            settings_json
+                .get("destination_elevator_size")
+                .and_then(|v| v.as_str())
+        })
         .map(|s| s.to_string());
 
     let requires_crane_hoist = route_meta_json
         .as_ref()
         .and_then(|v| v.get("requires_crane_hoist").and_then(|b| b.as_bool()))
-        .or_else(|| settings_json.get("requires_crane_hoist").and_then(|v| v.as_bool()))
+        .or_else(|| {
+            settings_json
+                .get("requires_crane_hoist")
+                .and_then(|v| v.as_bool())
+        })
         .unwrap_or(false);
 
-    let mult_spiral = crate::services::workspaces::get_setting_f64(&settings_json, "mult_spiral_staircase");
-    let mult_narrow = crate::services::workspaces::get_setting_f64(&settings_json, "mult_narrow_staircase");
-    let mult_outdoor = crate::services::workspaces::get_setting_f64(&settings_json, "mult_outdoor_staircase");
+    let mult_spiral =
+        crate::services::workspaces::get_setting_f64(&settings_json, "mult_spiral_staircase");
+    let mult_narrow =
+        crate::services::workspaces::get_setting_f64(&settings_json, "mult_narrow_staircase");
+    let mult_outdoor =
+        crate::services::workspaces::get_setting_f64(&settings_json, "mult_outdoor_staircase");
 
     let stairs_surcharge = calculate_access_and_stair_surcharge_with_multipliers(
         origin_floor,
@@ -1603,13 +1830,22 @@ pub async fn calculate_and_save_move_quote(
         total_volume * packing_supplies_fee_per_m3
     };
     let now_ms = chrono::Utc::now().timestamp_millis();
-    
+
     // Check if quote exists to keep its status, default to "sent"
     let mut quote_stmt = conn.prepare(
         "SELECT id, status, manual_price_override, price_discount, base_price, distance_fee, stairs_surcharge, packing_supplies_fee FROM move_quotes WHERE job_ticket_id = ?1 LIMIT 1",
     ).await?;
     let mut q_rows = quote_stmt.query(crate::params![&job_ticket_id]).await?;
-    let (quote_id, quote_status, existing_override, existing_discount, old_base, old_dist, old_stairs, old_supplies) = if let Some(row) = q_rows.next().await? {
+    let (
+        quote_id,
+        quote_status,
+        existing_override,
+        existing_discount,
+        old_base,
+        old_dist,
+        old_stairs,
+        old_supplies,
+    ) = if let Some(row) = q_rows.next().await? {
         (
             row.get::<String>(0)?,
             row.get::<String>(1)?,
@@ -1621,7 +1857,16 @@ pub async fn calculate_and_save_move_quote(
             row.get::<f64>(7).unwrap_or(0.0),
         )
     } else {
-        (uuid::Uuid::new_v4().to_string(), "sent".to_string(), None, None, 0.0, 0.0, 0.0, 0.0)
+        (
+            uuid::Uuid::new_v4().to_string(),
+            "sent".to_string(),
+            None,
+            None,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        )
     };
     drop(q_rows);
     drop(quote_stmt);
@@ -1632,7 +1877,8 @@ pub async fn calculate_and_save_move_quote(
         (None, base_price)
     };
 
-    let calculated_total = effective_base_price + distance_fee + stairs_surcharge + packing_supplies_fee;
+    let calculated_total =
+        effective_base_price + distance_fee + stairs_surcharge + packing_supplies_fee;
     let old_calculated_total = old_base + old_dist + old_stairs + old_supplies;
 
     let mut total_price = calculated_total;
@@ -1691,13 +1937,14 @@ pub async fn calculate_and_save_move_quote(
             ],
         ).await.ok();
 
-        let customer_id = conn.query_row(
-            "SELECT id FROM users WHERE workspace_id = ?1 AND role = 'client' LIMIT 1",
-            crate::params![&job_ws],
-            |r| r.get::<String>(0),
-        )
-        .await
-        .unwrap_or_else(|_| requester_user_id.clone());
+        let customer_id = conn
+            .query_row(
+                "SELECT id FROM users WHERE workspace_id = ?1 AND role = 'client' LIMIT 1",
+                crate::params![&job_ws],
+                |r| r.get::<String>(0),
+            )
+            .await
+            .unwrap_or_else(|_| requester_user_id.clone());
 
         let _ = crate::services::jobs::notifications::send_external_notification(
             requester_user_id.clone(),
@@ -1705,7 +1952,8 @@ pub async fn calculate_and_save_move_quote(
             customer_id,
             "quote_revised".to_string(),
             None,
-        ).await;
+        )
+        .await;
     }
 
     notify_observers();
@@ -1808,7 +2056,8 @@ pub async fn add_job_packaging_item(
             |r| r.get::<i64>(0),
         )
         .await
-        .unwrap_or(0) > 0;
+        .unwrap_or(0)
+        > 0;
 
     if quote_exists {
         drop(conn);
@@ -1846,7 +2095,8 @@ pub async fn remove_job_packaging_item(
     conn.execute(
         "DELETE FROM job_packaging_items WHERE id = ?1",
         crate::params![item_id],
-    ).await?;
+    )
+    .await?;
 
     // Recalculate quote if exists
     let quote_exists: bool = conn
@@ -1856,7 +2106,8 @@ pub async fn remove_job_packaging_item(
             |r| r.get::<i64>(0),
         )
         .await
-        .unwrap_or(0) > 0;
+        .unwrap_or(0)
+        > 0;
 
     if quote_exists {
         drop(conn);
@@ -1896,7 +2147,8 @@ pub async fn update_job_packaging_item_returned(
     conn.execute(
         "UPDATE job_packaging_items SET returned_quantity = ?1, updated_at = ?2 WHERE id = ?3",
         crate::params![returned_quantity, now_ms, item_id],
-    ).await?;
+    )
+    .await?;
 
     let quote_exists: bool = conn
         .query_row(
@@ -1905,7 +2157,8 @@ pub async fn update_job_packaging_item_returned(
             |r| r.get::<i64>(0),
         )
         .await
-        .unwrap_or(0) > 0;
+        .unwrap_or(0)
+        > 0;
 
     if quote_exists {
         drop(conn);
@@ -1958,7 +2211,9 @@ pub async fn get_job_packaging_items(
             returned_quantity: row.get(7)?,
             created_at: row.get(8)?,
             updated_at: row.get(9)?,
-            sync_status: row.get::<Option<String>>(10)?.unwrap_or_else(|| "pending".to_string()),
+            sync_status: row
+                .get::<Option<String>>(10)?
+                .unwrap_or_else(|| "pending".to_string()),
         });
     }
 
@@ -1998,9 +2253,9 @@ pub async fn update_move_quote_price_adjustments(
     }
 
     // Check if quote exists
-    let mut quote_stmt = conn.prepare(
-        "SELECT id FROM move_quotes WHERE job_ticket_id = ?1 LIMIT 1",
-    ).await?;
+    let mut quote_stmt = conn
+        .prepare("SELECT id FROM move_quotes WHERE job_ticket_id = ?1 LIMIT 1")
+        .await?;
     let mut q_rows = quote_stmt.query(crate::params![&job_ticket_id]).await?;
     let has_quote = q_rows.next().await?.is_some();
     drop(q_rows);
@@ -2056,7 +2311,9 @@ pub async fn accept_move_quote_with_deposit(
         .map_err(|_| YntraError::NotFoundError("Quote not found".to_string()))?;
 
     if auth.workspace_id != ws_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     if current_status == "accepted" {
@@ -2103,7 +2360,10 @@ pub async fn accept_move_quote_with_deposit(
         },
     );
 
-    let deposit_pct = settings_json.get("moving_deposit_percent").and_then(|v| v.as_f64()).unwrap_or(20.0);
+    let deposit_pct = settings_json
+        .get("moving_deposit_percent")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(20.0);
     let deposit_amount = (total_price * (deposit_pct / 100.0)).round().max(500.0);
     let remaining_balance = (total_price - deposit_amount).max(0.0);
     let now_ms = chrono::Utc::now().timestamp_millis();
@@ -2120,20 +2380,35 @@ pub async fn accept_move_quote_with_deposit(
 
     notify_observers();
 
-    let portal_base_url = super::billing::helpers::get_config_val("payment_portal_url", "PAYMENT_PORTAL_URL", &settings_json)
-        .await
-        .or_else(|| {
-            let conn_ref = &conn;
-            let _ = conn_ref;
-            settings_json.get("custom_domain").and_then(|v| v.as_str()).map(|s| s.to_string())
-        })
-        .or_else(|| {
-            settings_json.get("api_base_url").and_then(|v| v.as_str()).map(|s| s.to_string())
-        })
-        .unwrap_or_else(|| "https://pay.yntra.se".to_string());
+    let portal_base_url = super::billing::helpers::get_config_val(
+        "payment_portal_url",
+        "PAYMENT_PORTAL_URL",
+        &settings_json,
+    )
+    .await
+    .or_else(|| {
+        let conn_ref = &conn;
+        let _ = conn_ref;
+        settings_json
+            .get("custom_domain")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    })
+    .or_else(|| {
+        settings_json
+            .get("api_base_url")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    })
+    .unwrap_or_else(|| "https://pay.yntra.se".to_string());
 
     let portal_base_url = portal_base_url.trim_end_matches('/');
-    let payment_url = format!("{}/deposit/{}?method={}", portal_base_url, quote_id, payment_method.to_lowercase());
+    let payment_url = format!(
+        "{}/deposit/{}?method={}",
+        portal_base_url,
+        quote_id,
+        payment_method.to_lowercase()
+    );
 
     Ok(crate::models::QuoteDepositApprovalResult {
         success: true,
@@ -2142,7 +2417,10 @@ pub async fn accept_move_quote_with_deposit(
         remaining_balance,
         payment_session_url: Some(payment_url),
         quote_status: "pending_deposit".to_string(),
-        message: format!("Deposit payment of {:.2} {} initiated via {}. Pending payment completion to confirm booking.", deposit_amount, currency, payment_method),
+        message: format!(
+            "Deposit payment of {:.2} {} initiated via {}. Pending payment completion to confirm booking.",
+            deposit_amount, currency, payment_method
+        ),
     })
 }
 
@@ -2165,7 +2443,9 @@ pub async fn confirm_quote_deposit_payment(
         .map_err(|_| YntraError::NotFoundError("Quote not found".to_string()))?;
 
     if auth.workspace_id != ws_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     if current_status != "pending_deposit" && current_status != "accepted" {
@@ -2203,8 +2483,14 @@ mod furniture_inventory_tests {
         // 1. Verify furniture catalog preset items
         let catalog = get_furniture_catalog();
         assert!(!catalog.is_empty());
-        assert!(catalog.iter().any(|p| p.id == "sofa-3p" && p.default_volume_m3 == 1.8 && p.default_weight_kg == 75.0));
-        assert!(catalog.iter().any(|p| p.id == "bed-king" && p.category == "Bedroom"));
+        assert!(catalog.iter().any(|p| p.id == "sofa-3p"
+            && p.default_volume_m3 == 1.8
+            && p.default_weight_kg == 75.0));
+        assert!(
+            catalog
+                .iter()
+                .any(|p| p.id == "bed-king" && p.category == "Bedroom")
+        );
 
         // Setup test workspace, user, and job ticket
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-inv-sum-test', 'Inv Sum WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
@@ -2223,7 +2509,9 @@ mod furniture_inventory_tests {
             Some("Living Room".to_string()),
             Some(75.0),
             Some("sofa-3p".to_string()),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         create_move_inventory_item_with_details(
             "u-inv-staff".to_string(),
@@ -2236,7 +2524,9 @@ mod furniture_inventory_tests {
             Some("Master Bedroom".to_string()),
             Some(90.0),
             Some("bed-king".to_string()),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         create_move_inventory_item_with_details(
             "u-inv-staff".to_string(),
@@ -2249,18 +2539,28 @@ mod furniture_inventory_tests {
             Some("Living Room".to_string()),
             Some(15.0),
             Some("box-std".to_string()),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         // 3. Verify get_move_inventory retrieves room_name and estimated_weight_kg
-        let items = get_move_inventory("u-inv-staff".to_string(), "job-inv-sum-1".to_string()).await.unwrap();
+        let items = get_move_inventory("u-inv-staff".to_string(), "job-inv-sum-1".to_string())
+            .await
+            .unwrap();
         assert_eq!(items.len(), 3);
-        let sofa = items.iter().find(|i| i.item_name == "3-Seater Sofa").unwrap();
+        let sofa = items
+            .iter()
+            .find(|i| i.item_name == "3-Seater Sofa")
+            .unwrap();
         assert_eq!(sofa.room_name, Some("Living Room".to_string()));
         assert_eq!(sofa.estimated_weight_kg, 75.0);
         assert_eq!(sofa.preset_id, Some("sofa-3p".to_string()));
 
         // 4. Verify get_move_inventory_summary calculations
-        let summary = get_move_inventory_summary("u-inv-staff".to_string(), "job-inv-sum-1".to_string()).await.unwrap();
+        let summary =
+            get_move_inventory_summary("u-inv-staff".to_string(), "job-inv-sum-1".to_string())
+                .await
+                .unwrap();
         // Total vol: 1.8 + 2.4 + (10 * 0.1) = 5.2 m3
         assert_eq!(summary.total_volume_m3, 5.2);
         // Total weight: 75 + 90 + (10 * 15) = 315 kg
@@ -2273,11 +2573,27 @@ mod furniture_inventory_tests {
         assert_eq!(summary.recommended_crew_size, 2);
 
         // Cleanup
-        conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = 'job-inv-sum-1'", ()).await.unwrap();
-        conn.execute("DELETE FROM move_quotes WHERE job_ticket_id = 'job-inv-sum-1'", ()).await.unwrap();
-        conn.execute("DELETE FROM job_tickets WHERE id = 'job-inv-sum-1'", ()).await.unwrap();
-        conn.execute("DELETE FROM users WHERE id = 'u-inv-staff'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-inv-sum-test'", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM move_inventory WHERE job_ticket_id = 'job-inv-sum-1'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM move_quotes WHERE job_ticket_id = 'job-inv-sum-1'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute("DELETE FROM job_tickets WHERE id = 'job-inv-sum-1'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM users WHERE id = 'u-inv-staff'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-inv-sum-test'", ())
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -2302,36 +2618,73 @@ mod furniture_inventory_tests {
             Some("Living Room".to_string()),
             Some(80.0),
             None,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
-        let items = get_move_inventory("u-bc-staff".to_string(), "job-bc-1".to_string()).await.unwrap();
+        let items = get_move_inventory("u-bc-staff".to_string(), "job-bc-1".to_string())
+            .await
+            .unwrap();
         assert_eq!(items.len(), 1);
         let barcode = items[0].barcode_tag.clone().unwrap();
         assert!(barcode.starts_with("YNT-"));
         assert_eq!(items[0].scan_status, "unscanned");
 
         // 2. Scan item -> transition to 'packed'
-        let item_packed = scan_inventory_item_by_barcode("u-bc-staff".to_string(), "job-bc-1".to_string(), barcode.clone(), "packed".to_string()).await.unwrap();
+        let item_packed = scan_inventory_item_by_barcode(
+            "u-bc-staff".to_string(),
+            "job-bc-1".to_string(),
+            barcode.clone(),
+            "packed".to_string(),
+        )
+        .await
+        .unwrap();
         assert_eq!(item_packed.scan_status, "packed");
         assert!(item_packed.last_scanned_at.is_some());
         assert_eq!(item_packed.last_scanned_by, Some("u-bc-staff".to_string()));
 
         // 3. Scan item -> transition to 'loaded'
-        let item_loaded = scan_inventory_item_by_barcode("u-bc-staff".to_string(), "job-bc-1".to_string(), barcode.clone(), "loaded".to_string()).await.unwrap();
+        let item_loaded = scan_inventory_item_by_barcode(
+            "u-bc-staff".to_string(),
+            "job-bc-1".to_string(),
+            barcode.clone(),
+            "loaded".to_string(),
+        )
+        .await
+        .unwrap();
         assert_eq!(item_loaded.scan_status, "loaded");
 
         // 4. Verify scan manifest report
-        let manifest = get_inventory_scan_manifest("u-bc-staff".to_string(), "job-bc-1".to_string()).await.unwrap();
+        let manifest =
+            get_inventory_scan_manifest("u-bc-staff".to_string(), "job-bc-1".to_string())
+                .await
+                .unwrap();
         assert_eq!(manifest.total_items, 1);
         assert_eq!(manifest.loaded_count, 1);
         assert_eq!(manifest.unloaded_count, 0);
 
         // Cleanup
-        conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = 'job-bc-1'", ()).await.unwrap();
-        conn.execute("DELETE FROM move_quotes WHERE job_ticket_id = 'job-bc-1'", ()).await.unwrap();
-        conn.execute("DELETE FROM job_tickets WHERE id = 'job-bc-1'", ()).await.unwrap();
-        conn.execute("DELETE FROM users WHERE id = 'u-bc-staff'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-bc-test'", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM move_inventory WHERE job_ticket_id = 'job-bc-1'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM move_quotes WHERE job_ticket_id = 'job-bc-1'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute("DELETE FROM job_tickets WHERE id = 'job-bc-1'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM users WHERE id = 'u-bc-staff'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-bc-test'", ())
+            .await
+            .unwrap();
     }
 
     #[test]
@@ -2367,13 +2720,25 @@ mod furniture_inventory_tests {
         conn.execute("INSERT OR REPLACE INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, created_at, updated_at) VALUES ('job-role-1', 'ws-role-test', 'Role Ticket', 'Desc', 'Main St 1', 'medium', 'pending', '2026-07-22', '[]', 0, 0)", ()).await.unwrap();
 
         // Verify driver roles from both English and Swedish templates are denied access to financial quotes
-        let quote_res_en = get_move_quote("u-driver-en".to_string(), "job-role-1".to_string()).await;
+        let quote_res_en =
+            get_move_quote("u-driver-en".to_string(), "job-role-1".to_string()).await;
         assert!(quote_res_en.is_err());
-        assert!(quote_res_en.unwrap_err().to_string().contains("Access denied"));
+        assert!(
+            quote_res_en
+                .unwrap_err()
+                .to_string()
+                .contains("Access denied")
+        );
 
-        let quote_res_sv = get_move_quote("u-driver-sv".to_string(), "job-role-1".to_string()).await;
+        let quote_res_sv =
+            get_move_quote("u-driver-sv".to_string(), "job-role-1".to_string()).await;
         assert!(quote_res_sv.is_err());
-        assert!(quote_res_sv.unwrap_err().to_string().contains("Access denied"));
+        assert!(
+            quote_res_sv
+                .unwrap_err()
+                .to_string()
+                .contains("Access denied")
+        );
 
         // Add staff users provisioned from templates
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-coord-en', 'ws-role-test', 'coord@en.io', 'role-move-coordinator')", ()).await.unwrap();
@@ -2383,20 +2748,40 @@ mod furniture_inventory_tests {
         conn.execute("INSERT OR REPLACE INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at, sync_status) VALUES ('q-role-1', 'ws-role-test', 'job-role-1', 1000.0, 0.0, 0.0, 0.0, 1000.0, 'accepted', 0, 'synced')", ()).await.unwrap();
 
         // Verify template staff can modify inventory even after quote is accepted (does not fail with ValidationError)
-        let create_res = create_move_inventory_item("u-coord-en".to_string(), "job-role-1".to_string(), "Möbler".to_string(), "Table".to_string(), 1, 0.5, None).await;
+        let create_res = create_move_inventory_item(
+            "u-coord-en".to_string(),
+            "job-role-1".to_string(),
+            "Möbler".to_string(),
+            "Table".to_string(),
+            1,
+            0.5,
+            None,
+        )
+        .await;
         assert!(create_res.is_ok());
 
-        let inv_items = get_move_inventory("u-coord-en".to_string(), "job-role-1".to_string()).await.unwrap();
+        let inv_items = get_move_inventory("u-coord-en".to_string(), "job-role-1".to_string())
+            .await
+            .unwrap();
         assert_eq!(inv_items.len(), 1);
 
-        let delete_res = delete_move_inventory_item("u-admin-sv".to_string(), inv_items[0].id.clone()).await;
+        let delete_res =
+            delete_move_inventory_item("u-admin-sv".to_string(), inv_items[0].id.clone()).await;
         assert!(delete_res.is_ok());
 
         // Cleanup
-        conn.execute("DELETE FROM move_quotes WHERE id = 'q-role-1'", ()).await.unwrap();
-        conn.execute("DELETE FROM job_tickets WHERE id = 'job-role-1'", ()).await.unwrap();
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-role-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-role-test'", ()).await.unwrap();
+        conn.execute("DELETE FROM move_quotes WHERE id = 'q-role-1'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM job_tickets WHERE id = 'job-role-1'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-role-test'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-role-test'", ())
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -2409,7 +2794,8 @@ mod furniture_inventory_tests {
             "moving_base_rate_per_m3": 100.0,
             "requires_crane_hoist": true,
             "surcharge_crane_hoist": 3500.0
-        }).to_string();
+        })
+        .to_string();
 
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-iso-test', 'Iso WS', '[\"moving_company\"]', ?1)", crate::params![settings]).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-iso-staff', 'ws-iso-test', 'staff@iso.io', 'admin')", ()).await.unwrap();
@@ -2417,22 +2803,54 @@ mod furniture_inventory_tests {
         // Job 1: Has job-specific route metadata explicitly disabling crane hoist requirement
         let route_json_no_crane = serde_json::json!({
             "requires_crane_hoist": false
-        }).to_string();
+        })
+        .to_string();
         conn.execute("INSERT OR REPLACE INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, created_at, updated_at, route_stops_json) VALUES ('job-iso-1', 'ws-iso-test', 'Job No Crane', 'Desc', 'Main St 1', 'medium', 'pending', '2026-07-22', '[]', 0, 0, ?1)", crate::params![route_json_no_crane]).await.unwrap();
 
-        create_move_inventory_item("u-iso-staff".to_string(), "job-iso-1".to_string(), "Möbler".to_string(), "Desk".to_string(), 1, 1.0, None).await.unwrap();
-        calculate_and_save_move_quote("u-iso-staff".to_string(), "job-iso-1".to_string()).await.unwrap();
+        create_move_inventory_item(
+            "u-iso-staff".to_string(),
+            "job-iso-1".to_string(),
+            "Möbler".to_string(),
+            "Desk".to_string(),
+            1,
+            1.0,
+            None,
+        )
+        .await
+        .unwrap();
+        calculate_and_save_move_quote("u-iso-staff".to_string(), "job-iso-1".to_string())
+            .await
+            .unwrap();
 
-        let quote1 = get_move_quote("u-iso-staff".to_string(), "job-iso-1".to_string()).await.unwrap().unwrap();
+        let quote1 = get_move_quote("u-iso-staff".to_string(), "job-iso-1".to_string())
+            .await
+            .unwrap()
+            .unwrap();
         // Crane hoist surcharge (3500.0) should NOT be added to stairs_surcharge because job route metadata explicitly set requires_crane_hoist = false
         assert_eq!(quote1.stairs_surcharge, 0.0);
 
         // Cleanup
-        conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = 'job-iso-1'", ()).await.unwrap();
-        conn.execute("DELETE FROM move_quotes WHERE job_ticket_id = 'job-iso-1'", ()).await.unwrap();
-        conn.execute("DELETE FROM job_tickets WHERE id = 'job-iso-1'", ()).await.unwrap();
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-iso-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-iso-test'", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM move_inventory WHERE job_ticket_id = 'job-iso-1'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM move_quotes WHERE job_ticket_id = 'job-iso-1'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute("DELETE FROM job_tickets WHERE id = 'job-iso-1'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-iso-test'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-iso-test'", ())
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -2444,49 +2862,125 @@ mod furniture_inventory_tests {
             "moving_base_rate_per_m3": 500.0,
             "moving_distance_fee_flat": 0.0,
             "moving_packing_supplies_fee_per_m3": 0.0
-        }).to_string();
+        })
+        .to_string();
 
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-revwf-test', 'Rev WF WS', '[\"moving_company\"]', ?1)", crate::params![settings]).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-revwf-staff', 'ws-revwf-test', 'staff@revwf.io', 'admin')", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, created_at, updated_at) VALUES ('job-revwf-1', 'ws-revwf-test', 'Rev WF Job', 'Desc', 'Main St 1', 'medium', 'pending', '2026-07-22', '[]', 0, 0)", ()).await.unwrap();
 
         // 1. Add item & calculate initial quote
-        create_move_inventory_item("u-revwf-staff".to_string(), "job-revwf-1".to_string(), "Möbler".to_string(), "Chair".to_string(), 1, 0.5, None).await.unwrap();
-        calculate_and_save_move_quote("u-revwf-staff".to_string(), "job-revwf-1".to_string()).await.unwrap();
+        create_move_inventory_item(
+            "u-revwf-staff".to_string(),
+            "job-revwf-1".to_string(),
+            "Möbler".to_string(),
+            "Chair".to_string(),
+            1,
+            0.5,
+            None,
+        )
+        .await
+        .unwrap();
+        calculate_and_save_move_quote("u-revwf-staff".to_string(), "job-revwf-1".to_string())
+            .await
+            .unwrap();
 
-        let quote1 = get_move_quote("u-revwf-staff".to_string(), "job-revwf-1".to_string()).await.unwrap().unwrap();
+        let quote1 = get_move_quote("u-revwf-staff".to_string(), "job-revwf-1".to_string())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(quote1.total_price, 250.0);
 
         // 2. Accept quote & generate invoice
-        accept_move_quote("u-revwf-staff".to_string(), quote1.id.clone()).await.unwrap();
-        let inv1 = crate::services::jobs::billing::generate_move_invoice("u-revwf-staff".to_string(), quote1.id.clone(), false).await.unwrap();
+        accept_move_quote("u-revwf-staff".to_string(), quote1.id.clone())
+            .await
+            .unwrap();
+        let inv1 = crate::services::jobs::billing::generate_move_invoice(
+            "u-revwf-staff".to_string(),
+            quote1.id.clone(),
+            false,
+        )
+        .await
+        .unwrap();
         assert_eq!(inv1.subtotal, 250.0);
 
         // 3. Add inventory item -> quote recalculates to revised
-        create_move_inventory_item("u-revwf-staff".to_string(), "job-revwf-1".to_string(), "Möbler".to_string(), "Table".to_string(), 1, 1.0, None).await.unwrap();
-        calculate_and_save_move_quote("u-revwf-staff".to_string(), "job-revwf-1".to_string()).await.unwrap();
+        create_move_inventory_item(
+            "u-revwf-staff".to_string(),
+            "job-revwf-1".to_string(),
+            "Möbler".to_string(),
+            "Table".to_string(),
+            1,
+            1.0,
+            None,
+        )
+        .await
+        .unwrap();
+        calculate_and_save_move_quote("u-revwf-staff".to_string(), "job-revwf-1".to_string())
+            .await
+            .unwrap();
 
-        let quote2 = get_move_quote("u-revwf-staff".to_string(), "job-revwf-1".to_string()).await.unwrap().unwrap();
+        let quote2 = get_move_quote("u-revwf-staff".to_string(), "job-revwf-1".to_string())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(quote2.status, "revised");
         assert_eq!(quote2.total_price, 750.0);
 
         // 4. Re-accept quote -> quote transitions back to 'accepted' and updates invoice
-        accept_move_quote("u-revwf-staff".to_string(), quote2.id.clone()).await.unwrap();
+        accept_move_quote("u-revwf-staff".to_string(), quote2.id.clone())
+            .await
+            .unwrap();
 
-        let quote3 = get_move_quote("u-revwf-staff".to_string(), "job-revwf-1".to_string()).await.unwrap().unwrap();
+        let quote3 = get_move_quote("u-revwf-staff".to_string(), "job-revwf-1".to_string())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(quote3.status, "accepted");
 
-        let inv2 = crate::services::jobs::billing::get_move_invoice("u-revwf-staff".to_string(), quote3.id.clone()).await.unwrap().unwrap();
+        let inv2 = crate::services::jobs::billing::get_move_invoice(
+            "u-revwf-staff".to_string(),
+            quote3.id.clone(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
         assert_eq!(inv2.subtotal, 750.0);
 
         // Cleanup
-        conn.execute("DELETE FROM move_invoices WHERE quote_id = ?1", crate::params![quote3.id]).await.unwrap();
-        conn.execute("DELETE FROM move_quote_revisions WHERE quote_id = ?1", crate::params![quote3.id]).await.unwrap();
-        conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = 'job-revwf-1'", ()).await.unwrap();
-        conn.execute("DELETE FROM move_quotes WHERE job_ticket_id = 'job-revwf-1'", ()).await.unwrap();
-        conn.execute("DELETE FROM job_tickets WHERE id = 'job-revwf-1'", ()).await.unwrap();
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-revwf-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-revwf-test'", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM move_invoices WHERE quote_id = ?1",
+            crate::params![quote3.id],
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM move_quote_revisions WHERE quote_id = ?1",
+            crate::params![quote3.id],
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM move_inventory WHERE job_ticket_id = 'job-revwf-1'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM move_quotes WHERE job_ticket_id = 'job-revwf-1'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute("DELETE FROM job_tickets WHERE id = 'job-revwf-1'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-revwf-test'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-revwf-test'", ())
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -2498,41 +2992,99 @@ mod furniture_inventory_tests {
             "moving_base_rate_per_m3": 500.0,
             "moving_distance_fee_flat": 0.0,
             "moving_packing_supplies_fee_per_m3": 0.0
-        }).to_string();
+        })
+        .to_string();
 
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-ovr-test', 'Ovr WS', '[\"moving_company\"]', ?1)", crate::params![settings]).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-ovr-staff', 'ws-ovr-test', 'staff@ovr.io', 'admin')", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, created_at, updated_at) VALUES ('job-ovr-1', 'ws-ovr-test', 'Ovr Job', 'Desc', 'Main St 1', 'medium', 'pending', '2026-07-22', '[]', 0, 0)", ()).await.unwrap();
 
         // 1. Initial quote creation
-        create_move_inventory_item("u-ovr-staff".to_string(), "job-ovr-1".to_string(), "Möbler".to_string(), "Desk".to_string(), 1, 1.0, None).await.unwrap();
-        calculate_and_save_move_quote("u-ovr-staff".to_string(), "job-ovr-1".to_string()).await.unwrap();
+        create_move_inventory_item(
+            "u-ovr-staff".to_string(),
+            "job-ovr-1".to_string(),
+            "Möbler".to_string(),
+            "Desk".to_string(),
+            1,
+            1.0,
+            None,
+        )
+        .await
+        .unwrap();
+        calculate_and_save_move_quote("u-ovr-staff".to_string(), "job-ovr-1".to_string())
+            .await
+            .unwrap();
 
         // 2. Set manual base labor override to 1200.0
-        update_move_quote_price_adjustments("u-ovr-staff".to_string(), "job-ovr-1".to_string(), Some(1200.0), None).await.unwrap();
+        update_move_quote_price_adjustments(
+            "u-ovr-staff".to_string(),
+            "job-ovr-1".to_string(),
+            Some(1200.0),
+            None,
+        )
+        .await
+        .unwrap();
 
-        let quote1 = get_move_quote("u-ovr-staff".to_string(), "job-ovr-1".to_string()).await.unwrap().unwrap();
+        let quote1 = get_move_quote("u-ovr-staff".to_string(), "job-ovr-1".to_string())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(quote1.base_price, 1200.0);
         assert_eq!(quote1.total_price, 1200.0);
 
         // 3. Add packaging supplies item ($150)
-        add_job_packaging_item("u-ovr-staff".to_string(), "job-ovr-1".to_string(), "Boxes".to_string(), 5, 30.0, false).await.unwrap();
+        add_job_packaging_item(
+            "u-ovr-staff".to_string(),
+            "job-ovr-1".to_string(),
+            "Boxes".to_string(),
+            5,
+            30.0,
+            false,
+        )
+        .await
+        .unwrap();
 
         // 4. Recalculate quote -> base price stays 1200.0, packing supplies fee is 150.0, total_price is 1350.0
-        calculate_and_save_move_quote("u-ovr-staff".to_string(), "job-ovr-1".to_string()).await.unwrap();
+        calculate_and_save_move_quote("u-ovr-staff".to_string(), "job-ovr-1".to_string())
+            .await
+            .unwrap();
 
-        let quote2 = get_move_quote("u-ovr-staff".to_string(), "job-ovr-1".to_string()).await.unwrap().unwrap();
+        let quote2 = get_move_quote("u-ovr-staff".to_string(), "job-ovr-1".to_string())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(quote2.base_price, 1200.0);
         assert_eq!(quote2.packing_supplies_fee, 150.0);
         assert_eq!(quote2.total_price, 1350.0);
 
         // Cleanup
-        conn.execute("DELETE FROM job_packaging_items WHERE job_ticket_id = 'job-ovr-1'", ()).await.unwrap();
-        conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = 'job-ovr-1'", ()).await.unwrap();
-        conn.execute("DELETE FROM move_quotes WHERE job_ticket_id = 'job-ovr-1'", ()).await.unwrap();
-        conn.execute("DELETE FROM job_tickets WHERE id = 'job-ovr-1'", ()).await.unwrap();
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-ovr-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-ovr-test'", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM job_packaging_items WHERE job_ticket_id = 'job-ovr-1'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM move_inventory WHERE job_ticket_id = 'job-ovr-1'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM move_quotes WHERE job_ticket_id = 'job-ovr-1'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute("DELETE FROM job_tickets WHERE id = 'job-ovr-1'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-ovr-test'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-ovr-test'", ())
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -2544,33 +3096,92 @@ mod furniture_inventory_tests {
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-pnum-client', 'ws-pnum-test', 'client@pnum.io', 'client', '{}')", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, created_at, updated_at) VALUES ('job-pnum-1', 'ws-pnum-test', 'Pnum Job', 'Desc', 'Main St 1', 'medium', 'pending', '2026-07-22', '[]', 0, 0)", ()).await.unwrap();
 
-        create_move_inventory_item("u-pnum-client".to_string(), "job-pnum-1".to_string(), "Möbler".to_string(), "Table".to_string(), 1, 1.0, None).await.unwrap();
-        calculate_and_save_move_quote("u-pnum-client".to_string(), "job-pnum-1".to_string()).await.unwrap();
-        let quote = get_move_quote("u-pnum-client".to_string(), "job-pnum-1".to_string()).await.unwrap().unwrap();
+        create_move_inventory_item(
+            "u-pnum-client".to_string(),
+            "job-pnum-1".to_string(),
+            "Möbler".to_string(),
+            "Table".to_string(),
+            1,
+            1.0,
+            None,
+        )
+        .await
+        .unwrap();
+        calculate_and_save_move_quote("u-pnum-client".to_string(), "job-pnum-1".to_string())
+            .await
+            .unwrap();
+        let quote = get_move_quote("u-pnum-client".to_string(), "job-pnum-1".to_string())
+            .await
+            .unwrap()
+            .unwrap();
 
         // 1. Attempting RUT checkout without providing personal number should return ValidationError
-        let fail_res = accept_move_quote_with_rut("u-pnum-client".to_string(), quote.id.clone(), true, None).await;
+        let fail_res =
+            accept_move_quote_with_rut("u-pnum-client".to_string(), quote.id.clone(), true, None)
+                .await;
         assert!(fail_res.is_err());
-        assert!(fail_res.unwrap_err().to_string().contains("Missing valid Swedish personal number"));
+        assert!(
+            fail_res
+                .unwrap_err()
+                .to_string()
+                .contains("Missing valid Swedish personal number")
+        );
 
         // Verify quote status was NOT mutated to 'accepted' when validation failed
-        let quote_after_fail = get_move_quote("u-pnum-client".to_string(), "job-pnum-1".to_string()).await.unwrap().unwrap();
+        let quote_after_fail =
+            get_move_quote("u-pnum-client".to_string(), "job-pnum-1".to_string())
+                .await
+                .unwrap()
+                .unwrap();
         assert_ne!(quote_after_fail.status, "accepted");
 
         // 2. Accepting quote with valid personal number provisions personal_number gate and generates RUT invoice
-        let ok_res = accept_move_quote_with_rut("u-pnum-client".to_string(), quote.id.clone(), true, Some("198112189876".to_string())).await;
+        let ok_res = accept_move_quote_with_rut(
+            "u-pnum-client".to_string(),
+            quote.id.clone(),
+            true,
+            Some("198112189876".to_string()),
+        )
+        .await;
         assert!(ok_res.is_ok());
 
-        let inv = crate::services::jobs::billing::get_move_invoice("u-pnum-client".to_string(), quote.id.clone()).await.unwrap().unwrap();
+        let inv = crate::services::jobs::billing::get_move_invoice(
+            "u-pnum-client".to_string(),
+            quote.id.clone(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
         assert!(inv.rut_deduction > 0.0);
 
         // Cleanup
-        conn.execute("DELETE FROM move_invoices WHERE quote_id = ?1", crate::params![quote.id]).await.ok();
-        conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = 'job-pnum-1'", ()).await.ok();
-        conn.execute("DELETE FROM move_quotes WHERE job_ticket_id = 'job-pnum-1'", ()).await.ok();
-        conn.execute("DELETE FROM job_tickets WHERE id = 'job-pnum-1'", ()).await.ok();
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-pnum-test'", ()).await.ok();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-pnum-test'", ()).await.ok();
+        conn.execute(
+            "DELETE FROM move_invoices WHERE quote_id = ?1",
+            crate::params![quote.id],
+        )
+        .await
+        .ok();
+        conn.execute(
+            "DELETE FROM move_inventory WHERE job_ticket_id = 'job-pnum-1'",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute(
+            "DELETE FROM move_quotes WHERE job_ticket_id = 'job-pnum-1'",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute("DELETE FROM job_tickets WHERE id = 'job-pnum-1'", ())
+            .await
+            .ok();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-pnum-test'", ())
+            .await
+            .ok();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-pnum-test'", ())
+            .await
+            .ok();
     }
 
     #[tokio::test]
@@ -2583,36 +3194,106 @@ mod furniture_inventory_tests {
         conn.execute("INSERT OR REPLACE INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, created_at, updated_at) VALUES ('job-selfed-1', 'ws-selfed-test', 'SelfEd Job', 'Desc', 'Main St 1', 'medium', 'pending', '2026-07-22', '[]', 0, 0)", ()).await.unwrap();
 
         // 1. Initial item & quote accepted
-        create_move_inventory_item("u-selfed-client".to_string(), "job-selfed-1".to_string(), "Möbler".to_string(), "Lamp".to_string(), 1, 0.2, None).await.unwrap();
-        calculate_and_save_move_quote("u-selfed-client".to_string(), "job-selfed-1".to_string()).await.unwrap();
-        let quote1 = get_move_quote("u-selfed-client".to_string(), "job-selfed-1".to_string()).await.unwrap().unwrap();
+        create_move_inventory_item(
+            "u-selfed-client".to_string(),
+            "job-selfed-1".to_string(),
+            "Möbler".to_string(),
+            "Lamp".to_string(),
+            1,
+            0.2,
+            None,
+        )
+        .await
+        .unwrap();
+        calculate_and_save_move_quote("u-selfed-client".to_string(), "job-selfed-1".to_string())
+            .await
+            .unwrap();
+        let quote1 = get_move_quote("u-selfed-client".to_string(), "job-selfed-1".to_string())
+            .await
+            .unwrap()
+            .unwrap();
 
-        accept_move_quote("u-selfed-client".to_string(), quote1.id.clone()).await.unwrap();
+        accept_move_quote("u-selfed-client".to_string(), quote1.id.clone())
+            .await
+            .unwrap();
 
         // 2. Self-service customer item addition on accepted quote succeeds and transitions quote to revised
-        let add_res = create_move_inventory_item("u-selfed-client".to_string(), "job-selfed-1".to_string(), "Möbler".to_string(), "Chair".to_string(), 1, 0.5, None).await;
+        let add_res = create_move_inventory_item(
+            "u-selfed-client".to_string(),
+            "job-selfed-1".to_string(),
+            "Möbler".to_string(),
+            "Chair".to_string(),
+            1,
+            0.5,
+            None,
+        )
+        .await;
         assert!(add_res.is_ok());
 
-        let quote2 = get_move_quote("u-selfed-client".to_string(), "job-selfed-1".to_string()).await.unwrap().unwrap();
+        let quote2 = get_move_quote("u-selfed-client".to_string(), "job-selfed-1".to_string())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(quote2.status, "revised");
 
         // 3. Self-service customer item deletion on revised quote succeeds
-        let items = get_move_inventory("u-selfed-client".to_string(), "job-selfed-1".to_string()).await.unwrap();
-        let del_res = delete_move_inventory_item("u-selfed-client".to_string(), items[0].id.clone()).await;
+        let items = get_move_inventory("u-selfed-client".to_string(), "job-selfed-1".to_string())
+            .await
+            .unwrap();
+        let del_res =
+            delete_move_inventory_item("u-selfed-client".to_string(), items[0].id.clone()).await;
         assert!(del_res.is_ok());
 
         // 4. Completed job blocks non-staff inventory edits
-        conn.execute("UPDATE job_tickets SET status = 'completed' WHERE id = 'job-selfed-1'", ()).await.unwrap();
-        let fail_add = create_move_inventory_item("u-selfed-client".to_string(), "job-selfed-1".to_string(), "Möbler".to_string(), "Box".to_string(), 1, 0.1, None).await;
+        conn.execute(
+            "UPDATE job_tickets SET status = 'completed' WHERE id = 'job-selfed-1'",
+            (),
+        )
+        .await
+        .unwrap();
+        let fail_add = create_move_inventory_item(
+            "u-selfed-client".to_string(),
+            "job-selfed-1".to_string(),
+            "Möbler".to_string(),
+            "Box".to_string(),
+            1,
+            0.1,
+            None,
+        )
+        .await;
         assert!(fail_add.is_err());
-        assert!(fail_add.unwrap_err().to_string().contains("Cannot modify inventory after job ticket has been completed"));
+        assert!(
+            fail_add
+                .unwrap_err()
+                .to_string()
+                .contains("Cannot modify inventory after job ticket has been completed")
+        );
 
         // Cleanup
-        conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = 'job-selfed-1'", ()).await.ok();
-        conn.execute("DELETE FROM move_quotes WHERE job_ticket_id = 'job-selfed-1'", ()).await.ok();
-        conn.execute("DELETE FROM job_tickets WHERE id = 'job-selfed-1'", ()).await.ok();
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-selfed-test'", ()).await.ok();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-selfed-test'", ()).await.ok();
+        conn.execute(
+            "DELETE FROM move_inventory WHERE job_ticket_id = 'job-selfed-1'",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute(
+            "DELETE FROM move_quotes WHERE job_ticket_id = 'job-selfed-1'",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute("DELETE FROM job_tickets WHERE id = 'job-selfed-1'", ())
+            .await
+            .ok();
+        conn.execute(
+            "DELETE FROM users WHERE workspace_id = 'ws-selfed-test'",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-selfed-test'", ())
+            .await
+            .ok();
     }
 
     #[tokio::test]
@@ -2636,13 +3317,35 @@ mod furniture_inventory_tests {
         ).await.unwrap();
 
         // 2. Scanning 'YNT-JOBBARCODET-BOX1' must match 'inv-bc-box1' exactly, NOT 'inv-bc-box' via fuzzy prefix
-        let scanned = scan_inventory_item_by_barcode("u-bc-staff".to_string(), "job-barcode-test-123456".to_string(), "YNT-JOBBARCODET-BOX1".to_string(), "packed".to_string()).await.unwrap();
+        let scanned = scan_inventory_item_by_barcode(
+            "u-bc-staff".to_string(),
+            "job-barcode-test-123456".to_string(),
+            "YNT-JOBBARCODET-BOX1".to_string(),
+            "packed".to_string(),
+        )
+        .await
+        .unwrap();
         assert_eq!(scanned.id, "inv-bc-box1");
         assert_eq!(scanned.scan_status, "packed");
 
         // 3. Verify barcode generation uses 12-char entropy
-        create_move_inventory_item("u-bc-staff".to_string(), "job-barcode-test-123456".to_string(), "Möbler".to_string(), "Sofa".to_string(), 1, 2.0, None).await.unwrap();
-        let items = get_move_inventory("u-bc-staff".to_string(), "job-barcode-test-123456".to_string()).await.unwrap();
+        create_move_inventory_item(
+            "u-bc-staff".to_string(),
+            "job-barcode-test-123456".to_string(),
+            "Möbler".to_string(),
+            "Sofa".to_string(),
+            1,
+            2.0,
+            None,
+        )
+        .await
+        .unwrap();
+        let items = get_move_inventory(
+            "u-bc-staff".to_string(),
+            "job-barcode-test-123456".to_string(),
+        )
+        .await
+        .unwrap();
         let sofa = items.into_iter().find(|i| i.item_name == "Sofa").unwrap();
         let bc_tag = sofa.barcode_tag.unwrap();
         assert!(bc_tag.starts_with("YNT-JOBBARCODETE-"));
@@ -2652,10 +3355,24 @@ mod furniture_inventory_tests {
         assert_eq!(parts[2].len(), 12);
 
         // Cleanup
-        conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = 'job-barcode-test-123456'", ()).await.ok();
-        conn.execute("DELETE FROM job_tickets WHERE id = 'job-barcode-test-123456'", ()).await.ok();
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-bc-test'", ()).await.ok();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-bc-test'", ()).await.ok();
+        conn.execute(
+            "DELETE FROM move_inventory WHERE job_ticket_id = 'job-barcode-test-123456'",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute(
+            "DELETE FROM job_tickets WHERE id = 'job-barcode-test-123456'",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-bc-test'", ())
+            .await
+            .ok();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-bc-test'", ())
+            .await
+            .ok();
     }
 
     #[tokio::test]
@@ -2682,18 +3399,44 @@ mod furniture_inventory_tests {
             None,
             Some(600.0),
             None,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
-        let summary = get_move_inventory_summary("u-pay-staff".to_string(), "job-pay-buf-1".to_string()).await.unwrap();
+        let summary =
+            get_move_inventory_summary("u-pay-staff".to_string(), "job-pay-buf-1".to_string())
+                .await
+                .unwrap();
         assert!(summary.truck_capacity_exceeded);
-        assert!(summary.truck_capacity_warning.unwrap().contains("Total operational payload"));
+        assert!(
+            summary
+                .truck_capacity_warning
+                .unwrap()
+                .contains("Total operational payload")
+        );
 
         // Cleanup
-        conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = 'job-pay-buf-1'", ()).await.ok();
-        conn.execute("DELETE FROM job_tickets WHERE id = 'job-pay-buf-1'", ()).await.ok();
-        conn.execute("DELETE FROM vehicles WHERE id = 'v-pay-1000'", ()).await.ok();
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-payload-buf'", ()).await.ok();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-payload-buf'", ()).await.ok();
+        conn.execute(
+            "DELETE FROM move_inventory WHERE job_ticket_id = 'job-pay-buf-1'",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute("DELETE FROM job_tickets WHERE id = 'job-pay-buf-1'", ())
+            .await
+            .ok();
+        conn.execute("DELETE FROM vehicles WHERE id = 'v-pay-1000'", ())
+            .await
+            .ok();
+        conn.execute(
+            "DELETE FROM users WHERE workspace_id = 'ws-payload-buf'",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-payload-buf'", ())
+            .await
+            .ok();
     }
 
     #[tokio::test]
@@ -2717,21 +3460,39 @@ mod furniture_inventory_tests {
             None,
             None, // No explicit weight passed
             None, // No preset ID
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
-        let items = get_move_inventory("u-cust-wt-staff".to_string(), "job-cust-wt-1".to_string()).await.unwrap();
+        let items = get_move_inventory("u-cust-wt-staff".to_string(), "job-cust-wt-1".to_string())
+            .await
+            .unwrap();
         assert_eq!(items.len(), 1);
         // Bulk density fallback = 2.0 m3 * 150 kg/m3 = 300.0 kg
         assert_eq!(items[0].estimated_weight_kg, 300.0);
 
-        let summary = get_move_inventory_summary("u-cust-wt-staff".to_string(), "job-cust-wt-1".to_string()).await.unwrap();
+        let summary =
+            get_move_inventory_summary("u-cust-wt-staff".to_string(), "job-cust-wt-1".to_string())
+                .await
+                .unwrap();
         assert_eq!(summary.total_weight_kg, 300.0);
 
         // Cleanup
-        conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = 'job-cust-wt-1'", ()).await.ok();
-        conn.execute("DELETE FROM job_tickets WHERE id = 'job-cust-wt-1'", ()).await.ok();
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-custom-wt'", ()).await.ok();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-custom-wt'", ()).await.ok();
+        conn.execute(
+            "DELETE FROM move_inventory WHERE job_ticket_id = 'job-cust-wt-1'",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute("DELETE FROM job_tickets WHERE id = 'job-cust-wt-1'", ())
+            .await
+            .ok();
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-custom-wt'", ())
+            .await
+            .ok();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-custom-wt'", ())
+            .await
+            .ok();
     }
 
     #[tokio::test]
@@ -2744,23 +3505,65 @@ mod furniture_inventory_tests {
 
         // 1. Base small move on ground floor -> 2 movers
         conn.execute("INSERT OR REPLACE INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, origin_floor, origin_has_elevator, destination_floor, destination_has_elevator, created_at, updated_at) VALUES ('job-acc-1', 'ws-crew-access', 'Job 1', 'Desc', 'Main St 1', 'medium', 'pending', '2026-07-22', '[]', 0, 1, 0, 1, 0, 0)", ()).await.unwrap();
-        create_move_inventory_item("u-crew-acc-staff".to_string(), "job-acc-1".to_string(), "Möbler".to_string(), "Table".to_string(), 1, 0.5, None).await.unwrap();
+        create_move_inventory_item(
+            "u-crew-acc-staff".to_string(),
+            "job-acc-1".to_string(),
+            "Möbler".to_string(),
+            "Table".to_string(),
+            1,
+            0.5,
+            None,
+        )
+        .await
+        .unwrap();
 
-        let summary1 = get_move_inventory_summary("u-crew-acc-staff".to_string(), "job-acc-1".to_string()).await.unwrap();
+        let summary1 =
+            get_move_inventory_summary("u-crew-acc-staff".to_string(), "job-acc-1".to_string())
+                .await
+                .unwrap();
         assert_eq!(summary1.recommended_crew_size, 2);
 
         // 2. Small move on 4th floor WITHOUT elevator -> 2 base + 1 stair boost = 3 movers
         conn.execute("INSERT OR REPLACE INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, origin_floor, origin_has_elevator, destination_floor, destination_has_elevator, created_at, updated_at) VALUES ('job-acc-2', 'ws-crew-access', 'Job 2', 'Desc', 'Main St 2', 'medium', 'pending', '2026-07-22', '[]', 4, 0, 0, 1, 0, 0)", ()).await.unwrap();
-        create_move_inventory_item("u-crew-acc-staff".to_string(), "job-acc-2".to_string(), "Möbler".to_string(), "Table".to_string(), 1, 0.5, None).await.unwrap();
+        create_move_inventory_item(
+            "u-crew-acc-staff".to_string(),
+            "job-acc-2".to_string(),
+            "Möbler".to_string(),
+            "Table".to_string(),
+            1,
+            0.5,
+            None,
+        )
+        .await
+        .unwrap();
 
-        let summary2 = get_move_inventory_summary("u-crew-acc-staff".to_string(), "job-acc-2".to_string()).await.unwrap();
+        let summary2 =
+            get_move_inventory_summary("u-crew-acc-staff".to_string(), "job-acc-2".to_string())
+                .await
+                .unwrap();
         assert_eq!(summary2.recommended_crew_size, 3);
 
         // Cleanup
-        conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-crew-access'", ()).await.ok();
-        conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-crew-access'", ()).await.ok();
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-crew-access'", ()).await.ok();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-crew-access'", ()).await.ok();
+        conn.execute(
+            "DELETE FROM move_inventory WHERE workspace_id = 'ws-crew-access'",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute(
+            "DELETE FROM job_tickets WHERE workspace_id = 'ws-crew-access'",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute(
+            "DELETE FROM users WHERE workspace_id = 'ws-crew-access'",
+            (),
+        )
+        .await
+        .ok();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-crew-access'", ())
+            .await
+            .ok();
     }
 }
-

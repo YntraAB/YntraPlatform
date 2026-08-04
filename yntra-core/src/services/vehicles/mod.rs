@@ -65,7 +65,11 @@ pub async fn create_vehicle(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" || auth.role == "client" {
+    if auth.role == "guest"
+        || auth.role == "anonymous"
+        || auth.role == "deleted"
+        || auth.role == "client"
+    {
         return Err(YntraError::AuthError(
             "Access denied: only staff can manage vehicles".to_string(),
         ));
@@ -116,7 +120,11 @@ pub async fn delete_vehicle(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" || auth.role == "client" {
+    if auth.role == "guest"
+        || auth.role == "anonymous"
+        || auth.role == "deleted"
+        || auth.role == "client"
+    {
         return Err(YntraError::AuthError(
             "Access denied: only staff can manage vehicles".to_string(),
         ));
@@ -140,7 +148,8 @@ pub async fn delete_vehicle(
     conn.execute(
         "DELETE FROM vehicles WHERE id = ?1",
         crate::params![vehicle_id],
-    ).await?;
+    )
+    .await?;
 
     notify_observers();
     Ok(())

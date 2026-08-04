@@ -1,37 +1,53 @@
+use super::MutexExt;
+use super::engine::ZeroCopyEngine;
 use crate::infra::errors::YntraError;
 use crate::models::{AuditLogEntry, DailyNote, MessageItem, TodoItem};
 use std::sync::{Arc, Mutex};
-use super::engine::ZeroCopyEngine;
-use super::MutexExt;
 
 // --- Field Helpers for Loro Map Deserialization ---
 
 fn get_string(map: &loro::LoroMap, key: &str) -> Result<String, YntraError> {
     match map.get(key) {
-        Some(loro::ValueOrContainer::Value(loro::LoroValue::String(s))) => Ok(s.as_ref().to_string()),
-        _ => Err(YntraError::SerializationError(format!("Missing or invalid field: {}", key))),
+        Some(loro::ValueOrContainer::Value(loro::LoroValue::String(s))) => {
+            Ok(s.as_ref().to_string())
+        }
+        _ => Err(YntraError::SerializationError(format!(
+            "Missing or invalid field: {}",
+            key
+        ))),
     }
 }
 
 fn get_opt_string(map: &loro::LoroMap, key: &str) -> Result<Option<String>, YntraError> {
     match map.get(key) {
-        Some(loro::ValueOrContainer::Value(loro::LoroValue::String(s))) => Ok(Some(s.as_ref().to_string())),
+        Some(loro::ValueOrContainer::Value(loro::LoroValue::String(s))) => {
+            Ok(Some(s.as_ref().to_string()))
+        }
         Some(loro::ValueOrContainer::Value(loro::LoroValue::Null)) | None => Ok(None),
-        _ => Err(YntraError::SerializationError(format!("Invalid field: {}", key))),
+        _ => Err(YntraError::SerializationError(format!(
+            "Invalid field: {}",
+            key
+        ))),
     }
 }
 
 fn get_bool(map: &loro::LoroMap, key: &str) -> Result<bool, YntraError> {
     match map.get(key) {
         Some(loro::ValueOrContainer::Value(loro::LoroValue::Bool(b))) => Ok(b),
-        _ => Err(YntraError::SerializationError(format!("Missing or invalid field: {}", key))),
+        _ => Err(YntraError::SerializationError(format!(
+            "Missing or invalid field: {}",
+            key
+        ))),
     }
 }
 
 fn get_i64(map: &loro::LoroMap, key: &str) -> Result<i64, YntraError> {
     match map.get(key) {
         Some(loro::ValueOrContainer::Value(loro::LoroValue::I64(v))) => Ok(v),
-        _ => Err(YntraError::SerializationError(format!("Missing or invalid field: {}", key))),
+        _ => Err(YntraError::SerializationError(format!(
+            "Missing or invalid field: {}",
+            key
+        ))),
     }
 }
 
@@ -101,27 +117,45 @@ pub(crate) fn read_all_todos_from_loro(loro: &loro::LoroDoc) -> Result<Vec<TodoI
         if let loro::ValueOrContainer::Container(loro::Container::Map(item_map)) = val {
             let id = match get_string(&item_map, "id") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let workspace_id = match get_string(&item_map, "workspace_id") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let text = match get_string(&item_map, "text") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let completed = match get_bool(&item_map, "completed") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let updated_at = match get_i64(&item_map, "updated_at") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let sync_status = match get_string(&item_map, "sync_status") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             todos.push(TodoItem {
                 id,
@@ -220,47 +254,80 @@ fn read_all_messages_from_loro(loro: &loro::LoroDoc) -> Result<Vec<MessageItem>,
         if let loro::ValueOrContainer::Container(loro::Container::Map(item_map)) = val {
             let id = match get_string(&item_map, "id") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let workspace_id = match get_string(&item_map, "workspace_id") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let sender_id = match get_opt_string(&item_map, "sender_id") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let receiver_id = match get_opt_string(&item_map, "receiver_id") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let target_team_id = match get_opt_string(&item_map, "target_team_id") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let subject = match get_opt_string(&item_map, "subject") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let body = match get_opt_string(&item_map, "body") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let is_read = match get_bool(&item_map, "is_read") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let created_at = match get_string(&item_map, "created_at") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let updated_at = match get_i64(&item_map, "updated_at") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let sync_status = match get_string(&item_map, "sync_status") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             messages.push(MessageItem {
                 id,
@@ -364,43 +431,73 @@ fn read_all_audits_from_loro(loro: &loro::LoroDoc) -> Result<Vec<AuditLogEntry>,
         if let loro::ValueOrContainer::Container(loro::Container::Map(item_map)) = val {
             let id = match get_string(&item_map, "id") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let workspace_id = match get_string(&item_map, "workspace_id") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let actor_id = match get_string(&item_map, "actor_id") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let target_client_id = match get_opt_string(&item_map, "target_client_id") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let action_type = match get_string(&item_map, "action_type") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let timestamp = match get_i64(&item_map, "timestamp") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let prev_hash = match get_string(&item_map, "prev_hash") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let curr_hash = match get_string(&item_map, "curr_hash") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let seq = match get_i64(&item_map, "seq") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let signature = match get_opt_string(&item_map, "signature") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             entries.push(AuditLogEntry {
                 id,
@@ -499,43 +596,73 @@ pub(crate) fn read_all_notes_from_loro(loro: &loro::LoroDoc) -> Result<Vec<Daily
         if let loro::ValueOrContainer::Container(loro::Container::Map(item_map)) = val {
             let id = match get_string(&item_map, "id") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let workspace_id = match get_string(&item_map, "workspace_id") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let team_id = match get_string(&item_map, "team_id") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let author_id = match get_opt_string(&item_map, "author_id") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let subject = match get_string(&item_map, "subject") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let content = match get_string(&item_map, "content") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let edit_history = match get_string(&item_map, "edit_history") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let created_at = match get_string(&item_map, "created_at") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let updated_at = match get_i64(&item_map, "updated_at") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             let sync_status = match get_string(&item_map, "sync_status") {
                 Ok(v) => v,
-                Err(e) => { err = Some(e); return; }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
             };
             notes.push(DailyNote {
                 id,
@@ -614,15 +741,19 @@ macro_rules! impl_upsert_item {
                         std::mem::align_of::<rkyv::Archived<$t>>(),
                     );
                     let list: Vec<$t> = if (rkyv_slice.as_ptr() as usize) % required_align == 0 {
-                        let archived = rkyv::access::<rkyv::Archived<Vec<$t>>, rkyv::rancor::Error>(rkyv_slice)
+                        let archived =
+                            rkyv::access::<rkyv::Archived<Vec<$t>>, rkyv::rancor::Error>(
+                                rkyv_slice,
+                            )
                             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
                         rkyv::deserialize::<Vec<$t>, rkyv::rancor::Error>(archived)
                             .map_err(|e| YntraError::SerializationError(e.to_string()))?
                     } else {
                         let mut aligned = rkyv::util::AlignedVec::<16>::new();
                         aligned.extend_from_slice(rkyv_slice);
-                        let archived = rkyv::access::<rkyv::Archived<Vec<$t>>, rkyv::rancor::Error>(&aligned)
-                            .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+                        let archived =
+                            rkyv::access::<rkyv::Archived<Vec<$t>>, rkyv::rancor::Error>(&aligned)
+                                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
                         rkyv::deserialize::<Vec<$t>, rkyv::rancor::Error>(archived)
                             .map_err(|e| YntraError::SerializationError(e.to_string()))?
                     };
@@ -756,17 +887,15 @@ macro_rules! impl_read_all_items {
             std::mem::align_of::<rkyv::Archived<$t>>(),
         );
         let list: Vec<$t> = if (rkyv_slice.as_ptr() as usize) % required_align == 0 {
-            let archived =
-                rkyv::access::<rkyv::Archived<Vec<$t>>, rkyv::rancor::Error>(rkyv_slice)
-                    .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            let archived = rkyv::access::<rkyv::Archived<Vec<$t>>, rkyv::rancor::Error>(rkyv_slice)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             rkyv::deserialize::<Vec<$t>, rkyv::rancor::Error>(archived)
                 .map_err(|e| YntraError::SerializationError(e.to_string()))?
         } else {
             let mut aligned = rkyv::util::AlignedVec::<16>::new();
             aligned.extend_from_slice(rkyv_slice);
-            let archived =
-                rkyv::access::<rkyv::Archived<Vec<$t>>, rkyv::rancor::Error>(&aligned)
-                    .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+            let archived = rkyv::access::<rkyv::Archived<Vec<$t>>, rkyv::rancor::Error>(&aligned)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
             rkyv::deserialize::<Vec<$t>, rkyv::rancor::Error>(archived)
                 .map_err(|e| YntraError::SerializationError(e.to_string()))?
         };
@@ -799,10 +928,9 @@ macro_rules! impl_read_item_zero_copy {
             std::mem::align_of::<rkyv::Archived<$t>>(),
         );
         let item_opt = if (rkyv_slice.as_ptr() as usize) % required_align == 0 {
-            let archived =
-                rkyv::access::<rkyv::Archived<Vec<$t>>, rkyv::rancor::Error>(rkyv_slice)
-                    .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            
+            let archived = rkyv::access::<rkyv::Archived<Vec<$t>>, rkyv::rancor::Error>(rkyv_slice)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+
             let mut low = 0;
             let mut high = archived.len();
             let mut found = None;
@@ -828,10 +956,9 @@ macro_rules! impl_read_item_zero_copy {
         } else {
             let mut aligned = rkyv::util::AlignedVec::<16>::new();
             aligned.extend_from_slice(rkyv_slice);
-            let archived =
-                rkyv::access::<rkyv::Archived<Vec<$t>>, rkyv::rancor::Error>(&aligned)
-                    .map_err(|e| YntraError::SerializationError(e.to_string()))?;
-            
+            let archived = rkyv::access::<rkyv::Archived<Vec<$t>>, rkyv::rancor::Error>(&aligned)
+                .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+
             let mut low = 0;
             let mut high = archived.len();
             let mut found = None;
@@ -871,7 +998,9 @@ macro_rules! impl_apply_loro_update {
     ($self:expr, $update_bytes:expr, $read_fn:path) => {{
         let mut inner = $self.inner.lock_poison_safe();
         *$self.cache.lock_poison_safe() = None;
-        inner.doc().import(&$update_bytes)
+        inner
+            .doc()
+            .import(&$update_bytes)
             .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         let mut items = $read_fn(inner.doc())?;
         items.sort_by(|a, b| a.id.cmp(&b.id));
@@ -892,7 +1021,9 @@ macro_rules! impl_apply_loro_updates_batch {
         let mut inner = $self.inner.lock_poison_safe();
         *$self.cache.lock_poison_safe() = None;
         for update in &$updates {
-            inner.doc().import(update)
+            inner
+                .doc()
+                .import(update)
                 .map_err(|e| YntraError::SerializationError(e.to_string()))?;
         }
         let mut items = $read_fn(inner.doc())?;
@@ -960,7 +1091,10 @@ macro_rules! define_zero_copy_store {
             }
 
             #[doc = $comment_read_zc]
-            pub fn $read_zc_fn_name(&self, item_id: String) -> Result<Option<$item_ty>, YntraError> {
+            pub fn $read_zc_fn_name(
+                &self,
+                item_id: String,
+            ) -> Result<Option<$item_ty>, YntraError> {
                 impl_read_item_zero_copy!(self, item_id, $item_ty)
             }
 
@@ -990,7 +1124,10 @@ macro_rules! define_zero_copy_store {
             }
 
             /// Applies a batch of remote Loro updates to the local document.
-            pub fn apply_loro_updates_batch(&self, updates: Vec<Vec<u8>>) -> Result<(), YntraError> {
+            pub fn apply_loro_updates_batch(
+                &self,
+                updates: Vec<Vec<u8>>,
+            ) -> Result<(), YntraError> {
                 impl_apply_loro_updates_batch!(self, updates, $read_fn)
             }
 
@@ -1052,7 +1189,10 @@ define_zero_copy_store!(
 #[uniffi::export]
 impl ZeroCopyStore {
     /// Reads all todo items for a specific workspace ID.
-    pub fn read_todos_by_workspace(&self, workspace_id: String) -> Result<Vec<TodoItem>, YntraError> {
+    pub fn read_todos_by_workspace(
+        &self,
+        workspace_id: String,
+    ) -> Result<Vec<TodoItem>, YntraError> {
         let all_todos = self.read_all_todos()?;
         Ok(all_todos
             .into_iter()
@@ -1163,8 +1303,13 @@ define_zero_copy_store!(
 /// Creates a new ZeroCopyStore peer instance.
 #[uniffi::export]
 pub fn create_peer_store(name: String) -> Result<ZeroCopyStore, YntraError> {
-    if name.chars().any(|c| !c.is_alphanumeric() && c != '_' && c != '-') {
-        return Err(YntraError::DbError("Invalid peer store name: must be alphanumeric, underscores, or hyphens".to_string()));
+    if name
+        .chars()
+        .any(|c| !c.is_alphanumeric() && c != '_' && c != '-')
+    {
+        return Err(YntraError::DbError(
+            "Invalid peer store name: must be alphanumeric, underscores, or hyphens".to_string(),
+        ));
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -1185,8 +1330,13 @@ pub fn create_peer_store(name: String) -> Result<ZeroCopyStore, YntraError> {
 /// Creates a new ZeroCopyNoteStore peer instance.
 #[uniffi::export]
 pub fn create_peer_note_store(name: String) -> Result<ZeroCopyNoteStore, YntraError> {
-    if name.chars().any(|c| !c.is_alphanumeric() && c != '_' && c != '-') {
-        return Err(YntraError::DbError("Invalid peer store name: must be alphanumeric, underscores, or hyphens".to_string()));
+    if name
+        .chars()
+        .any(|c| !c.is_alphanumeric() && c != '_' && c != '-')
+    {
+        return Err(YntraError::DbError(
+            "Invalid peer store name: must be alphanumeric, underscores, or hyphens".to_string(),
+        ));
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -1208,7 +1358,9 @@ pub fn create_peer_note_store(name: String) -> Result<ZeroCopyNoteStore, YntraEr
 #[wasm_bindgen::prelude::wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_name = yntra_load_store_bin, catch)]
-    async fn js_load_store_bin_stores(file_name: &str) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue>;
+    async fn js_load_store_bin_stores(
+        file_name: &str,
+    ) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue>;
 }
 
 /// Loads a store binary payload from OPFS.
@@ -1229,7 +1381,9 @@ pub async fn load_from_opfs_by_path(file_path: &str) -> Result<Option<Vec<u8>>, 
                 }
             }
             Err(e) => {
-                let msg = e.as_string().unwrap_or_else(|| "Unknown OPFS load error".to_string());
+                let msg = e
+                    .as_string()
+                    .unwrap_or_else(|| "Unknown OPFS load error".to_string());
                 return Err(YntraError::DbError(msg));
             }
         }

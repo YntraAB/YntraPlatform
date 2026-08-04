@@ -206,7 +206,11 @@ pub async fn reconcile_role_signatures(requester_user_id: String) -> Result<(), 
                 Err(e) => {
                     let _ = conn.rollback().await;
                     // Clean up keyring key to avoid orphaned private key on rollback
-                    let _ = crate::infra::crypto::set_local_secret(&format!("creator_private_key_{}", auth.workspace_id), "").await;
+                    let _ = crate::infra::crypto::set_local_secret(
+                        &format!("creator_private_key_{}", auth.workspace_id),
+                        "",
+                    )
+                    .await;
                     return Err(e);
                 }
             }

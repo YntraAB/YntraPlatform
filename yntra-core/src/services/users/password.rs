@@ -161,10 +161,7 @@ pub async fn verify_email_password(
                 let enc_key_str = enc_key.to_string();
                 #[cfg(not(target_arch = "wasm32"))]
                 let dec_res = tokio::task::spawn_blocking(move || {
-                    crate::infra::crypto::decrypt_workspace_key_with_password(
-                        pwd,
-                        &enc_key_str,
-                    )
+                    crate::infra::crypto::decrypt_workspace_key_with_password(pwd, &enc_key_str)
                 })
                 .await
                 .unwrap_or_else(|e| Err(YntraError::CryptoError(e.to_string())));

@@ -1,4 +1,5 @@
 mod academics;
+mod attendance;
 mod auth;
 mod billing;
 mod conflicts;
@@ -6,23 +7,22 @@ mod health;
 mod library;
 mod profiles;
 mod timetable;
-mod attendance;
 
 #[cfg(test)]
 mod tests;
 
 // Re-export public functions from sub-modules so they appear at services::school::*
 pub use academics::*;
+pub use attendance::*;
 pub use auth::check_school_permission;
 pub use billing::*;
+pub use conflicts::delete_school_conflict;
 pub use conflicts::get_school_conflicts;
 pub use conflicts::resolve_school_conflict;
-pub use conflicts::delete_school_conflict;
 pub use health::*;
 pub use library::*;
 pub use profiles::*;
 pub use timetable::*;
-pub use attendance::*;
 
 use crate::database;
 use crate::infra::errors::YntraError;
@@ -37,7 +37,9 @@ pub async fn save_blob(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -51,10 +53,7 @@ pub async fn save_blob(
 }
 
 #[uniffi::export]
-pub async fn get_blob(
-    requester_user_id: String,
-    sha256: String,
-) -> Result<String, YntraError> {
+pub async fn get_blob(requester_user_id: String, sha256: String) -> Result<String, YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
@@ -68,7 +67,9 @@ pub async fn get_blob(
         .map_err(|_| YntraError::NotFoundError(format!("Blob not found: {}", sha256)))?;
 
     if auth.role != "platform_admin" && auth.workspace_id != ws_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     Ok(data)

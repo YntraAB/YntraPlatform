@@ -1,6 +1,6 @@
+use crate::JobTicket;
 use crate::database;
 use crate::infra::errors::YntraError;
-use crate::JobTicket;
 
 fn urlencode(s: &str) -> String {
     let mut encoded = String::new();
@@ -72,7 +72,10 @@ pub async fn geocode(workspace_id: &str, address: &str) -> (f64, f64) {
         .get("default_geocoding_latitude")
         .and_then(|v| v.as_f64())
         .or_else(|| {
-            let country = settings_json.get("company_country").and_then(|v| v.as_str()).unwrap_or("");
+            let country = settings_json
+                .get("company_country")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             match country.to_lowercase().as_str() {
                 "us" | "usa" | "united states" => Some(37.7749),
                 "de" | "germany" | "deutschland" => Some(52.5200),
@@ -89,7 +92,10 @@ pub async fn geocode(workspace_id: &str, address: &str) -> (f64, f64) {
         .get("default_geocoding_longitude")
         .and_then(|v| v.as_f64())
         .or_else(|| {
-            let country = settings_json.get("company_country").and_then(|v| v.as_str()).unwrap_or("");
+            let country = settings_json
+                .get("company_country")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             match country.to_lowercase().as_str() {
                 "us" | "usa" | "united states" => Some(-122.4194),
                 "de" | "germany" | "deutschland" => Some(13.4050),
@@ -118,7 +124,9 @@ pub async fn geocode(workspace_id: &str, address: &str) -> (f64, f64) {
         Err(_) => {
             tracing::warn!(
                 "Geocoder HTTP client initialization failed. Falling back to mock geocoding centered at ({:.4}, {:.4}) for address: {}",
-                center_lat, center_lng, address
+                center_lat,
+                center_lng,
+                address
             );
             return mock_geocode_with_center(address, center_lat, center_lng);
         }
@@ -128,9 +136,13 @@ pub async fn geocode(workspace_id: &str, address: &str) -> (f64, f64) {
         "google" => {
             let key = if api_key.is_empty() {
                 #[cfg(not(target_arch = "wasm32"))]
-                { std::env::var("GOOGLE_MAPS_API_KEY").unwrap_or_default() }
+                {
+                    std::env::var("GOOGLE_MAPS_API_KEY").unwrap_or_default()
+                }
                 #[cfg(target_arch = "wasm32")]
-                { "".to_string() }
+                {
+                    "".to_string()
+                }
             } else {
                 api_key.to_string()
             };
@@ -138,7 +150,9 @@ pub async fn geocode(workspace_id: &str, address: &str) -> (f64, f64) {
             if key.is_empty() {
                 tracing::warn!(
                     "Google Maps API key missing. Falling back to mock geocoding centered at ({:.4}, {:.4}) for address: {}",
-                    center_lat, center_lng, address
+                    center_lat,
+                    center_lng,
+                    address
                 );
                 return mock_geocode_with_center(address, center_lat, center_lng);
             }
@@ -178,9 +192,13 @@ pub async fn geocode(workspace_id: &str, address: &str) -> (f64, f64) {
         "mapbox" => {
             let token = if api_key.is_empty() {
                 #[cfg(not(target_arch = "wasm32"))]
-                { std::env::var("MAPBOX_ACCESS_TOKEN").unwrap_or_default() }
+                {
+                    std::env::var("MAPBOX_ACCESS_TOKEN").unwrap_or_default()
+                }
                 #[cfg(target_arch = "wasm32")]
-                { "".to_string() }
+                {
+                    "".to_string()
+                }
             } else {
                 api_key.to_string()
             };
@@ -188,7 +206,9 @@ pub async fn geocode(workspace_id: &str, address: &str) -> (f64, f64) {
             if token.is_empty() {
                 tracing::warn!(
                     "Mapbox access token missing. Falling back to mock geocoding centered at ({:.4}, {:.4}) for address: {}",
-                    center_lat, center_lng, address
+                    center_lat,
+                    center_lng,
+                    address
                 );
                 return mock_geocode_with_center(address, center_lat, center_lng);
             }
@@ -292,7 +312,9 @@ pub async fn geocode(workspace_id: &str, address: &str) -> (f64, f64) {
 
     tracing::warn!(
         "Geocoding API request failed or returned empty results. Falling back to mock geocoding centered at ({:.4}, {:.4}) for address: {}",
-        center_lat, center_lng, address
+        center_lat,
+        center_lng,
+        address
     );
     mock_geocode_with_center(address, center_lat, center_lng)
 }
@@ -332,7 +354,11 @@ async fn get_road_distances_osrm(
         if let Ok(table) = resp.json::<OSRMTableResponse>().await {
             if let Some(distances_rows) = table.distances {
                 if let Some(first_row) = distances_rows.first() {
-                    let dists: Vec<f64> = first_row.iter().skip(1).map(|opt| opt.unwrap_or(f64::MAX)).collect();
+                    let dists: Vec<f64> = first_row
+                        .iter()
+                        .skip(1)
+                        .map(|opt| opt.unwrap_or(f64::MAX))
+                        .collect();
                     if dists.len() == targets.len() {
                         return Some(dists);
                     }
@@ -408,8 +434,10 @@ pub async fn optimize_route(
         let mut queried_distances = None;
         if routing_provider == "osrm" && !routing_url.is_empty() {
             if let Some(ref cl) = client {
-                let targets: Vec<(f64, f64)> = unvisited.iter().map(|(coords, _)| *coords).collect();
-                queried_distances = get_road_distances_osrm(cl, routing_url, current_pos, &targets).await;
+                let targets: Vec<(f64, f64)> =
+                    unvisited.iter().map(|(coords, _)| *coords).collect();
+                queried_distances =
+                    get_road_distances_osrm(cl, routing_url, current_pos, &targets).await;
             }
         }
 
@@ -498,7 +526,9 @@ pub async fn get_directions_url(
     }
 
     let origin = job.origin_address.filter(|s| !s.trim().is_empty());
-    let dest = job.destination_address.filter(|s| !s.trim().is_empty())
+    let dest = job
+        .destination_address
+        .filter(|s| !s.trim().is_empty())
         .unwrap_or(job.location_address);
 
     let stops_str = job.route_stops_json.unwrap_or_else(|| "[]".to_string());
@@ -571,11 +601,15 @@ pub async fn get_commercial_truck_directions_url(
         .map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
 
     if auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let origin = origin_address.filter(|s| !s.trim().is_empty());
-    let dest = destination_address.filter(|s| !s.trim().is_empty()).unwrap_or(location_address);
+    let dest = destination_address
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or(location_address);
 
     let stops_str = route_stops_json.unwrap_or_else(|| "[]".to_string());
     let stops: Vec<String> = serde_json::from_str(&stops_str).unwrap_or_default();
@@ -607,10 +641,20 @@ pub async fn get_commercial_truck_directions_url(
             let waypoints_part = if stops.is_empty() {
                 "".to_string()
             } else {
-                format!("&waypoints={}", stops.iter().map(|s| urlencode(s)).collect::<Vec<_>>().join("%7C"))
+                format!(
+                    "&waypoints={}",
+                    stops
+                        .iter()
+                        .map(|s| urlencode(s))
+                        .collect::<Vec<_>>()
+                        .join("%7C")
+                )
             };
 
-            let origin_part = origin.as_deref().map(|org| format!("&origin={}", urlencode(org))).unwrap_or_default();
+            let origin_part = origin
+                .as_deref()
+                .map(|org| format!("&origin={}", urlencode(org)))
+                .unwrap_or_default();
 
             format!(
                 "https://www.google.com/maps/dir/?api=1{}&destination={}{}&travelmode=truck&dirflg=t",
@@ -645,7 +689,9 @@ pub async fn verify_commercial_route_restrictions(
         .map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
 
     if auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let combined_addresses = format!(
@@ -653,7 +699,8 @@ pub async fn verify_commercial_route_restrictions(
         origin_address.unwrap_or_default(),
         destination_address.unwrap_or_default(),
         location_address
-    ).to_lowercase();
+    )
+    .to_lowercase();
 
     let mut details = Vec::new();
     let mut low_bridge_warning = false;
@@ -664,26 +711,52 @@ pub async fn verify_commercial_route_restrictions(
     // 1. Height clearance check (< 3.8m standard clearance)
     if vehicle_height_m >= 3.8 {
         low_bridge_warning = true;
-        details.push(format!("Low bridge height clearance risk: vehicle height {:.1}m exceeds 3.8m limit.", vehicle_height_m));
+        details.push(format!(
+            "Low bridge height clearance risk: vehicle height {:.1}m exceeds 3.8m limit.",
+            vehicle_height_m
+        ));
     }
 
     // 2. Weight limit check (> 3.5 tons residential roads)
     if vehicle_weight_tons >= 3.5 {
         weight_limit_warning = true;
-        details.push(format!("Heavy vehicle weight limit risk: {:.1}t vehicle exceeds 3.5t residential zone limit.", vehicle_weight_tons));
+        details.push(format!(
+            "Heavy vehicle weight limit risk: {:.1}t vehicle exceeds 3.5t residential zone limit.",
+            vehicle_weight_tons
+        ));
     }
 
     // 3. Environmental Zone (Miljözon / LEZ) check for major cities
-    let env_zone_cities = ["stockholm", "göteborg", "gothenburg", "malmö", "malmo", "berlin", "london", "paris", "munich", "hamburg"];
-    let is_env_zone_city = env_zone_cities.iter().any(|city| combined_addresses.contains(city));
+    let env_zone_cities = [
+        "stockholm",
+        "göteborg",
+        "gothenburg",
+        "malmö",
+        "malmo",
+        "berlin",
+        "london",
+        "paris",
+        "munich",
+        "hamburg",
+    ];
+    let is_env_zone_city = env_zone_cities
+        .iter()
+        .any(|city| combined_addresses.contains(city));
 
-    if is_env_zone_city && (emission_class.to_lowercase().contains("euro 4") || emission_class.to_lowercase().contains("euro 5") || emission_class.to_lowercase().contains("diesel")) {
+    if is_env_zone_city
+        && (emission_class.to_lowercase().contains("euro 4")
+            || emission_class.to_lowercase().contains("euro 5")
+            || emission_class.to_lowercase().contains("diesel"))
+    {
         environmental_zone_warning = true;
         details.push(format!("Environmental Zone (Miljözon) warning: Emission class '{}' requires Class 1/2 permit in target city zone.", emission_class));
     }
 
     if parking_permit_required {
-        details.push("Commercial truck parking permit required for loading/unloading at target address.".to_string());
+        details.push(
+            "Commercial truck parking permit required for loading/unloading at target address."
+                .to_string(),
+        );
     }
 
     Ok(crate::CommercialRouteRestrictions {
@@ -744,7 +817,12 @@ pub async fn calculate_multi_segment_move_route(
         let duration_mins = (road_dist / 45.0 * 60.0).round();
 
         let seg_lower = end.to_lowercase();
-        let is_sit = seg_lower.contains("lager") || seg_lower.contains("storage") || seg_lower.contains("depå") || seg_lower.contains("förvaring") || seg_lower.contains("magasin") || seg_lower.contains("sit");
+        let is_sit = seg_lower.contains("lager")
+            || seg_lower.contains("storage")
+            || seg_lower.contains("depå")
+            || seg_lower.contains("förvaring")
+            || seg_lower.contains("magasin")
+            || seg_lower.contains("sit");
         if is_sit {
             sit_count += 1;
         }
@@ -799,7 +877,9 @@ pub async fn get_job_multi_segment_route(
         .map_err(|_| YntraError::NotFoundError("Job not found".to_string()))?;
 
     if auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let origin = origin_address.unwrap_or_default();
@@ -825,7 +905,9 @@ mod multi_segment_tests {
             "Kungsgatan 1, Stockholm".to_string(),
             waypoints,
             "Stora Torget 5, Uppsala".to_string(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         assert_eq!(res.total_segments, 3);
         assert_eq!(res.storage_in_transit_stops, 1);

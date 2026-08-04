@@ -48,7 +48,7 @@ pub async fn update_user_presence(
     {
         let mut store = PRESENCE_STORE.lock().unwrap_or_else(|e| e.into_inner());
         let list = store.entry(workspace_id.clone()).or_insert_with(Vec::new);
-        
+
         // Retain fresh presences
         clean_stale_presences(list, now_ms);
 
@@ -76,7 +76,7 @@ pub async fn get_workspace_presences(
     let now_ms = crate::infra::time::get_current_time_ms().max(0) as u64;
     let mut store = PRESENCE_STORE.lock().unwrap_or_else(|e| e.into_inner());
     let list = store.entry(workspace_id).or_insert_with(Vec::new);
-    
+
     clean_stale_presences(list, now_ms);
     Ok(list.clone())
 }
@@ -116,11 +116,15 @@ mod tests {
         .await;
 
         assert!(res.is_ok());
-        let list = get_workspace_presences(u1.clone(), ws.clone()).await.unwrap();
+        let list = get_workspace_presences(u1.clone(), ws.clone())
+            .await
+            .unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].user_name, "User One");
 
-        let block_list = get_block_presences(u1, ws, "messaging".to_string()).await.unwrap();
+        let block_list = get_block_presences(u1, ws, "messaging".to_string())
+            .await
+            .unwrap();
         assert_eq!(block_list.len(), 1);
     }
 }

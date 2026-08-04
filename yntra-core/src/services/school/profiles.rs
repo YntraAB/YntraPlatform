@@ -2,7 +2,9 @@ use crate::database;
 use crate::infra::errors::YntraError;
 use crate::infra::observer::notify_observers;
 use crate::services::notes::verify_zkp_if_encrypted;
-use crate::services::school::auth::{verify_school_write_zkp, verify_school_permission, verify_student_access};
+use crate::services::school::auth::{
+    verify_school_permission, verify_school_write_zkp, verify_student_access,
+};
 use crate::services::school::conflicts::record_school_conflict;
 use crate::{StudentProfile, WorkspaceUser};
 
@@ -14,7 +16,9 @@ pub async fn get_student_profiles(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let role_lower = auth.role.to_lowercase();
@@ -40,7 +44,8 @@ pub async fn get_student_profiles(
                 parent_contact: row.get(6)?,
                 updated_at: row.get(7)?,
             })
-        }).await?
+        })
+        .await?
     } else if role_lower == "parent" || role_lower == "role-school-parent" {
         stmt.query_map(crate::params![workspace_id, &auth.user_id], |row| {
             Ok(StudentProfile {
@@ -53,7 +58,8 @@ pub async fn get_student_profiles(
                 parent_contact: row.get(6)?,
                 updated_at: row.get(7)?,
             })
-        }).await?
+        })
+        .await?
     } else {
         stmt.query_map(crate::params![workspace_id], |row| {
             Ok(StudentProfile {
@@ -66,7 +72,8 @@ pub async fn get_student_profiles(
                 parent_contact: row.get(6)?,
                 updated_at: row.get(7)?,
             })
-        }).await?
+        })
+        .await?
     };
 
     Ok(list)
@@ -81,18 +88,52 @@ pub async fn save_student_profile(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != profile.workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
     verify_school_permission(&auth, "can_manage_students")?;
 
     let team_id = "";
-    verify_zkp_if_encrypted(&conn, &profile.first_name, &auth.user_id, &auth.role, &profile.workspace_id, team_id).await?;
-    verify_zkp_if_encrypted(&conn, &profile.last_name, &auth.user_id, &auth.role, &profile.workspace_id, team_id).await?;
-    verify_zkp_if_encrypted(&conn, &profile.grade_level, &auth.user_id, &auth.role, &profile.workspace_id, team_id).await?;
+    verify_zkp_if_encrypted(
+        &conn,
+        &profile.first_name,
+        &auth.user_id,
+        &auth.role,
+        &profile.workspace_id,
+        team_id,
+    )
+    .await?;
+    verify_zkp_if_encrypted(
+        &conn,
+        &profile.last_name,
+        &auth.user_id,
+        &auth.role,
+        &profile.workspace_id,
+        team_id,
+    )
+    .await?;
+    verify_zkp_if_encrypted(
+        &conn,
+        &profile.grade_level,
+        &auth.user_id,
+        &auth.role,
+        &profile.workspace_id,
+        team_id,
+    )
+    .await?;
     if let Some(ref contact) = profile.parent_contact {
-        verify_zkp_if_encrypted(&conn, contact, &auth.user_id, &auth.role, &profile.workspace_id, team_id).await?;
+        verify_zkp_if_encrypted(
+            &conn,
+            contact,
+            &auth.user_id,
+            &auth.role,
+            &profile.workspace_id,
+            team_id,
+        )
+        .await?;
     }
 
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -104,7 +145,13 @@ pub async fn save_student_profile(
             .await?;
         let mut rows = stmt.query(crate::params![&profile.id]).await?;
         if let Some(row) = rows.next().await? {
-            Some((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+            Some((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
         } else {
             None
         }
@@ -115,8 +162,14 @@ pub async fn save_student_profile(
     let mut grade_level = profile.grade_level.clone();
     let mut parent_contact = profile.parent_contact.clone();
 
-    let incoming_updated_at = if profile.updated_at > now_ms + 5000 { now_ms } else { profile.updated_at };
-    if let Some((old_first_name, old_last_name, old_grade, old_parent_contact, old_updated_at)) = existing {
+    let incoming_updated_at = if profile.updated_at > now_ms + 5000 {
+        now_ms
+    } else {
+        profile.updated_at
+    };
+    if let Some((old_first_name, old_last_name, old_grade, old_parent_contact, old_updated_at)) =
+        existing
+    {
         if old_updated_at > incoming_updated_at {
             let first_diff = old_first_name != profile.first_name;
             let last_diff = old_last_name != profile.last_name;
@@ -145,8 +198,15 @@ pub async fn save_student_profile(
                         }
                     ]
                 });
-                
-                record_school_conflict(&conn, &profile.workspace_id, "student_profiles", &profile.id, mvr).await?;
+
+                record_school_conflict(
+                    &conn,
+                    &profile.workspace_id,
+                    "student_profiles",
+                    &profile.id,
+                    mvr,
+                )
+                .await?;
 
                 // Keep database clean using Last-Write-Wins (which is the database version, since old_updated_at > profile.updated_at)
                 first_name = old_first_name;
@@ -182,18 +242,27 @@ pub async fn delete_student_profile(
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    
-    let ws_id: String = conn.query_row(
-        "SELECT workspace_id FROM student_profiles WHERE id = ?1",
-        crate::params![&id],
-        |r| r.get(0)
-    ).await.map_err(|_| YntraError::NotFoundError("Student profile not found".to_string()))?;
+
+    let ws_id: String = conn
+        .query_row(
+            "SELECT workspace_id FROM student_profiles WHERE id = ?1",
+            crate::params![&id],
+            |r| r.get(0),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Student profile not found".to_string()))?;
 
     if auth.role != "platform_admin" && auth.workspace_id != ws_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
-    conn.execute("DELETE FROM student_profiles WHERE id = ?1", crate::params![&id]).await?;
+    conn.execute(
+        "DELETE FROM student_profiles WHERE id = ?1",
+        crate::params![&id],
+    )
+    .await?;
     notify_observers();
     Ok(())
 }
@@ -209,7 +278,9 @@ pub async fn link_parent_to_student(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
@@ -234,14 +305,16 @@ pub async fn link_student_self_service(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let parent_email: String = conn
         .query_row(
             "SELECT email FROM users WHERE id = ?1 AND workspace_id = ?2",
             crate::params![&auth.user_id, &workspace_id],
-            |r| r.get(0)
+            |r| r.get(0),
         )
         .await
         .map_err(|_| YntraError::NotFoundError("Parent user not found".to_string()))?;
@@ -250,7 +323,7 @@ pub async fn link_student_self_service(
         .query_row(
             "SELECT parent_contact FROM student_profiles WHERE id = ?1 AND workspace_id = ?2",
             crate::params![&student_id, &workspace_id],
-            |r| r.get(0)
+            |r| r.get(0),
         )
         .await
         .map_err(|_| YntraError::NotFoundError("Student profile not found".to_string()))?;
@@ -268,7 +341,9 @@ pub async fn link_student_self_service(
         }
     }
 
-    Err(YntraError::AuthError("Verification failed: parent contact info does not match student profile".to_string()))
+    Err(YntraError::AuthError(
+        "Verification failed: parent contact info does not match student profile".to_string(),
+    ))
 }
 
 #[uniffi::export]
@@ -280,7 +355,9 @@ pub async fn get_student_parents(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     verify_student_access(&conn, &auth, &student_id).await?;
@@ -298,7 +375,7 @@ pub async fn get_student_parents(
         .query_map(crate::params![student_id, workspace_id], |row| {
             let id: String = row.get(0)?;
             let metadata_str: Option<String> = row.get(7)?;
-            
+
             let mut siths_card_id = None;
             let mut nfc_badge_uid = None;
             let mut personal_number = None;
@@ -362,7 +439,9 @@ pub async fn get_parent_students(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let mut stmt = conn

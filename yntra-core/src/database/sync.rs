@@ -35,9 +35,19 @@ pub async fn get_mobile_sync_queue_summary(workspace_id: String) -> Result<u32, 
     let conn = crate::database::acquire_connection().await?;
     let mut total_pending = 0u32;
 
-    let tables = vec!["time_reports", "messages", "notes", "todos", "reports", "job_tickets"];
+    let tables = vec![
+        "time_reports",
+        "messages",
+        "notes",
+        "todos",
+        "reports",
+        "job_tickets",
+    ];
     for table in tables {
-        let query = format!("SELECT count(*) FROM {} WHERE workspace_id = ?1 AND sync_status = 'pending'", table);
+        let query = format!(
+            "SELECT count(*) FROM {} WHERE workspace_id = ?1 AND sync_status = 'pending'",
+            table
+        );
         let count: i64 = conn
             .query_row(&query, crate::params![&workspace_id], |r| r.get(0))
             .await
@@ -49,28 +59,53 @@ pub async fn get_mobile_sync_queue_summary(workspace_id: String) -> Result<u32, 
 }
 
 #[uniffi::export]
-pub async fn perform_os_background_sync(workspace_id: String) -> Result<MobileSyncResult, YntraError> {
+pub async fn perform_os_background_sync(
+    workspace_id: String,
+) -> Result<MobileSyncResult, YntraError> {
     let timestamp_ms = crate::infra::time::get_current_time_ms();
     let sync_res = sync_database().await;
 
-    let pending_queue_count = get_mobile_sync_queue_summary(workspace_id.clone()).await.unwrap_or(0);
+    let pending_queue_count = get_mobile_sync_queue_summary(workspace_id.clone())
+        .await
+        .unwrap_or(0);
     crate::infra::observer::notify_sync_status_changed(pending_queue_count);
 
+    if sync_res.is_ok() {
+        let _ = crate::services::semantic_guardrails::trigger_post_sync_guardrails(
+            &workspace_id,
+        )
+        .await;
+        let _ = crate::database::thin_sync::purge_expired_thin_sync_cache(
+            "system_sync".to_string(),
+            workspace_id.clone(),
+        )
+        .await;
+    }
+
     match sync_res {
-        Ok(_) => Ok(MobileSyncResult {
-            success: true,
-            synced_rows_count: 0,
-            pending_sync_queue_count: pending_queue_count,
-            error_message: None,
-            timestamp_ms,
-        }),
-        Err(e) => Ok(MobileSyncResult {
-            success: false,
-            synced_rows_count: 0,
-            pending_sync_queue_count: pending_queue_count,
-            error_message: Some(e.to_string()),
-            timestamp_ms,
-        }),
+        Ok(_) => {
+            let _ = crate::infra::crypto::touch_session_sync_timestamp(workspace_id.clone());
+            Ok(MobileSyncResult {
+                success: true,
+                synced_rows_count: 0,
+                pending_sync_queue_count: pending_queue_count,
+                error_message: None,
+                timestamp_ms,
+            })
+        }
+        Err(e) => {
+            let err_msg = e.to_string();
+            if err_msg.contains("Unauthorized") || err_msg.contains("401") || err_msg.contains("revoked") {
+                let _ = crate::infra::crypto::revoke_ephemeral_session_token("".to_string());
+            }
+            Ok(MobileSyncResult {
+                success: false,
+                synced_rows_count: 0,
+                pending_sync_queue_count: pending_queue_count,
+                error_message: Some(err_msg),
+                timestamp_ms,
+            })
+        }
     }
 }
 
@@ -131,7 +166,10 @@ extern "C" {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn row_get_json_value(row: &crate::database::Row, idx: usize) -> Result<serde_json::Value, YntraError> {
+fn row_get_json_value(
+    row: &crate::database::Row,
+    idx: usize,
+) -> Result<serde_json::Value, YntraError> {
     let val = row.get_value(idx as i32)?;
     let json_val = match val {
         libsql::Value::Null => serde_json::Value::Null,
@@ -194,13 +232,9 @@ async fn check_is_unprivileged() -> bool {
         .await
         .ok()
     } else {
-        conn.query_row(
-            "SELECT role FROM users LIMIT 1",
-            (),
-            |r| r.get(0),
-        )
-        .await
-        .ok()
+        conn.query_row("SELECT role FROM users LIMIT 1", (), |r| r.get(0))
+            .await
+            .ok()
     };
 
     if let Some(role) = role {
@@ -219,29 +253,32 @@ async fn sync_database_row_level(url: String, token: String) -> Result<(), Yntra
 
     // 1. Get logged-in user ID, role, and workspace ID
     let active_user_id = get_sync_active_user_id();
-    let (user_id, role, _workspace_id): (String, String, String) = if let Some(target_uid) = active_user_id {
-        match conn
-            .query_row(
-                "SELECT id, role, workspace_id FROM users WHERE id = ?1",
-                crate::params![&target_uid],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-            )
-            .await
-        {
-            Ok(res) => res,
-            Err(_) => return Ok(()),
-        }
-    } else {
-        match conn
-            .query_row("SELECT id, role, workspace_id FROM users LIMIT 1", (), |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-            })
-            .await
-        {
-            Ok(res) => res,
-            Err(_) => return Ok(()), // No user logged in, nothing to sync
-        }
-    };
+    let (user_id, role, _workspace_id): (String, String, String) =
+        if let Some(target_uid) = active_user_id {
+            match conn
+                .query_row(
+                    "SELECT id, role, workspace_id FROM users WHERE id = ?1",
+                    crate::params![&target_uid],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .await
+            {
+                Ok(res) => res,
+                Err(_) => return Ok(()),
+            }
+        } else {
+            match conn
+                .query_row(
+                    "SELECT id, role, workspace_id FROM users LIMIT 1",
+                    (),
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .await
+            {
+                Ok(res) => res,
+                Err(_) => return Ok(()), // No user logged in, nothing to sync
+            }
+        };
 
     // Get ZK role proof from memory config
     let role_proof = get_sync_role_proof();
@@ -274,7 +311,9 @@ async fn sync_database_row_level(url: String, token: String) -> Result<(), Yntra
     for &table in &tables {
         // We also need the column names of the table to build the INSERT statement dynamically
         let mut columns = Vec::new();
-        let mut info_stmt = conn.prepare(&format!("PRAGMA table_info({})", table)).await?;
+        let mut info_stmt = conn
+            .prepare(&format!("PRAGMA table_info({})", table))
+            .await?;
         let mut info_rows = info_stmt.query(()).await?;
         while let Some(row) = info_rows.next().await? {
             let col_name: String = row.get(1)?;
@@ -285,7 +324,10 @@ async fn sync_database_row_level(url: String, token: String) -> Result<(), Yntra
         let mut pending_writes = Vec::new();
         {
             let mut query_stmt = conn
-                .prepare(&format!("SELECT * FROM {} WHERE sync_status = 'pending'", table))
+                .prepare(&format!(
+                    "SELECT * FROM {} WHERE sync_status = 'pending'",
+                    table
+                ))
                 .await?;
             let mut rows = query_stmt.query(()).await?;
 
@@ -335,15 +377,16 @@ async fn sync_database_row_level(url: String, token: String) -> Result<(), Yntra
                         "sql": sql,
                         "params_json": params_json,
                     });
-                    let req = get_sync_http_client()
-                        .post(&endpoint)
-                        .json(&body);
+                    let req = get_sync_http_client().post(&endpoint).json(&body);
                     let req = if !token.is_empty() {
                         req.header("Authorization", format!("Bearer {}", token))
                     } else {
                         req
                     };
-                    let res = req.send().await.map_err(|e| YntraError::SyncError(e.to_string()))?;
+                    let res = req
+                        .send()
+                        .await
+                        .map_err(|e| YntraError::SyncError(e.to_string()))?;
                     if !res.status().is_success() {
                         return Err(YntraError::SyncError(format!(
                             "Remote execute write failed: status {}",
@@ -375,10 +418,8 @@ async fn sync_database_row_level(url: String, token: String) -> Result<(), Yntra
                     "UPDATE {} SET sync_status = 'synced' WHERE id IN ({})",
                     table, placeholders
                 );
-                let params: Vec<libsql::Value> = synced_ids
-                    .into_iter()
-                    .map(libsql::Value::Text)
-                    .collect();
+                let params: Vec<libsql::Value> =
+                    synced_ids.into_iter().map(libsql::Value::Text).collect();
                 conn.execute(&update_sql, params).await?;
             }
         }
@@ -394,22 +435,25 @@ async fn sync_database_row_level(url: String, token: String) -> Result<(), Yntra
                 "role_proof": role_proof,
                 "table_name": table,
             });
-            let req = get_sync_http_client()
-                .post(&endpoint)
-                .json(&body);
+            let req = get_sync_http_client().post(&endpoint).json(&body);
             let req = if !token.is_empty() {
                 req.header("Authorization", format!("Bearer {}", token))
             } else {
                 req
             };
-            let res = req.send().await.map_err(|e| YntraError::SyncError(e.to_string()))?;
+            let res = req
+                .send()
+                .await
+                .map_err(|e| YntraError::SyncError(e.to_string()))?;
             if !res.status().is_success() {
                 return Err(YntraError::SyncError(format!(
                     "Remote fetch partitioned payload failed: status {}",
                     res.status()
                 )));
             }
-            res.text().await.map_err(|e| YntraError::SyncError(e.to_string()))?
+            res.text()
+                .await
+                .map_err(|e| YntraError::SyncError(e.to_string()))?
         } else {
             let coordinator = crate::RemoteSyncCoordinator::new();
             coordinator
@@ -433,7 +477,9 @@ async fn sync_database_row_level(url: String, token: String) -> Result<(), Yntra
 
             // Fetch columns to check if the table has sync_status
             let mut has_sync_status = false;
-            let mut info_stmt = conn.prepare(&format!("PRAGMA table_info({})", table)).await?;
+            let mut info_stmt = conn
+                .prepare(&format!("PRAGMA table_info({})", table))
+                .await?;
             let mut info_rows = info_stmt.query(()).await?;
             while let Some(row) = info_rows.next().await? {
                 let name: String = row.get(1)?;
@@ -484,7 +530,10 @@ pub async fn sync_database() -> Result<(), YntraError> {
 
     let (url, token) = if let Some(cfg) = config {
         (cfg.url, cfg.token)
-    } else if let (Ok(url), Ok(token)) = (std::env::var("LIBSQL_URL"), std::env::var("LIBSQL_AUTH_TOKEN")) {
+    } else if let (Ok(url), Ok(token)) = (
+        std::env::var("LIBSQL_URL"),
+        std::env::var("LIBSQL_AUTH_TOKEN"),
+    ) {
         (url, token)
     } else {
         ("".to_string(), "".to_string())
@@ -556,7 +605,10 @@ pub async fn get_pending_sync_count() -> Result<i64, YntraError> {
 
     let tables = ["todos", "notes", "reports", "time_reports", "messages"];
     for table in tables {
-        let query = format!("SELECT COUNT(*) FROM {} WHERE sync_status = 'pending'", table);
+        let query = format!(
+            "SELECT COUNT(*) FROM {} WHERE sync_status = 'pending'",
+            table
+        );
         if let Ok(count) = conn.query_row(&query, (), |row| row.get::<i64>(0)).await {
             total_pending += count;
         }
@@ -641,7 +693,6 @@ pub fn stop_background_sync() {
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, uniffi::Record)]
 pub struct SyncQueueSummaryRecord {
-
     pub table_name: String,
     pub pending_count: u32,
     pub last_updated_at: i64,
@@ -667,19 +718,32 @@ pub struct SyncConflictRecord {
 }
 
 #[uniffi::export]
-pub async fn get_sync_queue_breakdown(workspace_id: String) -> Result<Vec<SyncQueueSummaryRecord>, YntraError> {
+pub async fn get_sync_queue_breakdown(
+    workspace_id: String,
+) -> Result<Vec<SyncQueueSummaryRecord>, YntraError> {
     let conn = crate::database::acquire_connection().await?;
     let mut list = Vec::new();
 
-    let tables = vec!["time_reports", "messages", "notes", "todos", "reports", "job_tickets"];
+    let tables = vec![
+        "time_reports",
+        "messages",
+        "notes",
+        "todos",
+        "reports",
+        "job_tickets",
+    ];
     for table in tables {
-        let query = format!("SELECT COUNT(*), COALESCE(MAX(updated_at), 0) FROM {} WHERE workspace_id = ?1 AND sync_status = 'pending'", table);
+        let query = format!(
+            "SELECT COUNT(*), COALESCE(MAX(updated_at), 0) FROM {} WHERE workspace_id = ?1 AND sync_status = 'pending'",
+            table
+        );
         let row_res: Result<(i64, i64), _> = conn
-            .query_row(&query, crate::params![&workspace_id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .query_row(&query, crate::params![&workspace_id], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
             .await;
 
         if let Ok((count, last_updated)) = row_res {
-
             if count > 0 {
                 list.push(SyncQueueSummaryRecord {
                     table_name: table.to_string(),
@@ -694,7 +758,9 @@ pub async fn get_sync_queue_breakdown(workspace_id: String) -> Result<Vec<SyncQu
 }
 
 #[uniffi::export]
-pub async fn get_pending_blob_uploads(workspace_id: String) -> Result<Vec<PendingBlobUpload>, YntraError> {
+pub async fn get_pending_blob_uploads(
+    workspace_id: String,
+) -> Result<Vec<PendingBlobUpload>, YntraError> {
     let conn = crate::database::acquire_connection().await?;
     let mut stmt = conn.prepare(
         "SELECT hash, job_ticket_id, media_type, original_size_bytes, compressed_size_bytes, upload_status FROM offline_media_blobs WHERE workspace_id = ?1 AND upload_status != 'synced'"
@@ -717,7 +783,9 @@ pub async fn get_pending_blob_uploads(workspace_id: String) -> Result<Vec<Pendin
 }
 
 #[uniffi::export]
-pub async fn get_sync_conflicts(workspace_id: String) -> Result<Vec<SyncConflictRecord>, YntraError> {
+pub async fn get_sync_conflicts(
+    workspace_id: String,
+) -> Result<Vec<SyncConflictRecord>, YntraError> {
     let conn = crate::database::acquire_connection().await?;
     let mut list = Vec::new();
 
@@ -734,7 +802,9 @@ pub async fn get_sync_conflicts(workspace_id: String) -> Result<Vec<SyncConflict
         let updated: i64 = row.get(3)?;
 
         let local_json = serde_json::json!({ "subject": subj, "content": content }).to_string();
-        let remote_json = serde_json::json!({ "subject": subj, "content": "Server Loro Delta State" }).to_string();
+        let remote_json =
+            serde_json::json!({ "subject": subj, "content": "Server Loro Delta State" })
+                .to_string();
 
         list.push(SyncConflictRecord {
             table_name: "notes".to_string(),
@@ -760,7 +830,9 @@ pub async fn resolve_sync_conflict(
     let conn = crate::database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -768,7 +840,10 @@ pub async fn resolve_sync_conflict(
     if table_name == "notes" {
         if let Some(custom_json) = custom_resolved_json {
             if let Ok(obj) = serde_json::from_str::<serde_json::Value>(&custom_json) {
-                let content = obj.get("content").and_then(|v| v.as_str()).unwrap_or_default();
+                let content = obj
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
                 conn.execute(
                     "UPDATE notes SET content = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3 AND workspace_id = ?4",
                     crate::params![content, now_ms, &record_id, &workspace_id],
@@ -785,7 +860,6 @@ pub async fn resolve_sync_conflict(
     crate::infra::observer::notify_observers();
     Ok(true)
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -812,7 +886,10 @@ mod tests {
     #[test]
     fn test_sync_active_user_id_configuration() {
         set_sync_active_user_id(Some("user-target-123".to_string()));
-        assert_eq!(get_sync_active_user_id(), Some("user-target-123".to_string()));
+        assert_eq!(
+            get_sync_active_user_id(),
+            Some("user-target-123".to_string())
+        );
         set_sync_active_user_id(None);
         assert_eq!(get_sync_active_user_id(), None);
     }
@@ -832,28 +909,37 @@ mod tests {
         ).await?;
 
         let pending_count = get_mobile_sync_queue_summary("ws-mob-sync".to_string()).await?;
-        assert!(pending_count >= 1, "Pending sync queue should report at least 1 pending item");
+        assert!(
+            pending_count >= 1,
+            "Pending sync queue should report at least 1 pending item"
+        );
 
         let res = perform_os_background_sync("ws-mob-sync".to_string()).await?;
         assert_eq!(res.pending_sync_queue_count, pending_count);
         assert!(res.timestamp_ms > 0);
 
-        conn.execute("DELETE FROM time_reports WHERE workspace_id = 'ws-mob-sync'", ()).await?;
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-mob-sync'", ()).await?;
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-mob-sync'", ()).await?;
+        conn.execute(
+            "DELETE FROM time_reports WHERE workspace_id = 'ws-mob-sync'",
+            (),
+        )
+        .await?;
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-mob-sync'", ())
+            .await?;
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-mob-sync'", ())
+            .await?;
         Ok(())
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
-    async fn test_sync_queue_breakdown_and_conflict_resolution() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_sync_queue_breakdown_and_conflict_resolution()
+    -> Result<(), Box<dyn std::error::Error>> {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
         let conn = crate::database::acquire_connection().await?;
 
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-ux-sync', 'UX WS', '[]', '{}')", ()).await?;
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-ux-1', 'ws-ux-sync', 'ux@sync.io', 'platform_admin')", ()).await?;
         conn.execute("INSERT OR REPLACE INTO teams (id, workspace_id, name) VALUES ('t-1', 'ws-ux-sync', 'UX Team')", ()).await?;
-
 
         conn.execute(
             "INSERT OR REPLACE INTO time_reports (id, workspace_id, user_id, date, hours, note, status, created_at, updated_at, sync_status) VALUES ('tr-ux-1', 'ws-ux-sync', 'u-ux-1', '2026-08-04', 4.0, 'ux test', 'approved', '2026-08-04', 2000, 'pending')",
@@ -877,19 +963,39 @@ mod tests {
         assert_eq!(conflicts[0].table_name, "notes");
 
         // 3. Resolve conflict
-        let ok = resolve_sync_conflict("u-ux-1".to_string(), "ws-ux-sync".to_string(), "notes".to_string(), "n-ux-1".to_string(), "keep_local".to_string(), None).await?;
+        let ok = resolve_sync_conflict(
+            "u-ux-1".to_string(),
+            "ws-ux-sync".to_string(),
+            "notes".to_string(),
+            "n-ux-1".to_string(),
+            "keep_local".to_string(),
+            None,
+        )
+        .await?;
         assert!(ok);
 
-        let status: String = conn.query_row("SELECT sync_status FROM notes WHERE id = 'n-ux-1'", (), |r| r.get(0)).await?;
+        let status: String = conn
+            .query_row(
+                "SELECT sync_status FROM notes WHERE id = 'n-ux-1'",
+                (),
+                |r| r.get(0),
+            )
+            .await?;
         assert_eq!(status, "synced");
 
-        conn.execute("DELETE FROM time_reports WHERE workspace_id = 'ws-ux-sync'", ()).await?;
-        conn.execute("DELETE FROM notes WHERE workspace_id = 'ws-ux-sync'", ()).await?;
-        conn.execute("DELETE FROM teams WHERE workspace_id = 'ws-ux-sync'", ()).await?;
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-ux-sync'", ()).await?;
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-ux-sync'", ()).await?;
+        conn.execute(
+            "DELETE FROM time_reports WHERE workspace_id = 'ws-ux-sync'",
+            (),
+        )
+        .await?;
+        conn.execute("DELETE FROM notes WHERE workspace_id = 'ws-ux-sync'", ())
+            .await?;
+        conn.execute("DELETE FROM teams WHERE workspace_id = 'ws-ux-sync'", ())
+            .await?;
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-ux-sync'", ())
+            .await?;
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-ux-sync'", ())
+            .await?;
         Ok(())
-
     }
 }
-

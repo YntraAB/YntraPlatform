@@ -212,7 +212,8 @@ pub async fn install_industry_template(
     if !active_ids.contains(&block_id) {
         active_ids.push(block_id.clone());
     }
-    let updated_modules_str = serde_json::to_string(&active_ids).unwrap_or_else(|_| "[]".to_string());
+    let updated_modules_str =
+        serde_json::to_string(&active_ids).unwrap_or_else(|_| "[]".to_string());
 
     conn.execute(
         "UPDATE workspaces SET modules_active = ?1 WHERE id = ?2",
@@ -272,7 +273,9 @@ mod tests {
         .await
         .unwrap();
 
-        let templates = get_industry_templates("u-tpl-test".to_string()).await.unwrap();
+        let templates = get_industry_templates("u-tpl-test".to_string())
+            .await
+            .unwrap();
         assert_eq!(templates.len(), 5);
 
         let installed = install_industry_template(

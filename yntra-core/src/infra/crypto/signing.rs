@@ -98,8 +98,8 @@ pub fn generate_role_signature_v2(
     Ok(format!("{}:{}:{}", epoch, expires_at, signature_hex))
 }
 
-use std::sync::Mutex;
 use std::sync::Arc;
+use std::sync::Mutex;
 use zeroize::Zeroize;
 
 #[derive(uniffi::Object)]
@@ -120,13 +120,19 @@ impl WorkspaceKeyPair {
 impl WorkspaceKeyPair {
     /// Returns the private key hex string.
     pub fn private_key(&self) -> zeroize::Zeroizing<String> {
-        self.private_key.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.private_key
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 }
 
 impl Drop for WorkspaceKeyPair {
     fn drop(&mut self) {
-        self.private_key.lock().unwrap_or_else(|e| e.into_inner()).zeroize();
+        self.private_key
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .zeroize();
     }
 }
 
@@ -148,7 +154,8 @@ pub fn generate_workspace_keypair() -> Result<Arc<WorkspaceKeyPair>, YntraError>
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 
-static VERIFYING_KEY_CACHE: OnceLock<RwLock<HashMap<String, ed25519_dalek::VerifyingKey>>> = OnceLock::new();
+static VERIFYING_KEY_CACHE: OnceLock<RwLock<HashMap<String, ed25519_dalek::VerifyingKey>>> =
+    OnceLock::new();
 
 pub fn get_parsed_verifying_key(public_key_hex: &str) -> Option<ed25519_dalek::VerifyingKey> {
     let cache_lock = VERIFYING_KEY_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
@@ -188,7 +195,11 @@ pub fn verify_role_signature(
         2 => ("0", parts[0], parts[1]),
         _ => {
             is_valid = false;
-            ("0", "0", "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000")
+            (
+                "0",
+                "0",
+                "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            )
         }
     };
 
@@ -269,30 +280,70 @@ mod tests {
 
         // 1. Valid signature
         let sig_hex = generate_role_signature(&priv_hex, "user-1", "admin", "ws-1").unwrap();
-        assert!(verify_role_signature(&pub_hex, "user-1", "admin", "ws-1", &sig_hex));
+        assert!(verify_role_signature(
+            &pub_hex, "user-1", "admin", "ws-1", &sig_hex
+        ));
 
         // 2. Invalid role
-        assert!(!verify_role_signature(&pub_hex, "user-1", "member", "ws-1", &sig_hex));
+        assert!(!verify_role_signature(
+            &pub_hex, "user-1", "member", "ws-1", &sig_hex
+        ));
 
         // 3. Invalid user
-        assert!(!verify_role_signature(&pub_hex, "user-2", "admin", "ws-1", &sig_hex));
+        assert!(!verify_role_signature(
+            &pub_hex, "user-2", "admin", "ws-1", &sig_hex
+        ));
 
         // 4. Invalid workspace
-        assert!(!verify_role_signature(&pub_hex, "user-1", "admin", "ws-2", &sig_hex));
+        assert!(!verify_role_signature(
+            &pub_hex, "user-1", "admin", "ws-2", &sig_hex
+        ));
 
         // 5. Malformed signature string (invalid colons / components)
-        assert!(!verify_role_signature(&pub_hex, "user-1", "admin", "ws-1", "invalid_format"));
-        assert!(!verify_role_signature(&pub_hex, "user-1", "admin", "ws-1", "123:invalid_format"));
+        assert!(!verify_role_signature(
+            &pub_hex,
+            "user-1",
+            "admin",
+            "ws-1",
+            "invalid_format"
+        ));
+        assert!(!verify_role_signature(
+            &pub_hex,
+            "user-1",
+            "admin",
+            "ws-1",
+            "123:invalid_format"
+        ));
 
         // 6. Invalid hex signature
-        assert!(!verify_role_signature(&pub_hex, "user-1", "admin", "ws-1", "0:123456789:not_hex"));
+        assert!(!verify_role_signature(
+            &pub_hex,
+            "user-1",
+            "admin",
+            "ws-1",
+            "0:123456789:not_hex"
+        ));
 
         // 7. Invalid length hex signature
-        assert!(!verify_role_signature(&pub_hex, "user-1", "admin", "ws-1", "0:123456789:aabbcc"));
+        assert!(!verify_role_signature(
+            &pub_hex,
+            "user-1",
+            "admin",
+            "ws-1",
+            "0:123456789:aabbcc"
+        ));
 
         // 8. Expired signature
         let current_time = chrono::Utc::now().timestamp();
-        let expired_sig = generate_role_signature_v2(&priv_hex, "user-1", "admin", "ws-1", current_time - 10, 0).unwrap();
-        assert!(!verify_role_signature(&pub_hex, "user-1", "admin", "ws-1", &expired_sig));
+        let expired_sig =
+            generate_role_signature_v2(&priv_hex, "user-1", "admin", "ws-1", current_time - 10, 0)
+                .unwrap();
+        assert!(!verify_role_signature(
+            &pub_hex,
+            "user-1",
+            "admin",
+            "ws-1",
+            &expired_sig
+        ));
     }
 }

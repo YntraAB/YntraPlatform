@@ -43,7 +43,11 @@ pub fn create_http_client() -> Result<reqwest::Client, YntraError> {
     }
 }
 
-pub async fn get_config_val(key: &str, _env_var: &str, workspace_settings: &serde_json::Value) -> Option<String> {
+pub async fn get_config_val(
+    key: &str,
+    _env_var: &str,
+    workspace_settings: &serde_json::Value,
+) -> Option<String> {
     if let Some(val) = workspace_settings.get(key).and_then(|v| v.as_str()) {
         return Some(val.to_string());
     }

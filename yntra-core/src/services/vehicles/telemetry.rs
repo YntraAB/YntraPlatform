@@ -1,6 +1,6 @@
+use crate::YntraError;
 use crate::database;
 use crate::infra::observer::notify_observers;
-use crate::YntraError;
 
 #[uniffi::export]
 pub async fn register_gps_ping(
@@ -12,7 +12,11 @@ pub async fn register_gps_ping(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" || auth.role == "client" {
+    if auth.role == "guest"
+        || auth.role == "anonymous"
+        || auth.role == "deleted"
+        || auth.role == "client"
+    {
         return Err(YntraError::AuthError(
             "Access denied: insufficient permissions".to_string(),
         ));
@@ -23,7 +27,9 @@ pub async fn register_gps_ping(
     let mut stmt = conn.prepare(
         "SELECT id FROM vehicles WHERE workspace_id = ?1 AND (id = ?2 OR license_plate = ?2 OR gps_device_id = ?2)"
     ).await?;
-    let mut rows = stmt.query(crate::params![auth.workspace_id, &device_id]).await?;
+    let mut rows = stmt
+        .query(crate::params![auth.workspace_id, &device_id])
+        .await?;
     if let Some(row) = rows.next().await? {
         let vehicle_id: String = row.get(0)?;
         conn.execute(
@@ -33,7 +39,9 @@ pub async fn register_gps_ping(
         notify_observers();
         Ok(())
     } else {
-        Err(YntraError::NotFoundError("No matching vehicle found in this workspace".to_string()))
+        Err(YntraError::NotFoundError(
+            "No matching vehicle found in this workspace".to_string(),
+        ))
     }
 }
 
@@ -46,7 +54,11 @@ pub async fn simulate_vehicle_movement(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" || auth.role == "client" {
+    if auth.role == "guest"
+        || auth.role == "anonymous"
+        || auth.role == "deleted"
+        || auth.role == "client"
+    {
         return Err(YntraError::AuthError("Access denied".to_string()));
     }
 
@@ -118,7 +130,11 @@ pub async fn stream_vehicle_gps_location(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" || auth.role == "client" {
+    if auth.role == "guest"
+        || auth.role == "anonymous"
+        || auth.role == "deleted"
+        || auth.role == "client"
+    {
         return Err(YntraError::AuthError("Access denied".to_string()));
     }
 
@@ -140,7 +156,11 @@ pub async fn get_active_vehicles_telemetry(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" || auth.role == "client" {
+    if auth.role == "guest"
+        || auth.role == "anonymous"
+        || auth.role == "deleted"
+        || auth.role == "client"
+    {
         return Err(YntraError::AuthError("Access denied".to_string()));
     }
 
@@ -197,7 +217,7 @@ pub async fn register_gps_ping_from_webhook(
     payload_json: String,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
-    
+
     let settings_str: String = conn
         .query_row(
             "SELECT settings FROM workspaces WHERE id = ?1",
@@ -206,24 +226,26 @@ pub async fn register_gps_ping_from_webhook(
         )
         .await
         .map_err(|_| YntraError::NotFoundError("Workspace not found".to_string()))?;
-    
+
     let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
     let expected_token = settings_json
         .get("gps_webhook_token")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    
+
     if expected_token.is_empty() || expected_token != webhook_token {
-        return Err(YntraError::AuthError("Access denied: invalid or missing webhook token".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: invalid or missing webhook token".to_string(),
+        ));
     }
-    
+
     let parsed: serde_json::Value = serde_json::from_str(&payload_json)
         .map_err(|e| YntraError::ValidationError(format!("Invalid JSON payload: {}", e)))?;
-    
+
     // Decoupled Multi-Provider Payload Extraction (Samsara, Teltonika, ABAX, Fleet Complete, Traccar)
     let (device_id, latitude, longitude) = extract_telemetry_payload(&parsed)?;
     let now_ms = chrono::Utc::now().timestamp_millis();
-    
+
     let mut stmt = conn.prepare(
         "SELECT id FROM vehicles WHERE workspace_id = ?1 AND (id = ?2 OR license_plate = ?2 OR gps_device_id = ?2)"
     ).await?;
@@ -237,7 +259,10 @@ pub async fn register_gps_ping_from_webhook(
         notify_observers();
         Ok(())
     } else {
-        Err(YntraError::NotFoundError(format!("No matching vehicle found for device ID '{}'", device_id)))
+        Err(YntraError::NotFoundError(format!(
+            "No matching vehicle found for device ID '{}'",
+            device_id
+        )))
     }
 }
 
@@ -250,8 +275,9 @@ fn extract_telemetry_payload(parsed: &serde_json::Value) -> Result<(String, f64,
     } else {
         parsed.clone()
     };
-        
-    let device_id = item.get("deviceId")
+
+    let device_id = item
+        .get("deviceId")
         .or_else(|| item.get("device_id"))
         .or_else(|| item.get("imei"))
         .or_else(|| item.get("id"))
@@ -261,23 +287,36 @@ fn extract_telemetry_payload(parsed: &serde_json::Value) -> Result<(String, f64,
         .or_else(|| item.get("assetId"))
         .or_else(|| item.get("vehicleId"))
         .or_else(|| item.get("vehicle_id"))
-        .and_then(|v| v.as_str().map(|s| s.to_string()).or_else(|| v.as_i64().map(|i| i.to_string())))
+        .and_then(|v| {
+            v.as_str()
+                .map(|s| s.to_string())
+                .or_else(|| v.as_i64().map(|i| i.to_string()))
+        })
         .ok_or_else(|| YntraError::ValidationError("Missing device identification".to_string()))?;
-        
-    let location_obj = item.get("gps")
+
+    let location_obj = item
+        .get("gps")
         .or_else(|| item.get("location"))
         .or_else(|| item.get("position"))
         .unwrap_or(&item);
 
-    let latitude = location_obj.get("lat")
+    let latitude = location_obj
+        .get("lat")
         .or_else(|| location_obj.get("latitude"))
-        .and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok())))
+        .and_then(|v| {
+            v.as_f64()
+                .or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok()))
+        })
         .ok_or_else(|| YntraError::ValidationError("Missing or invalid latitude".to_string()))?;
-        
-    let longitude = location_obj.get("lon")
+
+    let longitude = location_obj
+        .get("lon")
         .or_else(|| location_obj.get("lng"))
         .or_else(|| location_obj.get("longitude"))
-        .and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok())))
+        .and_then(|v| {
+            v.as_f64()
+                .or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok()))
+        })
         .ok_or_else(|| YntraError::ValidationError("Missing or invalid longitude".to_string()))?;
 
     Ok((device_id, latitude, longitude))

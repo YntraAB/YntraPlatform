@@ -2,9 +2,11 @@ use crate::database;
 use crate::infra::errors::YntraError;
 use crate::infra::observer::notify_observers;
 use crate::services::notes::verify_zkp_if_encrypted;
-use crate::services::school::auth::{verify_school_write_zkp, verify_school_permission, verify_student_access};
+use crate::services::school::auth::{
+    verify_school_permission, verify_school_write_zkp, verify_student_access,
+};
 use crate::services::school::conflicts::record_school_conflict;
-use crate::{HealthRecord, HealthIncident};
+use crate::{HealthIncident, HealthRecord};
 
 #[uniffi::export]
 pub async fn get_student_health_records(
@@ -15,7 +17,9 @@ pub async fn get_student_health_records(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     verify_student_access(&conn, &auth, &student_id).await?;
@@ -50,26 +54,54 @@ pub async fn save_student_health_record(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != record.workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
-    
+
     let is_parent_self = {
         let role_lower = auth.role.to_lowercase();
-        (role_lower == "parent" || role_lower == "role-school-parent") 
-            && verify_student_access(&conn, &auth, &record.student_id).await.is_ok()
+        (role_lower == "parent" || role_lower == "role-school-parent")
+            && verify_student_access(&conn, &auth, &record.student_id)
+                .await
+                .is_ok()
     };
-    
+
     if !is_parent_self {
         verify_school_permission(&auth, "can_access_health_records")?;
     }
 
     let team_id = "";
-    verify_zkp_if_encrypted(&conn, &record.vaccine_name, &auth.user_id, &auth.role, &record.workspace_id, team_id).await?;
-    verify_zkp_if_encrypted(&conn, &record.status, &auth.user_id, &auth.role, &record.workspace_id, team_id).await?;
+    verify_zkp_if_encrypted(
+        &conn,
+        &record.vaccine_name,
+        &auth.user_id,
+        &auth.role,
+        &record.workspace_id,
+        team_id,
+    )
+    .await?;
+    verify_zkp_if_encrypted(
+        &conn,
+        &record.status,
+        &auth.user_id,
+        &auth.role,
+        &record.workspace_id,
+        team_id,
+    )
+    .await?;
     if let Some(ref admin_at) = record.administered_at {
-        verify_zkp_if_encrypted(&conn, admin_at, &auth.user_id, &auth.role, &record.workspace_id, team_id).await?;
+        verify_zkp_if_encrypted(
+            &conn,
+            admin_at,
+            &auth.user_id,
+            &auth.role,
+            &record.workspace_id,
+            team_id,
+        )
+        .await?;
     }
 
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -98,7 +130,9 @@ pub async fn get_health_incidents(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let mut stmt = conn
@@ -133,21 +167,63 @@ pub async fn save_health_incident(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != incident.workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
     verify_school_permission(&auth, "can_access_health_records")?;
 
     let team_id = "";
-    verify_zkp_if_encrypted(&conn, &incident.visit_reason, &auth.user_id, &auth.role, &incident.workspace_id, team_id).await?;
-    verify_zkp_if_encrypted(&conn, &incident.treatment, &auth.user_id, &auth.role, &incident.workspace_id, team_id).await?;
-    verify_zkp_if_encrypted(&conn, &incident.checked_in_at, &auth.user_id, &auth.role, &incident.workspace_id, team_id).await?;
+    verify_zkp_if_encrypted(
+        &conn,
+        &incident.visit_reason,
+        &auth.user_id,
+        &auth.role,
+        &incident.workspace_id,
+        team_id,
+    )
+    .await?;
+    verify_zkp_if_encrypted(
+        &conn,
+        &incident.treatment,
+        &auth.user_id,
+        &auth.role,
+        &incident.workspace_id,
+        team_id,
+    )
+    .await?;
+    verify_zkp_if_encrypted(
+        &conn,
+        &incident.checked_in_at,
+        &auth.user_id,
+        &auth.role,
+        &incident.workspace_id,
+        team_id,
+    )
+    .await?;
     if let Some(ref out_at) = incident.checked_out_at {
-        verify_zkp_if_encrypted(&conn, out_at, &auth.user_id, &auth.role, &incident.workspace_id, team_id).await?;
+        verify_zkp_if_encrypted(
+            &conn,
+            out_at,
+            &auth.user_id,
+            &auth.role,
+            &incident.workspace_id,
+            team_id,
+        )
+        .await?;
     }
     if let Some(ref notes) = incident.notes {
-        verify_zkp_if_encrypted(&conn, notes, &auth.user_id, &auth.role, &incident.workspace_id, team_id).await?;
+        verify_zkp_if_encrypted(
+            &conn,
+            notes,
+            &auth.user_id,
+            &auth.role,
+            &incident.workspace_id,
+            team_id,
+        )
+        .await?;
     }
 
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -159,7 +235,14 @@ pub async fn save_health_incident(
             .await?;
         let mut rows = stmt.query(crate::params![&incident.id]).await?;
         if let Some(row) = rows.next().await? {
-            Some((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
+            Some((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+            ))
         } else {
             None
         }
@@ -171,8 +254,14 @@ pub async fn save_health_incident(
     let mut checked_out_at = incident.checked_out_at.clone();
     let mut notes = incident.notes.clone();
 
-    let incoming_updated_at = if incident.updated_at > now_ms + 5000 { now_ms } else { incident.updated_at };
-    if let Some((old_reason, old_treatment, old_in_at, old_out_at, old_notes, old_updated_at)) = existing {
+    let incoming_updated_at = if incident.updated_at > now_ms + 5000 {
+        now_ms
+    } else {
+        incident.updated_at
+    };
+    if let Some((old_reason, old_treatment, old_in_at, old_out_at, old_notes, old_updated_at)) =
+        existing
+    {
         if old_updated_at > incoming_updated_at {
             let reason_diff = old_reason != incident.visit_reason;
             let treatment_diff = old_treatment != incident.treatment;
@@ -204,8 +293,15 @@ pub async fn save_health_incident(
                         }
                     ]
                 });
-                
-                record_school_conflict(&conn, &incident.workspace_id, "health_incidents", &incident.id, mvr).await?;
+
+                record_school_conflict(
+                    &conn,
+                    &incident.workspace_id,
+                    "health_incidents",
+                    &incident.id,
+                    mvr,
+                )
+                .await?;
 
                 // Keep database clean using Last-Write-Wins (which is the database version, since old_updated_at > incident.updated_at)
                 visit_reason = old_reason;

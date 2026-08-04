@@ -94,7 +94,9 @@ pub async fn parse_and_preview_csv(
         .collect();
 
     if lines.is_empty() {
-        return Err(YntraError::ValidationError("CSV content is empty".to_string()));
+        return Err(YntraError::ValidationError(
+            "CSV content is empty".to_string(),
+        ));
     }
 
     let delimiter_char = detect_delimiter(&csv_content);
@@ -109,7 +111,12 @@ pub async fn parse_and_preview_csv(
     for (idx, line) in lines.iter().skip(1).take(5).enumerate() {
         let cols = parse_csv_line(line, delimiter_char);
         if cols.len() != headers.len() {
-            warnings.push(format!("Row {} column count ({}) differs from header ({})", idx + 1, cols.len(), headers.len()));
+            warnings.push(format!(
+                "Row {} column count ({}) differs from header ({})",
+                idx + 1,
+                cols.len(),
+                headers.len()
+            ));
         }
         let mut row_obj = serde_json::Map::new();
         for (h_idx, header) in headers.iter().enumerate() {
@@ -137,8 +144,14 @@ pub async fn parse_and_preview_csv(
                 for header in &headers {
                     let norm_h = normalize_name(header);
                     for field in &fields {
-                        let name = field.get("name").and_then(|v| v.as_str()).unwrap_or_default();
-                        let label = field.get("label").and_then(|v| v.as_str()).unwrap_or_default();
+                        let name = field
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default();
+                        let label = field
+                            .get("label")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default();
                         if normalize_name(name) == norm_h || normalize_name(label) == norm_h {
                             suggested_mappings.insert(header.clone(), name.to_string());
                             break;
@@ -160,8 +173,10 @@ pub async fn parse_and_preview_csv(
         delimiter,
         headers,
         total_rows,
-        preview_rows_json: serde_json::to_string(&preview_rows).unwrap_or_else(|_| "[]".to_string()),
-        suggested_mappings_json: serde_json::to_string(&suggested_mappings).unwrap_or_else(|_| "{}".to_string()),
+        preview_rows_json: serde_json::to_string(&preview_rows)
+            .unwrap_or_else(|_| "[]".to_string()),
+        suggested_mappings_json: serde_json::to_string(&suggested_mappings)
+            .unwrap_or_else(|_| "{}".to_string()),
         warnings,
     })
 }
@@ -177,7 +192,9 @@ pub async fn execute_csv_import(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let mappings: HashMap<String, String> = serde_json::from_str(&column_mappings_json)
@@ -190,7 +207,9 @@ pub async fn execute_csv_import(
         .collect();
 
     if lines.len() <= 1 {
-        return Err(YntraError::ValidationError("CSV content has no data rows".to_string()));
+        return Err(YntraError::ValidationError(
+            "CSV content has no data rows".to_string(),
+        ));
     }
 
     let delimiter_char = detect_delimiter(&csv_content);
@@ -252,12 +271,20 @@ mod tests {
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-csv-1', 'ws-csv-1', 'csv@yntra.se', 'admin')", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO blocks (id, name, description, icon, category, created_at, fields_schema) VALUES ('blk-hvac', 'HVAC Work Orders', 'HVAC Block', 'wrench', 'HVAC', '2026-08-04', '[{\"name\":\"client_name\",\"label\":\"Customer Name\"},{\"name\":\"priority\",\"label\":\"Job Priority\"}]')", ()).await.unwrap();
 
-
-        crate::infra::crypto::set_session_key("csv-test-key".to_string().into_bytes(), "ws-csv-1".to_string());
+        crate::infra::crypto::set_session_key(
+            "csv-test-key".to_string().into_bytes(),
+            "ws-csv-1".to_string(),
+        );
 
         // 1. Semicolon delimited CSV preview with fuzzy header mapping
         let csv_data = "Customer Name;Job Priority\nNordic Logistics;Urgent\nGrand Plaza;Normal";
-        let preview = parse_and_preview_csv("u-csv-1".to_string(), csv_data.to_string(), Some("blk-hvac".to_string())).await.unwrap();
+        let preview = parse_and_preview_csv(
+            "u-csv-1".to_string(),
+            csv_data.to_string(),
+            Some("blk-hvac".to_string()),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(preview.delimiter, ";");
         assert_eq!(preview.total_rows, 2);
@@ -269,8 +296,10 @@ mod tests {
             "ws-csv-1".to_string(),
             "blk-hvac".to_string(),
             preview.suggested_mappings_json,
-            csv_data.to_string()
-        ).await.unwrap();
+            csv_data.to_string(),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(res.imported_count, 2);
         assert_eq!(res.failed_count, 0);

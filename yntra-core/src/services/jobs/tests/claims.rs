@@ -1,7 +1,7 @@
 use crate::database;
 use crate::services::jobs::{
-    create_job_ticket, submit_damaged_item_claim, update_claim_status,
-    process_claim_payout, get_job_claims,
+    create_job_ticket, get_job_claims, process_claim_payout, submit_damaged_item_claim,
+    update_claim_status,
 };
 
 #[tokio::test]
@@ -27,7 +27,12 @@ async fn test_damaged_item_claims_workflow() {
         "[]".to_string(),
         None,
         None,
-        0, 0, true, true, false, false,
+        0,
+        0,
+        true,
+        true,
+        false,
+        false,
     )
     .await
     .unwrap();
@@ -50,7 +55,9 @@ async fn test_damaged_item_claims_workflow() {
     assert_eq!(claim.status, "submitted");
 
     // 4. Retrieve job claims list
-    let claims = get_job_claims("u-claims-client".to_string(), job.id.clone()).await.unwrap();
+    let claims = get_job_claims("u-claims-client".to_string(), job.id.clone())
+        .await
+        .unwrap();
     assert_eq!(claims.len(), 1);
     assert_eq!(claims[0].id, claim.id);
 
@@ -85,12 +92,31 @@ async fn test_damaged_item_claims_workflow() {
     assert_eq!(payout_res.payout_amount, 2800.0);
     assert_eq!(payout_res.new_status, "paid");
 
-    let final_claims = get_job_claims("u-claims-staff".to_string(), job.id.clone()).await.unwrap();
+    let final_claims = get_job_claims("u-claims-staff".to_string(), job.id.clone())
+        .await
+        .unwrap();
     assert_eq!(final_claims[0].status, "paid");
 
     // Cleanup
-    conn.execute("DELETE FROM damaged_item_claims WHERE workspace_id = 'ws-claims-test'", ()).await.ok();
-    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-claims-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-claims-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM workspaces WHERE id = 'ws-claims-test'", ()).await.unwrap();
+    conn.execute(
+        "DELETE FROM damaged_item_claims WHERE workspace_id = 'ws-claims-test'",
+        (),
+    )
+    .await
+    .ok();
+    conn.execute(
+        "DELETE FROM job_tickets WHERE workspace_id = 'ws-claims-test'",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        "DELETE FROM users WHERE workspace_id = 'ws-claims-test'",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-claims-test'", ())
+        .await
+        .unwrap();
 }

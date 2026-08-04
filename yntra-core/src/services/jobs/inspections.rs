@@ -1,7 +1,7 @@
+use crate::DamageInspection;
 use crate::database;
 use crate::infra::errors::YntraError;
 use crate::infra::observer::notify_observers;
-use crate::DamageInspection;
 use uuid::Uuid;
 
 #[uniffi::export]
@@ -28,11 +28,15 @@ pub async fn record_damage_inspection(
         .map_err(|_| YntraError::NotFoundError("Job ticket not found".to_string()))?;
 
     if auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" {
-        return Err(YntraError::AuthError("Access denied: insufficient permissions".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: insufficient permissions".to_string(),
+        ));
     }
 
     let id = Uuid::new_v4().to_string();
@@ -101,7 +105,9 @@ pub async fn get_job_damage_inspections(
         .map_err(|_| YntraError::NotFoundError("Job ticket not found".to_string()))?;
 
     if auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let mut stmt = conn.prepare(
@@ -153,7 +159,9 @@ pub async fn acknowledge_damage_inspection_by_client(
         .map_err(|_| YntraError::NotFoundError("Inspection record not found".to_string()))?;
 
     if auth.workspace_id != ws_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let now_ms = chrono::Utc::now().timestamp_millis();
@@ -185,17 +193,26 @@ pub async fn delete_damage_inspection(
         .map_err(|_| YntraError::NotFoundError("Inspection record not found".to_string()))?;
 
     if auth.workspace_id != ws_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
-    if auth.role == "guest" || auth.role == "anonymous" || auth.role == "deleted" || auth.role == "client" {
-        return Err(YntraError::AuthError("Access denied: only staff can delete inspections".to_string()));
+    if auth.role == "guest"
+        || auth.role == "anonymous"
+        || auth.role == "deleted"
+        || auth.role == "client"
+    {
+        return Err(YntraError::AuthError(
+            "Access denied: only staff can delete inspections".to_string(),
+        ));
     }
 
     conn.execute(
         "DELETE FROM damage_inspections WHERE id = ?1",
         crate::params![&inspection_id],
-    ).await?;
+    )
+    .await?;
 
     notify_observers();
     Ok(())

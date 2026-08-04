@@ -1,7 +1,7 @@
 use crate::infra::errors::YntraError;
 use ed25519_dalek::Verifier;
-use sha2::{Digest, Sha256};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
 /// Update release manifest structure served by update servers.
@@ -31,7 +31,10 @@ pub fn parse_semver(version: &str) -> (u64, u64, u64) {
     let parts: Vec<&str> = clean.split('.').collect();
     let major = parts.get(0).and_then(|s| s.parse().ok()).unwrap_or(0);
     let minor = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
-    let patch = parts.get(2).and_then(|s| s.split('-').next()?.parse().ok()).unwrap_or(0);
+    let patch = parts
+        .get(2)
+        .and_then(|s| s.split('-').next()?.parse().ok())
+        .unwrap_or(0);
     (major, minor, patch)
 }
 
@@ -44,7 +47,11 @@ pub fn is_version_newer(current_version: &str, latest_version: &str) -> bool {
 }
 
 /// Constructs the canonical message for Ed25519 signature verification.
-pub fn construct_update_signature_message(version: &str, download_url: &str, sha256: &str) -> Vec<u8> {
+pub fn construct_update_signature_message(
+    version: &str,
+    download_url: &str,
+    sha256: &str,
+) -> Vec<u8> {
     let mut msg = Vec::new();
     msg.extend_from_slice(b"YNTRA_BINARY_UPDATE_V1\0");
     msg.extend_from_slice(&(version.len() as u64).to_be_bytes());
@@ -126,8 +133,9 @@ pub fn process_update_manifest(
     current_version: &str,
     public_key_hex: Option<String>,
 ) -> Result<UpdateCheckResult, YntraError> {
-    let manifest: UpdateManifest = serde_json::from_str(manifest_json)
-        .map_err(|e| YntraError::SerializationError(format!("Invalid update manifest JSON: {}", e)))?;
+    let manifest: UpdateManifest = serde_json::from_str(manifest_json).map_err(|e| {
+        YntraError::SerializationError(format!("Invalid update manifest JSON: {}", e))
+    })?;
 
     if let Some(pk) = public_key_hex {
         if !pk.trim().is_empty() {
@@ -167,8 +175,9 @@ pub fn stage_binary_update(
     };
 
     let update_staged_path = base_path.with_extension("exe.new");
-    std::fs::write(&update_staged_path, binary_data)
-        .map_err(|e| YntraError::ValidationError(format!("Failed to stage update binary: {}", e)))?;
+    std::fs::write(&update_staged_path, binary_data).map_err(|e| {
+        YntraError::ValidationError(format!("Failed to stage update binary: {}", e))
+    })?;
 
     Ok(update_staged_path.to_string_lossy().to_string())
 }
@@ -219,7 +228,8 @@ mod tests {
 
         // Test invalid signature
         let mut invalid_manifest = manifest.clone();
-        invalid_manifest.sha256 = "0000000000000000000000000000000000000000000000000000000000000000".to_string();
+        invalid_manifest.sha256 =
+            "0000000000000000000000000000000000000000000000000000000000000000".to_string();
         assert!(!verify_manifest_signature(&pub_hex, &invalid_manifest));
     }
 
@@ -235,7 +245,12 @@ mod tests {
 
         let temp_dir = std::env::temp_dir();
         let mock_target = temp_dir.join("yntra_mock_target.exe");
-        let staged_path = stage_binary_update(payload, &sha256_hex, Some(mock_target.to_string_lossy().to_string())).unwrap();
+        let staged_path = stage_binary_update(
+            payload,
+            &sha256_hex,
+            Some(mock_target.to_string_lossy().to_string()),
+        )
+        .unwrap();
 
         assert!(std::path::Path::new(&staged_path).exists());
         let read_back = std::fs::read(&staged_path).unwrap();

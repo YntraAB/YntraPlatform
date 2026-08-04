@@ -7,7 +7,9 @@ static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 static DATABASE: OnceLock<libsql::Database> = OnceLock::new();
 static DATABASE_DIR: OnceLock<String> = OnceLock::new();
 static POOL_TX: OnceLock<tokio::sync::mpsc::UnboundedSender<libsql::Connection>> = OnceLock::new();
-static POOL_RX: OnceLock<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<libsql::Connection>>> = OnceLock::new();
+static POOL_RX: OnceLock<
+    tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<libsql::Connection>>,
+> = OnceLock::new();
 
 fn get_pool_channels() -> (
     &'static tokio::sync::mpsc::UnboundedSender<libsql::Connection>,
@@ -151,7 +153,10 @@ async fn build_and_setup_database() -> Result<libsql::Database, YntraError> {
     };
     let credentials = if let Some(creds) = super::sync::get_configured_credentials() {
         Some(creds)
-    } else if let (Ok(url), Ok(token)) = (std::env::var("LIBSQL_URL"), std::env::var("LIBSQL_AUTH_TOKEN")) {
+    } else if let (Ok(url), Ok(token)) = (
+        std::env::var("LIBSQL_URL"),
+        std::env::var("LIBSQL_AUTH_TOKEN"),
+    ) {
         Some((url, token))
     } else {
         None
@@ -172,25 +177,34 @@ async fn build_and_setup_database() -> Result<libsql::Database, YntraError> {
 
     if is_replica {
         if let Err(e) = db.sync().await {
-            tracing::warn!("Failed to sync replica database with remote on startup: {:?}", e);
+            tracing::warn!(
+                "Failed to sync replica database with remote on startup: {:?}",
+                e
+            );
         }
     }
 
     #[cfg(test)]
     {
-        let keep_alive = db.connect().map_err(|e| YntraError::DbError(e.to_string()))?;
+        let keep_alive = db
+            .connect()
+            .map_err(|e| YntraError::DbError(e.to_string()))?;
         let _ = KEEP_ALIVE_CONN.set(keep_alive);
     }
-    
-    let raw_conn = db.connect().map_err(|e| YntraError::DbError(e.to_string()))?;
+
+    let raw_conn = db
+        .connect()
+        .map_err(|e| YntraError::DbError(e.to_string()))?;
     let _ = raw_conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;").await;
     let conn = DbConnection {
         inner: Some(raw_conn),
         in_transaction: std::sync::atomic::AtomicBool::new(false),
         _permit: None,
     };
-    super::schema::setup_schema(&conn).await.map_err(|e| YntraError::DbError(e.to_string()))?;
-    
+    super::schema::setup_schema(&conn)
+        .await
+        .map_err(|e| YntraError::DbError(e.to_string()))?;
+
     Ok(db)
 }
 
@@ -222,9 +236,9 @@ pub async fn get_database_async() -> Result<&'static libsql::Database, YntraErro
 }
 
 pub fn get_database() -> &'static libsql::Database {
-    DATABASE
-        .get()
-        .expect("Database is not initialized. Call init_database_async() before accessing the database.")
+    DATABASE.get().expect(
+        "Database is not initialized. Call init_database_async() before accessing the database.",
+    )
 }
 
 pub fn get_max_pool_size() -> usize {
@@ -240,7 +254,8 @@ pub fn get_max_pool_size() -> usize {
 
 pub const MAX_POOL_SIZE: usize = 16;
 static SEMAPHORE: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
-static ACTIVE_CHECKED_OUT_CONNS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static ACTIVE_CHECKED_OUT_CONNS: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0);
 static TOTAL_ACQUIRE_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static TOTAL_EXHAUSTION_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static PEAK_ACTIVE_CONNS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
@@ -277,7 +292,8 @@ pub async fn check_opfs_storage_quota() -> Result<crate::models::OpfsStorageQuot
 }
 
 fn track_checkout_success() {
-    let current_active = ACTIVE_CHECKED_OUT_CONNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    let current_active =
+        ACTIVE_CHECKED_OUT_CONNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
     let mut peak = PEAK_ACTIVE_CONNS.load(std::sync::atomic::Ordering::Relaxed);
     while current_active > peak {
         match PEAK_ACTIVE_CONNS.compare_exchange_weak(
@@ -326,21 +342,23 @@ pub async fn acquire_connection() -> Result<DbConnection, YntraError> {
     TOTAL_ACQUIRE_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let sem = get_semaphore();
     let timeout_secs = get_pool_timeout_secs();
-    let permit = match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), sem.acquire()).await
-    {
-        Ok(Ok(p)) => p,
-        _ => {
-            TOTAL_EXHAUSTION_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            tracing::error!(
-                "Database connection pool exhausted after {}s timeout (max pool size: {}).",
-                timeout_secs,
-                get_max_pool_size()
-            );
-            return Err(YntraError::DbError(
-                "Database connection pool exhausted".to_string(),
-            ));
-        }
-    };
+    let permit =
+        match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), sem.acquire())
+            .await
+        {
+            Ok(Ok(p)) => p,
+            _ => {
+                TOTAL_EXHAUSTION_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                tracing::error!(
+                    "Database connection pool exhausted after {}s timeout (max pool size: {}).",
+                    timeout_secs,
+                    get_max_pool_size()
+                );
+                return Err(YntraError::DbError(
+                    "Database connection pool exhausted".to_string(),
+                ));
+            }
+        };
 
     let (_tx, rx) = get_pool_channels();
 
@@ -363,7 +381,11 @@ pub async fn acquire_connection() -> Result<DbConnection, YntraError> {
     let conn = db
         .connect()
         .map_err(|e| YntraError::DbError(e.to_string()))?;
-    let _ = conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;").await;
+    let _ = conn
+        .execute_batch(
+            "PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;",
+        )
+        .await;
     track_checkout_success();
     Ok(DbConnection {
         inner: Some(conn),
@@ -624,7 +646,9 @@ impl Row {
     }
 
     pub fn get_value(&self, idx: i32) -> Result<libsql::Value, YntraError> {
-        self.inner.get_value(idx).map_err(|e| YntraError::DbError(e.to_string()))
+        self.inner
+            .get_value(idx)
+            .map_err(|e| YntraError::DbError(e.to_string()))
     }
 }
 
@@ -680,7 +704,6 @@ impl FromLibsqlRow for Vec<u8> {
             .map_err(|e| YntraError::DbError(e.to_string()))
     }
 }
-
 
 impl FromLibsqlRow for Option<String> {
     fn get_from_row(row: &libsql::Row, idx: i32) -> Result<Self, YntraError> {
@@ -796,7 +819,7 @@ mod tests {
         // 2. Execute a batch that fails midway (opens transaction but fails on insert constraint)
         {
             let conn_tx = acquire_connection().await.unwrap();
-            let batch_sql = "BEGIN TRANSACTION; INSERT INTO users (id, workspace_id, email, role) VALUES ('user-tx-leak-1', 'ws-tx-leak', 'user1@tx.io', 'user'); INSERT INTO users (id, workspace_id, email, role) VALUES ('user-tx-leak-1', 'ws-tx-leak', 'user1@tx.io', 'user');"; 
+            let batch_sql = "BEGIN TRANSACTION; INSERT INTO users (id, workspace_id, email, role) VALUES ('user-tx-leak-1', 'ws-tx-leak', 'user1@tx.io', 'user'); INSERT INTO users (id, workspace_id, email, role) VALUES ('user-tx-leak-1', 'ws-tx-leak', 'user1@tx.io', 'user');";
             let res = conn_tx.execute_batch(batch_sql).await;
             assert!(res.is_err()); // The batch must fail
         }
@@ -807,7 +830,11 @@ mod tests {
         // 3. Acquire a connection from the pool and try to start a new transaction.
         let conn_new = acquire_connection().await.unwrap();
         let res_tx = conn_new.begin_transaction().await;
-        assert!(res_tx.is_ok(), "Expected connection to be clean, but got error: {:?}", res_tx);
+        assert!(
+            res_tx.is_ok(),
+            "Expected connection to be clean, but got error: {:?}",
+            res_tx
+        );
         conn_new.rollback().await.unwrap();
 
         // Cleanup

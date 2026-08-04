@@ -1,7 +1,7 @@
+use super::helpers::{base64_encode, create_http_client, get_config_val};
 use crate::database;
-use crate::infra::observer::notify_observers;
 use crate::infra::errors::YntraError;
-use super::helpers::{get_config_val, create_http_client, base64_encode};
+use crate::infra::observer::notify_observers;
 use crate::services::jobs::tickets::is_staff;
 
 #[cfg_attr(not(target_arch = "wasm32"), uniffi::export)]
@@ -13,17 +13,25 @@ pub async fn initiate_swish_payment(
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     // 1. Fetch Invoice
-    let mut stmt = conn.prepare("SELECT workspace_id, customer_amount, customer_id FROM move_invoices WHERE id = ?1").await?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT workspace_id, customer_amount, customer_id FROM move_invoices WHERE id = ?1",
+        )
+        .await?;
     let mut rows = stmt.query(crate::params![&invoice_id]).await?;
     let (ws_id, amount) = if let Some(row) = rows.next().await? {
         let ws: String = row.get(0)?;
         let amt: f64 = row.get(1)?;
         let cust: String = row.get(2)?;
         if auth.workspace_id != ws {
-            return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+            return Err(YntraError::AuthError(
+                "Access denied: workspace mismatch".to_string(),
+            ));
         }
         if !is_staff(&auth) && auth.user_id != cust {
-            return Err(YntraError::AuthError("Access denied: customer mismatch".to_string()));
+            return Err(YntraError::AuthError(
+                "Access denied: customer mismatch".to_string(),
+            ));
         }
         (ws, amt)
     } else {
@@ -40,7 +48,7 @@ pub async fn initiate_swish_payment(
         .await
         .unwrap_or_else(|_| "{}".to_string());
     let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
-    
+
     let payee = settings_json
         .get("swish_payee_alias")
         .and_then(|v| v.as_str())
@@ -50,14 +58,16 @@ pub async fn initiate_swish_payment(
     let client = create_http_client()?;
 
     // 3. Check for Swish gateway proxy URL or general billing gateway URL
-    let gateway_url = get_config_val("swish_gateway_url", "SWISH_GATEWAY_URL", &settings_json).await
+    let gateway_url = get_config_val("swish_gateway_url", "SWISH_GATEWAY_URL", &settings_json)
+        .await
         .or(get_config_val("billing_gateway_url", "BILLING_GATEWAY_URL", &settings_json).await);
 
     let mut token = format!("swish-req-{}", uuid::Uuid::new_v4().simple());
     let mut swish_url = format!("swish://paymentrequest?token={}", token);
 
     if let Some(gw_url) = gateway_url {
-        let gw_res = client.post(&gw_url)
+        let gw_res = client
+            .post(&gw_url)
             .json(&serde_json::json!({
                 "invoice_id": invoice_id,
                 "amount": amount,
@@ -76,13 +86,26 @@ pub async fn initiate_swish_payment(
             }
         }
     } else {
-        let _client_cert_pem = get_config_val("swish_client_cert_pem", "SWISH_CLIENT_CERT_PEM", &settings_json).await;
-        let _client_key_pem = get_config_val("swish_client_key_pem", "SWISH_CLIENT_KEY_PEM", &settings_json).await;
+        let _client_cert_pem = get_config_val(
+            "swish_client_cert_pem",
+            "SWISH_CLIENT_CERT_PEM",
+            &settings_json,
+        )
+        .await;
+        let _client_key_pem = get_config_val(
+            "swish_client_key_pem",
+            "SWISH_CLIENT_KEY_PEM",
+            &settings_json,
+        )
+        .await;
 
         #[cfg(not(target_arch = "wasm32"))]
         {
             if let (Some(cert_pem), Some(key_pem)) = (_client_cert_pem, _client_key_pem) {
-                let use_sandbox = settings_json.get("swish_use_sandbox").and_then(|v| v.as_bool()).unwrap_or(false);
+                let use_sandbox = settings_json
+                    .get("swish_use_sandbox")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 let swish_api_host = if use_sandbox {
                     "https://mss.cpc.getswish.net"
                 } else {
@@ -90,7 +113,10 @@ pub async fn initiate_swish_payment(
                 };
 
                 let instruction_id = uuid::Uuid::new_v4().to_string().to_uppercase();
-                let register_url = format!("{}/swish-cpcapi/api/v1/paymentrequests/{}", swish_api_host, instruction_id);
+                let register_url = format!(
+                    "{}/swish-cpcapi/api/v1/paymentrequests/{}",
+                    swish_api_host, instruction_id
+                );
 
                 let mut pem_bytes = cert_pem.into_bytes();
                 pem_bytes.extend_from_slice(b"\n");
@@ -102,8 +128,10 @@ pub async fn initiate_swish_payment(
                         .identity(identity)
                         .build()
                     {
-                        let api_base_url = get_config_val("api_base_url", "API_BASE_URL", &settings_json).await
-                            .unwrap_or_else(|| "https://api.yntra.se".to_string());
+                        let api_base_url =
+                            get_config_val("api_base_url", "API_BASE_URL", &settings_json)
+                                .await
+                                .unwrap_or_else(|| "https://api.yntra.se".to_string());
                         let api_base_url = api_base_url.trim_end_matches('/');
                         let callback_url = format!("{}/v1/billing/swish/webhook", api_base_url);
 
@@ -116,17 +144,21 @@ pub async fn initiate_swish_payment(
                             "message": format!("Faktura {}", invoice_id),
                         });
 
-                        let res = mtls_client.put(&register_url)
+                        let res = mtls_client
+                            .put(&register_url)
                             .json(&req_payload)
                             .send()
                             .await;
 
                         if let Ok(response) = res {
                             if response.status().is_success() {
-                                if let Some(token_header) = response.headers().get("PaymentRequestToken") {
+                                if let Some(token_header) =
+                                    response.headers().get("PaymentRequestToken")
+                                {
                                     if let Ok(token_str) = token_header.to_str() {
                                         token = token_str.to_string();
-                                        swish_url = format!("swish://paymentrequest?token={}", token);
+                                        swish_url =
+                                            format!("swish://paymentrequest?token={}", token);
                                     }
                                 }
                             }
@@ -158,15 +190,15 @@ pub async fn initiate_swish_payment(
         "border": 0
     });
 
-    let qr_res = client.post(qr_url)
-        .json(&qr_payload)
-        .send()
-        .await;
+    let qr_res = client.post(qr_url).json(&qr_payload).send().await;
 
     if let Ok(res) = qr_res {
         if res.status().is_success() {
             if let Ok(svg_text) = res.text().await {
-                qr_code_base64 = format!("data:image/svg+xml;base64,{}", base64_encode(svg_text.as_bytes()));
+                qr_code_base64 = format!(
+                    "data:image/svg+xml;base64,{}",
+                    base64_encode(svg_text.as_bytes())
+                );
             }
         }
     }
@@ -177,11 +209,18 @@ pub async fn initiate_swish_payment(
             r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="200" height="200"><rect width="100" height="100" rx="12" fill="#ffffff" stroke="#e2e8f0" stroke-width="2"/><path d="M12 12h20v20H12zm4 4v12h12V16zM68 12h20v20H68zm4 4v12h12V16zM12 68h20v20H12zm4 4v12h12V72z" fill="#0f172a"/><rect x="37" y="17" width="26" height="10" fill="#0f172a"/><rect x="17" y="37" width="10" height="26" fill="#0f172a"/><rect x="42" y="42" width="16" height="16" rx="4" fill="#e11d48"/><circle cx="50" cy="50" r="4" fill="#ffffff"/><path d="M37 68h15v10H37zm31 5h10v10H68zm0-20h20v10H68z" fill="#0f172a"/><text x="50" y="88" font-family="system-ui,sans-serif" font-size="6" font-weight="bold" fill="#0f172a" text-anchor="middle">Swish: {} kr</text></svg>"##,
             amount
         );
-        qr_code_base64 = format!("data:image/svg+xml;base64,{}", base64_encode(svg_data.as_bytes()));
+        qr_code_base64 = format!(
+            "data:image/svg+xml;base64,{}",
+            base64_encode(svg_data.as_bytes())
+        );
     }
 
     // 5. Check sandbox configuration
-    if settings_json.get("swish_use_sandbox").and_then(|v| v.as_bool()).unwrap_or(false) {
+    if settings_json
+        .get("swish_use_sandbox")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
         tracing::info!("Querying Swish Sandbox endpoint for Payee: {}", payee);
     }
 
@@ -202,17 +241,23 @@ async fn check_swish_payment_status_inner(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    let mut stmt = conn.prepare("SELECT workspace_id, status, customer_id FROM move_invoices WHERE id = ?1").await?;
+    let mut stmt = conn
+        .prepare("SELECT workspace_id, status, customer_id FROM move_invoices WHERE id = ?1")
+        .await?;
     let mut rows = stmt.query(crate::params![&invoice_id]).await?;
     let (ws_id, current_status) = if let Some(row) = rows.next().await? {
         let ws: String = row.get(0)?;
         let st: String = row.get(1)?;
         let cust: String = row.get(2)?;
         if auth.workspace_id != ws {
-            return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+            return Err(YntraError::AuthError(
+                "Access denied: workspace mismatch".to_string(),
+            ));
         }
         if !is_staff(&auth) && auth.user_id != cust {
-            return Err(YntraError::AuthError("Access denied: customer mismatch".to_string()));
+            return Err(YntraError::AuthError(
+                "Access denied: customer mismatch".to_string(),
+            ));
         }
         (ws, st)
     } else {
@@ -233,12 +278,14 @@ async fn check_swish_payment_status_inner(
         .unwrap_or_else(|_| "{}".to_string());
     let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
 
-    let gateway_url = get_config_val("swish_gateway_url", "SWISH_GATEWAY_URL", &settings_json).await
+    let gateway_url = get_config_val("swish_gateway_url", "SWISH_GATEWAY_URL", &settings_json)
+        .await
         .or(get_config_val("billing_gateway_url", "BILLING_GATEWAY_URL", &settings_json).await);
 
     if let Some(gw_url) = gateway_url {
         let client = create_http_client()?;
-        let res = client.post(&gw_url)
+        let res = client
+            .post(&gw_url)
             .json(&serde_json::json!({
                 "action": "status",
                 "invoice_id": invoice_id,
@@ -250,7 +297,8 @@ async fn check_swish_payment_status_inner(
         if let Ok(resp) = res {
             if resp.status().is_success() {
                 if let Ok(json) = resp.json::<serde_json::Value>().await {
-                    let status = json.get("status")
+                    let status = json
+                        .get("status")
                         .and_then(|v| v.as_str())
                         .unwrap_or("pending")
                         .to_lowercase();
@@ -317,13 +365,16 @@ async fn process_swish_payment_webhook_inner(
         .unwrap_or("");
 
     if expected_token.is_empty() || expected_token != webhook_token {
-        return Err(YntraError::AuthError("Access denied: invalid Swish webhook token".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: invalid Swish webhook token".to_string(),
+        ));
     }
 
     let parsed: serde_json::Value = serde_json::from_str(&payload_json)
         .map_err(|e| YntraError::ValidationError(format!("Invalid JSON payload: {}", e)))?;
 
-    let status = parsed.get("status")
+    let status = parsed
+        .get("status")
         .and_then(|v| v.as_str())
         .ok_or_else(|| YntraError::ValidationError("Missing status".to_string()))?;
 
@@ -331,7 +382,8 @@ async fn process_swish_payment_webhook_inner(
         return Ok(());
     }
 
-    let invoice_id = parsed.get("payeePaymentReference")
+    let invoice_id = parsed
+        .get("payeePaymentReference")
         .and_then(|v| v.as_str())
         .ok_or_else(|| YntraError::ValidationError("Missing payeePaymentReference".to_string()))?;
 
@@ -377,7 +429,9 @@ pub async fn process_onsite_mpos_card_payment(
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     if !is_staff(&auth) {
-        return Err(YntraError::AuthError("Access denied: only staff drivers can collect on-site payments".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: only staff drivers can collect on-site payments".to_string(),
+        ));
     }
 
     let (ws_id, amount, current_status): (String, f64, String) = conn
@@ -390,7 +444,9 @@ pub async fn process_onsite_mpos_card_payment(
         .map_err(|_| YntraError::NotFoundError("Invoice not found".to_string()))?;
 
     if auth.workspace_id != ws_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     if current_status == "paid" {
@@ -405,7 +461,11 @@ pub async fn process_onsite_mpos_card_payment(
     }
 
     let provider = payment_provider.to_lowercase();
-    let txn_id = format!("{}-TXN-{}", provider.to_uppercase(), uuid::Uuid::new_v4().simple());
+    let txn_id = format!(
+        "{}-TXN-{}",
+        provider.to_uppercase(),
+        uuid::Uuid::new_v4().simple()
+    );
     let now_ms = chrono::Utc::now().timestamp_millis();
 
     let method_name = match provider.as_str() {
@@ -416,7 +476,12 @@ pub async fn process_onsite_mpos_card_payment(
         _ => "Mobile mPOS Terminal",
     };
 
-    let note = format!("On-site payment collected via {} (Device: {}, Txn: {})", method_name, reader_device_id.unwrap_or_else(|| "NFC_BUILTIN".to_string()), txn_id);
+    let note = format!(
+        "On-site payment collected via {} (Device: {}, Txn: {})",
+        method_name,
+        reader_device_id.unwrap_or_else(|| "NFC_BUILTIN".to_string()),
+        txn_id
+    );
 
     conn.execute(
         "UPDATE move_invoices SET status = 'paid', adjustment_notes = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3 AND workspace_id = ?4",
@@ -442,6 +507,9 @@ pub async fn process_onsite_mpos_card_payment(
         payment_method: method_name.to_string(),
         amount_collected: amount,
         receipt_url: Some(format!("https://receipts.yntra.se/tx/{}", invoice_id)),
-        message: format!("Successfully collected {:.2} {} via {} on-site.", amount, currency, method_name),
+        message: format!(
+            "Successfully collected {:.2} {} via {} on-site.",
+            amount, currency, method_name
+        ),
     })
 }

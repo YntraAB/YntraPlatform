@@ -1,10 +1,15 @@
 use crate::database;
-use crate::services::jobs::{create_job_ticket, assign_vehicle_to_job, add_crew_member, remove_crew_member, get_job_crew};
+use crate::services::jobs::{
+    add_crew_member, assign_vehicle_to_job, create_job_ticket, get_job_crew, remove_crew_member,
+};
 
 #[tokio::test]
 async fn test_multi_mover_crew_assignment() {
     let _lock = database::DB_TEST_LOCK.lock().unwrap();
-    crate::infra::crypto::set_session_key("test-session-key-for-crew-tests".to_string().into_bytes(), "ws-crew-test".to_string());
+    crate::infra::crypto::set_session_key(
+        "test-session-key-for-crew-tests".to_string().into_bytes(),
+        "ws-crew-test".to_string(),
+    );
     let conn = database::acquire_connection().await.unwrap();
 
     // Setup test workspace and users
@@ -37,28 +42,66 @@ async fn test_multi_mover_crew_assignment() {
     .unwrap();
 
     // 1. Assign crew members
-    add_crew_member("u-crew-staff1".to_string(), job.id.clone(), "u-crew-staff2".to_string(), "driver".to_string()).await.unwrap();
-    add_crew_member("u-crew-staff1".to_string(), job.id.clone(), "u-crew-staff3".to_string(), "helper".to_string()).await.unwrap();
+    add_crew_member(
+        "u-crew-staff1".to_string(),
+        job.id.clone(),
+        "u-crew-staff2".to_string(),
+        "driver".to_string(),
+    )
+    .await
+    .unwrap();
+    add_crew_member(
+        "u-crew-staff1".to_string(),
+        job.id.clone(),
+        "u-crew-staff3".to_string(),
+        "helper".to_string(),
+    )
+    .await
+    .unwrap();
 
     // 2. Fetch crew members
-    let crew = get_job_crew("u-crew-staff1".to_string(), job.id.clone()).await.unwrap();
+    let crew = get_job_crew("u-crew-staff1".to_string(), job.id.clone())
+        .await
+        .unwrap();
     assert_eq!(crew.len(), 2);
     assert!(crew.iter().any(|u| u.id == "u-crew-staff2"));
     assert!(crew.iter().any(|u| u.id == "u-crew-staff3"));
 
     // 3. Remove a crew member
-    remove_crew_member("u-crew-staff1".to_string(), job.id.clone(), "u-crew-staff2".to_string()).await.unwrap();
+    remove_crew_member(
+        "u-crew-staff1".to_string(),
+        job.id.clone(),
+        "u-crew-staff2".to_string(),
+    )
+    .await
+    .unwrap();
 
     // Verify updated crew list
-    let crew_after = get_job_crew("u-crew-staff1".to_string(), job.id.clone()).await.unwrap();
+    let crew_after = get_job_crew("u-crew-staff1".to_string(), job.id.clone())
+        .await
+        .unwrap();
     assert_eq!(crew_after.len(), 1);
     assert_eq!(crew_after[0].id, "u-crew-staff3");
 
     // Cleanup
-    conn.execute("DELETE FROM job_crew WHERE job_ticket_id = ?1", crate::params![&job.id]).await.ok();
-    conn.execute("DELETE FROM job_tickets WHERE id = ?1", crate::params![&job.id]).await.unwrap();
-    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-crew-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM workspaces WHERE id = 'ws-crew-test'", ()).await.unwrap();
+    conn.execute(
+        "DELETE FROM job_crew WHERE job_ticket_id = ?1",
+        crate::params![&job.id],
+    )
+    .await
+    .ok();
+    conn.execute(
+        "DELETE FROM job_tickets WHERE id = ?1",
+        crate::params![&job.id],
+    )
+    .await
+    .unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-crew-test'", ())
+        .await
+        .unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-crew-test'", ())
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -109,8 +152,9 @@ async fn test_vehicle_capacity_validation() {
     let assign_res_default = assign_vehicle_to_job(
         "u-cap-staff".to_string(),
         job.id.clone(),
-        Some("v-cap-1".to_string())
-    ).await;
+        Some("v-cap-1".to_string()),
+    )
+    .await;
     assert!(assign_res_default.is_ok());
 
     // 5b. Update workspace settings to enforce single trip capacity
@@ -123,8 +167,9 @@ async fn test_vehicle_capacity_validation() {
     let assign_res_fail = assign_vehicle_to_job(
         "u-cap-staff".to_string(),
         job.id.clone(),
-        Some("v-cap-1".to_string())
-    ).await;
+        Some("v-cap-1".to_string()),
+    )
+    .await;
     assert!(assign_res_fail.is_err());
     let err_msg = assign_res_fail.unwrap_err().to_string();
     assert!(err_msg.contains("exceeds vehicle capacity"));
@@ -135,7 +180,12 @@ async fn test_vehicle_capacity_validation() {
         "INSERT OR REPLACE INTO vehicles (id, workspace_id, name, license_plate, capacity_m3, status) VALUES ('v-cap-32', 'ws-cap-test', 'Mid Truck', 'MID-320', 32.0, 'active')",
         ()
     ).await.unwrap();
-    conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = ?1", crate::params![&job.id]).await.unwrap();
+    conn.execute(
+        "DELETE FROM move_inventory WHERE job_ticket_id = ?1",
+        crate::params![&job.id],
+    )
+    .await
+    .unwrap();
     conn.execute(
         "INSERT INTO move_inventory (id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3) VALUES ('inv-cap-30', 'ws-cap-test', ?1, 'Möbler', '30m3 Cargo', 1, 30.0)",
         crate::params![&job.id]
@@ -144,8 +194,9 @@ async fn test_vehicle_capacity_validation() {
     let assign_res_buffer_fail = assign_vehicle_to_job(
         "u-cap-staff".to_string(),
         job.id.clone(),
-        Some("v-cap-32".to_string())
-    ).await;
+        Some("v-cap-32".to_string()),
+    )
+    .await;
     assert!(assign_res_buffer_fail.is_err());
     let err_buf_msg = assign_res_buffer_fail.unwrap_err().to_string();
     assert!(err_buf_msg.contains("20% packing buffer"));
@@ -155,7 +206,12 @@ async fn test_vehicle_capacity_validation() {
         "INSERT OR REPLACE INTO vehicles (id, workspace_id, name, license_plate, capacity_m3, max_payload_kg, status) VALUES ('v-payload-1000', 'ws-cap-test', 'Light Van', 'PAY-100', 20.0, 1000.0, 'active')",
         ()
     ).await.unwrap();
-    conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = ?1", crate::params![&job.id]).await.unwrap();
+    conn.execute(
+        "DELETE FROM move_inventory WHERE job_ticket_id = ?1",
+        crate::params![&job.id],
+    )
+    .await
+    .unwrap();
     conn.execute(
         "INSERT INTO move_inventory (id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, estimated_weight_kg) VALUES ('inv-heavy-weight', 'ws-cap-test', ?1, 'Möbler', 'Heavy Safe', 1, 2.0, 1200.0)",
         crate::params![&job.id]
@@ -164,14 +220,20 @@ async fn test_vehicle_capacity_validation() {
     let assign_res_payload_fail = assign_vehicle_to_job(
         "u-cap-staff".to_string(),
         job.id.clone(),
-        Some("v-payload-1000".to_string())
-    ).await;
+        Some("v-payload-1000".to_string()),
+    )
+    .await;
     assert!(assign_res_payload_fail.is_err());
     let err_pay_msg = assign_res_payload_fail.unwrap_err().to_string();
     assert!(err_pay_msg.contains("exceeds vehicle max payload limit"));
 
     // 8. Delete heavy item and insert small item (3.0 m3, 50 kg)
-    conn.execute("DELETE FROM move_inventory WHERE id = 'inv-heavy-weight'", ()).await.unwrap();
+    conn.execute(
+        "DELETE FROM move_inventory WHERE id = 'inv-heavy-weight'",
+        (),
+    )
+    .await
+    .unwrap();
     conn.execute(
         "INSERT INTO move_inventory (id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, estimated_weight_kg) VALUES ('inv-cap-2', 'ws-cap-test', ?1, 'Möbler', 'Small Table', 1, 3.0, 50.0)",
         crate::params![&job.id]
@@ -181,16 +243,36 @@ async fn test_vehicle_capacity_validation() {
     let assign_res2 = assign_vehicle_to_job(
         "u-cap-staff".to_string(),
         job.id.clone(),
-        Some("v-cap-1".to_string())
-    ).await;
+        Some("v-cap-1".to_string()),
+    )
+    .await;
     assert!(assign_res2.is_ok());
 
     // 8. Clean up
-    conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-cap-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-cap-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM vehicles WHERE workspace_id = 'ws-cap-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-cap-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM workspaces WHERE id = 'ws-cap-test'", ()).await.unwrap();
+    conn.execute(
+        "DELETE FROM move_inventory WHERE workspace_id = 'ws-cap-test'",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        "DELETE FROM job_tickets WHERE workspace_id = 'ws-cap-test'",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        "DELETE FROM vehicles WHERE workspace_id = 'ws-cap-test'",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-cap-test'", ())
+        .await
+        .unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-cap-test'", ())
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -223,28 +305,69 @@ async fn test_driver_license_and_tachograph_compliance() {
         None,
         "2026-08-30".to_string(),
         "[]".to_string(),
-        None, None, 0, 0, false, false, false, false,
-    ).await.unwrap();
+        None,
+        None,
+        0,
+        0,
+        false,
+        false,
+        false,
+        false,
+    )
+    .await
+    .unwrap();
 
-    assign_vehicle_to_job("u-comp-admin".to_string(), job.id.clone(), Some("v-heavy-1".to_string())).await.unwrap();
+    assign_vehicle_to_job(
+        "u-comp-admin".to_string(),
+        job.id.clone(),
+        Some("v-heavy-1".to_string()),
+    )
+    .await
+    .unwrap();
 
     // 1. Attempt to add Category B driver to Heavy Truck job (should fail validation)
-    let add_res = add_crew_member("u-comp-admin".to_string(), job.id.clone(), "u-driver-b".to_string(), "driver".to_string()).await;
+    let add_res = add_crew_member(
+        "u-comp-admin".to_string(),
+        job.id.clone(),
+        "u-driver-b".to_string(),
+        "driver".to_string(),
+    )
+    .await;
     assert!(add_res.is_err());
     let err_str = add_res.unwrap_err().to_string();
     assert!(err_str.contains("Driver license violation"));
 
     // 2. Direct compliance check
-    let compliance = validate_driver_tachograph_compliance("u-comp-admin".to_string(), "u-driver-b".to_string(), job.id.clone()).await.unwrap();
+    let compliance = validate_driver_tachograph_compliance(
+        "u-comp-admin".to_string(),
+        "u-driver-b".to_string(),
+        job.id.clone(),
+    )
+    .await
+    .unwrap();
     assert!(!compliance.is_compliant);
     assert_eq!(compliance.license_class, "B");
     assert_eq!(compliance.required_license_class, "C/CE");
 
     // Cleanup
-    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-comp-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM vehicles WHERE workspace_id = 'ws-comp-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-comp-test'", ()).await.unwrap();
-    conn.execute("DELETE FROM workspaces WHERE id = 'ws-comp-test'", ()).await.unwrap();
+    conn.execute(
+        "DELETE FROM job_tickets WHERE workspace_id = 'ws-comp-test'",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        "DELETE FROM vehicles WHERE workspace_id = 'ws-comp-test'",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-comp-test'", ())
+        .await
+        .unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-comp-test'", ())
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -254,7 +377,8 @@ async fn test_over_capacity_vehicle_dispatch_rejection() {
 
     let settings = serde_json::json!({
         "enforce_single_trip_capacity": true
-    }).to_string();
+    })
+    .to_string();
 
     conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-disp-cap-test', 'Disp Cap WS', '[\"moving_company\"]', ?1)", crate::params![settings]).await.unwrap();
     conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-disp-admin', 'ws-disp-cap-test', 'admin@dispcap.io', 'admin')", ()).await.unwrap();
@@ -270,8 +394,17 @@ async fn test_over_capacity_vehicle_dispatch_rejection() {
         Some("u-disp-admin".to_string()),
         "2026-09-01".to_string(),
         "[]".to_string(),
-        None, None, 0, 0, false, false, false, false,
-    ).await.unwrap();
+        None,
+        None,
+        0,
+        0,
+        false,
+        false,
+        false,
+        false,
+    )
+    .await
+    .unwrap();
 
     // Add 15m3 cargo (> 10m3 capacity with 20% buffer = 18m3 required)
     crate::services::jobs::moves::create_move_inventory_item(
@@ -282,20 +415,63 @@ async fn test_over_capacity_vehicle_dispatch_rejection() {
         3,
         5.0,
         None,
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
     // 1. Vehicle assignment to over-capacity job ticket should fail
-    let assign_res = assign_vehicle_to_job("u-disp-admin".to_string(), job.id.clone(), Some("v-small-van".to_string())).await;
+    let assign_res = assign_vehicle_to_job(
+        "u-disp-admin".to_string(),
+        job.id.clone(),
+        Some("v-small-van".to_string()),
+    )
+    .await;
     assert!(assign_res.is_err());
-    assert!(assign_res.unwrap_err().to_string().contains("exceeds vehicle capacity"));
+    assert!(
+        assign_res
+            .unwrap_err()
+            .to_string()
+            .contains("exceeds vehicle capacity")
+    );
 
     // Cleanup
-    conn.execute("DELETE FROM move_invoices WHERE workspace_id = 'ws-disp-cap-test'", ()).await.ok();
-    conn.execute("DELETE FROM move_quotes WHERE workspace_id = 'ws-disp-cap-test'", ()).await.ok();
-    conn.execute("DELETE FROM move_inventory WHERE workspace_id = 'ws-disp-cap-test'", ()).await.ok();
-    conn.execute("DELETE FROM job_tickets WHERE workspace_id = 'ws-disp-cap-test'", ()).await.ok();
-    conn.execute("DELETE FROM vehicles WHERE workspace_id = 'ws-disp-cap-test'", ()).await.ok();
-    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-disp-cap-test'", ()).await.ok();
-    conn.execute("DELETE FROM workspaces WHERE id = 'ws-disp-cap-test'", ()).await.ok();
+    conn.execute(
+        "DELETE FROM move_invoices WHERE workspace_id = 'ws-disp-cap-test'",
+        (),
+    )
+    .await
+    .ok();
+    conn.execute(
+        "DELETE FROM move_quotes WHERE workspace_id = 'ws-disp-cap-test'",
+        (),
+    )
+    .await
+    .ok();
+    conn.execute(
+        "DELETE FROM move_inventory WHERE workspace_id = 'ws-disp-cap-test'",
+        (),
+    )
+    .await
+    .ok();
+    conn.execute(
+        "DELETE FROM job_tickets WHERE workspace_id = 'ws-disp-cap-test'",
+        (),
+    )
+    .await
+    .ok();
+    conn.execute(
+        "DELETE FROM vehicles WHERE workspace_id = 'ws-disp-cap-test'",
+        (),
+    )
+    .await
+    .ok();
+    conn.execute(
+        "DELETE FROM users WHERE workspace_id = 'ws-disp-cap-test'",
+        (),
+    )
+    .await
+    .ok();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-disp-cap-test'", ())
+        .await
+        .ok();
 }
-

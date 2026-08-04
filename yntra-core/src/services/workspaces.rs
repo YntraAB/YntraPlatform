@@ -23,7 +23,10 @@ pub async fn get_workspace(requester_user_id: String) -> Result<Workspace, Yntra
             sync_status: row.get(8)?,
         })
     } else {
-        Err(YntraError::NotFoundError(format!("Workspace '{}' not found", auth.workspace_id)))
+        Err(YntraError::NotFoundError(format!(
+            "Workspace '{}' not found",
+            auth.workspace_id
+        )))
     }
 }
 
@@ -36,7 +39,9 @@ pub async fn update_workspace_modules(
     crate::infra::auth::validate_id(&workspace_id, "Workspace ID")?;
     tracing::info!(
         "update_workspace_modules FFI called: requester_user_id={}, workspace_id={}, modules_json={}",
-        requester_user_id, workspace_id, modules_json
+        requester_user_id,
+        workspace_id,
+        modules_json
     );
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
@@ -279,11 +284,19 @@ fn get_default_settings_for_modules(modules_json: &str) -> String {
 
         settings_map.insert(
             "target_region".to_string(),
-            serde_json::Value::String(if is_scandi { "SE".to_string() } else { "US".to_string() }),
+            serde_json::Value::String(if is_scandi {
+                "SE".to_string()
+            } else {
+                "US".to_string()
+            }),
         );
         settings_map.insert(
             "currency".to_string(),
-            serde_json::Value::String(if is_scandi { "SEK".to_string() } else { "USD".to_string() }),
+            serde_json::Value::String(if is_scandi {
+                "SEK".to_string()
+            } else {
+                "USD".to_string()
+            }),
         );
         settings_map.insert(
             "use_rut_deduction".to_string(),
@@ -422,10 +435,26 @@ pub async fn delete_workspace_via_hub(
         Ok(_) => {
             conn.commit().await?;
             // Clean up all keyring credentials associated with this workspace on successful deletion
-            let _ = crate::infra::crypto::set_local_secret(&format!("creator_private_key_{}", workspace_id), "").await;
-            let _ = crate::infra::crypto::set_local_secret(&format!("workspace_public_key_{}", workspace_id), "").await;
-            let _ = crate::infra::crypto::set_local_secret(&format!("workspace_key_{}", workspace_id), "").await;
-            let _ = crate::infra::crypto::set_local_secret(&format!("workspace_auth_epoch_{}", workspace_id), "").await;
+            let _ = crate::infra::crypto::set_local_secret(
+                &format!("creator_private_key_{}", workspace_id),
+                "",
+            )
+            .await;
+            let _ = crate::infra::crypto::set_local_secret(
+                &format!("workspace_public_key_{}", workspace_id),
+                "",
+            )
+            .await;
+            let _ = crate::infra::crypto::set_local_secret(
+                &format!("workspace_key_{}", workspace_id),
+                "",
+            )
+            .await;
+            let _ = crate::infra::crypto::set_local_secret(
+                &format!("workspace_auth_epoch_{}", workspace_id),
+                "",
+            )
+            .await;
             notify_observers();
             Ok(())
         }
@@ -934,7 +963,10 @@ pub async fn create_workspace_invitation(
         ));
     }
 
-    let code = format!("INV-{}", &uuid::Uuid::new_v4().to_string()[..8].to_uppercase());
+    let code = format!(
+        "INV-{}",
+        &uuid::Uuid::new_v4().to_string()[..8].to_uppercase()
+    );
     let now_ms = crate::infra::time::get_current_time_ms();
     let invitation = crate::models::WorkspaceInvitation {
         code: code.clone(),
@@ -947,7 +979,8 @@ pub async fn create_workspace_invitation(
             "invited_by": requester_user_id,
             "created_at_ms": now_ms,
             "expires_at_ms": now_ms + (7 * 24 * 60 * 60 * 1000)
-        }).to_string(),
+        })
+        .to_string(),
         updated_at: now_ms,
         sync_status: "pending".to_string(),
     };
@@ -1033,7 +1066,8 @@ pub async fn revoke_workspace_invitation(
     conn.execute(
         "DELETE FROM invitations WHERE code = ?1 AND workspace_id = ?2",
         crate::params![&code, &workspace_id],
-    ).await?;
+    )
+    .await?;
 
     notify_observers();
     Ok(())
@@ -1062,20 +1096,36 @@ pub async fn complete_workspace_onboarding(
     let payload: serde_json::Value = serde_json::from_str(&onboarding_data_json)
         .map_err(|e| YntraError::DbError(format!("Invalid onboarding JSON: {}", e)))?;
 
-    let name = payload.get("name").and_then(|v| v.as_str()).unwrap_or("My Workspace").to_string();
-    let modules_json = payload.get("modules_active").map(|v| v.to_string()).unwrap_or_else(|| "{}".to_string());
-    let brand_color = payload.get("brand_color").and_then(|v| v.as_str()).unwrap_or("hsl(217.2, 91.2%, 59.8%)").to_string();
+    let name = payload
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("My Workspace")
+        .to_string();
+    let modules_json = payload
+        .get("modules_active")
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "{}".to_string());
+    let brand_color = payload
+        .get("brand_color")
+        .and_then(|v| v.as_str())
+        .unwrap_or("hsl(217.2, 91.2%, 59.8%)")
+        .to_string();
 
-    let raw_settings: String = conn.query_row(
-        "SELECT settings FROM workspaces WHERE id = ?1",
-        crate::params![&workspace_id],
-        |r| r.get(0),
-    ).await.unwrap_or_else(|_| "{}".to_string());
+    let raw_settings: String = conn
+        .query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![&workspace_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or_else(|_| "{}".to_string());
 
-    let mut current_settings: serde_json::Value = serde_json::from_str(&raw_settings).unwrap_or(serde_json::json!({}));
+    let mut current_settings: serde_json::Value =
+        serde_json::from_str(&raw_settings).unwrap_or(serde_json::json!({}));
 
     current_settings["onboarding_completed"] = serde_json::Value::Bool(true);
-    current_settings["onboarding_completed_at"] = serde_json::Value::Number(crate::infra::time::get_current_time_ms().into());
+    current_settings["onboarding_completed_at"] =
+        serde_json::Value::Number(crate::infra::time::get_current_time_ms().into());
     if let Some(org_type) = payload.get("org_type").and_then(|v| v.as_str()) {
         current_settings["org_type"] = serde_json::Value::String(org_type.to_string());
     }
@@ -1115,9 +1165,22 @@ pub async fn update_user_workspace_role(
         ));
     }
 
-    let valid_roles = ["platform_admin", "admin", "manager", "member", "user", "viewer", "client", "student", "parent"];
+    let valid_roles = [
+        "platform_admin",
+        "admin",
+        "manager",
+        "member",
+        "user",
+        "viewer",
+        "client",
+        "student",
+        "parent",
+    ];
     if !valid_roles.contains(&new_role.as_str()) {
-        return Err(YntraError::AuthError(format!("Invalid role specified: {}", new_role)));
+        return Err(YntraError::AuthError(format!(
+            "Invalid role specified: {}",
+            new_role
+        )));
     }
 
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -1126,7 +1189,13 @@ pub async fn update_user_workspace_role(
         crate::params![&new_role, now_ms, &target_user_id, &workspace_id],
     ).await?;
 
-    crate::services::users::ensure_user_role_signature(&conn, &target_user_id, &new_role, &workspace_id).await?;
+    crate::services::users::ensure_user_role_signature(
+        &conn,
+        &target_user_id,
+        &new_role,
+        &workspace_id,
+    )
+    .await?;
 
     notify_observers();
 
@@ -1187,37 +1256,53 @@ pub async fn get_workspace_role_permissions(
         crate::models::WorkspaceRolePermission {
             role_id: "admin".to_string(),
             role_name: "Administrator".to_string(),
-            description: "Full access to workspace settings, user management, RBAC, and audit logs.".to_string(),
+            description:
+                "Full access to workspace settings, user management, RBAC, and audit logs."
+                    .to_string(),
             permissions_json: serde_json::json!([
-                "manage_workspace", "manage_users", "manage_roles", "view_audit_logs", "export_audit_logs", "manage_billing", "edit_content", "view_content"
-            ]).to_string(),
+                "manage_workspace",
+                "manage_users",
+                "manage_roles",
+                "view_audit_logs",
+                "export_audit_logs",
+                "manage_billing",
+                "edit_content",
+                "view_content"
+            ])
+            .to_string(),
             is_custom: false,
         },
         crate::models::WorkspaceRolePermission {
             role_id: "manager".to_string(),
             role_name: "Operations Manager".to_string(),
-            description: "Operational access for scheduling, team dispatch, notes, and staff management.".to_string(),
+            description:
+                "Operational access for scheduling, team dispatch, notes, and staff management."
+                    .to_string(),
             permissions_json: serde_json::json!([
-                "manage_users", "edit_content", "view_content", "dispatch_teams", "manage_schedules"
-            ]).to_string(),
+                "manage_users",
+                "edit_content",
+                "view_content",
+                "dispatch_teams",
+                "manage_schedules"
+            ])
+            .to_string(),
             is_custom: false,
         },
         crate::models::WorkspaceRolePermission {
             role_id: "member".to_string(),
             role_name: "Standard Member".to_string(),
-            description: "Standard daily operational features (messaging, daily notes, time reporting).".to_string(),
-            permissions_json: serde_json::json!([
-                "edit_content", "view_content", "time_reporting"
-            ]).to_string(),
+            description:
+                "Standard daily operational features (messaging, daily notes, time reporting)."
+                    .to_string(),
+            permissions_json: serde_json::json!(["edit_content", "view_content", "time_reporting"])
+                .to_string(),
             is_custom: false,
         },
         crate::models::WorkspaceRolePermission {
             role_id: "viewer".to_string(),
             role_name: "Read-Only Viewer".to_string(),
             description: "Read-only access to schedules, team notes, and directory.".to_string(),
-            permissions_json: serde_json::json!([
-                "view_content"
-            ]).to_string(),
+            permissions_json: serde_json::json!(["view_content"]).to_string(),
             is_custom: false,
         },
     ])
@@ -1241,7 +1326,9 @@ pub async fn get_workspace_rbac_matrix(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     Ok(vec![
@@ -1296,48 +1383,62 @@ pub async fn export_workspace_full_data_json(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.role != "admin" {
-        return Err(YntraError::AuthError("Access denied: administrator privileges required".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: administrator privileges required".to_string(),
+        ));
     }
 
     let ws: Workspace = get_workspace(requester_user_id.clone()).await?;
 
     // Query users
-    let mut user_stmt = conn.prepare("SELECT id, email, full_name, role FROM users WHERE workspace_id = ?1").await?;
-    let users: Vec<serde_json::Value> = user_stmt.query_map(crate::params![&workspace_id], |r| {
-        Ok(serde_json::json!({
-            "id": r.get::<String>(0)?,
-            "email": r.get::<String>(1)?,
-            "full_name": r.get::<Option<String>>(2)?,
-            "role": r.get::<String>(3)?,
-        }))
-    }).await?;
+    let mut user_stmt = conn
+        .prepare("SELECT id, email, full_name, role FROM users WHERE workspace_id = ?1")
+        .await?;
+    let users: Vec<serde_json::Value> = user_stmt
+        .query_map(crate::params![&workspace_id], |r| {
+            Ok(serde_json::json!({
+                "id": r.get::<String>(0)?,
+                "email": r.get::<String>(1)?,
+                "full_name": r.get::<Option<String>>(2)?,
+                "role": r.get::<String>(3)?,
+            }))
+        })
+        .await?;
 
     // Query time reports
     let mut tr_stmt = conn.prepare("SELECT id, user_id, date, hours, note, status FROM time_reports WHERE workspace_id = ?1").await?;
-    let time_reports: Vec<serde_json::Value> = tr_stmt.query_map(crate::params![&workspace_id], |r| {
-        Ok(serde_json::json!({
-            "id": r.get::<String>(0)?,
-            "user_id": r.get::<String>(1)?,
-            "date": r.get::<String>(2)?,
-            "hours": r.get::<f64>(3)?,
-            "note": r.get::<Option<String>>(4)?,
-            "status": r.get::<String>(5)?,
-        }))
-    }).await?;
+    let time_reports: Vec<serde_json::Value> = tr_stmt
+        .query_map(crate::params![&workspace_id], |r| {
+            Ok(serde_json::json!({
+                "id": r.get::<String>(0)?,
+                "user_id": r.get::<String>(1)?,
+                "date": r.get::<String>(2)?,
+                "hours": r.get::<f64>(3)?,
+                "note": r.get::<Option<String>>(4)?,
+                "status": r.get::<String>(5)?,
+            }))
+        })
+        .await?;
 
     // Query notes
-    let mut notes_stmt = conn.prepare("SELECT id, subject, content, created_at FROM notes WHERE workspace_id = ?1").await?;
-    let notes: Vec<serde_json::Value> = notes_stmt.query_map(crate::params![&workspace_id], |r| {
-        Ok(serde_json::json!({
-            "id": r.get::<String>(0)?,
-            "subject": r.get::<String>(1)?,
-            "content": r.get::<String>(2)?,
-            "created_at": r.get::<String>(3)?,
-        }))
-    }).await?;
+    let mut notes_stmt = conn
+        .prepare("SELECT id, subject, content, created_at FROM notes WHERE workspace_id = ?1")
+        .await?;
+    let notes: Vec<serde_json::Value> = notes_stmt
+        .query_map(crate::params![&workspace_id], |r| {
+            Ok(serde_json::json!({
+                "id": r.get::<String>(0)?,
+                "subject": r.get::<String>(1)?,
+                "content": r.get::<String>(2)?,
+                "created_at": r.get::<String>(3)?,
+            }))
+        })
+        .await?;
 
     // Query audit logs
-    let audit_logs = crate::services::audit::get_audit_logs(requester_user_id.clone()).await.unwrap_or_default();
+    let audit_logs = crate::services::audit::get_audit_logs(requester_user_id.clone())
+        .await
+        .unwrap_or_default();
 
     let export_bundle = serde_json::json!({
         "export_info": {
@@ -1458,9 +1559,18 @@ mod tests {
     fn test_workspace_settings_definitions() {
         let defs = get_workspace_settings_definitions();
         assert!(!defs.is_empty());
-        assert!(defs.iter().any(|d| d.key == "mult_narrow_staircase" && !d.tooltip.is_empty()));
-        assert!(defs.iter().any(|d| d.key == "moving_weekend_multiplier" && !d.tooltip.is_empty()));
-        assert!(defs.iter().any(|d| d.key == "surcharge_piano" && !d.tooltip.is_empty()));
+        assert!(
+            defs.iter()
+                .any(|d| d.key == "mult_narrow_staircase" && !d.tooltip.is_empty())
+        );
+        assert!(
+            defs.iter()
+                .any(|d| d.key == "moving_weekend_multiplier" && !d.tooltip.is_empty())
+        );
+        assert!(
+            defs.iter()
+                .any(|d| d.key == "surcharge_piano" && !d.tooltip.is_empty())
+        );
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -1477,8 +1587,12 @@ mod tests {
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES (?1, ?2, 'admin@ws.io', 'admin')", crate::params![&admin_uid, &ws_id]).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES (?1, ?2, 'member@ws.io', 'member')", crate::params![&member_uid, &ws_id]).await.unwrap();
 
-        crate::services::users::ensure_user_role_signature(&conn, &admin_uid, "admin", &ws_id).await.unwrap();
-        crate::services::users::ensure_user_role_signature(&conn, &member_uid, "member", &ws_id).await.unwrap();
+        crate::services::users::ensure_user_role_signature(&conn, &admin_uid, "admin", &ws_id)
+            .await
+            .unwrap();
+        crate::services::users::ensure_user_role_signature(&conn, &member_uid, "member", &ws_id)
+            .await
+            .unwrap();
 
         // 1. Test Onboarding completion
         let onboarding_payload = serde_json::json!({
@@ -1486,40 +1600,85 @@ mod tests {
             "org_type": "care",
             "brand_color": "hsl(210, 80%, 50%)",
             "modules_active": {"messaging": true, "scheduling": true}
-        }).to_string();
+        })
+        .to_string();
 
-        let updated_ws = complete_workspace_onboarding(admin_uid.clone(), ws_id.clone(), onboarding_payload).await.unwrap();
+        let updated_ws =
+            complete_workspace_onboarding(admin_uid.clone(), ws_id.clone(), onboarding_payload)
+                .await
+                .unwrap();
         assert_eq!(updated_ws.name, "Configured Workspace");
         assert!(updated_ws.settings.contains("onboarding_completed"));
 
         // 2. Test Team Invitation Creation & Revocation
-        let inv = create_workspace_invitation(admin_uid.clone(), ws_id.clone(), "invitee@ws.io".to_string(), "Invited User".to_string(), "manager".to_string()).await.unwrap();
+        let inv = create_workspace_invitation(
+            admin_uid.clone(),
+            ws_id.clone(),
+            "invitee@ws.io".to_string(),
+            "Invited User".to_string(),
+            "manager".to_string(),
+        )
+        .await
+        .unwrap();
         assert!(inv.code.starts_with("INV-"));
 
-        let inv_list = get_workspace_invitations(admin_uid.clone(), ws_id.clone()).await.unwrap();
+        let inv_list = get_workspace_invitations(admin_uid.clone(), ws_id.clone())
+            .await
+            .unwrap();
         assert!(inv_list.iter().any(|i| i.code == inv.code));
 
-        revoke_workspace_invitation(admin_uid.clone(), ws_id.clone(), inv.code.clone()).await.unwrap();
-        let inv_list_after = get_workspace_invitations(admin_uid.clone(), ws_id.clone()).await.unwrap();
+        revoke_workspace_invitation(admin_uid.clone(), ws_id.clone(), inv.code.clone())
+            .await
+            .unwrap();
+        let inv_list_after = get_workspace_invitations(admin_uid.clone(), ws_id.clone())
+            .await
+            .unwrap();
         assert!(!inv_list_after.iter().any(|i| i.code == inv.code));
 
         // 3. Test RBAC Role Update
-        crate::services::users::ensure_user_role_signature(&conn, &admin_uid, "admin", &ws_id).await.unwrap();
-        let updated_user = update_user_workspace_role(admin_uid.clone(), ws_id.clone(), member_uid.clone(), "manager".to_string()).await.unwrap();
+        crate::services::users::ensure_user_role_signature(&conn, &admin_uid, "admin", &ws_id)
+            .await
+            .unwrap();
+        let updated_user = update_user_workspace_role(
+            admin_uid.clone(),
+            ws_id.clone(),
+            member_uid.clone(),
+            "manager".to_string(),
+        )
+        .await
+        .unwrap();
         assert_eq!(updated_user.role, "manager");
 
-        let roles_perm = get_workspace_role_permissions(admin_uid.clone(), ws_id.clone()).await.unwrap();
+        let roles_perm = get_workspace_role_permissions(admin_uid.clone(), ws_id.clone())
+            .await
+            .unwrap();
         assert!(!roles_perm.is_empty());
 
         // 4. Test Audit Export
-        let csv_export = crate::services::audit::export_audit_logs_csv(admin_uid.clone(), None, None, None).await.unwrap();
+        let csv_export =
+            crate::services::audit::export_audit_logs_csv(admin_uid.clone(), None, None, None)
+                .await
+                .unwrap();
         assert!(csv_export.contains("action_type"));
 
-        let json_export = crate::services::audit::export_audit_logs_json(admin_uid.clone(), None, None, None).await.unwrap();
+        let json_export =
+            crate::services::audit::export_audit_logs_json(admin_uid.clone(), None, None, None)
+                .await
+                .unwrap();
         assert!(json_export.contains("export_metadata"));
 
         // Clean up
-        conn.execute("DELETE FROM users WHERE id IN (?1, ?2)", crate::params![admin_uid, member_uid]).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute(
+            "DELETE FROM users WHERE id IN (?1, ?2)",
+            crate::params![admin_uid, member_uid],
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM workspaces WHERE id = ?1",
+            crate::params![ws_id],
+        )
+        .await
+        .unwrap();
     }
 }

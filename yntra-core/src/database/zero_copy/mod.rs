@@ -6,11 +6,11 @@ pub mod sync;
 #[cfg(test)]
 mod tests;
 
-pub use chaos::{run_chaos_sync_load_test, ChaosConfig, ChaosNetworkProxy};
+pub use chaos::{ChaosConfig, ChaosNetworkProxy, run_chaos_sync_load_test};
 pub use crypto::ZkCryptoTrust;
 pub use stores::{
-    create_peer_note_store, create_peer_store, ZeroCopyAuditStore, ZeroCopyMessageStore,
-    ZeroCopyNoteStore, ZeroCopyStore,
+    ZeroCopyAuditStore, ZeroCopyMessageStore, ZeroCopyNoteStore, ZeroCopyStore,
+    create_peer_note_store, create_peer_store,
 };
 pub use sync::{EdgeSyncLoop, P2PMeshSyncRouter};
 

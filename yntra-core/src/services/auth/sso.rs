@@ -26,7 +26,9 @@ pub async fn initiate_enterprise_sso(
     let now_ms = crate::infra::time::get_current_time_ms();
 
     let provider_type = match domain.to_lowercase().as_str() {
-        d if d.contains("microsoft") || d.contains("azure") || d.contains("corp") => "entra_id".to_string(),
+        d if d.contains("microsoft") || d.contains("azure") || d.contains("corp") => {
+            "entra_id".to_string()
+        }
         d if d.contains("okta") => "okta".to_string(),
         _ => "saml2".to_string(),
     };
@@ -63,7 +65,9 @@ pub async fn complete_enterprise_sso_login(
     if let Some(user) = users.into_iter().next() {
         Ok(user)
     } else {
-        Err(YntraError::AuthError("SSO authentication failed: no user provisioned".to_string()))
+        Err(YntraError::AuthError(
+            "SSO authentication failed: no user provisioned".to_string(),
+        ))
     }
 }
 
@@ -73,9 +77,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_enterprise_sso_initiation() {
-        let session = initiate_enterprise_sso("alice@acme-corp.com".to_string(), "yntra://sso/callback".to_string())
-            .await
-            .unwrap();
+        let session = initiate_enterprise_sso(
+            "alice@acme-corp.com".to_string(),
+            "yntra://sso/callback".to_string(),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(session.domain, "acme-corp.com");
         assert!(session.authorization_url.contains("acme-corp.com"));

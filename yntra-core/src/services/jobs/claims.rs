@@ -1,11 +1,13 @@
-use crate::database;
-use crate::infra::observer::notify_observers;
-use crate::infra::errors::YntraError;
-use crate::services::jobs::tickets::is_staff;
 use crate::DamagedItemClaim;
+use crate::database;
+use crate::infra::errors::YntraError;
+use crate::infra::observer::notify_observers;
+use crate::services::jobs::tickets::is_staff;
 use uuid::Uuid;
 
-async fn ensure_damaged_item_claims_schema(conn: &database::DbConnection) -> Result<(), YntraError> {
+async fn ensure_damaged_item_claims_schema(
+    conn: &database::DbConnection,
+) -> Result<(), YntraError> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS damaged_item_claims (
             id TEXT PRIMARY KEY,
@@ -25,7 +27,8 @@ async fn ensure_damaged_item_claims_schema(conn: &database::DbConnection) -> Res
             FOREIGN KEY(job_ticket_id) REFERENCES job_tickets(id) ON DELETE CASCADE
         )",
         (),
-    ).await?;
+    )
+    .await?;
     Ok(())
 }
 
@@ -51,11 +54,15 @@ pub async fn submit_damaged_item_claim(
         .map_err(|_| YntraError::NotFoundError("Job ticket not found".to_string()))?;
 
     if auth.workspace_id != job_ws {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     if claimed_amount <= 0.0 {
-        return Err(YntraError::ValidationError("Claimed amount must be greater than 0".to_string()));
+        return Err(YntraError::ValidationError(
+            "Claimed amount must be greater than 0".to_string(),
+        ));
     }
 
     ensure_damaged_item_claims_schema(&conn).await?;
@@ -73,7 +80,11 @@ pub async fn submit_damaged_item_claim(
         approved_amount: None,
         repair_quote_amount: None,
         insurance_reference: None,
-        photo_urls_json: if photo_urls_json.trim().is_empty() { "[]".to_string() } else { photo_urls_json },
+        photo_urls_json: if photo_urls_json.trim().is_empty() {
+            "[]".to_string()
+        } else {
+            photo_urls_json
+        },
         status: "submitted".to_string(),
         settlement_notes: None,
         created_at: now_ms,
@@ -118,7 +129,9 @@ pub async fn update_claim_status(
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     if !is_staff(&auth) {
-        return Err(YntraError::AuthError("Access denied: only staff coordinators can update claims".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: only staff coordinators can update claims".to_string(),
+        ));
     }
 
     ensure_damaged_item_claims_schema(&conn).await?;
@@ -133,7 +146,9 @@ pub async fn update_claim_status(
         .map_err(|_| YntraError::NotFoundError(format!("Claim {} not found", claim_id)))?;
 
     if auth.workspace_id != claim_ws {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let now_ms = chrono::Utc::now().timestamp_millis();
@@ -190,7 +205,9 @@ pub async fn process_claim_payout(
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     if !is_staff(&auth) {
-        return Err(YntraError::AuthError("Access denied: only staff coordinators can process claim payouts".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: only staff coordinators can process claim payouts".to_string(),
+        ));
     }
 
     let settings_str: String = conn
@@ -211,8 +228,12 @@ pub async fn process_claim_payout(
         Some(payout_amount),
         None,
         Some(insurance_policy_claim_ref.clone()),
-        Some(format!("Insurance payout processed: {:.2} {} approved under policy ref {}", payout_amount, currency, insurance_policy_claim_ref)),
-    ).await?;
+        Some(format!(
+            "Insurance payout processed: {:.2} {} approved under policy ref {}",
+            payout_amount, currency, insurance_policy_claim_ref
+        )),
+    )
+    .await?;
 
     Ok(crate::models::ClaimPayoutResult {
         success: true,
@@ -220,7 +241,10 @@ pub async fn process_claim_payout(
         payout_amount,
         insurance_reference: insurance_policy_claim_ref,
         new_status: "paid".to_string(),
-        message: format!("Successfully disbursed insurance payout of {:.2} {}.", payout_amount, currency),
+        message: format!(
+            "Successfully disbursed insurance payout of {:.2} {}.",
+            payout_amount, currency
+        ),
     })
 }
 
@@ -244,7 +268,9 @@ pub async fn get_job_claims(
         .map_err(|_| YntraError::NotFoundError("Job ticket not found".to_string()))?;
 
     if auth.workspace_id != job_ws {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let mut stmt = conn.prepare(

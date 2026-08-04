@@ -9,16 +9,29 @@ pub async fn generate_printable_bol_html(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    let bol_res = crate::services::jobs::signatures::get_bill_of_lading(job_ticket_id.clone()).await?;
-    let bol = bol_res.ok_or_else(|| YntraError::NotFoundError("Bill of Lading not found for job".to_string()))?;
+    let bol_res =
+        crate::services::jobs::signatures::get_bill_of_lading(job_ticket_id.clone()).await?;
+    let bol = bol_res
+        .ok_or_else(|| YntraError::NotFoundError("Bill of Lading not found for job".to_string()))?;
 
     if auth.workspace_id != bol.workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
-    let usdot = bol.carrier_dot_number.as_deref().unwrap_or("Pending / Registered");
-    let orig_sig = bol.origin_signature_hash.as_deref().unwrap_or("Unsigned / Pending");
-    let dest_sig = bol.destination_signature_hash.as_deref().unwrap_or("Unsigned / Pending");
+    let usdot = bol
+        .carrier_dot_number
+        .as_deref()
+        .unwrap_or("Pending / Registered");
+    let orig_sig = bol
+        .origin_signature_hash
+        .as_deref()
+        .unwrap_or("Unsigned / Pending");
+    let dest_sig = bol
+        .destination_signature_hash
+        .as_deref()
+        .unwrap_or("Unsigned / Pending");
 
     let val_label = if bol.valuation_option == "released_value_060" {
         "Released Value Protection ($0.60/lb per article - STB Default)"
@@ -112,10 +125,21 @@ pub async fn generate_printable_bol_html(
   </div>
 </body>
 </html>"#,
-        bol.bol_number, bol.bol_number, usdot, bol.carrier_name, bol.shipper_name,
-        bol.origin_address, bol.destination_address, val_label,
-        bol.valuation_declared_amount, bol.valuation_deductible, bol.valuation_premium,
-        bol.total_estimated_weight_lbs, bol.legal_terms, orig_sig, dest_sig,
+        bol.bol_number,
+        bol.bol_number,
+        usdot,
+        bol.carrier_name,
+        bol.shipper_name,
+        bol.origin_address,
+        bol.destination_address,
+        val_label,
+        bol.valuation_declared_amount,
+        bol.valuation_deductible,
+        bol.valuation_premium,
+        bol.total_estimated_weight_lbs,
+        bol.legal_terms,
+        orig_sig,
+        dest_sig,
         bol.document_tamper_hash
     );
 
@@ -140,23 +164,28 @@ pub async fn generate_printable_invoice_html(
         .map_err(|_| YntraError::NotFoundError("Job ticket not found".to_string()))?;
 
     if auth.workspace_id != ws_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
-    let summary = crate::services::jobs::moves::get_move_inventory_summary(requester_user_id.clone(), job_ticket_id.clone()).await.unwrap_or(
-        crate::MoveInventorySummary {
-            total_volume_m3: 0.0,
-            total_weight_kg: 0.0,
-            total_volume_cu_ft: 0.0,
-            total_weight_lbs: 0.0,
-            total_item_count: 0,
-            recommended_truck_m3: 0.0,
-            recommended_truck_cu_ft: 0.0,
-            recommended_crew_size: 2,
-            truck_capacity_exceeded: false,
-            truck_capacity_warning: None,
-        }
-    );
+    let summary = crate::services::jobs::moves::get_move_inventory_summary(
+        requester_user_id.clone(),
+        job_ticket_id.clone(),
+    )
+    .await
+    .unwrap_or(crate::MoveInventorySummary {
+        total_volume_m3: 0.0,
+        total_weight_kg: 0.0,
+        total_volume_cu_ft: 0.0,
+        total_weight_lbs: 0.0,
+        total_item_count: 0,
+        recommended_truck_m3: 0.0,
+        recommended_truck_cu_ft: 0.0,
+        recommended_crew_size: 2,
+        truck_capacity_exceeded: false,
+        truck_capacity_warning: None,
+    });
 
     let html = format!(
         r#"<!DOCTYPE html>
@@ -223,8 +252,14 @@ pub async fn generate_printable_invoice_html(
   </table>
 </body>
 </html>"#,
-        job_ticket_id, job_ticket_id, title, loc_addr,
-        summary.total_item_count, summary.total_volume_m3, summary.total_weight_lbs, summary.total_weight_kg
+        job_ticket_id,
+        job_ticket_id,
+        title,
+        loc_addr,
+        summary.total_item_count,
+        summary.total_volume_m3,
+        summary.total_weight_lbs,
+        summary.total_weight_kg
     );
 
     Ok(html)

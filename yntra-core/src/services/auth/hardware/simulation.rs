@@ -161,7 +161,9 @@ pub async fn complete_hardware_auth(
     };
 
     if db_token != token {
-        return Err(YntraError::AuthError("Access denied: invalid session token".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: invalid session token".to_string(),
+        ));
     }
 
     if status == "success" || status == "error" {
@@ -357,7 +359,7 @@ pub async fn complete_hardware_auth(
 
             if let Some((_user_id, pubkey_hex)) = user_info {
                 let challenge_bytes = const_hex::decode(&challenge_hex).unwrap_or_default();
-                
+
                 // Construct PSO: Compute Digital Signature APDU command
                 // CLA: 00, INS: 2A, P1: 9E, P2: 9A
                 let mut apdu_sign = vec![0x00, 0x2A, 0x9E, 0x9A];

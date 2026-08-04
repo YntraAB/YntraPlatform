@@ -1,10 +1,10 @@
+use crate::YntraError;
 use crate::database;
 use crate::infra::observer::notify_observers;
 use crate::models::jobs::{
     DriverVehicleInspectionReport, EldHosLogRecord, GvwrWeightComplianceWarning,
     IftaStateFuelLogRecord, VehicleDotComplianceSummary,
 };
-use crate::YntraError;
 use uuid::Uuid;
 
 #[uniffi::export]
@@ -66,7 +66,8 @@ pub async fn log_eld_hos_status(
             violation_reason.clone(),
             now_ms,
         ],
-    ).await?;
+    )
+    .await?;
 
     notify_observers();
 
@@ -110,7 +111,9 @@ pub async fn submit_dvir_inspection(
     }
 
     let defects_found = !(brakes_ok && tires_ok && lights_ok && steering_ok && coupling_devices_ok)
-        || defect_details.as_ref().map_or(false, |d| !d.trim().is_empty());
+        || defect_details
+            .as_ref()
+            .map_or(false, |d| !d.trim().is_empty());
 
     let safety_status = if !brakes_ok || !steering_ok {
         "OUT_OF_SERVICE".to_string()
@@ -145,7 +148,8 @@ pub async fn submit_dvir_inspection(
             safety_status.clone(),
             now_ms,
         ],
-    ).await?;
+    )
+    .await?;
 
     notify_observers();
 
@@ -188,7 +192,7 @@ pub async fn get_vehicle_dvir_reports(
                     defects_found, defect_details, safety_status, created_at
              FROM dvir_inspections
              WHERE vehicle_id = ?1 AND workspace_id = ?2
-             ORDER BY created_at DESC, rowid DESC"
+             ORDER BY created_at DESC, rowid DESC",
         )
         .await?;
 
@@ -238,7 +242,10 @@ pub async fn check_gvwr_overload_status(
         .await?;
 
     let mut rows = stmt
-        .query(crate::params![vehicle_id.clone(), auth.workspace_id.clone()])
+        .query(crate::params![
+            vehicle_id.clone(),
+            auth.workspace_id.clone()
+        ])
         .await?;
 
     let (vehicle_name, license_plate) = if let Some(row) = rows.next().await? {
@@ -315,7 +322,8 @@ pub async fn log_ifta_jurisdiction_crossing(
             fuel_purchased_liters,
             now_ms,
         ],
-    ).await?;
+    )
+    .await?;
 
     notify_observers();
 
@@ -349,7 +357,12 @@ pub async fn get_vehicle_dot_compliance_summary(
     let mut hos_stmt = conn
         .prepare("SELECT status, violation_flag FROM eld_hos_logs WHERE vehicle_id = ?1 AND workspace_id = ?2 ORDER BY timestamp_ms DESC LIMIT 1")
         .await?;
-    let mut hos_rows = hos_stmt.query(crate::params![vehicle_id.clone(), auth.workspace_id.clone()]).await?;
+    let mut hos_rows = hos_stmt
+        .query(crate::params![
+            vehicle_id.clone(),
+            auth.workspace_id.clone()
+        ])
+        .await?;
     let (active_hos_status, latest_hos_violation) = if let Some(row) = hos_rows.next().await? {
         (row.get::<String>(0)?, row.get::<i32>(1)? == 1)
     } else {
@@ -359,7 +372,12 @@ pub async fn get_vehicle_dot_compliance_summary(
     let mut count_stmt = conn
         .prepare("SELECT COUNT(*) FROM eld_hos_logs WHERE vehicle_id = ?1 AND workspace_id = ?2 AND violation_flag = 1")
         .await?;
-    let mut count_rows = count_stmt.query(crate::params![vehicle_id.clone(), auth.workspace_id.clone()]).await?;
+    let mut count_rows = count_stmt
+        .query(crate::params![
+            vehicle_id.clone(),
+            auth.workspace_id.clone()
+        ])
+        .await?;
     let hos_violation_count = if let Some(row) = count_rows.next().await? {
         row.get::<i32>(0)?
     } else {
@@ -369,7 +387,12 @@ pub async fn get_vehicle_dot_compliance_summary(
     let mut dvir_stmt = conn
         .prepare("SELECT safety_status FROM dvir_inspections WHERE vehicle_id = ?1 AND workspace_id = ?2 ORDER BY created_at DESC, rowid DESC LIMIT 1")
         .await?;
-    let mut dvir_rows = dvir_stmt.query(crate::params![vehicle_id.clone(), auth.workspace_id.clone()]).await?;
+    let mut dvir_rows = dvir_stmt
+        .query(crate::params![
+            vehicle_id.clone(),
+            auth.workspace_id.clone()
+        ])
+        .await?;
     let latest_dvir_status = if let Some(row) = dvir_rows.next().await? {
         row.get::<String>(0)?
     } else {
@@ -379,7 +402,12 @@ pub async fn get_vehicle_dot_compliance_summary(
     let mut ifta_stmt = conn
         .prepare("SELECT COUNT(*) FROM ifta_fuel_logs WHERE vehicle_id = ?1 AND workspace_id = ?2")
         .await?;
-    let mut ifta_rows = ifta_stmt.query(crate::params![vehicle_id.clone(), auth.workspace_id.clone()]).await?;
+    let mut ifta_rows = ifta_stmt
+        .query(crate::params![
+            vehicle_id.clone(),
+            auth.workspace_id.clone()
+        ])
+        .await?;
     let total_ifta_jurisdictions_logged = if let Some(row) = ifta_rows.next().await? {
         row.get::<i32>(0)?
     } else {
@@ -393,7 +421,11 @@ pub async fn get_vehicle_dot_compliance_summary(
         active_hos_status,
         hos_violation_count,
         latest_dvir_status,
-        gvwr_status: if is_dot_compliant { "NORMAL".to_string() } else { "ATTENTION_REQUIRED".to_string() },
+        gvwr_status: if is_dot_compliant {
+            "NORMAL".to_string()
+        } else {
+            "ATTENTION_REQUIRED".to_string()
+        },
         total_ifta_jurisdictions_logged,
         is_dot_compliant,
     })

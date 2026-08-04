@@ -1,8 +1,8 @@
+use crate::SchoolInvoice;
 use crate::database;
 use crate::infra::errors::YntraError;
 use crate::infra::observer::notify_observers;
-use crate::services::school::auth::{verify_school_write_zkp, verify_school_permission};
-use crate::SchoolInvoice;
+use crate::services::school::auth::{verify_school_permission, verify_school_write_zkp};
 use uuid::Uuid;
 
 #[uniffi::export]
@@ -13,7 +13,9 @@ pub async fn get_school_invoices(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let role_lower = auth.role.to_lowercase();
@@ -27,7 +29,11 @@ pub async fn get_school_invoices(
 
     let mut stmt = conn.prepare(query_str).await?;
 
-    let list = if role_lower == "student" || role_lower == "role-school-student" || role_lower == "parent" || role_lower == "role-school-parent" {
+    let list = if role_lower == "student"
+        || role_lower == "role-school-student"
+        || role_lower == "parent"
+        || role_lower == "role-school-parent"
+    {
         stmt.query_map(crate::params![workspace_id, &auth.user_id], |row| {
             Ok(SchoolInvoice {
                 id: row.get(0)?,
@@ -40,7 +46,8 @@ pub async fn get_school_invoices(
                 paid_at: row.get(7)?,
                 updated_at: row.get(8)?,
             })
-        }).await?
+        })
+        .await?
     } else {
         stmt.query_map(crate::params![workspace_id], |row| {
             Ok(SchoolInvoice {
@@ -54,7 +61,8 @@ pub async fn get_school_invoices(
                 paid_at: row.get(7)?,
                 updated_at: row.get(8)?,
             })
-        }).await?
+        })
+        .await?
     };
 
     Ok(list)
@@ -69,7 +77,9 @@ pub async fn create_school_invoice(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != invoice.workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
@@ -106,7 +116,9 @@ pub async fn record_school_payment(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
@@ -114,16 +126,21 @@ pub async fn record_school_payment(
 
     conn.begin_transaction().await?;
 
-    let invoice_opt: Option<(f64, String)> = conn.query_row(
-        "SELECT amount, status FROM school_invoices WHERE id = ?1 AND workspace_id = ?2",
-        crate::params![&invoice_id, &workspace_id],
-        |r| Ok((r.get(0)?, r.get(1)?))
-    ).await.ok();
+    let invoice_opt: Option<(f64, String)> = conn
+        .query_row(
+            "SELECT amount, status FROM school_invoices WHERE id = ?1 AND workspace_id = ?2",
+            crate::params![&invoice_id, &workspace_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .await
+        .ok();
 
     if let Some((amount, status)) = invoice_opt {
         if status == "paid" {
             let _ = conn.rollback().await;
-            return Err(YntraError::ValidationError("Invoice is already paid".to_string()));
+            return Err(YntraError::ValidationError(
+                "Invoice is already paid".to_string(),
+            ));
         }
 
         let now_ms = crate::infra::time::get_current_time_ms();

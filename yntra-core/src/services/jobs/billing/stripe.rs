@@ -1,10 +1,10 @@
+use super::helpers::{create_http_client, get_config_val};
 use crate::database;
-use crate::infra::observer::notify_observers;
 use crate::infra::errors::YntraError;
+use crate::infra::observer::notify_observers;
+use crate::services::jobs::tickets::is_staff;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
-use super::helpers::{get_config_val, create_http_client};
-use crate::services::jobs::tickets::is_staff;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -17,17 +17,25 @@ pub async fn initiate_stripe_payment(
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     // 1. Fetch Invoice
-    let mut stmt = conn.prepare("SELECT workspace_id, customer_amount, customer_id FROM move_invoices WHERE id = ?1").await?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT workspace_id, customer_amount, customer_id FROM move_invoices WHERE id = ?1",
+        )
+        .await?;
     let mut rows = stmt.query(crate::params![&invoice_id]).await?;
     let (ws_id, amount) = if let Some(row) = rows.next().await? {
         let ws: String = row.get(0)?;
         let amt: f64 = row.get(1)?;
         let cust: String = row.get(2)?;
         if auth.workspace_id != ws {
-            return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+            return Err(YntraError::AuthError(
+                "Access denied: workspace mismatch".to_string(),
+            ));
         }
         if !is_staff(&auth) && auth.user_id != cust {
-            return Err(YntraError::AuthError("Access denied: customer mismatch".to_string()));
+            return Err(YntraError::AuthError(
+                "Access denied: customer mismatch".to_string(),
+            ));
         }
         (ws, amt)
     } else {
@@ -44,7 +52,7 @@ pub async fn initiate_stripe_payment(
         .await
         .unwrap_or_else(|_| "{}".to_string());
     let settings_json: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
-    
+
     let target_region = settings_json
         .get("target_region")
         .and_then(|v| v.as_str())
@@ -62,12 +70,14 @@ pub async fn initiate_stripe_payment(
         });
 
     let client = create_http_client()?;
-    let gateway_url = get_config_val("stripe_gateway_url", "STRIPE_GATEWAY_URL", &settings_json).await
+    let gateway_url = get_config_val("stripe_gateway_url", "STRIPE_GATEWAY_URL", &settings_json)
+        .await
         .or(get_config_val("billing_gateway_url", "BILLING_GATEWAY_URL", &settings_json).await);
     let secret_key = get_config_val("stripe_secret_key", "STRIPE_SECRET_KEY", &settings_json).await;
 
     if let Some(gw_url) = gateway_url {
-        let res = client.post(&gw_url)
+        let res = client
+            .post(&gw_url)
             .json(&serde_json::json!({
                 "invoice_id": invoice_id,
                 "amount": amount,
@@ -76,33 +86,54 @@ pub async fn initiate_stripe_payment(
             .send()
             .await
             .map_err(|e| YntraError::NetworkError(e.to_string()))?;
-        
+
         if !res.status().is_success() {
             let err_text = res.text().await.unwrap_or_default();
-            return Err(YntraError::NetworkError(format!("Billing Gateway Error: {}", err_text)));
+            return Err(YntraError::NetworkError(format!(
+                "Billing Gateway Error: {}",
+                err_text
+            )));
         }
 
-        let session: crate::models::StripePaymentSession = res.json()
+        let session: crate::models::StripePaymentSession = res
+            .json()
             .await
             .map_err(|e| YntraError::NetworkError(e.to_string()))?;
         Ok(session)
     } else if let Some(key) = secret_key {
-        let api_base_url = get_config_val("api_base_url", "API_BASE_URL", &settings_json).await
+        let api_base_url = get_config_val("api_base_url", "API_BASE_URL", &settings_json)
+            .await
             .unwrap_or_else(|| "https://api.yntra.se".to_string());
         let api_base_url = api_base_url.trim_end_matches('/');
 
         let url = "https://api.stripe.com/v1/checkout/sessions";
         let params = [
-            ("success_url", format!("{}/v1/billing/stripe/success", api_base_url)),
-            ("cancel_url", format!("{}/v1/billing/stripe/cancel", api_base_url)),
+            (
+                "success_url",
+                format!("{}/v1/billing/stripe/success", api_base_url),
+            ),
+            (
+                "cancel_url",
+                format!("{}/v1/billing/stripe/cancel", api_base_url),
+            ),
             ("mode", "payment".to_string()),
-            ("line_items[0][price_data][currency]", currency.to_lowercase()),
-            ("line_items[0][price_data][product_data][name]", format!("Move Invoice {}", invoice_id)),
-            ("line_items[0][price_data][unit_amount]", ((amount * 100.0).round() as i64).to_string()),
+            (
+                "line_items[0][price_data][currency]",
+                currency.to_lowercase(),
+            ),
+            (
+                "line_items[0][price_data][product_data][name]",
+                format!("Move Invoice {}", invoice_id),
+            ),
+            (
+                "line_items[0][price_data][unit_amount]",
+                ((amount * 100.0).round() as i64).to_string(),
+            ),
             ("line_items[0][quantity]", "1".to_string()),
         ];
-        
-        let res = client.post(url)
+
+        let res = client
+            .post(url)
             .basic_auth(key, Some(""))
             .form(&params)
             .send()
@@ -111,16 +142,31 @@ pub async fn initiate_stripe_payment(
 
         if !res.status().is_success() {
             let err_text = res.text().await.unwrap_or_default();
-            return Err(YntraError::NetworkError(format!("Stripe API Error: {}", err_text)));
+            return Err(YntraError::NetworkError(format!(
+                "Stripe API Error: {}",
+                err_text
+            )));
         }
 
-        let json: serde_json::Value = res.json()
+        let json: serde_json::Value = res
+            .json()
             .await
             .map_err(|e| YntraError::NetworkError(e.to_string()))?;
 
-        let session_id = json.get("id").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-        let checkout_url = json.get("url").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-        let client_secret = json.get("client_secret").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let session_id = json
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let checkout_url = json
+            .get("url")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let client_secret = json
+            .get("client_secret")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
         Ok(crate::models::StripePaymentSession {
             session_id,
@@ -155,15 +201,23 @@ fn verify_stripe_signature(
         }
     }
 
-    let t = timestamp.ok_or_else(|| YntraError::AuthError("Missing timestamp in Stripe signature".to_string()))?;
+    let t = timestamp.ok_or_else(|| {
+        YntraError::AuthError("Missing timestamp in Stripe signature".to_string())
+    })?;
     if signatures.is_empty() {
-        return Err(YntraError::AuthError("Missing v1 signature in Stripe signature".to_string()));
+        return Err(YntraError::AuthError(
+            "Missing v1 signature in Stripe signature".to_string(),
+        ));
     }
 
-    let t_parsed = t.parse::<i64>().map_err(|_| YntraError::ValidationError("Invalid Stripe timestamp".to_string()))?;
+    let t_parsed = t
+        .parse::<i64>()
+        .map_err(|_| YntraError::ValidationError("Invalid Stripe timestamp".to_string()))?;
     let now = chrono::Utc::now().timestamp();
     if (now - t_parsed).abs() > 300 {
-        return Err(YntraError::AuthError("Stripe webhook timestamp is outside tolerance".to_string()));
+        return Err(YntraError::AuthError(
+            "Stripe webhook timestamp is outside tolerance".to_string(),
+        ));
     }
 
     let signed_payload = format!("{}.{}", t, payload);
@@ -185,7 +239,9 @@ fn verify_stripe_signature(
         }
     }
 
-    Err(YntraError::AuthError("Invalid Stripe signature".to_string()))
+    Err(YntraError::AuthError(
+        "Invalid Stripe signature".to_string(),
+    ))
 }
 
 async fn process_stripe_payment_webhook_inner(
@@ -211,7 +267,9 @@ async fn process_stripe_payment_webhook_inner(
         .unwrap_or("");
 
     if secret.is_empty() {
-        return Err(YntraError::AuthError("Stripe webhook signing secret is not configured".to_string()));
+        return Err(YntraError::AuthError(
+            "Stripe webhook signing secret is not configured".to_string(),
+        ));
     }
 
     verify_stripe_signature(secret, &signature_header, &payload_json)?;
@@ -219,19 +277,29 @@ async fn process_stripe_payment_webhook_inner(
     let parsed: serde_json::Value = serde_json::from_str(&payload_json)
         .map_err(|e| YntraError::ValidationError(format!("Invalid JSON payload: {}", e)))?;
 
-    let event_type = parsed.get("type")
+    let event_type = parsed
+        .get("type")
         .and_then(|v| v.as_str())
         .ok_or_else(|| YntraError::ValidationError("Missing event type".to_string()))?;
 
     if event_type == "checkout.session.completed" || event_type == "payment_intent.succeeded" {
-        let data_obj = parsed.get("data")
+        let data_obj = parsed
+            .get("data")
             .and_then(|d| d.get("object"))
             .ok_or_else(|| YntraError::ValidationError("Missing data object".to_string()))?;
 
-        let invoice_id = data_obj.get("client_reference_id")
+        let invoice_id = data_obj
+            .get("client_reference_id")
             .and_then(|v| v.as_str())
-            .or_else(|| data_obj.get("metadata").and_then(|m| m.get("invoice_id")).and_then(|v| v.as_str()))
-            .ok_or_else(|| YntraError::ValidationError("Missing invoice identification".to_string()))?;
+            .or_else(|| {
+                data_obj
+                    .get("metadata")
+                    .and_then(|m| m.get("invoice_id"))
+                    .and_then(|v| v.as_str())
+            })
+            .ok_or_else(|| {
+                YntraError::ValidationError("Missing invoice identification".to_string())
+            })?;
 
         let now_ms = chrono::Utc::now().timestamp_millis();
         conn.execute(
@@ -285,11 +353,15 @@ async fn initiate_mobile_pos_terminal_session_inner(
         .map_err(|_| YntraError::NotFoundError("Invoice not found".to_string()))?;
 
     if auth.workspace_id != ws_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     if status == "paid" {
-        return Err(YntraError::ValidationError("Invoice is already paid".to_string()));
+        return Err(YntraError::ValidationError(
+            "Invoice is already paid".to_string(),
+        ));
     }
 
     let prov = provider.unwrap_or_else(|| "stripe_terminal".to_string());
@@ -320,7 +392,12 @@ pub async fn initiate_mobile_pos_terminal_session(
     provider: Option<String>,
     reader_id: Option<String>,
 ) -> Result<crate::models::MobilePosTerminalSession, YntraError> {
-    let fut = initiate_mobile_pos_terminal_session_inner(requester_user_id, invoice_id, provider, reader_id);
+    let fut = initiate_mobile_pos_terminal_session_inner(
+        requester_user_id,
+        invoice_id,
+        provider,
+        reader_id,
+    );
     crate::database::wasm::SendFuture::new(fut).await
 }
 
@@ -332,7 +409,8 @@ pub async fn initiate_mobile_pos_terminal_session(
     provider: Option<String>,
     reader_id: Option<String>,
 ) -> Result<crate::models::MobilePosTerminalSession, YntraError> {
-    initiate_mobile_pos_terminal_session_inner(requester_user_id, invoice_id, provider, reader_id).await
+    initiate_mobile_pos_terminal_session_inner(requester_user_id, invoice_id, provider, reader_id)
+        .await
 }
 
 async fn confirm_mobile_pos_terminal_payment_inner(
@@ -355,7 +433,9 @@ async fn confirm_mobile_pos_terminal_payment_inner(
         .map_err(|_| YntraError::NotFoundError("Invoice not found".to_string()))?;
 
     if auth.workspace_id != ws_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let now_ms = chrono::Utc::now().timestamp_millis();
@@ -366,7 +446,11 @@ async fn confirm_mobile_pos_terminal_payment_inner(
 
     tracing::info!(
         "On-site Bluetooth POS terminal payment confirmed for invoice {}! Amount: {:.2} SEK, Method: {}, Card: {} ending in {}",
-        invoice_id, amount, payment_method_type, card_brand, last4
+        invoice_id,
+        amount,
+        payment_method_type,
+        card_brand,
+        last4
     );
 
     notify_observers();
@@ -382,7 +466,13 @@ pub async fn confirm_mobile_pos_terminal_payment(
     card_brand: String,
     last4: String,
 ) -> Result<(), YntraError> {
-    let fut = confirm_mobile_pos_terminal_payment_inner(requester_user_id, invoice_id, payment_method_type, card_brand, last4);
+    let fut = confirm_mobile_pos_terminal_payment_inner(
+        requester_user_id,
+        invoice_id,
+        payment_method_type,
+        card_brand,
+        last4,
+    );
     crate::database::wasm::SendFuture::new(fut).await
 }
 
@@ -395,7 +485,14 @@ pub async fn confirm_mobile_pos_terminal_payment(
     card_brand: String,
     last4: String,
 ) -> Result<(), YntraError> {
-    confirm_mobile_pos_terminal_payment_inner(requester_user_id, invoice_id, payment_method_type, card_brand, last4).await
+    confirm_mobile_pos_terminal_payment_inner(
+        requester_user_id,
+        invoice_id,
+        payment_method_type,
+        card_brand,
+        last4,
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -418,7 +515,9 @@ mod pos_tests {
             "inv-pos-1".to_string(),
             Some("stripe_terminal".to_string()),
             Some("reader_bt_999".to_string()),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         assert_eq!(sess.amount, 4500.0);
         assert_eq!(sess.provider, "stripe_terminal");
@@ -430,13 +529,31 @@ mod pos_tests {
             "card_present_tap".to_string(),
             "Visa".to_string(),
             "4242".to_string(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
-        let (status,): (String,) = conn.query_row("SELECT status FROM move_invoices WHERE id = 'inv-pos-1'", (), |r| Ok((r.get(0)?,))).await.unwrap();
+        let (status,): (String,) = conn
+            .query_row(
+                "SELECT status FROM move_invoices WHERE id = 'inv-pos-1'",
+                (),
+                |r| Ok((r.get(0)?,)),
+            )
+            .await
+            .unwrap();
         assert_eq!(status, "paid");
 
-        conn.execute("DELETE FROM move_invoices WHERE workspace_id = 'ws-pos-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM users WHERE id = 'u-pos-crew'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-pos-test'", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM move_invoices WHERE workspace_id = 'ws-pos-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute("DELETE FROM users WHERE id = 'u-pos-crew'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-pos-test'", ())
+            .await
+            .unwrap();
     }
 }

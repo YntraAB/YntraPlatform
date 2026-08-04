@@ -1,6 +1,6 @@
+use crate::YntraError;
 use crate::database;
 use crate::infra::observer::notify_observers;
-use crate::YntraError;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, uniffi::Record)]
@@ -111,7 +111,9 @@ pub async fn log_hvac_system_diagnostic(
         system_type
     };
 
-    let mode = operating_mode.clone().unwrap_or_else(|| "COOLING_MODE".to_string());
+    let mode = operating_mode
+        .clone()
+        .unwrap_or_else(|| "COOLING_MODE".to_string());
 
     let diagnostic_status = match sys_type.as_str() {
         "HYDRONIC_HEATING" | "HYDRONIC_PLUMBING" | "POTABLE_WATER" | "POTABLE_PLUMBING" => {
@@ -122,13 +124,21 @@ pub async fn log_hvac_system_diagnostic(
             let drop_warn = drop > 0.1;
 
             let wp_hazard = if let Some(wp) = water_pressure_bar {
-                if is_potable { wp > 7.0 || wp < 0.5 } else { wp > 3.5 || wp < 0.3 }
+                if is_potable {
+                    wp > 7.0 || wp < 0.5
+                } else {
+                    wp > 3.5 || wp < 0.3
+                }
             } else {
                 false
             };
 
             let wp_warn = if let Some(wp) = water_pressure_bar {
-                if is_potable { wp < 2.0 || wp > 5.5 } else { wp < 0.8 || wp > 2.5 }
+                if is_potable {
+                    wp < 2.0 || wp > 5.5
+                } else {
+                    wp < 0.8 || wp > 2.5
+                }
             } else {
                 false
             };
@@ -162,27 +172,42 @@ pub async fn log_hvac_system_diagnostic(
             if mode == "HEATING_MODE" {
                 match refrigerant_type.as_str() {
                     "R-410A" => {
-                        if (high_side_psi.is_some() && h_psi > 580.0) || (low_side_psi.is_some() && l_psi < 8.0) || (voltage_v.is_some() && volt < 195.0) {
+                        if (high_side_psi.is_some() && h_psi > 580.0)
+                            || (low_side_psi.is_some() && l_psi < 8.0)
+                            || (voltage_v.is_some() && volt < 195.0)
+                        {
                             "CRITICAL_HAZARD".to_string()
-                        } else if (temp_differential_c.is_some() && t_diff < 5.0) || (amp_draw_a.is_some() && amps > 38.0) {
+                        } else if (temp_differential_c.is_some() && t_diff < 5.0)
+                            || (amp_draw_a.is_some() && amps > 38.0)
+                        {
                             "MAINTENANCE_WARNING".to_string()
                         } else {
                             "SYSTEM_NORMAL".to_string()
                         }
                     }
                     "R-32" => {
-                        if (high_side_psi.is_some() && h_psi > 600.0) || (low_side_psi.is_some() && l_psi < 12.0) || (voltage_v.is_some() && volt < 195.0) {
+                        if (high_side_psi.is_some() && h_psi > 600.0)
+                            || (low_side_psi.is_some() && l_psi < 12.0)
+                            || (voltage_v.is_some() && volt < 195.0)
+                        {
                             "CRITICAL_HAZARD".to_string()
-                        } else if (temp_differential_c.is_some() && t_diff < 6.0) || (amp_draw_a.is_some() && amps > 42.0) {
+                        } else if (temp_differential_c.is_some() && t_diff < 6.0)
+                            || (amp_draw_a.is_some() && amps > 42.0)
+                        {
                             "MAINTENANCE_WARNING".to_string()
                         } else {
                             "SYSTEM_NORMAL".to_string()
                         }
                     }
                     _ => {
-                        if (high_side_psi.is_some() && h_psi > 550.0) || (low_side_psi.is_some() && l_psi < 10.0) || (voltage_v.is_some() && volt < 195.0) {
+                        if (high_side_psi.is_some() && h_psi > 550.0)
+                            || (low_side_psi.is_some() && l_psi < 10.0)
+                            || (voltage_v.is_some() && volt < 195.0)
+                        {
                             "CRITICAL_HAZARD".to_string()
-                        } else if (temp_differential_c.is_some() && t_diff < 5.0) || (amp_draw_a.is_some() && amps > 38.0) {
+                        } else if (temp_differential_c.is_some() && t_diff < 5.0)
+                            || (amp_draw_a.is_some() && amps > 38.0)
+                        {
                             "MAINTENANCE_WARNING".to_string()
                         } else {
                             "SYSTEM_NORMAL".to_string()
@@ -192,45 +217,70 @@ pub async fn log_hvac_system_diagnostic(
             } else {
                 match refrigerant_type.as_str() {
                     "R-134a" => {
-                        if (high_side_psi.is_some() && h_psi > 260.0) || (low_side_psi.is_some() && l_psi < 10.0) || (voltage_v.is_some() && volt < 195.0) {
+                        if (high_side_psi.is_some() && h_psi > 260.0)
+                            || (low_side_psi.is_some() && l_psi < 10.0)
+                            || (voltage_v.is_some() && volt < 195.0)
+                        {
                             "CRITICAL_HAZARD".to_string()
-                        } else if (temp_differential_c.is_some() && t_diff < 6.0) || (amp_draw_a.is_some() && amps > 30.0) {
+                        } else if (temp_differential_c.is_some() && t_diff < 6.0)
+                            || (amp_draw_a.is_some() && amps > 30.0)
+                        {
                             "MAINTENANCE_WARNING".to_string()
                         } else {
                             "SYSTEM_NORMAL".to_string()
                         }
                     }
                     "R-22" => {
-                        if (high_side_psi.is_some() && h_psi > 275.0) || (low_side_psi.is_some() && l_psi < 20.0) || (voltage_v.is_some() && volt < 195.0) {
+                        if (high_side_psi.is_some() && h_psi > 275.0)
+                            || (low_side_psi.is_some() && l_psi < 20.0)
+                            || (voltage_v.is_some() && volt < 195.0)
+                        {
                             "CRITICAL_HAZARD".to_string()
-                        } else if (temp_differential_c.is_some() && t_diff < 5.0) || (amp_draw_a.is_some() && amps > 25.0) {
+                        } else if (temp_differential_c.is_some() && t_diff < 5.0)
+                            || (amp_draw_a.is_some() && amps > 25.0)
+                        {
                             "MAINTENANCE_WARNING".to_string()
                         } else {
                             "SYSTEM_NORMAL".to_string()
                         }
                     }
                     "R-290" | "Propane" => {
-                        if (high_side_psi.is_some() && h_psi > 290.0) || (low_side_psi.is_some() && l_psi < 15.0) || (voltage_v.is_some() && volt < 195.0) {
+                        if (high_side_psi.is_some() && h_psi > 290.0)
+                            || (low_side_psi.is_some() && l_psi < 15.0)
+                            || (voltage_v.is_some() && volt < 195.0)
+                        {
                             "CRITICAL_HAZARD".to_string()
-                        } else if (temp_differential_c.is_some() && t_diff < 7.0) || (amp_draw_a.is_some() && amps > 20.0) {
+                        } else if (temp_differential_c.is_some() && t_diff < 7.0)
+                            || (amp_draw_a.is_some() && amps > 20.0)
+                        {
                             "MAINTENANCE_WARNING".to_string()
                         } else {
                             "SYSTEM_NORMAL".to_string()
                         }
                     }
                     "R-32" => {
-                        if (high_side_psi.is_some() && h_psi > 480.0) || (low_side_psi.is_some() && l_psi < 25.0) || (voltage_v.is_some() && volt < 195.0) {
+                        if (high_side_psi.is_some() && h_psi > 480.0)
+                            || (low_side_psi.is_some() && l_psi < 25.0)
+                            || (voltage_v.is_some() && volt < 195.0)
+                        {
                             "CRITICAL_HAZARD".to_string()
-                        } else if (temp_differential_c.is_some() && t_diff < 8.0) || (amp_draw_a.is_some() && amps > 38.0) {
+                        } else if (temp_differential_c.is_some() && t_diff < 8.0)
+                            || (amp_draw_a.is_some() && amps > 38.0)
+                        {
                             "MAINTENANCE_WARNING".to_string()
                         } else {
                             "SYSTEM_NORMAL".to_string()
                         }
                     }
                     _ => {
-                        if (high_side_psi.is_some() && h_psi > 450.0) || (low_side_psi.is_some() && l_psi < 20.0) || (voltage_v.is_some() && volt < 195.0) {
+                        if (high_side_psi.is_some() && h_psi > 450.0)
+                            || (low_side_psi.is_some() && l_psi < 20.0)
+                            || (voltage_v.is_some() && volt < 195.0)
+                        {
                             "CRITICAL_HAZARD".to_string()
-                        } else if (temp_differential_c.is_some() && t_diff < 8.0) || (amp_draw_a.is_some() && amps > 35.0) {
+                        } else if (temp_differential_c.is_some() && t_diff < 8.0)
+                            || (amp_draw_a.is_some() && amps > 35.0)
+                        {
                             "MAINTENANCE_WARNING".to_string()
                         } else {
                             "SYSTEM_NORMAL".to_string()
@@ -352,7 +402,9 @@ pub async fn get_hvac_job_diagnostics(
                 workspace_id: row.get(1)?,
                 job_ticket_id: row.get(2)?,
                 technician_id: row.get(3)?,
-                system_type: row.get(4).unwrap_or_else(|_| "REFRIGERANT_HVAC".to_string()),
+                system_type: row
+                    .get(4)
+                    .unwrap_or_else(|_| "REFRIGERANT_HVAC".to_string()),
                 refrigerant_type: row.get(5)?,
                 refrigerant_charge_level: row.get(6)?,
                 high_side_psi: row.get(7).ok(),
@@ -484,10 +536,12 @@ pub async fn delete_job_part_used(
         return Err(YntraError::AuthError("Access denied".to_string()));
     }
 
-    let affected = conn.execute(
-        "DELETE FROM job_parts_used WHERE id = ?1 AND workspace_id = ?2",
-        crate::params![part_id, auth.workspace_id],
-    ).await?;
+    let affected = conn
+        .execute(
+            "DELETE FROM job_parts_used WHERE id = ?1 AND workspace_id = ?2",
+            crate::params![part_id, auth.workspace_id],
+        )
+        .await?;
 
     notify_observers();
 
@@ -518,8 +572,14 @@ pub async fn calculate_hvac_rot_invoice_breakdown(
             .await
             .unwrap_or_else(|_| "{}".to_string());
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&settings_str) {
-            let rate = json.get("rot_deduction_rate").and_then(|v| v.as_f64()).unwrap_or(0.30);
-            let cap = json.get("rot_annual_cap_sek").and_then(|v| v.as_f64()).unwrap_or(75000.0);
+            let rate = json
+                .get("rot_deduction_rate")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.30);
+            let cap = json
+                .get("rot_annual_cap_sek")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(75000.0);
             (rate, cap)
         } else {
             (0.30, 75000.0)
@@ -610,12 +670,14 @@ pub async fn get_hvac_location_assets(
         return Err(YntraError::AuthError("Access denied".to_string()));
     }
 
-    let mut stmt = conn.prepare(
-        "SELECT id, asset_tag, model_name, serial_number, equipment_category, location_address
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, asset_tag, model_name, serial_number, equipment_category, location_address
          FROM location_assets
          WHERE (job_ticket_id = ?1 OR job_ticket_id IS NULL) AND workspace_id = ?2
-         ORDER BY created_at DESC"
-    ).await?;
+         ORDER BY created_at DESC",
+        )
+        .await?;
 
     let list = stmt
         .query_map(crate::params![job_ticket_id, auth.workspace_id], |row| {
@@ -673,7 +735,9 @@ mod tests {
             Some(0.5),
             None,
             Some("CYL-8821".to_string()),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         assert_eq!(diag.diagnostic_status, "SYSTEM_NORMAL");
         assert_eq!(diag.asset_id.as_deref(), Some("NIBE-HEAT-PUMP-001"));
@@ -681,7 +745,9 @@ mod tests {
         assert_eq!(diag.refrigerant_added_kg, Some(0.5));
         assert_eq!(diag.reclaim_cylinder_id.as_deref(), Some("CYL-8821"));
 
-        let list = get_hvac_job_diagnostics("u-hvac-tech".to_string(), "ticket-101".to_string()).await.unwrap();
+        let list = get_hvac_job_diagnostics("u-hvac-tech".to_string(), "ticket-101".to_string())
+            .await
+            .unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].refrigerant_type, "R-410A");
         assert_eq!(list[0].refrigerant_added_kg, Some(0.5));
@@ -713,11 +779,16 @@ mod tests {
             None,
             None,
             None,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         assert_eq!(hyd_diag.diagnostic_status, "SYSTEM_NORMAL");
         assert_eq!(hyd_diag.pipe_material.as_deref(), Some("PEX"));
-        assert_eq!(hyd_diag.backflow_preventer_status.as_deref(), Some("PASS_TESTED"));
+        assert_eq!(
+            hyd_diag.backflow_preventer_status.as_deref(),
+            Some("PASS_TESTED")
+        );
 
         // Test parts tracking
         let part = add_job_part_used(
@@ -727,22 +798,26 @@ mod tests {
             2.0,
             450.0,
             false,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
         assert_eq!(part.part_name, "Copper Pipe 3/4in");
 
-        let parts = get_job_parts_used("u-hvac-tech".to_string(), "ticket-101".to_string()).await.unwrap();
+        let parts = get_job_parts_used("u-hvac-tech".to_string(), "ticket-101".to_string())
+            .await
+            .unwrap();
         assert_eq!(parts.len(), 1);
 
-        let deleted = delete_job_part_used("u-hvac-tech".to_string(), part.id).await.unwrap();
+        let deleted = delete_job_part_used("u-hvac-tech".to_string(), part.id)
+            .await
+            .unwrap();
         assert!(deleted);
 
         // Calculate ROT split (parts & travel are 100% non-eligible under Skatteverket rules)
-        let rot_split = calculate_hvac_rot_invoice_breakdown(
-            "u-hvac-tech".to_string(),
-            8000.0,
-            3000.0,
-            500.0,
-        ).await.unwrap();
+        let rot_split =
+            calculate_hvac_rot_invoice_breakdown("u-hvac-tech".to_string(), 8000.0, 3000.0, 500.0)
+                .await
+                .unwrap();
 
         assert_eq!(rot_split.total_gross_amount_sek, 11500.0);
         assert_eq!(rot_split.eligible_labor_sek, 8000.0);
@@ -752,7 +827,10 @@ mod tests {
         assert_eq!(rot_split.net_customer_payable_sek, 9100.0);
 
         // Test location asset creation and retrieval without mock data fallback
-        let empty_assets = get_hvac_location_assets("u-hvac-tech".to_string(), "ticket-101".to_string()).await.unwrap();
+        let empty_assets =
+            get_hvac_location_assets("u-hvac-tech".to_string(), "ticket-101".to_string())
+                .await
+                .unwrap();
         assert_eq!(empty_assets.len(), 0);
 
         let created_asset = add_hvac_location_asset(
@@ -764,17 +842,41 @@ mod tests {
             "SN#998811".to_string(),
             "REFRIGERANT_HVAC".to_string(),
             "North Utility Room".to_string(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
         assert_eq!(created_asset.asset_tag, "HP-202");
 
-        let fetched_assets = get_hvac_location_assets("u-hvac-tech".to_string(), "ticket-101".to_string()).await.unwrap();
+        let fetched_assets =
+            get_hvac_location_assets("u-hvac-tech".to_string(), "ticket-101".to_string())
+                .await
+                .unwrap();
         assert_eq!(fetched_assets.len(), 1);
         assert_eq!(fetched_assets[0].model_name, "Daikin Altherma 3");
 
-        conn.execute("DELETE FROM hvac_diagnostics WHERE workspace_id = 'ws-hvac-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM job_parts_used WHERE workspace_id = 'ws-hvac-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM location_assets WHERE workspace_id = 'ws-hvac-test'", ()).await.unwrap();
-        conn.execute("DELETE FROM users WHERE id = 'u-hvac-tech'", ()).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-hvac-test'", ()).await.unwrap();
+        conn.execute(
+            "DELETE FROM hvac_diagnostics WHERE workspace_id = 'ws-hvac-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM job_parts_used WHERE workspace_id = 'ws-hvac-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM location_assets WHERE workspace_id = 'ws-hvac-test'",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute("DELETE FROM users WHERE id = 'u-hvac-tech'", ())
+            .await
+            .unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-hvac-test'", ())
+            .await
+            .unwrap();
     }
 }

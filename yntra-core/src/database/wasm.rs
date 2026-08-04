@@ -130,7 +130,9 @@ pub struct DbConnection {
 impl Drop for DbConnection {
     fn drop(&mut self) {
         let guard = self._guard.take();
-        let in_tx = self.in_transaction.load(std::sync::atomic::Ordering::SeqCst);
+        let in_tx = self
+            .in_transaction
+            .load(std::sync::atomic::Ordering::SeqCst);
         wasm_bindgen_futures::spawn_local(async move {
             if in_tx {
                 let _ = js_execute_sql("execute", "ROLLBACK", wasm_bindgen::JsValue::null()).await;
@@ -365,10 +367,15 @@ pub async fn check_opfs_storage_quota() -> Result<crate::models::OpfsStorageQuot
             let estimate_key = wasm_bindgen::JsValue::from_str("estimate");
             let js_estimate_fn = js_sys::Reflect::get(&storage, &estimate_key).ok();
 
-            if let Some(estimate_fn) = js_estimate_fn.and_then(|v| v.dyn_into::<js_sys::Function>().ok()) {
-                let promise_val = estimate_fn.call0(&storage).map_err(|e| YntraError::DbError(format!("{:?}", e)))?;
+            if let Some(estimate_fn) =
+                js_estimate_fn.and_then(|v| v.dyn_into::<js_sys::Function>().ok())
+            {
+                let promise_val = estimate_fn
+                    .call0(&storage)
+                    .map_err(|e| YntraError::DbError(format!("{:?}", e)))?;
                 let promise = js_sys::Promise::from(promise_val);
-                let result_val = wasm_bindgen_futures::JsFuture::from(promise).await
+                let result_val = wasm_bindgen_futures::JsFuture::from(promise)
+                    .await
                     .map_err(|e| YntraError::DbError(format!("{:?}", e)))?;
 
                 let quota_key = wasm_bindgen::JsValue::from_str("quota");
@@ -385,7 +392,11 @@ pub async fn check_opfs_storage_quota() -> Result<crate::models::OpfsStorageQuot
                     .unwrap_or(0.0) as u64;
 
                 let remaining = quota.saturating_sub(usage);
-                let percent = if quota > 0 { (usage as f64 / quota as f64) * 100.0 } else { 0.0 };
+                let percent = if quota > 0 {
+                    (usage as f64 / quota as f64) * 100.0
+                } else {
+                    0.0
+                };
                 let is_low = percent >= 90.0 || remaining < 5_000_000;
 
                 return Ok(crate::models::OpfsStorageQuota {
@@ -415,13 +426,18 @@ pub async fn ensure_storage_quota(required_bytes: u64) -> Result<(), YntraError>
     if quota_info.is_storage_low {
         tracing::warn!(
             "TELEMETRY ALERT: OPFS Storage Low! Usage is at {:.1}% ({} / {} bytes used, {} bytes remaining).",
-            quota_info.usage_percent, quota_info.usage_bytes, quota_info.quota_bytes, quota_info.remaining_bytes
+            quota_info.usage_percent,
+            quota_info.usage_bytes,
+            quota_info.quota_bytes,
+            quota_info.remaining_bytes
         );
     }
     if quota_info.remaining_bytes < required_bytes {
         tracing::error!(
             "OPFS Storage Quota Exceeded: Requested {} bytes but only {} bytes remaining (usage: {:.1}%).",
-            required_bytes, quota_info.remaining_bytes, quota_info.usage_percent
+            required_bytes,
+            quota_info.remaining_bytes,
+            quota_info.usage_percent
         );
         return Err(YntraError::DbError(format!(
             "Storage quota exceeded: required {} bytes but only {} bytes remaining",

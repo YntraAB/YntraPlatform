@@ -320,14 +320,28 @@ fn has_care_permission(auth: &crate::AuthContext, permission_name: &str) -> bool
                     let r_name = r.get("name").and_then(|v| v.as_str()).unwrap_or("");
                     let is_match = r_id == auth.role
                         || r_id.ends_with(&format!("-{}", auth.role))
-                        || r_id.strip_prefix("role-").map(|s| s == auth.role).unwrap_or(false)
-                        || r_id.strip_prefix("role-care-").map(|s| s == auth.role).unwrap_or(false)
-                        || r_id.strip_prefix("role-hvb-").map(|s| s == auth.role).unwrap_or(false)
-                        || r_id.strip_prefix("role-lss-").map(|s| s == auth.role).unwrap_or(false)
+                        || r_id
+                            .strip_prefix("role-")
+                            .map(|s| s == auth.role)
+                            .unwrap_or(false)
+                        || r_id
+                            .strip_prefix("role-care-")
+                            .map(|s| s == auth.role)
+                            .unwrap_or(false)
+                        || r_id
+                            .strip_prefix("role-hvb-")
+                            .map(|s| s == auth.role)
+                            .unwrap_or(false)
+                        || r_id
+                            .strip_prefix("role-lss-")
+                            .map(|s| s == auth.role)
+                            .unwrap_or(false)
                         || r_name.to_lowercase() == auth.role.to_lowercase();
                     if is_match {
                         if let Some(permissions) = r.get("permissions") {
-                            if let Some(val) = permissions.get(permission_name).and_then(|v| v.as_bool()) {
+                            if let Some(val) =
+                                permissions.get(permission_name).and_then(|v| v.as_bool())
+                            {
                                 return val;
                             }
                         }
@@ -339,7 +353,10 @@ fn has_care_permission(auth: &crate::AuthContext, permission_name: &str) -> bool
     false
 }
 
-fn verify_care_permission(auth: &crate::AuthContext, permission_name: &str) -> Result<(), YntraError> {
+fn verify_care_permission(
+    auth: &crate::AuthContext,
+    permission_name: &str,
+) -> Result<(), YntraError> {
     if has_care_permission(auth, permission_name) {
         Ok(())
     } else {
@@ -371,7 +388,9 @@ pub async fn get_journals(
         }
     };
     if auth.role != "platform_admin" && client_ws_id != auth.workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let mut stmt = conn
@@ -418,7 +437,9 @@ pub async fn add_journal_entry(
         }
     };
     if auth.role != "platform_admin" && client_ws_id != auth.workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let id = uuid::Uuid::new_v4().to_string();
@@ -463,7 +484,9 @@ pub async fn get_medications(
         }
     };
     if auth.role != "platform_admin" && client_ws_id != auth.workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let mut stmt = conn
@@ -513,7 +536,9 @@ pub async fn add_medication(
         }
     };
     if auth.role != "platform_admin" && client_ws_id != auth.workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let id = uuid::Uuid::new_v4().to_string();
@@ -544,7 +569,10 @@ mod tests {
     #[tokio::test]
     async fn test_get_clients_probabilistic_encryption_match() {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
-        crate::infra::crypto::set_session_key("test-session-key".to_string().into_bytes(), "workspace-1".to_string());
+        crate::infra::crypto::set_session_key(
+            "test-session-key".to_string().into_bytes(),
+            "workspace-1".to_string(),
+        );
 
         let conn = database::acquire_connection().await.unwrap();
         let user_id = "test-client-user-999";
@@ -604,7 +632,10 @@ mod tests {
     #[tokio::test]
     async fn test_delete_client_works_without_errors() {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
-        crate::infra::crypto::set_session_key("test-session-key-delete".to_string().into_bytes(), "workspace-delete-test".to_string());
+        crate::infra::crypto::set_session_key(
+            "test-session-key-delete".to_string().into_bytes(),
+            "workspace-delete-test".to_string(),
+        );
 
         let conn = database::acquire_connection().await.unwrap();
         let requester_user_id = "test-admin-user-delete";
@@ -692,7 +723,10 @@ mod tests {
     #[tokio::test]
     async fn test_care_permissions_enforcement() {
         let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
-        crate::infra::crypto::set_session_key("test-session-key-care".to_string().into_bytes(), "workspace-care-test".to_string());
+        crate::infra::crypto::set_session_key(
+            "test-session-key-care".to_string().into_bytes(),
+            "workspace-care-test".to_string(),
+        );
 
         let conn = database::acquire_connection().await.unwrap();
         let ws_id = "workspace-care-test";
@@ -731,11 +765,18 @@ mod tests {
         ).await.unwrap();
 
         // 1. Caregiver tries to add a journal entry -> should succeed
-        let journal_res = add_journal_entry(caregiver_id.to_string(), client_id.to_string(), "Client slept well".to_string()).await;
+        let journal_res = add_journal_entry(
+            caregiver_id.to_string(),
+            client_id.to_string(),
+            "Client slept well".to_string(),
+        )
+        .await;
         assert!(journal_res.is_ok());
 
         // Verify journal entry exists
-        let journals = get_journals(client_id.to_string(), caregiver_id.to_string()).await.unwrap();
+        let journals = get_journals(client_id.to_string(), caregiver_id.to_string())
+            .await
+            .unwrap();
         assert_eq!(journals.len(), 1);
         assert_eq!(journals[0].content, "Client slept well");
         assert_eq!(journals[0].author_id, Some(caregiver_id.to_string()));
@@ -748,7 +789,8 @@ mod tests {
             "100mg".to_string(),
             "Daily".to_string(),
             "Take with water".to_string(),
-        ).await;
+        )
+        .await;
         assert!(med_res.is_err());
         if let Err(YntraError::AuthError(msg)) = med_res {
             assert!(msg.contains("does not have permission 'can_manage_medications'"));
@@ -757,10 +799,30 @@ mod tests {
         }
 
         // Clean up
-        conn.execute("DELETE FROM client_journals WHERE client_id = ?1", crate::params![client_id]).await.unwrap();
-        conn.execute("DELETE FROM clients WHERE id = ?1", crate::params![client_id]).await.unwrap();
-        conn.execute("DELETE FROM users WHERE id = ?1", crate::params![caregiver_id]).await.unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute(
+            "DELETE FROM client_journals WHERE client_id = ?1",
+            crate::params![client_id],
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM clients WHERE id = ?1",
+            crate::params![client_id],
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM users WHERE id = ?1",
+            crate::params![caregiver_id],
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "DELETE FROM workspaces WHERE id = ?1",
+            crate::params![ws_id],
+        )
+        .await
+        .unwrap();
         crate::infra::crypto::clear_session_key();
     }
 }

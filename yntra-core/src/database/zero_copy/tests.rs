@@ -1,7 +1,7 @@
-use super::stores::{ZeroCopyStore, ZeroCopyMessageStore, ZeroCopyAuditStore, ZeroCopyNoteStore};
-use super::sync::{EdgeSyncLoop, P2PMeshSyncRouter, in_memory_poll};
 use super::crypto::ZkCryptoTrust;
-use crate::models::{TodoItem, MessageItem, AuditLogEntry, DailyNote};
+use super::stores::{ZeroCopyAuditStore, ZeroCopyMessageStore, ZeroCopyNoteStore, ZeroCopyStore};
+use super::sync::{EdgeSyncLoop, P2PMeshSyncRouter, in_memory_poll};
+use crate::models::{AuditLogEntry, DailyNote, MessageItem, TodoItem};
 use std::sync::Arc;
 
 #[test]
@@ -38,7 +38,6 @@ fn test_zero_copy_store_read_write_zero_copy() {
     store
         .write_todos(vec![todo1.clone(), todo2.clone()])
         .unwrap();
-
 
     // Read via zero-copy search in mmap
     let read1 = store
@@ -123,21 +122,45 @@ fn test_zk_envelope_encryption_and_proof() {
 
     // Test role proof (ZK role validation without raw data/secrets)
     let role_proof = trust
-        .generate_role_proof(passkey_seed.clone(), "user_123".to_string(), "Admin".to_string())
+        .generate_role_proof(
+            passkey_seed.clone(),
+            "user_123".to_string(),
+            "Admin".to_string(),
+        )
         .unwrap();
-    let is_role_valid = trust.verify_proof(role_proof.clone(), "user_123".to_string(), "Admin".to_string(), public_key_hex.clone());
+    let is_role_valid = trust.verify_proof(
+        role_proof.clone(),
+        "user_123".to_string(),
+        "Admin".to_string(),
+        public_key_hex.clone(),
+    );
     assert!(is_role_valid);
 
     // Mismatched role should fail validation
-    let is_mismatched_role_valid = trust.verify_proof(role_proof.clone(), "user_123".to_string(), "Member".to_string(), public_key_hex.clone());
+    let is_mismatched_role_valid = trust.verify_proof(
+        role_proof.clone(),
+        "user_123".to_string(),
+        "Member".to_string(),
+        public_key_hex.clone(),
+    );
     assert!(!is_mismatched_role_valid);
 
     // Mismatched user is ignored in V3 (true zero-knowledge proof of role membership)
-    let is_mismatched_user_valid = trust.verify_proof(role_proof.clone(), "user_456".to_string(), "Admin".to_string(), public_key_hex.clone());
+    let is_mismatched_user_valid = trust.verify_proof(
+        role_proof.clone(),
+        "user_456".to_string(),
+        "Admin".to_string(),
+        public_key_hex.clone(),
+    );
     assert!(is_mismatched_user_valid);
 
     let invalid_role_proof = "not_a_valid_proof_hex_string_too_short".to_string();
-    assert!(!trust.verify_proof(invalid_role_proof, "user_123".to_string(), "Admin".to_string(), public_key_hex.clone()));
+    assert!(!trust.verify_proof(
+        invalid_role_proof,
+        "user_123".to_string(),
+        "Admin".to_string(),
+        public_key_hex.clone()
+    ));
 }
 
 #[test]
@@ -151,13 +174,17 @@ fn test_zkp_schema_proof_hijacking_prevention() {
 
     // 1. Generate valid proof 1 (representing a valid transaction/document)
     let sensitive_data_1 = "Valid content".to_string();
-    let ciphertext_1 = trust.encrypt_workspace_field(passkey_seed_1.clone(), sensitive_data_1).unwrap();
-    let proof_1_hex = trust.generate_compliance_proof(
-        passkey_seed_1.clone(),
-        ciphertext_1.clone(),
-        "user_1".to_string(),
-        "user".to_string(),
-    ).unwrap();
+    let ciphertext_1 = trust
+        .encrypt_workspace_field(passkey_seed_1.clone(), sensitive_data_1)
+        .unwrap();
+    let proof_1_hex = trust
+        .generate_compliance_proof(
+            passkey_seed_1.clone(),
+            ciphertext_1.clone(),
+            "user_1".to_string(),
+            "user".to_string(),
+        )
+        .unwrap();
 
     let proof_1_bytes = const_hex::decode(&proof_1_hex).unwrap();
     assert_eq!(proof_1_bytes.len(), 269);
@@ -168,16 +195,20 @@ fn test_zkp_schema_proof_hijacking_prevention() {
 
     // 2. Generate another valid proof 2 (representing a different transaction/document)
     let sensitive_data_2 = "Different valid content".to_string();
-    let ciphertext_2 = trust.encrypt_workspace_field(passkey_seed_2.clone(), sensitive_data_2).unwrap();
-    let proof_2_hex = trust.generate_compliance_proof(
-        passkey_seed_2.clone(),
-        ciphertext_2.clone(),
-        "user_2".to_string(),
-        "user".to_string(),
-    ).unwrap();
+    let ciphertext_2 = trust
+        .encrypt_workspace_field(passkey_seed_2.clone(), sensitive_data_2)
+        .unwrap();
+    let proof_2_hex = trust
+        .generate_compliance_proof(
+            passkey_seed_2.clone(),
+            ciphertext_2.clone(),
+            "user_2".to_string(),
+            "user".to_string(),
+        )
+        .unwrap();
 
     let proof_2_bytes = const_hex::decode(&proof_2_hex).unwrap();
-    
+
     // 3. Construct a forged proof payload:
     // It uses all elements of proof 2 (so its signature matches ciphertext 2)
     // but replaces the schema validation ZKP fields with the ones hijacked from proof 1!
@@ -185,9 +216,9 @@ fn test_zkp_schema_proof_hijacking_prevention() {
     proof_forged_bytes[173..205].copy_from_slice(schema_c_bytes);
     proof_forged_bytes[205..237].copy_from_slice(schema_e_bytes);
     proof_forged_bytes[237..269].copy_from_slice(schema_s_bytes);
-    
+
     let proof_forged_hex = const_hex::encode(&proof_forged_bytes);
-    
+
     // 4. Try to verify the forged proof against ciphertext 2's data hash.
     // If our schema ZKP binding fix works, it must fail because the schema ZKP was bound
     // to ciphertext 1's commitment, not ciphertext 2's!
@@ -195,15 +226,20 @@ fn test_zkp_schema_proof_hijacking_prevention() {
     let data_hash_2 = blake3::hash(&ciphertext_2_bytes);
     let data_hash_2_hex = const_hex::encode(data_hash_2.as_bytes());
 
-    let is_valid = trust.verify_compliance_proof(
-        proof_forged_hex,
-        "user_2".to_string(),
-        "user".to_string(),
-        data_hash_2_hex,
-        pk_hex_2,
-    ).unwrap();
+    let is_valid = trust
+        .verify_compliance_proof(
+            proof_forged_hex,
+            "user_2".to_string(),
+            "user".to_string(),
+            data_hash_2_hex,
+            pk_hex_2,
+        )
+        .unwrap();
 
-    assert!(!is_valid, "ZKP Schema Proof Hijacking succeeded! The system accepted a transposed schema proof!");
+    assert!(
+        !is_valid,
+        "ZKP Schema Proof Hijacking succeeded! The system accepted a transposed schema proof!"
+    );
 }
 
 #[test]
@@ -225,29 +261,27 @@ fn test_ring_signatures_aos() {
     let data_hash_hex = const_hex::encode(data_hash.as_bytes());
 
     // Sign using seed 2 (Peer 2)
-    let ring_proof = trust.generate_ring_compliance_proof(
-        passkey_seed_2.clone(),
-        hex_data.clone(),
-        ring.clone(),
-    ).unwrap();
+    let ring_proof = trust
+        .generate_ring_compliance_proof(passkey_seed_2.clone(), hex_data.clone(), ring.clone())
+        .unwrap();
 
     // Verify it against the ring
-    let is_ring_valid = trust.verify_ring_compliance_proof(
-        ring_proof.clone(),
-        data_hash_hex.clone(),
-        ring.clone(),
-    ).unwrap();
+    let is_ring_valid = trust
+        .verify_ring_compliance_proof(ring_proof.clone(), data_hash_hex.clone(), ring.clone())
+        .unwrap();
     assert!(is_ring_valid);
 
     // Verify it using verify_compliance_proof (combining with commas)
     let ring_comb = ring.join(",");
-    let is_comb_valid = trust.verify_compliance_proof(
-        ring_proof.clone(),
-        "".to_string(),
-        "".to_string(),
-        data_hash_hex.clone(),
-        ring_comb.clone(),
-    ).unwrap();
+    let is_comb_valid = trust
+        .verify_compliance_proof(
+            ring_proof.clone(),
+            "".to_string(),
+            "".to_string(),
+            data_hash_hex.clone(),
+            ring_comb.clone(),
+        )
+        .unwrap();
     assert!(is_comb_valid);
 
     // Signing using a seed not in the ring should fail
@@ -264,16 +298,12 @@ fn test_ring_signatures_aos() {
     let empty_data_hex = const_hex::encode("".as_bytes());
     let empty_data_hash = blake3::hash("".as_bytes());
     let empty_data_hash_hex = const_hex::encode(empty_data_hash.as_bytes());
-    let invalid_schema_proof = trust.generate_ring_compliance_proof(
-        passkey_seed_2.clone(),
-        empty_data_hex,
-        ring.clone(),
-    ).unwrap();
-    let is_invalid_schema_verified = trust.verify_ring_compliance_proof(
-        invalid_schema_proof,
-        empty_data_hash_hex,
-        ring.clone(),
-    ).unwrap();
+    let invalid_schema_proof = trust
+        .generate_ring_compliance_proof(passkey_seed_2.clone(), empty_data_hex, ring.clone())
+        .unwrap();
+    let is_invalid_schema_verified = trust
+        .verify_ring_compliance_proof(invalid_schema_proof, empty_data_hash_hex, ring.clone())
+        .unwrap();
     assert!(!is_invalid_schema_verified);
 
     // --- Test Zero-Knowledge Ring Role Membership Proofs ---
@@ -281,12 +311,14 @@ fn test_ring_signatures_aos() {
     let user_id = "user_role_test_123".to_string();
     let role = "workspace_member".to_string();
 
-    let ring_role_proof = trust.generate_ring_role_proof(
-        passkey_seed_2.clone(),
-        user_id.clone(),
-        role.clone(),
-        role_ring.clone(),
-    ).unwrap();
+    let ring_role_proof = trust
+        .generate_ring_role_proof(
+            passkey_seed_2.clone(),
+            user_id.clone(),
+            role.clone(),
+            role_ring.clone(),
+        )
+        .unwrap();
 
     let is_role_ring_verified = trust.verify_proof(
         ring_role_proof.clone(),
@@ -297,8 +329,18 @@ fn test_ring_signatures_aos() {
     assert!(is_role_ring_verified);
 
     // Mismatched user ID is ignored in V3 anonymous ring role proofs
-    assert!(trust.verify_proof(ring_role_proof.clone(), "different_user".to_string(), role.clone(), role_ring.join(",")));
-    assert!(!trust.verify_proof(ring_role_proof.clone(), user_id.clone(), "different_role".to_string(), role_ring.join(",")));
+    assert!(trust.verify_proof(
+        ring_role_proof.clone(),
+        "different_user".to_string(),
+        role.clone(),
+        role_ring.join(",")
+    ));
+    assert!(!trust.verify_proof(
+        ring_role_proof.clone(),
+        user_id.clone(),
+        "different_role".to_string(),
+        role_ring.join(",")
+    ));
 
     // Signing using a seed not in the role ring should fail
     let ring_role_proof_foreign = trust.generate_ring_role_proof(
@@ -314,7 +356,7 @@ fn test_ring_signatures_aos() {
     use ark_groth16::Groth16;
     use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
     use ark_serialize::CanonicalSerialize;
-    use ark_snark::{SNARK, CircuitSpecificSetupSNARK};
+    use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
 
     #[derive(Clone)]
     struct SimpleCircuit {
@@ -325,9 +367,12 @@ fn test_ring_signatures_aos() {
 
     impl ConstraintSynthesizer<Fr> for SimpleCircuit {
         fn generate_constraints(self, cs: ConstraintSystemRef<Fr>) -> Result<(), SynthesisError> {
-            let x_val = cs.new_witness_variable(|| self.x.ok_or(SynthesisError::AssignmentMissing))?;
-            let y_val = cs.new_witness_variable(|| self.y.ok_or(SynthesisError::AssignmentMissing))?;
-            let z_val = cs.new_input_variable(|| self.z.ok_or(SynthesisError::AssignmentMissing))?;
+            let x_val =
+                cs.new_witness_variable(|| self.x.ok_or(SynthesisError::AssignmentMissing))?;
+            let y_val =
+                cs.new_witness_variable(|| self.y.ok_or(SynthesisError::AssignmentMissing))?;
+            let z_val =
+                cs.new_input_variable(|| self.z.ok_or(SynthesisError::AssignmentMissing))?;
             cs.enforce_constraint(
                 ark_relations::r1cs::LinearCombination::from(x_val),
                 ark_relations::r1cs::LinearCombination::from(y_val),
@@ -339,7 +384,11 @@ fn test_ring_signatures_aos() {
 
     use ark_std::rand::{SeedableRng, rngs::StdRng};
     let mut rng = StdRng::seed_from_u64(42u64);
-    let empty_circuit = SimpleCircuit { x: None, y: None, z: None };
+    let empty_circuit = SimpleCircuit {
+        x: None,
+        y: None,
+        z: None,
+    };
     let (pk, vk) = Groth16::<Bn254>::setup(empty_circuit, &mut rng).unwrap();
 
     let x_scalar = Fr::from(3u32);
@@ -365,23 +414,21 @@ fn test_ring_signatures_aos() {
     let z_hex = const_hex::encode(&z_bytes);
 
     let public_inputs_hex = vec![z_hex.clone()];
-    let is_snark_valid = trust.verify_groth16_proof(
-        proof_hex.clone(),
-        public_inputs_hex.clone(),
-        vk_hex.clone(),
-    ).unwrap();
+    let is_snark_valid = trust
+        .verify_groth16_proof(proof_hex.clone(), public_inputs_hex.clone(), vk_hex.clone())
+        .unwrap();
     assert!(is_snark_valid);
 
     let invalid_z_scalar = Fr::from(13u32);
     let mut invalid_z_bytes = Vec::new();
-    invalid_z_scalar.serialize_compressed(&mut invalid_z_bytes).unwrap();
+    invalid_z_scalar
+        .serialize_compressed(&mut invalid_z_bytes)
+        .unwrap();
     let invalid_z_hex = const_hex::encode(&invalid_z_bytes);
     let invalid_public_inputs_hex = vec![invalid_z_hex];
-    let is_invalid_snark_valid = trust.verify_groth16_proof(
-        proof_hex,
-        invalid_public_inputs_hex,
-        vk_hex,
-    ).unwrap();
+    let is_invalid_snark_valid = trust
+        .verify_groth16_proof(proof_hex, invalid_public_inputs_hex, vk_hex)
+        .unwrap();
     assert!(!is_invalid_snark_valid);
 }
 
@@ -731,9 +778,18 @@ fn test_edge_sync_loop_clone_drop_safety() {
 #[test]
 fn test_loro_crdt_batching() {
     let temp_dir = std::env::temp_dir();
-    let path_main = temp_dir.join("test_batch_main.db").to_string_lossy().to_string();
-    let path_peer_a = temp_dir.join("test_batch_peer_a.db").to_string_lossy().to_string();
-    let path_peer_b = temp_dir.join("test_batch_peer_b.db").to_string_lossy().to_string();
+    let path_main = temp_dir
+        .join("test_batch_main.db")
+        .to_string_lossy()
+        .to_string();
+    let path_peer_a = temp_dir
+        .join("test_batch_peer_a.db")
+        .to_string_lossy()
+        .to_string();
+    let path_peer_b = temp_dir
+        .join("test_batch_peer_b.db")
+        .to_string_lossy()
+        .to_string();
 
     let _ = std::fs::remove_file(&path_main);
     let _ = std::fs::remove_file(&path_peer_a);
@@ -768,7 +824,9 @@ fn test_loro_crdt_batching() {
     let change2 = store_peer_b.get_loro_changes().unwrap();
 
     // Now apply both changes to the main store in a single batch
-    store_main.apply_loro_updates_batch(vec![change1, change2]).unwrap();
+    store_main
+        .apply_loro_updates_batch(vec![change1, change2])
+        .unwrap();
 
     let todos = store_main.read_all_todos().unwrap();
     assert_eq!(todos.len(), 2);
@@ -785,8 +843,14 @@ fn test_edge_sync_loop_note_and_audit_loops() {
     let sync_loop = EdgeSyncLoop::new("http://localhost:8080".to_string());
 
     let temp_dir = std::env::temp_dir();
-    let path_note = temp_dir.join("test_note_loop.db").to_string_lossy().to_string();
-    let path_audit = temp_dir.join("test_audit_loop.db").to_string_lossy().to_string();
+    let path_note = temp_dir
+        .join("test_note_loop.db")
+        .to_string_lossy()
+        .to_string();
+    let path_audit = temp_dir
+        .join("test_audit_loop.db")
+        .to_string_lossy()
+        .to_string();
     let _ = std::fs::remove_file(&path_note);
     let _ = std::fs::remove_file(&path_audit);
 
@@ -844,23 +908,23 @@ fn test_in_memory_relay_queue_bounding() {
 #[test]
 fn test_failed_broadcast_retry_queue() {
     let router = P2PMeshSyncRouter::with_relay("http://invalid-url-domain-xyz.xyz".to_string());
-    
+
     // Manually push a failed broadcast to the queue
     {
         let mut failed = router.failed_broadcasts.lock().unwrap();
         failed.push(("peer_a".to_string(), vec![1, 2, 3]));
     }
-    
+
     // Verify it is in the queue
     {
         let failed = router.failed_broadcasts.lock().unwrap();
         assert_eq!(failed.len(), 1);
         assert_eq!(failed[0].1, vec![1, 2, 3]);
     }
-    
+
     // Calling retry should drain it and attempt to send
     router.retry_failed_broadcasts();
-    
+
     // The queue should be drained
     {
         let failed = router.failed_broadcasts.lock().unwrap();
@@ -880,7 +944,7 @@ fn test_p2p_update_envelope_and_signature() {
     let sig_hex = {
         let key_guard = router.signing_key.lock().unwrap();
         let key = key_guard.as_ref().unwrap();
-        
+
         let mut msg = Vec::new();
         msg.extend_from_slice(b"broadcast:");
         msg.extend_from_slice(pubkey_hex.as_bytes());
@@ -899,12 +963,14 @@ fn test_p2p_update_envelope_and_signature() {
     assert!(is_valid);
 
     // 3. Verify signature fails with wrong data
-    let is_valid_wrong_data = super::sync::verify_update_signature(&pubkey_hex, timestamp, &sig_hex, &[9, 9, 9]);
+    let is_valid_wrong_data =
+        super::sync::verify_update_signature(&pubkey_hex, timestamp, &sig_hex, &[9, 9, 9]);
     assert!(!is_valid_wrong_data);
 
     // 4. Verify signature fails with expired/drifted timestamp (e.g. 1 hour ago)
     let old_timestamp = timestamp - 3600 * 1000;
-    let is_valid_drift = super::sync::verify_update_signature(&pubkey_hex, old_timestamp, &sig_hex, &data);
+    let is_valid_drift =
+        super::sync::verify_update_signature(&pubkey_hex, old_timestamp, &sig_hex, &data);
     assert!(!is_valid_drift);
 }
 
@@ -930,8 +996,18 @@ async fn test_p2p_sync_workspace_access_control() {
     let auth_ac = super::sync::is_peer_authorized(peer_a, peer_c).await;
     assert!(!auth_ac);
 
-    conn.execute("DELETE FROM users WHERE id IN (?1, ?2, ?3)", crate::params![peer_a, peer_b, peer_c]).await.unwrap();
-    conn.execute("DELETE FROM workspaces WHERE id IN ('ws-sync-test', 'ws-sync-test-diff')", ()).await.unwrap();
+    conn.execute(
+        "DELETE FROM users WHERE id IN (?1, ?2, ?3)",
+        crate::params![peer_a, peer_b, peer_c],
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        "DELETE FROM workspaces WHERE id IN ('ws-sync-test', 'ws-sync-test-diff')",
+        (),
+    )
+    .await
+    .unwrap();
 }
 
 #[test]
@@ -956,8 +1032,10 @@ fn test_peer_store_sanitization() {
 
 #[test]
 fn test_pool_poisoning_recovery() {
-    let pool = std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::<String>::new()));
-    
+    let pool = std::sync::Arc::new(std::sync::Mutex::new(
+        std::collections::VecDeque::<String>::new(),
+    ));
+
     // Poison the pool lock
     let pool_clone = pool.clone();
     let handle = std::thread::spawn(move || {
@@ -965,17 +1043,17 @@ fn test_pool_poisoning_recovery() {
         panic!("intentional panic to poison lock");
     });
     let _ = handle.join();
-    
+
     // Now the lock is poisoned
     assert!(pool.is_poisoned());
-    
+
     // Recover using unwrap_or_else
     let mut guard = pool.lock().unwrap_or_else(|e| {
         let mut inner = e.into_inner();
         inner.clear();
         inner
     });
-    
+
     // Guard can be used successfully
     guard.push_back("recovered".to_string());
     assert_eq!(guard.pop_front().as_deref(), Some("recovered"));
@@ -990,13 +1068,17 @@ fn test_zkp_schema_proof_hijacking_variants() {
     let pk_hex_2 = trust.derive_public_key(passkey_seed_2.clone()).unwrap();
 
     let sensitive_data_1 = "Valid content".to_string();
-    let ciphertext_1 = trust.encrypt_workspace_field(passkey_seed_1.clone(), sensitive_data_1).unwrap();
-    let proof_1_hex = trust.generate_compliance_proof(
-        passkey_seed_1.clone(),
-        ciphertext_1.clone(),
-        "user_1".to_string(),
-        "user".to_string(),
-    ).unwrap();
+    let ciphertext_1 = trust
+        .encrypt_workspace_field(passkey_seed_1.clone(), sensitive_data_1)
+        .unwrap();
+    let proof_1_hex = trust
+        .generate_compliance_proof(
+            passkey_seed_1.clone(),
+            ciphertext_1.clone(),
+            "user_1".to_string(),
+            "user".to_string(),
+        )
+        .unwrap();
 
     let proof_1_bytes = const_hex::decode(&proof_1_hex).unwrap();
     let schema_c_bytes = &proof_1_bytes[173..205];
@@ -1004,13 +1086,17 @@ fn test_zkp_schema_proof_hijacking_variants() {
     let schema_s_bytes = &proof_1_bytes[237..269];
 
     let sensitive_data_2 = "Different valid content".to_string();
-    let ciphertext_2 = trust.encrypt_workspace_field(passkey_seed_2.clone(), sensitive_data_2).unwrap();
-    let proof_2_hex = trust.generate_compliance_proof(
-        passkey_seed_2.clone(),
-        ciphertext_2.clone(),
-        "user_2".to_string(),
-        "user".to_string(),
-    ).unwrap();
+    let ciphertext_2 = trust
+        .encrypt_workspace_field(passkey_seed_2.clone(), sensitive_data_2)
+        .unwrap();
+    let proof_2_hex = trust
+        .generate_compliance_proof(
+            passkey_seed_2.clone(),
+            ciphertext_2.clone(),
+            "user_2".to_string(),
+            "user".to_string(),
+        )
+        .unwrap();
 
     let proof_2_bytes = const_hex::decode(&proof_2_hex).unwrap();
     let ciphertext_2_bytes = const_hex::decode(&ciphertext_2).unwrap();
@@ -1020,38 +1106,53 @@ fn test_zkp_schema_proof_hijacking_variants() {
     // Variant 1: Hijack only schema_c
     let mut proof_forged_c = proof_2_bytes.clone();
     proof_forged_c[173..205].copy_from_slice(schema_c_bytes);
-    let is_valid_c = trust.verify_compliance_proof(
-        const_hex::encode(&proof_forged_c),
-        "user_2".to_string(),
-        "user".to_string(),
-        data_hash_2_hex.clone(),
-        pk_hex_2.clone(),
-    ).unwrap();
-    assert!(!is_valid_c, "ZKP Schema Proof Hijacking succeeded with transposed schema_c!");
+    let is_valid_c = trust
+        .verify_compliance_proof(
+            const_hex::encode(&proof_forged_c),
+            "user_2".to_string(),
+            "user".to_string(),
+            data_hash_2_hex.clone(),
+            pk_hex_2.clone(),
+        )
+        .unwrap();
+    assert!(
+        !is_valid_c,
+        "ZKP Schema Proof Hijacking succeeded with transposed schema_c!"
+    );
 
     // Variant 2: Hijack only schema_e
     let mut proof_forged_e = proof_2_bytes.clone();
     proof_forged_e[205..237].copy_from_slice(schema_e_bytes);
-    let is_valid_e = trust.verify_compliance_proof(
-        const_hex::encode(&proof_forged_e),
-        "user_2".to_string(),
-        "user".to_string(),
-        data_hash_2_hex.clone(),
-        pk_hex_2.clone(),
-    ).unwrap();
-    assert!(!is_valid_e, "ZKP Schema Proof Hijacking succeeded with transposed schema_e!");
+    let is_valid_e = trust
+        .verify_compliance_proof(
+            const_hex::encode(&proof_forged_e),
+            "user_2".to_string(),
+            "user".to_string(),
+            data_hash_2_hex.clone(),
+            pk_hex_2.clone(),
+        )
+        .unwrap();
+    assert!(
+        !is_valid_e,
+        "ZKP Schema Proof Hijacking succeeded with transposed schema_e!"
+    );
 
     // Variant 3: Hijack only schema_s
     let mut proof_forged_s = proof_2_bytes.clone();
     proof_forged_s[237..269].copy_from_slice(schema_s_bytes);
-    let is_valid_s = trust.verify_compliance_proof(
-        const_hex::encode(&proof_forged_s),
-        "user_2".to_string(),
-        "user".to_string(),
-        data_hash_2_hex.clone(),
-        pk_hex_2.clone(),
-    ).unwrap();
-    assert!(!is_valid_s, "ZKP Schema Proof Hijacking succeeded with transposed schema_s!");
+    let is_valid_s = trust
+        .verify_compliance_proof(
+            const_hex::encode(&proof_forged_s),
+            "user_2".to_string(),
+            "user".to_string(),
+            data_hash_2_hex.clone(),
+            pk_hex_2.clone(),
+        )
+        .unwrap();
+    assert!(
+        !is_valid_s,
+        "ZKP Schema Proof Hijacking succeeded with transposed schema_s!"
+    );
 }
 
 #[test]
@@ -1072,7 +1173,11 @@ fn test_memory_zeroization_empirical() {
     // After zeroize(), the memory must be overwritten with zeroes
     let zeroized_bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
     let all_zeroes = zeroized_bytes.iter().all(|&b| b == 0);
-    assert!(all_zeroes, "Memory was not zeroized! Bytes found: {:?}", zeroized_bytes);
+    assert!(
+        all_zeroes,
+        "Memory was not zeroized! Bytes found: {:?}",
+        zeroized_bytes
+    );
 }
 
 #[test]
@@ -1085,7 +1190,7 @@ fn test_zeroizing_wrapper_empirical() {
         let secret = Zeroizing::new("another_secret_password_to_check".to_string());
         ptr = secret.as_ptr();
         len = secret.len();
-        
+
         let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
         assert_eq!(bytes, b"another_secret_password_to_check");
     }
@@ -1093,14 +1198,18 @@ fn test_zeroizing_wrapper_empirical() {
     // After Zeroizing wrapper goes out of scope, the memory must be cleared
     let bytes_after = unsafe { std::slice::from_raw_parts(ptr, len) };
     let all_zeroes = bytes_after.iter().all(|&b| b == 0);
-    assert!(all_zeroes, "Zeroizing wrapper failed to clear memory! Bytes found: {:?}", bytes_after);
+    assert!(
+        all_zeroes,
+        "Zeroizing wrapper failed to clear memory! Bytes found: {:?}",
+        bytes_after
+    );
 }
 
 #[test]
 fn test_security_patches_zeroization_empirical() {
     use crate::ZkCryptoTrust;
-    use crate::infra::crypto::encrypt_workspace_key_with_password;
     use crate::infra::crypto::decrypt_workspace_key_with_password;
+    use crate::infra::crypto::encrypt_workspace_key_with_password;
 
     let trust = ZkCryptoTrust::new();
 
@@ -1109,13 +1218,17 @@ fn test_security_patches_zeroization_empirical() {
         let passkey_seed = "seed_for_derive_public_key_zeroization_check".to_string();
         let ptr = passkey_seed.as_ptr();
         let len = passkey_seed.len();
-        
+
         let res = trust.derive_public_key(passkey_seed);
         assert!(res.is_ok());
 
         let bytes_after = unsafe { std::slice::from_raw_parts(ptr, len) };
         let all_zeroes = bytes_after.iter().all(|&b| b == 0);
-        assert!(all_zeroes, "derive_public_key failed to zeroize passkey_seed! Bytes: {:?}", bytes_after);
+        assert!(
+            all_zeroes,
+            "derive_public_key failed to zeroize passkey_seed! Bytes: {:?}",
+            bytes_after
+        );
     }
 
     // 2. Verify generate_role_proof zeroizes passkey_seed (Success path)
@@ -1123,13 +1236,18 @@ fn test_security_patches_zeroization_empirical() {
         let passkey_seed = "seed_for_generate_role_proof_zeroization_check".to_string();
         let ptr = passkey_seed.as_ptr();
         let len = passkey_seed.len();
-        
-        let res = trust.generate_role_proof(passkey_seed, "user_123".to_string(), "Admin".to_string());
+
+        let res =
+            trust.generate_role_proof(passkey_seed, "user_123".to_string(), "Admin".to_string());
         assert!(res.is_ok());
 
         let bytes_after = unsafe { std::slice::from_raw_parts(ptr, len) };
         let all_zeroes = bytes_after.iter().all(|&b| b == 0);
-        assert!(all_zeroes, "generate_role_proof failed to zeroize passkey_seed! Bytes: {:?}", bytes_after);
+        assert!(
+            all_zeroes,
+            "generate_role_proof failed to zeroize passkey_seed! Bytes: {:?}",
+            bytes_after
+        );
     }
 
     // 3. Verify encrypt_workspace_key_with_password zeroizes password and workspace_key (Success path)
@@ -1146,10 +1264,16 @@ fn test_security_patches_zeroization_empirical() {
         assert!(res.is_ok());
 
         let pwd_bytes_after = unsafe { std::slice::from_raw_parts(pwd_ptr, pwd_len) };
-        assert!(pwd_bytes_after.iter().all(|&b| b == 0), "encrypt_workspace_key_with_password failed to zeroize password!");
+        assert!(
+            pwd_bytes_after.iter().all(|&b| b == 0),
+            "encrypt_workspace_key_with_password failed to zeroize password!"
+        );
 
         let key_bytes_after = unsafe { std::slice::from_raw_parts(key_ptr, key_len) };
-        assert!(key_bytes_after.iter().all(|&b| b == 0), "encrypt_workspace_key_with_password failed to zeroize workspace_key!");
+        assert!(
+            key_bytes_after.iter().all(|&b| b == 0),
+            "encrypt_workspace_key_with_password failed to zeroize workspace_key!"
+        );
     }
 
     // 4. Verify decrypt_workspace_key_with_password zeroizes password (Early return / Error path)
@@ -1163,7 +1287,10 @@ fn test_security_patches_zeroization_empirical() {
         assert!(res.is_err());
 
         let pwd_bytes_after = unsafe { std::slice::from_raw_parts(pwd_ptr, pwd_len) };
-        assert!(pwd_bytes_after.iter().all(|&b| b == 0), "decrypt_workspace_key_with_password failed to zeroize password on early return!");
+        assert!(
+            pwd_bytes_after.iter().all(|&b| b == 0),
+            "decrypt_workspace_key_with_password failed to zeroize password on early return!"
+        );
     }
 }
 
@@ -1182,7 +1309,10 @@ fn test_panic_zeroization_empirical() {
 
     let bytes_after = unsafe { std::slice::from_raw_parts(ptr, len) };
     let all_zeroes = bytes_after.iter().all(|&b| b == 0);
-    assert!(all_zeroes, "Zeroizing failed to clear memory on panic/unwinding!");
+    assert!(
+        all_zeroes,
+        "Zeroizing failed to clear memory on panic/unwinding!"
+    );
 }
 
 #[test]
@@ -1258,6 +1388,48 @@ fn test_compact_history_garbage_collection() {
     assert_eq!(after_notes[0].subject, "Compaction Iteration 49");
 }
 
+#[tokio::test]
+async fn test_adaptive_transport_mesh_fallback_and_lan() {
+    use super::sync::{
+        clear_lan_peer_endpoints, get_adaptive_transport_status, get_registered_lan_endpoints,
+        register_lan_peer_endpoint, broadcast_multi_layer_update,
+    };
 
+    clear_lan_peer_endpoints().unwrap();
 
+    let ws_id = "ws-mesh-test".to_string();
+    let peer_id = "peer-alpha".to_string();
+
+    // 1. Initial status -> WebRtcMesh active
+    let st1 = get_adaptive_transport_status(ws_id.clone(), peer_id.clone(), None).unwrap();
+    assert_eq!(st1.active_transport, "WebRtcMesh");
+    assert!(st1.web_rtc_connected);
+    assert!(!st1.lan_socket_connected);
+
+    // 2. Register local LAN subnet endpoint
+    register_lan_peer_endpoint(peer_id.clone(), "192.168.1.150:9090".to_string()).unwrap();
+    let lan_eps = get_registered_lan_endpoints().unwrap();
+    assert_eq!(lan_eps.len(), 1);
+    assert_eq!(lan_eps[0].lan_address, "192.168.1.150:9090");
+
+    // 3. Simulate WebRTC firewall block -> Fallback to LocalLanSocket
+    let st2 = get_adaptive_transport_status(ws_id.clone(), peer_id.clone(), Some(true)).unwrap();
+    assert_eq!(st2.active_transport, "LocalLanSocket");
+    assert!(!st2.web_rtc_connected);
+    assert!(st2.lan_socket_connected);
+    assert_eq!(st2.lan_ip_address.unwrap(), "192.168.1.150:9090");
+
+    // 4. Test multi-layer update broadcast
+    let payload_hex = const_hex::encode(b"test_crdt_delta");
+    let b_res = broadcast_multi_layer_update(
+        ws_id.clone(),
+        peer_id.clone(),
+        payload_hex.clone(),
+        Some("LocalLanSocket".to_string()),
+    )
+    .await
+    .unwrap();
+
+    assert!(b_res.contains("LocalLanSocket"));
+}
 

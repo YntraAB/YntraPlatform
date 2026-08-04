@@ -92,7 +92,8 @@ async fn submit_public_booking_lead_inner(
 
     let (customer_id, is_new_guest) = match existing_uid {
         Some(id) => {
-            crate::services::users::ensure_user_role_signature(&conn, &id, "client", &workspace_id).await?;
+            crate::services::users::ensure_user_role_signature(&conn, &id, "client", &workspace_id)
+                .await?;
             (id, false)
         }
         None => {
@@ -101,13 +102,15 @@ async fn submit_public_booking_lead_inner(
                 "unverified_guest": true,
                 "verification_status": "unverified",
                 "lead_source": "public_lead_widget"
-            }).to_string();
+            })
+            .to_string();
 
             conn.execute(
                 "INSERT INTO users (id, workspace_id, email, full_name, phone, role, preferences, metadata) VALUES (?1, ?2, ?3, ?4, ?5, 'client', '{}', ?6)",
                 crate::params![&id, &workspace_id, &customer_email_clean, name_clean, &customer_phone, &guest_meta],
             ).await?;
-            crate::services::users::ensure_user_role_signature(&conn, &id, "client", &workspace_id).await?;
+            crate::services::users::ensure_user_role_signature(&conn, &id, "client", &workspace_id)
+                .await?;
             (id, true)
         }
     };
@@ -138,7 +141,7 @@ async fn submit_public_booking_lead_inner(
         let quantity = item.get("quantity").and_then(|v| v.as_i64()).unwrap_or(1);
         let volume = item.get("volume").and_then(|v| v.as_f64()).unwrap_or(0.5);
         let inv_id = format!("inv-lead-{}", uuid::Uuid::new_v4());
-        
+
         conn.execute(
             "INSERT INTO move_inventory (id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3) VALUES (?1, ?2, ?3, 'Möbler', ?4, ?5, ?6)",
             crate::params![
@@ -165,10 +168,25 @@ async fn submit_public_booking_lead_inner(
     if let Err(e) = quote_res {
         // Rollback orphaned database records if quote generation fails
         if let Ok(clean_conn) = database::acquire_connection().await {
-            let _ = clean_conn.execute("DELETE FROM move_inventory WHERE job_ticket_id = ?1", crate::params![&job_id]).await;
-            let _ = clean_conn.execute("DELETE FROM job_tickets WHERE id = ?1", crate::params![&job_id]).await;
+            let _ = clean_conn
+                .execute(
+                    "DELETE FROM move_inventory WHERE job_ticket_id = ?1",
+                    crate::params![&job_id],
+                )
+                .await;
+            let _ = clean_conn
+                .execute(
+                    "DELETE FROM job_tickets WHERE id = ?1",
+                    crate::params![&job_id],
+                )
+                .await;
             if is_new_guest {
-                let _ = clean_conn.execute("DELETE FROM users WHERE id = ?1", crate::params![&customer_id]).await;
+                let _ = clean_conn
+                    .execute(
+                        "DELETE FROM users WHERE id = ?1",
+                        crate::params![&customer_id],
+                    )
+                    .await;
             }
         }
         return Err(e);
@@ -200,7 +218,15 @@ pub async fn submit_public_booking_lead(
     destination_address: String,
     items_json: String,
 ) -> Result<String, YntraError> {
-    let fut = submit_public_booking_lead_inner(workspace_id, customer_name, customer_email, customer_phone, origin_address, destination_address, items_json);
+    let fut = submit_public_booking_lead_inner(
+        workspace_id,
+        customer_name,
+        customer_email,
+        customer_phone,
+        origin_address,
+        destination_address,
+        items_json,
+    );
     crate::database::wasm::SendFuture::new(fut).await
 }
 
@@ -215,10 +241,22 @@ pub async fn submit_public_booking_lead(
     destination_address: String,
     items_json: String,
 ) -> Result<String, YntraError> {
-    submit_public_booking_lead_inner(workspace_id, customer_name, customer_email, customer_phone, origin_address, destination_address, items_json).await
+    submit_public_booking_lead_inner(
+        workspace_id,
+        customer_name,
+        customer_email,
+        customer_phone,
+        origin_address,
+        destination_address,
+        items_json,
+    )
+    .await
 }
 
-fn extract_address_from_payload(payload: &serde_json::Value, candidate_keys: &[&str]) -> Option<String> {
+fn extract_address_from_payload(
+    payload: &serde_json::Value,
+    candidate_keys: &[&str],
+) -> Option<String> {
     for &key in candidate_keys {
         let val_opt = if key.starts_with('/') {
             payload.pointer(key)
@@ -233,39 +271,51 @@ fn extract_address_from_payload(payload: &serde_json::Value, candidate_keys: &[&
                     return Some(trimmed.to_string());
                 }
             } else if let Some(obj) = val.as_object() {
-                let street = obj.get("street")
+                let street = obj
+                    .get("street")
                     .or_else(|| obj.get("street_address"))
                     .or_else(|| obj.get("address_line_1"))
                     .or_else(|| obj.get("line1"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .trim();
-                let city = obj.get("city")
+                let city = obj
+                    .get("city")
                     .or_else(|| obj.get("locality"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .trim();
-                let zip = obj.get("zip")
+                let zip = obj
+                    .get("zip")
                     .or_else(|| obj.get("postal_code"))
                     .or_else(|| obj.get("postcode"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .trim();
-                let state = obj.get("state")
+                let state = obj
+                    .get("state")
                     .or_else(|| obj.get("region"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .trim();
 
                 let mut parts = Vec::new();
-                if !street.is_empty() { parts.push(street.to_string()); }
+                if !street.is_empty() {
+                    parts.push(street.to_string());
+                }
                 if !zip.is_empty() && !city.is_empty() {
                     parts.push(format!("{} {}", zip, city));
                 } else {
-                    if !zip.is_empty() { parts.push(zip.to_string()); }
-                    if !city.is_empty() { parts.push(city.to_string()); }
+                    if !zip.is_empty() {
+                        parts.push(zip.to_string());
+                    }
+                    if !city.is_empty() {
+                        parts.push(city.to_string());
+                    }
                 }
-                if !state.is_empty() { parts.push(state.to_string()); }
+                if !state.is_empty() {
+                    parts.push(state.to_string());
+                }
 
                 let full_addr = parts.join(", ");
                 if full_addr.len() >= 3 {
@@ -292,10 +342,12 @@ async fn ingest_third_party_lead_webhook_inner(
             |r| r.get(0),
         )
         .await
-        .map_err(|_| YntraError::ValidationError(format!("Workspace {} not found", workspace_id)))?;
+        .map_err(|_| {
+            YntraError::ValidationError(format!("Workspace {} not found", workspace_id))
+        })?;
 
-    let settings_json: serde_json::Value = serde_json::from_str(&settings_str)
-        .unwrap_or(serde_json::json!({}));
+    let settings_json: serde_json::Value =
+        serde_json::from_str(&settings_str).unwrap_or(serde_json::json!({}));
 
     let expected_key = settings_json
         .get("lead_webhook_api_key")
@@ -303,7 +355,9 @@ async fn ingest_third_party_lead_webhook_inner(
         .unwrap_or("");
 
     if !expected_key.is_empty() && expected_key != api_key {
-        return Err(YntraError::AuthError("Invalid lead webhook API key".to_string()));
+        return Err(YntraError::AuthError(
+            "Invalid lead webhook API key".to_string(),
+        ));
     }
 
     let payload: serde_json::Value = serde_json::from_str(&payload_json)
@@ -319,55 +373,170 @@ async fn ingest_third_party_lead_webhook_inner(
             vec!["end_location", "destination", "dropoff_location"],
         ),
         "moving_com" | "moving" => (
-            vec!["/mover_lead/origin", "/mover_lead/origin_address", "origin", "address"],
-            vec!["/mover_lead/destination", "/mover_lead/destination_address", "destination"],
+            vec![
+                "/mover_lead/origin",
+                "/mover_lead/origin_address",
+                "origin",
+                "address",
+            ],
+            vec![
+                "/mover_lead/destination",
+                "/mover_lead/destination_address",
+                "destination",
+            ],
         ),
         "angi" | "homeadvisor" => (
             vec!["address", "origin", "start_address"],
             vec!["destination", "destination_address", "end_address"],
         ),
         _ => (
-            vec!["origin", "address", "start_location", "from_address", "/mover_lead/origin"],
-            vec!["destination", "end_location", "to_address", "/mover_lead/destination"],
+            vec![
+                "origin",
+                "address",
+                "start_location",
+                "from_address",
+                "/mover_lead/origin",
+            ],
+            vec![
+                "destination",
+                "end_location",
+                "to_address",
+                "/mover_lead/destination",
+            ],
         ),
     };
 
-    let origin = extract_address_from_payload(&payload, &origin_keys)
-        .ok_or_else(|| YntraError::ValidationError(format!("Third-party lead webhook from '{}' missing valid origin address", provider)))?;
+    let origin = extract_address_from_payload(&payload, &origin_keys).ok_or_else(|| {
+        YntraError::ValidationError(format!(
+            "Third-party lead webhook from '{}' missing valid origin address",
+            provider
+        ))
+    })?;
 
-    let destination = extract_address_from_payload(&payload, &dest_keys)
-        .ok_or_else(|| YntraError::ValidationError(format!("Third-party lead webhook from '{}' missing valid destination address", provider)))?;
+    let destination = extract_address_from_payload(&payload, &dest_keys).ok_or_else(|| {
+        YntraError::ValidationError(format!(
+            "Third-party lead webhook from '{}' missing valid destination address",
+            provider
+        ))
+    })?;
 
     let (name, email, phone, items_json) = match provider.to_lowercase().as_str() {
         "google_lsa" | "google" => (
-            payload.get("customerName").or_else(|| payload.get("name")).and_then(|v| v.as_str()).unwrap_or("Google LSA Lead").to_string(),
-            payload.get("customerEmail").or_else(|| payload.get("email")).and_then(|v| v.as_str()).unwrap_or("lead@googlelsa.com").to_string(),
-            payload.get("customerPhone").or_else(|| payload.get("phone")).and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            payload.get("items").map(|v| v.to_string()).unwrap_or_else(|| "[]".to_string()),
+            payload
+                .get("customerName")
+                .or_else(|| payload.get("name"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("Google LSA Lead")
+                .to_string(),
+            payload
+                .get("customerEmail")
+                .or_else(|| payload.get("email"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("lead@googlelsa.com")
+                .to_string(),
+            payload
+                .get("customerPhone")
+                .or_else(|| payload.get("phone"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            payload
+                .get("items")
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "[]".to_string()),
         ),
         "yelp" => (
-            payload.get("user_name").or_else(|| payload.get("name")).and_then(|v| v.as_str()).unwrap_or("Yelp Lead").to_string(),
-            payload.get("user_email").or_else(|| payload.get("email")).and_then(|v| v.as_str()).unwrap_or("lead@yelp.com").to_string(),
-            payload.get("user_phone").or_else(|| payload.get("phone")).and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            payload.get("items").map(|v| v.to_string()).unwrap_or_else(|| "[]".to_string()),
+            payload
+                .get("user_name")
+                .or_else(|| payload.get("name"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("Yelp Lead")
+                .to_string(),
+            payload
+                .get("user_email")
+                .or_else(|| payload.get("email"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("lead@yelp.com")
+                .to_string(),
+            payload
+                .get("user_phone")
+                .or_else(|| payload.get("phone"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            payload
+                .get("items")
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "[]".to_string()),
         ),
         "moving_com" | "moving" => (
-            payload.pointer("/mover_lead/contact/name").or_else(|| payload.get("name")).and_then(|v| v.as_str()).unwrap_or("Moving.com Lead").to_string(),
-            payload.pointer("/mover_lead/contact/email").or_else(|| payload.get("email")).and_then(|v| v.as_str()).unwrap_or("lead@moving.com").to_string(),
-            payload.pointer("/mover_lead/contact/phone").or_else(|| payload.get("phone")).and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            payload.pointer("/mover_lead/items").map(|v| v.to_string()).unwrap_or_else(|| "[]".to_string()),
+            payload
+                .pointer("/mover_lead/contact/name")
+                .or_else(|| payload.get("name"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("Moving.com Lead")
+                .to_string(),
+            payload
+                .pointer("/mover_lead/contact/email")
+                .or_else(|| payload.get("email"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("lead@moving.com")
+                .to_string(),
+            payload
+                .pointer("/mover_lead/contact/phone")
+                .or_else(|| payload.get("phone"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            payload
+                .pointer("/mover_lead/items")
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "[]".to_string()),
         ),
         "angi" | "homeadvisor" => (
-            payload.get("contact_name").or_else(|| payload.get("name")).and_then(|v| v.as_str()).unwrap_or("Angi Lead").to_string(),
-            payload.get("contact_email").or_else(|| payload.get("email")).and_then(|v| v.as_str()).unwrap_or("lead@angi.com").to_string(),
-            payload.get("contact_phone").or_else(|| payload.get("phone")).and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            payload.get("items").map(|v| v.to_string()).unwrap_or_else(|| "[]".to_string()),
+            payload
+                .get("contact_name")
+                .or_else(|| payload.get("name"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("Angi Lead")
+                .to_string(),
+            payload
+                .get("contact_email")
+                .or_else(|| payload.get("email"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("lead@angi.com")
+                .to_string(),
+            payload
+                .get("contact_phone")
+                .or_else(|| payload.get("phone"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            payload
+                .get("items")
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "[]".to_string()),
         ),
         _ => (
-            payload.get("name").and_then(|v| v.as_str()).unwrap_or("Inbound Lead").to_string(),
-            payload.get("email").and_then(|v| v.as_str()).unwrap_or("lead@inbound.com").to_string(),
-            payload.get("phone").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            payload.get("items").map(|v| v.to_string()).unwrap_or_else(|| "[]".to_string()),
+            payload
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Inbound Lead")
+                .to_string(),
+            payload
+                .get("email")
+                .and_then(|v| v.as_str())
+                .unwrap_or("lead@inbound.com")
+                .to_string(),
+            payload
+                .get("phone")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            payload
+                .get("items")
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "[]".to_string()),
         ),
     };
 
@@ -379,7 +548,8 @@ async fn ingest_third_party_lead_webhook_inner(
         origin,
         destination,
         items_json,
-    ).await?;
+    )
+    .await?;
 
     let provider_tag = match provider.to_lowercase().as_str() {
         "google_lsa" | "google" => "Google LSA",

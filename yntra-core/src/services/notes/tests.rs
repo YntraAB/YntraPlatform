@@ -1,11 +1,11 @@
-use crate::database;
-use crate::ZkCryptoTrust;
-use crate::YntraError;
-use super::store::*;
-use super::crud::*;
-use super::sync::*;
-use super::search::*;
 use super::crdt::*;
+use super::crud::*;
+use super::search::*;
+use super::store::*;
+use super::sync::*;
+use crate::YntraError;
+use crate::ZkCryptoTrust;
+use crate::database;
 
 #[tokio::test]
 async fn test_note_zkp_compliance_verification() {
@@ -65,7 +65,12 @@ async fn test_note_zkp_compliance_verification() {
         .encrypt_workspace_field(seed.clone(), sensitive_info)
         .unwrap();
     let valid_proof = trust
-        .generate_compliance_proof(seed.clone(), ciphertext.clone(), author.clone(), "user".to_string())
+        .generate_compliance_proof(
+            seed.clone(),
+            ciphertext.clone(),
+            author.clone(),
+            "user".to_string(),
+        )
         .unwrap();
     let valid_content = format!("zero_copy_enc:{}:{}", valid_proof, ciphertext);
 
@@ -214,10 +219,30 @@ async fn test_apply_note_loro_update_collaborative() {
     let conn = database::acquire_connection().await.unwrap();
 
     let ws_id = "ws-notes-collab";
-    let _ = conn.execute("DELETE FROM team_members WHERE workspace_id = ?1", crate::params![ws_id]).await;
-    let _ = conn.execute("DELETE FROM teams WHERE workspace_id = ?1", crate::params![ws_id]).await;
-    let _ = conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await;
-    let _ = conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await;
+    let _ = conn
+        .execute(
+            "DELETE FROM team_members WHERE workspace_id = ?1",
+            crate::params![ws_id],
+        )
+        .await;
+    let _ = conn
+        .execute(
+            "DELETE FROM teams WHERE workspace_id = ?1",
+            crate::params![ws_id],
+        )
+        .await;
+    let _ = conn
+        .execute(
+            "DELETE FROM users WHERE workspace_id = ?1",
+            crate::params![ws_id],
+        )
+        .await;
+    let _ = conn
+        .execute(
+            "DELETE FROM workspaces WHERE id = ?1",
+            crate::params![ws_id],
+        )
+        .await;
 
     let seed = "collab_secure_seed".to_string();
     let seed_zeroed = zeroize::Zeroizing::new(seed.clone());
@@ -237,10 +262,18 @@ async fn test_apply_note_loro_update_collaborative() {
     conn.execute("INSERT OR REPLACE INTO team_members (team_id, user_id, workspace_id) VALUES ('team-collab', 'u-notes-editor', ?1)", crate::params![ws_id]).await.unwrap();
 
     // Clear notes tables
-    let _ = conn.execute("DELETE FROM notes WHERE workspace_id = ?1", crate::params![ws_id]).await;
+    let _ = conn
+        .execute(
+            "DELETE FROM notes WHERE workspace_id = ?1",
+            crate::params![ws_id],
+        )
+        .await;
     let _ = conn.execute("DELETE FROM note_updates WHERE note_id IN (SELECT id FROM notes WHERE workspace_id = ?1)", crate::params![ws_id]).await;
 
-    crate::infra::crypto::set_session_key("collab-test-session-key".to_string().into_bytes(), ws_id.to_string());
+    crate::infra::crypto::set_session_key(
+        "collab-test-session-key".to_string().into_bytes(),
+        ws_id.to_string(),
+    );
 
     // 1. Author creates a note
     let note = add_note(
@@ -250,10 +283,14 @@ async fn test_apply_note_loro_update_collaborative() {
         "u-notes-author".to_string(),
         "Collab Note".to_string(),
         "Initial Content".to_string(),
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
     // 2. Editor user creates a collaborative Loro update containing encrypted text with their own ZKP proof
-    let original_loro_bytes = get_note_loro_state("u-notes-author".to_string(), note.id.clone()).await.unwrap();
+    let original_loro_bytes = get_note_loro_state("u-notes-author".to_string(), note.id.clone())
+        .await
+        .unwrap();
     let doc = loro::LoroDoc::new();
     doc.import(&original_loro_bytes).unwrap();
 
@@ -261,8 +298,17 @@ async fn test_apply_note_loro_update_collaborative() {
     let trust = ZkCryptoTrust::new();
     let seed = "collab_secure_seed".to_string();
     let new_text = "Sensitive editor data".to_string();
-    let ciphertext = trust.encrypt_workspace_field(seed.clone(), new_text.clone()).unwrap();
-    let editor_proof = trust.generate_compliance_proof(seed, ciphertext.clone(), "u-notes-editor".to_string(), "user".to_string()).unwrap();
+    let ciphertext = trust
+        .encrypt_workspace_field(seed.clone(), new_text.clone())
+        .unwrap();
+    let editor_proof = trust
+        .generate_compliance_proof(
+            seed,
+            ciphertext.clone(),
+            "u-notes-editor".to_string(),
+            "user".to_string(),
+        )
+        .unwrap();
     let encrypted_content = format!("zero_copy_enc:{}:{}", editor_proof, ciphertext);
 
     // Apply diff to editor's doc
@@ -274,24 +320,62 @@ async fn test_apply_note_loro_update_collaborative() {
     let update_bytes = doc.export(loro::ExportMode::Snapshot).unwrap();
 
     // 3. Apply the Loro update. This should succeed under the new collaborative validation logic!
-    let apply_res = apply_note_loro_update("u-notes-editor".to_string(), note.id.clone(), update_bytes).await;
-    assert!(apply_res.is_ok(), "apply_note_loro_update failed: {:?}", apply_res.err());
+    let apply_res =
+        apply_note_loro_update("u-notes-editor".to_string(), note.id.clone(), update_bytes).await;
+    assert!(
+        apply_res.is_ok(),
+        "apply_note_loro_update failed: {:?}",
+        apply_res.err()
+    );
 
     // Verify database projection is updated and decrypted content is accessible
-    let projected_plain: String = conn.query_row(
-        "SELECT content_plain FROM notes WHERE id = ?1",
-        crate::params![&note.id],
-        |r| r.get(0),
-    ).await.unwrap();
+    let projected_plain: String = conn
+        .query_row(
+            "SELECT content_plain FROM notes WHERE id = ?1",
+            crate::params![&note.id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap();
     assert_eq!(projected_plain, encrypted_content);
 
     // Cleanup
-    let _ = conn.execute("DELETE FROM note_updates WHERE note_id = ?1", crate::params![&note.id]).await;
-    let _ = conn.execute("DELETE FROM notes WHERE workspace_id = ?1", crate::params![ws_id]).await;
-    conn.execute("DELETE FROM team_members WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
-    conn.execute("DELETE FROM teams WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
-    conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
-    conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
+    let _ = conn
+        .execute(
+            "DELETE FROM note_updates WHERE note_id = ?1",
+            crate::params![&note.id],
+        )
+        .await;
+    let _ = conn
+        .execute(
+            "DELETE FROM notes WHERE workspace_id = ?1",
+            crate::params![ws_id],
+        )
+        .await;
+    conn.execute(
+        "DELETE FROM team_members WHERE workspace_id = ?1",
+        crate::params![ws_id],
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        "DELETE FROM teams WHERE workspace_id = ?1",
+        crate::params![ws_id],
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        "DELETE FROM users WHERE workspace_id = ?1",
+        crate::params![ws_id],
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        "DELETE FROM workspaces WHERE id = ?1",
+        crate::params![ws_id],
+    )
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
@@ -302,11 +386,26 @@ async fn test_notes_fts_search() {
     let ws_id = "ws-fts-test";
     conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'FTS WS', '[]', '{}')", crate::params![ws_id]).await.unwrap();
     conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-fts-user', ?1, 'fts@user.com', 'admin')", crate::params![ws_id]).await.unwrap();
-    conn.execute("INSERT OR REPLACE INTO teams (id, workspace_id, name) VALUES ('team-fts', ?1, 'FTS Team')", crate::params![ws_id]).await.unwrap();
+    conn.execute(
+        "INSERT OR REPLACE INTO teams (id, workspace_id, name) VALUES ('team-fts', ?1, 'FTS Team')",
+        crate::params![ws_id],
+    )
+    .await
+    .unwrap();
 
     // Clear notes tables
-    let _ = conn.execute("DELETE FROM notes WHERE workspace_id = ?1", crate::params![ws_id]).await;
-    let _ = conn.execute("DELETE FROM notes_fts WHERE id IN (SELECT id FROM notes WHERE workspace_id = ?1)", crate::params![ws_id]).await;
+    let _ = conn
+        .execute(
+            "DELETE FROM notes WHERE workspace_id = ?1",
+            crate::params![ws_id],
+        )
+        .await;
+    let _ = conn
+        .execute(
+            "DELETE FROM notes_fts WHERE id IN (SELECT id FROM notes WHERE workspace_id = ?1)",
+            crate::params![ws_id],
+        )
+        .await;
 
     // 1. Create notes
     let note1 = add_note(
@@ -316,7 +415,9 @@ async fn test_notes_fts_search() {
         "u-fts-user".to_string(),
         "Math homework assignment".to_string(),
         "Remember to complete exercises 1 to 5".to_string(),
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
     let note2 = add_note(
         "u-fts-user".to_string(),
@@ -325,21 +426,41 @@ async fn test_notes_fts_search() {
         "u-fts-user".to_string(),
         "Biology exam study".to_string(),
         "Study mitochondria and cellular respiration mechanisms".to_string(),
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
     // 2. Perform search matches
-    let res1 = search_notes("u-fts-user".to_string(), "team-fts".to_string(), "homework".to_string()).await.unwrap();
+    let res1 = search_notes(
+        "u-fts-user".to_string(),
+        "team-fts".to_string(),
+        "homework".to_string(),
+    )
+    .await
+    .unwrap();
     assert_eq!(res1.len(), 1);
     assert_eq!(res1[0].id, note1.id);
 
-    let res2 = search_notes("u-fts-user".to_string(), "team-fts".to_string(), "mitochondria".to_string()).await.unwrap();
+    let res2 = search_notes(
+        "u-fts-user".to_string(),
+        "team-fts".to_string(),
+        "mitochondria".to_string(),
+    )
+    .await
+    .unwrap();
     assert_eq!(res2.len(), 1);
     assert_eq!(res2[0].id, note2.id);
     // Verify snippet highlighting contains markdown bold '***'
     assert!(res2[0].content.contains("***mitochondria***"));
 
     // Verify query sanitization against special characters
-    let res_sanitized = search_notes("u-fts-user".to_string(), "team-fts".to_string(), "mitochondria : & OR *".to_string()).await.unwrap();
+    let res_sanitized = search_notes(
+        "u-fts-user".to_string(),
+        "team-fts".to_string(),
+        "mitochondria : & OR *".to_string(),
+    )
+    .await
+    .unwrap();
     assert_eq!(res_sanitized.len(), 1);
     assert_eq!(res_sanitized[0].id, note2.id);
 
@@ -350,27 +471,79 @@ async fn test_notes_fts_search() {
         "FTS User".to_string(),
         "Math homework assignment".to_string(),
         "Remember to complete exercise 9 instead".to_string(),
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
     // Search old content (should be gone/not match)
-    let res3 = search_notes("u-fts-user".to_string(), "team-fts".to_string(), "exercises".to_string()).await.unwrap();
+    let res3 = search_notes(
+        "u-fts-user".to_string(),
+        "team-fts".to_string(),
+        "exercises".to_string(),
+    )
+    .await
+    .unwrap();
     assert_eq!(res3.len(), 0);
 
     // Search new content
-    let res4 = search_notes("u-fts-user".to_string(), "team-fts".to_string(), "exercise 9".to_string()).await.unwrap();
+    let res4 = search_notes(
+        "u-fts-user".to_string(),
+        "team-fts".to_string(),
+        "exercise 9".to_string(),
+    )
+    .await
+    .unwrap();
     assert_eq!(res4.len(), 1);
     assert_eq!(res4[0].id, note1.id);
 
     // 4. Delete note and verify removal
-    delete_note("u-fts-user".to_string(), note1.id.clone()).await.unwrap();
-    let res5 = search_notes("u-fts-user".to_string(), "team-fts".to_string(), "exercise 9".to_string()).await.unwrap();
+    delete_note("u-fts-user".to_string(), note1.id.clone())
+        .await
+        .unwrap();
+    let res5 = search_notes(
+        "u-fts-user".to_string(),
+        "team-fts".to_string(),
+        "exercise 9".to_string(),
+    )
+    .await
+    .unwrap();
     assert_eq!(res5.len(), 0);
 
     // Cleanup
-    let _ = conn.execute("DELETE FROM note_updates WHERE note_id = ?1", crate::params![&note2.id]).await;
-    let _ = conn.execute("DELETE FROM notes WHERE workspace_id = ?1", crate::params![ws_id]).await;
-    let _ = conn.execute("DELETE FROM notes_fts WHERE id = ?1", crate::params![&note2.id]).await;
-    conn.execute("DELETE FROM teams WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
-    conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
-    conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
+    let _ = conn
+        .execute(
+            "DELETE FROM note_updates WHERE note_id = ?1",
+            crate::params![&note2.id],
+        )
+        .await;
+    let _ = conn
+        .execute(
+            "DELETE FROM notes WHERE workspace_id = ?1",
+            crate::params![ws_id],
+        )
+        .await;
+    let _ = conn
+        .execute(
+            "DELETE FROM notes_fts WHERE id = ?1",
+            crate::params![&note2.id],
+        )
+        .await;
+    conn.execute(
+        "DELETE FROM teams WHERE workspace_id = ?1",
+        crate::params![ws_id],
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        "DELETE FROM users WHERE workspace_id = ?1",
+        crate::params![ws_id],
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        "DELETE FROM workspaces WHERE id = ?1",
+        crate::params![ws_id],
+    )
+    .await
+    .unwrap();
 }

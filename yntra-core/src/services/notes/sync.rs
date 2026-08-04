@@ -1,8 +1,8 @@
-use crate::database;
-use crate::observer::notify_observers;
-use crate::infra::errors::YntraError;
 use crate::DailyNote;
-use crate::services::notes::crdt::{parse_loro_state, get_merged_loro_doc};
+use crate::database;
+use crate::infra::errors::YntraError;
+use crate::observer::notify_observers;
+use crate::services::notes::crdt::{get_merged_loro_doc, parse_loro_state};
 use crate::services::notes::store::get_note_store;
 
 #[uniffi::export]
@@ -151,7 +151,7 @@ pub async fn apply_note_loro_update(
         // 1. Build merged state using cached snapshot + remote update
         let doc = get_merged_loro_doc(&conn, &note_id).await?;
         doc.import(&update_bytes).map_err(|e| YntraError::SerializationError(e.to_string()))?;
-        
+
         let loro_bytes = doc.export(loro::ExportMode::Snapshot).map_err(|e| YntraError::SerializationError(e.to_string()))?;
 
         let (author_id, team_id, workspace_id): (String, String, String) = conn.query_row(
@@ -387,12 +387,14 @@ pub async fn merge_unmerged_notes() -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
 
     // Find candidate notes that have at least one update in note_updates, fetching max_seq using a JOIN
-    let mut stmt = conn.prepare(
-        "SELECT n.id, n.content, MAX(u.seq) \
+    let mut stmt = conn
+        .prepare(
+            "SELECT n.id, n.content, MAX(u.seq) \
          FROM notes n \
          JOIN note_updates u ON u.note_id = n.id \
-         GROUP BY n.id"
-    ).await?;
+         GROUP BY n.id",
+        )
+        .await?;
 
     let mut rows = stmt.query(()).await?;
     let mut candidates = Vec::new();

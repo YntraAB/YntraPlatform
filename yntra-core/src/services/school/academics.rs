@@ -2,9 +2,11 @@ use crate::database;
 use crate::infra::errors::YntraError;
 use crate::infra::observer::notify_observers;
 use crate::services::notes::verify_zkp_if_encrypted;
-use crate::services::school::auth::{verify_school_write_zkp, verify_school_permission, verify_student_access};
+use crate::services::school::auth::{
+    verify_school_permission, verify_school_write_zkp, verify_student_access,
+};
 use crate::services::school::conflicts::record_school_conflict;
-use crate::{Course, Assignment, Submission, TermGrade, ReportCard};
+use crate::{Assignment, Course, ReportCard, Submission, TermGrade};
 
 #[uniffi::export]
 pub async fn save_course(
@@ -16,7 +18,9 @@ pub async fn save_course(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
@@ -41,24 +45,27 @@ pub async fn save_course(
 }
 
 #[uniffi::export]
-pub async fn delete_course(
-    requester_user_id: String,
-    id: String,
-) -> Result<(), YntraError> {
+pub async fn delete_course(requester_user_id: String, id: String) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    
-    let ws_id: String = conn.query_row(
-        "SELECT workspace_id FROM courses WHERE id = ?1",
-        crate::params![&id],
-        |r| r.get(0)
-    ).await.map_err(|_| YntraError::NotFoundError("Course not found".to_string()))?;
+
+    let ws_id: String = conn
+        .query_row(
+            "SELECT workspace_id FROM courses WHERE id = ?1",
+            crate::params![&id],
+            |r| r.get(0),
+        )
+        .await
+        .map_err(|_| YntraError::NotFoundError("Course not found".to_string()))?;
 
     if auth.role != "platform_admin" && auth.workspace_id != ws_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
-    conn.execute("DELETE FROM courses WHERE id = ?1", crate::params![&id]).await?;
+    conn.execute("DELETE FROM courses WHERE id = ?1", crate::params![&id])
+        .await?;
     notify_observers();
     Ok(())
 }
@@ -72,7 +79,9 @@ pub async fn get_assignments(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let mut stmt = conn
@@ -106,7 +115,9 @@ pub async fn save_assignment(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != assignment.workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     if assignment.max_points >= 0 {
@@ -134,23 +145,23 @@ pub async fn save_assignment(
 }
 
 #[uniffi::export]
-pub async fn delete_assignment(
-    requester_user_id: String,
-    id: String,
-) -> Result<(), YntraError> {
+pub async fn delete_assignment(requester_user_id: String, id: String) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
-    
-    let ws_id: String = conn.query_row(
-        "SELECT workspace_id FROM assignments WHERE id = ?1",
-        crate::params![&id],
-        |r| r.get(0)
-    ).await?;
+
+    let ws_id: String = conn
+        .query_row(
+            "SELECT workspace_id FROM assignments WHERE id = ?1",
+            crate::params![&id],
+            |r| r.get(0),
+        )
+        .await?;
 
     conn.execute(
         "DELETE FROM assignments WHERE id = ?1 AND workspace_id = ?2",
-        crate::params![&id, &ws_id]
-    ).await?;
+        crate::params![&id, &ws_id],
+    )
+    .await?;
 
     notify_observers();
     Ok(())
@@ -165,24 +176,54 @@ pub async fn save_submission(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != submission.workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
     if auth.role != "platform_admin" && auth.role != "admin" && auth.role != "school-admin" {
-        let is_student = auth.role == "student" || auth.role == "role-school-student" || has_school_permission(&auth, "can_manage_grades");
+        let is_student = auth.role == "student"
+            || auth.role == "role-school-student"
+            || has_school_permission(&auth, "can_manage_grades");
         if !is_student {
-            return Err(YntraError::AuthError("Access denied: insufficient permissions to manage submissions".to_string()));
+            return Err(YntraError::AuthError(
+                "Access denied: insufficient permissions to manage submissions".to_string(),
+            ));
         }
     }
 
     let team_id = "";
-    verify_zkp_if_encrypted(&conn, &submission.content, &auth.user_id, &auth.role, &submission.workspace_id, team_id).await?;
+    verify_zkp_if_encrypted(
+        &conn,
+        &submission.content,
+        &auth.user_id,
+        &auth.role,
+        &submission.workspace_id,
+        team_id,
+    )
+    .await?;
     if let Some(ref grade) = submission.grade {
-        verify_zkp_if_encrypted(&conn, grade, &auth.user_id, &auth.role, &submission.workspace_id, team_id).await?;
+        verify_zkp_if_encrypted(
+            &conn,
+            grade,
+            &auth.user_id,
+            &auth.role,
+            &submission.workspace_id,
+            team_id,
+        )
+        .await?;
     }
     if let Some(ref feedback) = submission.feedback {
-        verify_zkp_if_encrypted(&conn, feedback, &auth.user_id, &auth.role, &submission.workspace_id, team_id).await?;
+        verify_zkp_if_encrypted(
+            &conn,
+            feedback,
+            &auth.user_id,
+            &auth.role,
+            &submission.workspace_id,
+            team_id,
+        )
+        .await?;
     }
 
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -204,7 +245,11 @@ pub async fn save_submission(
     let mut grade = submission.grade.clone();
     let mut feedback = submission.feedback.clone();
 
-    let incoming_updated_at = if submission.updated_at > now_ms + 5000 { now_ms } else { submission.updated_at };
+    let incoming_updated_at = if submission.updated_at > now_ms + 5000 {
+        now_ms
+    } else {
+        submission.updated_at
+    };
     if let Some((old_content, old_grade, old_feedback, old_updated_at)) = existing {
         if !content.starts_with("zero_copy_enc:") && old_content.starts_with("zero_copy_enc:") {
             content = old_content;
@@ -234,8 +279,15 @@ pub async fn save_submission(
                         }
                     ]
                 });
-                
-                record_school_conflict(&conn, &submission.workspace_id, "submissions", &submission.id, mvr).await?;
+
+                record_school_conflict(
+                    &conn,
+                    &submission.workspace_id,
+                    "submissions",
+                    &submission.id,
+                    mvr,
+                )
+                .await?;
 
                 // Keep database clean using Last-Write-Wins (which is the database version, since old_updated_at > submission.updated_at)
                 grade = old_grade;
@@ -276,7 +328,9 @@ pub async fn get_student_submissions(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     verify_student_access(&conn, &auth, &student_id).await?;
@@ -313,7 +367,9 @@ pub async fn get_term_grades(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let mut stmt = conn
@@ -348,7 +404,9 @@ pub async fn get_course_term_grades(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     let mut stmt = conn
@@ -383,7 +441,9 @@ pub async fn save_term_grade(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != grade.workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
@@ -391,10 +451,26 @@ pub async fn save_term_grade(
 
     let team_id = "";
     if let Some(ref final_g) = grade.final_grade {
-        verify_zkp_if_encrypted(&conn, final_g, &auth.user_id, &auth.role, &grade.workspace_id, team_id).await?;
+        verify_zkp_if_encrypted(
+            &conn,
+            final_g,
+            &auth.user_id,
+            &auth.role,
+            &grade.workspace_id,
+            team_id,
+        )
+        .await?;
     }
     if let Some(ref comments) = grade.teacher_comments {
-        verify_zkp_if_encrypted(&conn, comments, &auth.user_id, &auth.role, &grade.workspace_id, team_id).await?;
+        verify_zkp_if_encrypted(
+            &conn,
+            comments,
+            &auth.user_id,
+            &auth.role,
+            &grade.workspace_id,
+            team_id,
+        )
+        .await?;
     }
 
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -416,7 +492,11 @@ pub async fn save_term_grade(
     let mut final_points = grade.final_points.map(|p| p as i64);
     let mut teacher_comments = grade.teacher_comments.clone();
 
-    let incoming_updated_at = if grade.updated_at > now_ms + 5000 { now_ms } else { grade.updated_at };
+    let incoming_updated_at = if grade.updated_at > now_ms + 5000 {
+        now_ms
+    } else {
+        grade.updated_at
+    };
     if let Some((old_grade, old_points, old_comments, old_updated_at)) = existing {
         // If the DB version is newer than the incoming base version timestamp
         if old_updated_at > incoming_updated_at {
@@ -445,8 +525,9 @@ pub async fn save_term_grade(
                         }
                     ]
                 });
-                
-                record_school_conflict(&conn, &grade.workspace_id, "term_grades", &grade.id, mvr).await?;
+
+                record_school_conflict(&conn, &grade.workspace_id, "term_grades", &grade.id, mvr)
+                    .await?;
 
                 // Keep database clean using Last-Write-Wins (which is the database version, since old_updated_at > grade.updated_at)
                 final_grade = old_grade;
@@ -484,7 +565,9 @@ pub async fn publish_report_card(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != report.workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     verify_school_write_zkp(&conn, &requester_user_id, &auth.role, role_proof).await?;
@@ -492,7 +575,15 @@ pub async fn publish_report_card(
 
     let team_id = "";
     if let Some(ref comments) = report.principal_comments {
-        verify_zkp_if_encrypted(&conn, comments, &auth.user_id, &auth.role, &report.workspace_id, team_id).await?;
+        verify_zkp_if_encrypted(
+            &conn,
+            comments,
+            &auth.user_id,
+            &auth.role,
+            &report.workspace_id,
+            team_id,
+        )
+        .await?;
     }
 
     let now_ms = crate::infra::time::get_current_time_ms();
@@ -523,7 +614,9 @@ pub async fn get_report_cards(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
     if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
     verify_student_access(&conn, &auth, &student_id).await?;

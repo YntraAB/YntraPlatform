@@ -45,7 +45,8 @@ pub async fn run_hardware_auth_native(session_id: String, provider: String) {
         Err(e) => {
             let err_msg = format!("Smart Card subsystem failed to initialize: {:?}", e);
             if e == pcsc::Error::NoService {
-                let silent_msg = "Smart Card subsystem is not running (NoService). Skipping hardware auth.";
+                let silent_msg =
+                    "Smart Card subsystem is not running (NoService). Skipping hardware auth.";
                 if let Ok(conn) = database::acquire_connection().await {
                     let _ = conn.execute(
                         "UPDATE bankid_auth_sessions SET status = 'no_service', progress = 0.0, error_message = ?1 WHERE id = ?2",
@@ -90,7 +91,6 @@ async fn run_real_hardware_auth_native(ctx: pcsc::Context, session_id: String, _
                 notify_observers();
             }
         };
-
 
     let set_error = |err_msg: &str| {
         let session_id = session_id.clone();

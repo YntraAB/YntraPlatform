@@ -1,5 +1,5 @@
-use crate::database;
 use crate::YntraError;
+use crate::database;
 
 #[uniffi::export]
 pub async fn get_vehicle_commercial_routing_profile(
@@ -19,21 +19,41 @@ pub async fn get_vehicle_commercial_routing_profile(
         .map_err(|_| YntraError::NotFoundError("Vehicle not found".to_string()))?;
 
     if auth.workspace_id != ws_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
-    let estimated_height = if capacity_m3 > 35.0 { 3.9 } else if capacity_m3 > 15.0 { 3.4 } else { 2.6 };
-    let estimated_weight = if capacity_m3 > 35.0 { 16.0 } else if capacity_m3 > 15.0 { 7.5 } else { 3.5 };
+    let estimated_height = if capacity_m3 > 35.0 {
+        3.9
+    } else if capacity_m3 > 15.0 {
+        3.4
+    } else {
+        2.6
+    };
+    let estimated_weight = if capacity_m3 > 35.0 {
+        16.0
+    } else if capacity_m3 > 15.0 {
+        7.5
+    } else {
+        3.5
+    };
 
     let mut details = Vec::new();
     let low_bridge_warning = estimated_height >= 3.8;
     let weight_limit_warning = estimated_weight >= 3.5;
 
     if low_bridge_warning {
-        details.push(format!("Vehicle height ({:.1}m) requires commercial truck navigation route planning.", estimated_height));
+        details.push(format!(
+            "Vehicle height ({:.1}m) requires commercial truck navigation route planning.",
+            estimated_height
+        ));
     }
     if weight_limit_warning {
-        details.push(format!("Vehicle weight ({:.1}t) requires residential weight restriction checks.", estimated_weight));
+        details.push(format!(
+            "Vehicle weight ({:.1}t) requires residential weight restriction checks.",
+            estimated_weight
+        ));
     }
 
     Ok(crate::CommercialRouteRestrictions {
@@ -65,12 +85,30 @@ pub async fn evaluate_vehicle_route_clearance(
         .map_err(|_| YntraError::NotFoundError("Vehicle not found".to_string()))?;
 
     if auth.workspace_id != ws_id {
-        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
     }
 
-    let estimated_height = if capacity_m3 > 35.0 { 3.9 } else if capacity_m3 > 15.0 { 3.4 } else { 2.6 };
-    let estimated_weight = if capacity_m3 > 35.0 { 16.0 } else if capacity_m3 > 15.0 { 7.5 } else { 3.5 };
-    let emission_class = if capacity_m3 > 35.0 { "Euro 6 Heavy Diesel" } else { "Euro 6 Clean" };
+    let estimated_height = if capacity_m3 > 35.0 {
+        3.9
+    } else if capacity_m3 > 15.0 {
+        3.4
+    } else {
+        2.6
+    };
+    let estimated_weight = if capacity_m3 > 35.0 {
+        16.0
+    } else if capacity_m3 > 15.0 {
+        7.5
+    } else {
+        3.5
+    };
+    let emission_class = if capacity_m3 > 35.0 {
+        "Euro 6 Heavy Diesel"
+    } else {
+        "Euro 6 Clean"
+    };
 
     let combined = format!("{} {}", origin_address, destination_address).to_lowercase();
 
@@ -81,15 +119,31 @@ pub async fn evaluate_vehicle_route_clearance(
 
     if estimated_height >= 3.8 {
         low_bridge_warning = true;
-        details.push(format!("Low bridge risk: Heavy truck height {:.1}m exceeds 3.8m standard urban clearance.", estimated_height));
+        details.push(format!(
+            "Low bridge risk: Heavy truck height {:.1}m exceeds 3.8m standard urban clearance.",
+            estimated_height
+        ));
     }
 
     if estimated_weight >= 3.5 {
         weight_limit_warning = true;
-        details.push(format!("Weight limit warning: {:.1}t vehicle exceeds 3.5t residential zone limit.", estimated_weight));
+        details.push(format!(
+            "Weight limit warning: {:.1}t vehicle exceeds 3.5t residential zone limit.",
+            estimated_weight
+        ));
     }
 
-    let env_cities = ["stockholm", "göteborg", "gothenburg", "malmö", "malmo", "berlin", "london", "paris", "hamburg"];
+    let env_cities = [
+        "stockholm",
+        "göteborg",
+        "gothenburg",
+        "malmö",
+        "malmo",
+        "berlin",
+        "london",
+        "paris",
+        "hamburg",
+    ];
     if env_cities.iter().any(|c| combined.contains(c)) {
         environmental_zone_warning = true;
         details.push(format!("Low Emission Zone (LEZ) warning: Target city enforces Euro 6 / Green badge regulations. Vehicle class: '{}'.", emission_class));
@@ -97,7 +151,9 @@ pub async fn evaluate_vehicle_route_clearance(
 
     let parking_permit_required = capacity_m3 > 20.0;
     if parking_permit_required {
-        details.push("Commercial loading zone parking permit recommended for target addresses.".to_string());
+        details.push(
+            "Commercial loading zone parking permit recommended for target addresses.".to_string(),
+        );
     }
 
     Ok(crate::CommercialRouteRestrictions {

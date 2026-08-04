@@ -439,4 +439,3 @@ pub struct PaymentCheckoutSessionResult {
     pub total_amount: f64,
     pub currency: String,
 }
-

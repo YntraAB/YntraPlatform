@@ -1,7 +1,7 @@
 use crate::database;
 use crate::{MessageItem, YntraError};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex};
 
 static MESSAGE_STORES: LazyLock<Mutex<HashMap<String, Arc<crate::ZeroCopyMessageStore>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -24,7 +24,10 @@ fn get_message_store_path(workspace_id: &str) -> String {
     }
     #[cfg(not(test))]
     {
-        crate::database::native::get_database_path(&format!("yntra_zero_copy_messages_{}.db", workspace_id))
+        crate::database::native::get_database_path(&format!(
+            "yntra_zero_copy_messages_{}.db",
+            workspace_id
+        ))
     }
 }
 
@@ -34,7 +37,10 @@ pub(crate) fn get_message_store(workspace_id: &str) -> Arc<crate::ZeroCopyMessag
         .entry(workspace_id.to_string())
         .or_insert_with(|| {
             let path = get_message_store_path(workspace_id);
-            Arc::new(crate::ZeroCopyMessageStore::new(path).expect("Failed to initialize ZeroCopyMessageStore for Messages"))
+            Arc::new(
+                crate::ZeroCopyMessageStore::new(path)
+                    .expect("Failed to initialize ZeroCopyMessageStore for Messages"),
+            )
         })
         .clone()
 }
@@ -286,6 +292,11 @@ mod tests {
 
         // Cleanup
         let _ = get_message_store("workspace-1").write_messages(Vec::new());
-        let _ = conn.execute("DELETE FROM users WHERE id IN ('test-msg-user-1', 'test-msg-user-2')", ()).await;
+        let _ = conn
+            .execute(
+                "DELETE FROM users WHERE id IN ('test-msg-user-1', 'test-msg-user-2')",
+                (),
+            )
+            .await;
     }
 }
