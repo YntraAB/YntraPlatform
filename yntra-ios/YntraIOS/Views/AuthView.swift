@@ -8,6 +8,7 @@ struct AuthView: View {
     @State private var email: String = ""
     @State private var pin: String = ""
     @State private var showCredentialsFallback: Bool = false
+    @StateObject private var biometricManager = BiometricAuthManager()
     
     // Brand Colors
     private let darkBackground = Color(red: 0.04, green: 0.06, blue: 0.1)
@@ -151,6 +152,30 @@ struct AuthView: View {
                                 .background(primaryGradient)
                                 .cornerRadius(16)
                                 .shadow(color: Color(red: 0.31, green: 0.27, blue: 0.9).opacity(0.4), radius: 8, y: 4)
+                        }
+                        .padding(.horizontal)
+                        
+                        // Biometric Auth Button
+                        Button(action: {
+                            biometricManager.authenticate { success, errorMsg in
+                                if success {
+                                    viewModel.isLoggedIn = true
+                                } else if let msg = errorMsg {
+                                    viewModel.errorMessage = msg
+                                }
+                            }
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "faceid")
+                                    .font(.system(size: 20))
+                                Text("Login with Face ID / Biometrics")
+                                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                            }
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(Color(red: 0.2, green: 0.5, blue: 0.9))
+                            .cornerRadius(16)
                         }
                         .padding(.horizontal)
                         

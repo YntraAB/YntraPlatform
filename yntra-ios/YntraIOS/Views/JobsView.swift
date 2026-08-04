@@ -148,6 +148,8 @@ struct JobDetailView: View {
     
     @State private var checklist: [ChecklistTaskItem] = []
     @State private var reportText: String = ""
+    @State private var showCameraSheet: Bool = false
+    @State private var capturedImage: UIImage? = nil
     
     private let darkBackground = Color(red: 0.04, green: 0.06, blue: 0.1)
     private let cardBackground = Color(red: 0.12, green: 0.16, blue: 0.23)
@@ -259,6 +261,40 @@ struct JobDetailView: View {
                                         RoundedRectangle(cornerRadius: 10)
                                             .stroke(Color.white.opacity(0.1), lineWidth: 1)
                                     )
+                                
+                                Button(action: {
+                                    showCameraSheet = true
+                                }) {
+                                    HStack {
+                                        Image(systemName: "camera.fill")
+                                        Text(capturedImage != nil ? "Retake Evidence Photo" : "Capture Evidence Photo")
+                                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                                    }
+                                    .foregroundColor(.white)
+                                    .padding(.vertical, 10)
+                                    .padding(.horizontal, 16)
+                                    .background(Color.blue)
+                                    .cornerRadius(10)
+                                }
+                                
+                                if let img = capturedImage {
+                                    Image(uiImage: img)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(height: 120)
+                                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                                        )
+                                }
+                            }
+                            .sheet(isPresented: $showCameraSheet) {
+                                ImagePicker(sourceType: .camera) { image, fileURL in
+                                    if let image = image {
+                                        self.capturedImage = image
+                                    }
+                                }
                             }
                         } else if job.status == "completed" {
                             Divider()

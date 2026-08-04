@@ -106,6 +106,7 @@ struct ClientDetailView: View {
     @State private var activeTab = 0 // 0 -> Journals, 1 -> Medications
     @State private var newJournalText = ""
     @State private var showAddMedSheet = false
+    @State private var showNoteCameraSheet = false
     
     private let darkBackground = Color(red: 0.04, green: 0.06, blue: 0.1)
     private let cardBackground = Color(red: 0.12, green: 0.16, blue: 0.23)
@@ -180,7 +181,15 @@ struct ClientDetailView: View {
                         }
                         
                         // Journal Input Bar
-                        HStack {
+                        HStack(spacing: 8) {
+                            Button(action: { showNoteCameraSheet = true }) {
+                                Image(systemName: "camera.fill")
+                                    .foregroundColor(.white)
+                                    .padding(12)
+                                    .background(Color.blue)
+                                    .cornerRadius(10)
+                            }
+                            
                             TextField("Log daily care progress...", text: $newJournalText)
                                 .textFieldStyle(PlainTextFieldStyle())
                                 .padding(12)
@@ -206,6 +215,13 @@ struct ClientDetailView: View {
                             }
                         }
                         .padding()
+                        .sheet(isPresented: $showNoteCameraSheet) {
+                            ImagePicker(sourceType: .camera) { image, fileURL in
+                                if image != nil {
+                                    newJournalText += " [Photo Attached]"
+                                }
+                            }
+                        }
                         
                     } else {
                         // Medications List
