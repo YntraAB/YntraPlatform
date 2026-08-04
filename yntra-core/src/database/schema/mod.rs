@@ -46,13 +46,15 @@ pub async fn setup_schema(conn: &DbConnection) -> Result<(), YntraError> {
         }
     }
 
-    // 2. Ensure all baseline tables exist (idempotent CREATE TABLE IF NOT EXISTS)
-    tables::create_initial_tables(conn).await?;
-
     let current_version: i32 = conn
         .query_row("PRAGMA user_version", (), |r| r.get(0))
         .await
         .unwrap_or(0);
+
+    // Fast-path bypass for initialized databases: skip redundant table creation SQL statements
+    if current_version == 0 {
+        tables::create_initial_tables(conn).await?;
+    }
 
     // Run migrations incrementally
     let latest_version = migrations::run_schema_migrations(conn, current_version).await?;

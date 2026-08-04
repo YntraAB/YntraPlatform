@@ -978,7 +978,7 @@ mod tests {
     #[tokio::test]
     async fn test_selective_auth_cache_invalidation() {
         let _lock = database::DB_TEST_LOCK.lock().unwrap();
-        let conn = database::acquire_connection().await.unwrap();
+        let _conn = database::acquire_connection().await.unwrap();
 
         // 1. Populate the cache with two contexts
         let ctx1 = AuthContext {

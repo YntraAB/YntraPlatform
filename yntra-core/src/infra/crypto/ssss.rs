@@ -51,16 +51,16 @@ fn gf256_mul(a: u8, b: u8) -> u8 {
     exp[sum % 255]
 }
 
-fn gf256_div(a: u8, b: u8) -> u8 {
+fn gf256_div(a: u8, b: u8) -> Result<u8, YntraError> {
     if b == 0 {
-        panic!("Division by zero in GF(256)");
+        return Err(YntraError::CryptoError("Division by zero in GF(256)".to_string()));
     }
     if a == 0 {
-        return 0;
+        return Ok(0);
     }
     let (exp, log) = init_tables();
     let diff = (log[a as usize] as i16 - log[b as usize] as i16 + 255) % 255;
-    exp[diff as usize]
+    Ok(exp[diff as usize])
 }
 
 pub fn split_secret(
@@ -120,12 +120,16 @@ pub fn reconstruct_secret(
         return Err(YntraError::CryptoError("No shards provided".to_string()));
     }
     let len = shards[0].1.len();
-    for s in shards {
+    let mut seen_ids = std::collections::HashSet::with_capacity(threshold);
+    for s in &shards[..threshold] {
         if s.1.len() != len {
             return Err(YntraError::CryptoError("Shard size mismatch".to_string()));
         }
         if s.0 == 0 {
             return Err(YntraError::CryptoError("Invalid shard ID 0".to_string()));
+        }
+        if !seen_ids.insert(s.0) {
+            return Err(YntraError::CryptoError("Duplicate shard IDs detected".to_string()));
         }
     }
 
@@ -141,7 +145,7 @@ pub fn reconstruct_secret(
                     let xj = shards[j].0;
                     let num = xj;
                     let denom = gf256_add(xi, xj);
-                    let term = gf256_div(num, denom);
+                    let term = gf256_div(num, denom)?;
                     li = gf256_mul(li, term);
                 }
             }
@@ -309,5 +313,23 @@ mod tests {
         let encrypted = encrypt_with_workspace_pubkey(&ws_pub_hex, secret).unwrap();
         let decrypted = decrypt_with_workspace_privkey(ws_priv_hex, &encrypted).unwrap();
         assert_eq!(decrypted, secret);
+    }
+
+    #[test]
+    fn test_duplicate_shards_rejection() {
+        let secret = b"secret-passkey-shard-payload";
+        let threshold = 3;
+        let total = 5;
+        let shards = split_secret(secret, threshold, total).unwrap();
+
+        // Duplicate shard IDs should return an Err rather than panicking
+        let duplicate_shards = vec![shards[0].clone(), shards[0].clone(), shards[1].clone()];
+        let res = reconstruct_secret(&duplicate_shards, threshold);
+        assert!(res.is_err());
+        if let Err(YntraError::CryptoError(msg)) = res {
+            assert!(msg.contains("Duplicate shard IDs detected"));
+        } else {
+            panic!("Expected CryptoError for duplicate shard IDs");
+        }
     }
 }

@@ -15,6 +15,7 @@ static DB_CONFIG: OnceLock<Mutex<Option<DbConfig>>> = OnceLock::new();
 static SYNC_ROLE_PROOF: OnceLock<Mutex<Option<String>>> = OnceLock::new();
 static SYNC_ACTIVE_USER_ID: OnceLock<Mutex<Option<String>>> = OnceLock::new();
 
+#[allow(dead_code)]
 fn get_sync_http_client() -> &'static reqwest::Client {
     static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     HTTP_CLIENT.get_or_init(reqwest::Client::new)
@@ -267,52 +268,66 @@ async fn sync_database_row_level(url: String, token: String) -> Result<(), Yntra
             }
         } // query_stmt and rows are dropped here, releasing database read lock!
 
-        // Now execute modifications and updates on a clean database state
-        for (row_id, sql, params_json) in pending_writes {
-            // Execute the write remotely or locally
-            if is_remote {
-                let endpoint = format!("{}/api/sync/execute", url.trim_end_matches('/'));
-                let body = serde_json::json!({
-                    "requester_user_id": user_id,
-                    "role": role,
-                    "role_proof": role_proof,
-                    "sql": sql,
-                    "params_json": params_json,
-                });
-                let req = get_sync_http_client()
-                    .post(&endpoint)
-                    .json(&body);
-                let req = if !token.is_empty() {
-                    req.header("Authorization", format!("Bearer {}", token))
+        // Now execute modifications and updates in optimized chunks with bulk status updates
+        for chunk in pending_writes.chunks(50) {
+            let mut synced_ids = Vec::new();
+            for (row_id, sql, params_json) in chunk {
+                // Execute the write remotely or locally
+                if is_remote {
+                    let endpoint = format!("{}/api/sync/execute", url.trim_end_matches('/'));
+                    let body = serde_json::json!({
+                        "requester_user_id": user_id,
+                        "role": role,
+                        "role_proof": role_proof,
+                        "sql": sql,
+                        "params_json": params_json,
+                    });
+                    let req = get_sync_http_client()
+                        .post(&endpoint)
+                        .json(&body);
+                    let req = if !token.is_empty() {
+                        req.header("Authorization", format!("Bearer {}", token))
+                    } else {
+                        req
+                    };
+                    let res = req.send().await.map_err(|e| YntraError::SyncError(e.to_string()))?;
+                    if !res.status().is_success() {
+                        return Err(YntraError::SyncError(format!(
+                            "Remote execute write failed: status {}",
+                            res.status()
+                        )));
+                    }
                 } else {
-                    req
-                };
-                let res = req.send().await.map_err(|e| YntraError::SyncError(e.to_string()))?;
-                if !res.status().is_success() {
-                    return Err(YntraError::SyncError(format!(
-                        "Remote execute write failed: status {}",
-                        res.status()
-                    )));
+                    let coordinator = crate::RemoteSyncCoordinator::new();
+                    coordinator
+                        .verify_and_execute_write(
+                            user_id.clone(),
+                            role.clone(),
+                            role_proof.clone(),
+                            sql.clone(),
+                            params_json.clone(),
+                        )
+                        .await?;
                 }
-            } else {
-                let coordinator = crate::RemoteSyncCoordinator::new();
-                coordinator
-                    .verify_and_execute_write(
-                        user_id.clone(),
-                        role.clone(),
-                        role_proof.clone(),
-                        sql,
-                        params_json,
-                    )
-                    .await?;
+                synced_ids.push(row_id.clone());
             }
 
-            // Mark local row as synced
-            conn.execute(
-                &format!("UPDATE {} SET sync_status = 'synced' WHERE id = ?1", table),
-                crate::params![&row_id],
-            )
-            .await?;
+            // Bulk mark local rows as synced in a single SQL query per chunk
+            if !synced_ids.is_empty() {
+                let placeholders = (1..=synced_ids.len())
+                    .map(|i| format!("?{}", i))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let update_sql = format!(
+                    "UPDATE {} SET sync_status = 'synced' WHERE id IN ({})",
+                    table, placeholders
+                );
+                let params: Vec<libsql::Value> = synced_ids
+                    .into_iter()
+                    .map(libsql::Value::Text)
+                    .collect();
+                conn.execute(&update_sql, params).await?;
+            }
         }
     }
 

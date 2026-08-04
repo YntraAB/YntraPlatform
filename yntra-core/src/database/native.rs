@@ -233,6 +233,7 @@ pub fn get_max_pool_size() -> usize {
         std::env::var("YNTRA_MAX_POOL_SIZE")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
+            .filter(|&v| v > 0)
             .unwrap_or(16)
     })
 }
@@ -316,6 +317,7 @@ fn get_pool_timeout_secs() -> u64 {
         std::env::var("YNTRA_DB_TIMEOUT_SECS")
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
+            .filter(|&v| v > 0)
             .unwrap_or(15)
     })
 }

@@ -345,7 +345,7 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
                     }
                 }
                 let name =
-                    final_target.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']');
+                    final_target.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
                 return Some(name.to_lowercase());
             }
         } else if first.eq_ignore_ascii_case("DELETE") {
@@ -353,7 +353,7 @@ pub fn extract_table_name(sql: &str) -> Option<String> {
                 if w.eq_ignore_ascii_case("FROM") {
                     if let Some(target) = words.next() {
                         let name =
-                            target.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']');
+                            target.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
                         return Some(name.to_lowercase());
                     }
                     break;
@@ -522,6 +522,10 @@ mod tests {
             extract_table_name("UPDATE `users` SET x = 1"),
             Some("users".to_string())
         );
+        assert_eq!(
+            extract_table_name("UPDATE 'users' SET x = 1"),
+            Some("users".to_string())
+        );
     }
 
     #[test]
@@ -532,6 +536,10 @@ mod tests {
         );
         assert_eq!(
             extract_table_name("DELETE FROM [messages]"),
+            Some("messages".to_string())
+        );
+        assert_eq!(
+            extract_table_name("DELETE FROM 'messages' WHERE id = 1"),
             Some("messages".to_string())
         );
     }

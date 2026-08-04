@@ -76,12 +76,12 @@ pub async fn initiate_swish_payment(
             }
         }
     } else {
-        let client_cert_pem = get_config_val("swish_client_cert_pem", "SWISH_CLIENT_CERT_PEM", &settings_json).await;
-        let client_key_pem = get_config_val("swish_client_key_pem", "SWISH_CLIENT_KEY_PEM", &settings_json).await;
+        let _client_cert_pem = get_config_val("swish_client_cert_pem", "SWISH_CLIENT_CERT_PEM", &settings_json).await;
+        let _client_key_pem = get_config_val("swish_client_key_pem", "SWISH_CLIENT_KEY_PEM", &settings_json).await;
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            if let (Some(cert_pem), Some(key_pem)) = (client_cert_pem, client_key_pem) {
+            if let (Some(cert_pem), Some(key_pem)) = (_client_cert_pem, _client_key_pem) {
                 let use_sandbox = settings_json.get("swish_use_sandbox").and_then(|v| v.as_bool()).unwrap_or(false);
                 let swish_api_host = if use_sandbox {
                     "https://mss.cpc.getswish.net"

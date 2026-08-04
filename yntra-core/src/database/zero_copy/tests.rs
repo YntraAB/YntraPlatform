@@ -64,6 +64,12 @@ fn test_zero_copy_store_read_write_zero_copy() {
         .unwrap();
     assert!(read_none.is_none());
 
+    // Verify in-memory cache consistent get_todos_count & get_todo_at
+    assert_eq!(store.get_todos_count().unwrap(), 2);
+    assert_eq!(store.get_todo_at(0).unwrap().unwrap().id, todo1.id);
+    assert_eq!(store.get_todo_at(1).unwrap().unwrap().id, todo2.id);
+    assert!(store.get_todo_at(2).unwrap().is_none());
+
     // Clean up test file
     let _ = std::fs::remove_file(&file_path);
 }
@@ -1100,7 +1106,7 @@ fn test_security_patches_zeroization_empirical() {
 
     // 1. Verify derive_public_key zeroizes passkey_seed (Success path)
     {
-        let mut passkey_seed = "seed_for_derive_public_key_zeroization_check".to_string();
+        let passkey_seed = "seed_for_derive_public_key_zeroization_check".to_string();
         let ptr = passkey_seed.as_ptr();
         let len = passkey_seed.len();
         
@@ -1114,7 +1120,7 @@ fn test_security_patches_zeroization_empirical() {
 
     // 2. Verify generate_role_proof zeroizes passkey_seed (Success path)
     {
-        let mut passkey_seed = "seed_for_generate_role_proof_zeroization_check".to_string();
+        let passkey_seed = "seed_for_generate_role_proof_zeroization_check".to_string();
         let ptr = passkey_seed.as_ptr();
         let len = passkey_seed.len();
         
@@ -1128,11 +1134,11 @@ fn test_security_patches_zeroization_empirical() {
 
     // 3. Verify encrypt_workspace_key_with_password zeroizes password and workspace_key (Success path)
     {
-        let mut password = "password_for_encrypt_workspace_key".to_string();
+        let password = "password_for_encrypt_workspace_key".to_string();
         let pwd_ptr = password.as_ptr();
         let pwd_len = password.len();
 
-        let mut workspace_key = vec![42u8; 32];
+        let workspace_key = vec![42u8; 32];
         let key_ptr = workspace_key.as_ptr();
         let key_len = workspace_key.len();
 
@@ -1148,7 +1154,7 @@ fn test_security_patches_zeroization_empirical() {
 
     // 4. Verify decrypt_workspace_key_with_password zeroizes password (Early return / Error path)
     {
-        let mut password = "password_for_decrypt_workspace_key_error".to_string();
+        let password = "password_for_decrypt_workspace_key_error".to_string();
         let pwd_ptr = password.as_ptr();
         let pwd_len = password.len();
 
@@ -1164,7 +1170,7 @@ fn test_security_patches_zeroization_empirical() {
 #[test]
 fn test_panic_zeroization_empirical() {
     use zeroize::Zeroizing;
-    let mut secret = "secret_to_be_zeroized_on_panic".to_string();
+    let secret = "secret_to_be_zeroized_on_panic".to_string();
     let ptr = secret.as_ptr();
     let len = secret.len();
 

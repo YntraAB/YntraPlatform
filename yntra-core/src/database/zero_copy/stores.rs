@@ -658,6 +658,12 @@ macro_rules! impl_upsert_item {
 
 macro_rules! impl_get_count {
     ($self:expr, $t:ty) => {{
+        {
+            let cache = $self.cache.lock_poison_safe();
+            if let Some(ref list) = *cache {
+                return Ok(list.len() as u32);
+            }
+        }
         let inner = $self.inner.lock_poison_safe();
         let rkyv_slice = inner.get_rkyv_slice();
         if rkyv_slice.is_empty() {
@@ -683,6 +689,16 @@ macro_rules! impl_get_count {
 
 macro_rules! impl_get_at {
     ($self:expr, $index:expr, $t:ty) => {{
+        {
+            let cache = $self.cache.lock_poison_safe();
+            if let Some(ref list) = *cache {
+                if ($index as usize) < list.len() {
+                    return Ok(Some(list[$index as usize].clone()));
+                } else {
+                    return Ok(None);
+                }
+            }
+        }
         let inner = $self.inner.lock_poison_safe();
         let rkyv_slice = inner.get_rkyv_slice();
         if rkyv_slice.is_empty() {

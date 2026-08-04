@@ -43,6 +43,12 @@ impl<F: Future> Future for SendFuture<F> {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+pub async fn yield_to_browser_event_loop() {
+    let promise = js_sys::Promise::resolve(&wasm_bindgen::JsValue::NULL);
+    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+}
+
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_name = yntra_execute_sql, catch)]
@@ -195,24 +201,36 @@ impl DbConnection {
 
     /// Executes a batch of SQL statements.
     pub async fn execute_batch(&self, sql: &str) -> Result<(), YntraError> {
+        let mut contains_begin = false;
         let mut last_tx_state = None;
         for stmt in super::parser::split_sql_statements(sql) {
             if let Some(in_tx) = super::check_transaction_sql(stmt) {
+                if in_tx {
+                    contains_begin = true;
+                }
                 last_tx_state = Some(in_tx);
             }
         }
-        js_execute_sql("execute_batch", sql, JsValue::UNDEFINED).await?;
 
-        if let Some(in_tx) = last_tx_state {
+        if contains_begin {
             self.in_transaction
-                .store(in_tx, std::sync::atomic::Ordering::SeqCst);
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+
+        let res = js_execute_sql("execute_batch", sql, JsValue::UNDEFINED).await;
+
+        if res.is_ok() {
+            if let Some(in_tx) = last_tx_state {
+                self.in_transaction
+                    .store(in_tx, std::sync::atomic::Ordering::SeqCst);
+            }
         }
 
         let is_rollback =
             sql.trim_start().len() >= 8 && sql.trim_start()[..8].eq_ignore_ascii_case("ROLLBACK");
         if is_rollback {
             crate::infra::observer::discard_observers_dirty_state();
-        } else {
+        } else if res.is_ok() {
             super::track_write_batch(sql);
             if !self
                 .in_transaction
@@ -221,7 +239,8 @@ impl DbConnection {
                 crate::infra::observer::notify_observers();
             }
         }
-        Ok(())
+
+        res.map(|_| ())
     }
 
     pub async fn prepare(&self, sql: &str) -> Result<Statement, YntraError> {
@@ -393,6 +412,12 @@ pub async fn check_opfs_storage_quota() -> Result<crate::models::OpfsStorageQuot
 #[cfg(target_arch = "wasm32")]
 pub async fn ensure_storage_quota(required_bytes: u64) -> Result<(), YntraError> {
     let quota_info = check_opfs_storage_quota().await?;
+    if quota_info.is_storage_low {
+        tracing::warn!(
+            "TELEMETRY ALERT: OPFS Storage Low! Usage is at {:.1}% ({} / {} bytes used, {} bytes remaining).",
+            quota_info.usage_percent, quota_info.usage_bytes, quota_info.quota_bytes, quota_info.remaining_bytes
+        );
+    }
     if quota_info.remaining_bytes < required_bytes {
         tracing::error!(
             "OPFS Storage Quota Exceeded: Requested {} bytes but only {} bytes remaining (usage: {:.1}%).",

@@ -1,6 +1,5 @@
 use crate::database;
 use super::academics::*;
-use super::auth::*;
 use super::billing::*;
 use super::conflicts::*;
 use super::health::*;
@@ -342,7 +341,7 @@ async fn test_grading_conflict_resolution() {
     crate::infra::time::sleep_ms(10).await;
 
     // Fetch updated_at after A's write
-    let saved_time_b: i64 = conn.query_row(
+    let _saved_time_b: i64 = conn.query_row(
         "SELECT updated_at FROM term_grades WHERE id = 'tg-g'",
         (),
         |r| r.get(0),

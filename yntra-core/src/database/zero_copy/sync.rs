@@ -105,6 +105,9 @@ pub(crate) async fn is_peer_authorized(local_peer: &str, remote_peer: &str) -> b
     };
 
     if let Ok(mut cache) = PEER_AUTH_CACHE.lock() {
+        if cache.len() > 1000 {
+            cache.retain(|_, (_, ts)| (now - *ts) < 60);
+        }
         cache.insert(cache_key, (is_authorized, now));
     }
 

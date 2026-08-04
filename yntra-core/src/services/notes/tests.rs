@@ -1,7 +1,6 @@
 use crate::database;
 use crate::ZkCryptoTrust;
-use crate::{DailyNote, EditHistoryEntry, YntraError};
-use super::crypto::*;
+use crate::YntraError;
 use super::store::*;
 use super::crud::*;
 use super::sync::*;
