@@ -3,18 +3,22 @@ use dioxus::prelude::*;
 use yntra_core::{Workspace, WorkspaceUser};
 
 mod account;
+mod billing_engine;
 mod blocks;
 mod finance_settings;
 mod general;
 mod notifications;
+mod privacy_compliance;
 mod scheduler;
 mod two_factor;
 
 pub use account::AccountSettings;
+pub use billing_engine::BillingEngineView;
 pub use blocks::BlockSettings;
 pub use finance_settings::FinanceSettings;
 pub use general::GeneralSettings;
 pub use notifications::NotificationsSettings;
+pub use privacy_compliance::PrivacyComplianceCard;
 pub use scheduler::SchedulerSettings;
 pub use two_factor::TwoFactorSettings;
 
@@ -97,6 +101,11 @@ pub fn SettingsView(props: SettingsViewProps) -> Element {
             value: "blocks".to_string(),
             label: crate::locales::t("settings-tabs-blocks", &props.locale),
             icon: Some("layout-grid".to_string()),
+        });
+        tabs_list.push(components::tabs::TabItem {
+            value: "billing".to_string(),
+            label: crate::locales::t("settings-tabs-billing", &props.locale),
+            icon: Some("credit-card".to_string()),
         });
     }
     tabs_list.push(components::tabs::TabItem {
@@ -267,6 +276,14 @@ pub fn SettingsView(props: SettingsViewProps) -> Element {
                             settings_save_status: props.settings_save_status,
                             active_user: props.active_user.clone(),
                             account_preferences: props.account_preferences,
+                            db_trigger: props.db_trigger,
+                            locale: props.locale.clone(),
+                        }
+                    },
+                    "billing" => rsx! {
+                        BillingEngineView {
+                            active_user: props.active_user.clone(),
+                            workspace: props.workspace.clone(),
                             db_trigger: props.db_trigger,
                             locale: props.locale.clone(),
                         }

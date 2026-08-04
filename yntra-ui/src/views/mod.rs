@@ -33,3 +33,10 @@ pub use school::{AcademicsView, AttendanceView, FinanceView, LibraryView, Studen
 
 pub mod care;
 pub use care::{JournalsView, MedicationsView};
+
+pub mod admin;
+pub use admin::{AdminPanelView, AuditExportsView, OnboardingWizardView, RbacManagementView, TeamInvitationsView};
+
+pub mod support;
+pub use support::{ProductTourOverlay, SupportCenterView, SupportWidget};
+

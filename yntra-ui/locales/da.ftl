@@ -1609,3 +1609,25 @@ time-action-approve-shift = Godkend vagt
 time-action-reject-shift = Afvis vagt
 time-action-delete-report = Slet tidsrapport
 time-action-copy-details = Kopier detaljer
+
+
+# --- AUTO-ADDED MISSING TRANSLATIONS ---
+settings-legal-tos-button = [TODO] View Terms of Service
+admin-tab-rbac = [TODO] Role Access (RBAC)
+settings-gdpr-export-title = [TODO] Export Personal Data (GDPR Art. 20 / CCPA)
+section-support-center = [TODO] Support Center
+settings-gdpr-delete-button = [TODO] Delete Account
+settings-telemetry-optout-title = [TODO] Telemetry & Diagnostics Opt-Out
+settings-telemetry-optout-desc = [TODO] Disable transmission of anonymous operational diagnostics and location telemetry.
+settings-privacy-title = [TODO] Privacy, Compliance & Data Governance
+settings-tabs-billing = [TODO] Billing & Subscriptions
+settings-legal-privacy-button = [TODO] View Privacy Policy
+admin-tab-audit = [TODO] Audit Exports
+settings-gdpr-delete-title = [TODO] Delete Account & Erase Data (GDPR Art. 17 / CCPA)
+settings-privacy-desc = [TODO] GDPR & CCPA self-service privacy tools, automated data portability export, account erasure, and security parameters.
+admin-tab-onboarding = [TODO] Onboarding Wizard
+settings-gdpr-delete-desc = [TODO] Permanently delete your user profile, cryptographic credentials, and local SQLite data. This action cannot be undone.
+settings-gdpr-export-button = [TODO] Export My Data (JSON)
+admin-tab-invitations = [TODO] Team Invitations
+settings-gdpr-export-desc = [TODO] Download a complete machine-readable JSON archive of your personal profile, signatures, and stored activity.
+section-admin-panel = [TODO] Admin Panel

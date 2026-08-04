@@ -64,6 +64,7 @@ pub fn EmployeeLayout() -> Element {
     });
     let db_trigger = state.db_trigger;
     let trigger_jobs = state.trigger_jobs;
+    let users_val = state.users.read().clone().unwrap_or_default();
 
     // Check module activation from JSON
     let modules_active_val: serde_json::Value =
@@ -382,6 +383,18 @@ pub fn EmployeeLayout() -> Element {
                                     }
 
 
+                                    "admin_panel" => {
+                                        rsx! {
+                                            views::AdminPanelView {
+                                                active_user: active_user.clone(),
+                                                workspace: workspace.clone(),
+                                                users: users_val.clone(),
+                                                db_trigger: db_trigger,
+                                                locale: auth_region.read().clone(),
+                                            }
+                                        }
+                                    }
+
                                     "settings" => {
                                         rsx! {
                                             views::SettingsView {
@@ -696,6 +709,18 @@ pub fn EmployeeLayout() -> Element {
                                         }
                                     }
 
+                                     "support_center" => {
+                                         rsx! {
+                                             views::SupportCenterView {
+                                                 active_user_id: active_user_id.read().clone(),
+                                                 workspace_id: workspace.id.clone(),
+                                                 block_id: active_section.read().clone(),
+                                                 db_trigger: db_trigger,
+                                                 locale: auth_region.read().clone(),
+                                             }
+                                         }
+                                     }
+
                                     _ => {
                                         rsx! {
                                             views::DynamicBlockView {
@@ -710,6 +735,18 @@ pub fn EmployeeLayout() -> Element {
                                 }
                             }
                         }
+                    }
+                    views::SupportWidget {
+                        active_user: active_user.clone(),
+                        workspace: workspace.clone(),
+                        db_trigger: db_trigger,
+                        locale: auth_region.read().clone(),
+                    }
+                    views::ProductTourOverlay {
+                        active_user: active_user.clone(),
+                        workspace: workspace.clone(),
+                        db_trigger: db_trigger,
+                        locale: auth_region.read().clone(),
                     }
                 }
             }

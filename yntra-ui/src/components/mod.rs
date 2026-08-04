@@ -63,3 +63,7 @@ pub mod select;
 pub use select::NativeSelect;
 pub mod number_input;
 pub use number_input::NumberInput;
+pub mod auto_updater;
+pub use auto_updater::AutoUpdateToast;
+pub mod telemetry_observer;
+pub use telemetry_observer::{TelemetryObserver, TelemetryPrivacySettingsModal};

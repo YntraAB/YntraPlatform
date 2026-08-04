@@ -186,7 +186,7 @@ pub fn LayoutSidebar(props: LayoutSidebarProps) -> Element {
                     {
                         let is_module_enabled = |block_id: &str| -> bool {
                             match block_id {
-                                "dashboard" => true,
+                                "dashboard" | "admin_panel" => true,
                                 "messaging" => props.messaging_enabled,
                                 "scheduling" => props.scheduling_enabled,
                                 "notes" => props.notes_enabled,

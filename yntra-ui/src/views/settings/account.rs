@@ -521,7 +521,14 @@ pub fn AccountSettings(props: AccountSettingsProps) -> Element {
                 }
             }
 
-            // 3. Two-Factor Authentication Card (at the bottom)
+            // 3. Privacy, Data Governance & GDPR Compliance Card
+            super::PrivacyComplianceCard {
+                active_user: active_user.clone(),
+                account_preferences: props.account_preferences,
+                locale: props.locale.clone(),
+            }
+
+            // 4. Two-Factor Authentication Card (at the bottom)
             components::Card { class: "border-amber-500/20 bg-amber-500/[0.03] shadow-none",
                 components::CardContent { class: "space-y-4 p-4",
                     TwoFactorSettings {
@@ -540,3 +547,4 @@ pub fn AccountSettings(props: AccountSettingsProps) -> Element {
         }
     }
 }
+
