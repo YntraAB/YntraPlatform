@@ -19,6 +19,9 @@ pub fn OfflineIndicator() -> Element {
         );
 
         spawn(async move {
+            if let Ok(cnt) = yntra_core::get_pending_sync_count().await {
+                pending_count.set(cnt as usize);
+            }
             while let Ok(msg) = online_eval.recv::<String>().await {
                 match msg.as_str() {
                     "online" => {
@@ -27,7 +30,11 @@ pub fn OfflineIndicator() -> Element {
                         match yntra_core::sync_database().await {
                             Ok(_) => {
                                 has_sync_error.set(false);
-                                pending_count.set(0);
+                                if let Ok(cnt) = yntra_core::get_pending_sync_count().await {
+                                    pending_count.set(cnt as usize);
+                                } else {
+                                    pending_count.set(0);
+                                }
                             }
                             Err(_) => {
                                 has_sync_error.set(true);
@@ -37,6 +44,9 @@ pub fn OfflineIndicator() -> Element {
                     }
                     "offline" => {
                         is_online.set(false);
+                        if let Ok(cnt) = yntra_core::get_pending_sync_count().await {
+                            pending_count.set(cnt as usize);
+                        }
                     }
                     _ => {}
                 }
@@ -54,7 +64,11 @@ pub fn OfflineIndicator() -> Element {
                 match yntra_core::sync_database().await {
                     Ok(_) => {
                         has_sync_error.set(false);
-                        pending_count.set(0);
+                        if let Ok(cnt) = yntra_core::get_pending_sync_count().await {
+                            pending_count.set(cnt as usize);
+                        } else {
+                            pending_count.set(0);
+                        }
                     }
                     Err(_) => {
                         has_sync_error.set(true);

@@ -496,6 +496,22 @@ pub async fn sync_database() -> Result<(), YntraError> {
     Ok(())
 }
 
+#[uniffi::export]
+pub async fn get_pending_sync_count() -> Result<i64, YntraError> {
+    let conn = super::acquire_connection().await?;
+    let mut total_pending: i64 = 0;
+
+    let tables = ["todos", "notes", "reports", "time_reports", "messages"];
+    for table in tables {
+        let query = format!("SELECT COUNT(*) FROM {} WHERE sync_status = 'pending'", table);
+        if let Ok(count) = conn.query_row(&query, (), |row| row.get::<i64>(0)).await {
+            total_pending += count;
+        }
+    }
+
+    Ok(total_pending)
+}
+
 #[cfg(target_arch = "wasm32")]
 use crate::infra::time::sleep_ms;
 
