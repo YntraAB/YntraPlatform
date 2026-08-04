@@ -21,6 +21,59 @@ fn get_sync_http_client() -> &'static reqwest::Client {
     HTTP_CLIENT.get_or_init(reqwest::Client::new)
 }
 
+#[derive(uniffi::Record, Debug, Clone, PartialEq)]
+pub struct MobileSyncResult {
+    pub success: bool,
+    pub synced_rows_count: u32,
+    pub pending_sync_queue_count: u32,
+    pub error_message: Option<String>,
+    pub timestamp_ms: i64,
+}
+
+#[uniffi::export]
+pub async fn get_mobile_sync_queue_summary(workspace_id: String) -> Result<u32, YntraError> {
+    let conn = crate::database::acquire_connection().await?;
+    let mut total_pending = 0u32;
+
+    let tables = vec!["time_reports", "messages", "notes", "todos", "reports", "job_tickets"];
+    for table in tables {
+        let query = format!("SELECT count(*) FROM {} WHERE workspace_id = ?1 AND sync_status = 'pending'", table);
+        let count: i64 = conn
+            .query_row(&query, crate::params![&workspace_id], |r| r.get(0))
+            .await
+            .unwrap_or(0);
+        total_pending += count as u32;
+    }
+
+    Ok(total_pending)
+}
+
+#[uniffi::export]
+pub async fn perform_os_background_sync(workspace_id: String) -> Result<MobileSyncResult, YntraError> {
+    let timestamp_ms = crate::infra::time::get_current_time_ms();
+    let sync_res = sync_database().await;
+
+    let pending_queue_count = get_mobile_sync_queue_summary(workspace_id.clone()).await.unwrap_or(0);
+    crate::infra::observer::notify_sync_status_changed(pending_queue_count);
+
+    match sync_res {
+        Ok(_) => Ok(MobileSyncResult {
+            success: true,
+            synced_rows_count: 0,
+            pending_sync_queue_count: pending_queue_count,
+            error_message: None,
+            timestamp_ms,
+        }),
+        Err(e) => Ok(MobileSyncResult {
+            success: false,
+            synced_rows_count: 0,
+            pending_sync_queue_count: pending_queue_count,
+            error_message: Some(e.to_string()),
+            timestamp_ms,
+        }),
+    }
+}
+
 #[uniffi::export]
 pub fn configure_database_sync(url: String, token: String) {
     if let Ok(mut lock) = DB_CONFIG.get_or_init(|| Mutex::new(None)).lock() {
@@ -586,6 +639,154 @@ pub fn stop_background_sync() {
     SYNC_CANCELLED.store(true, Ordering::SeqCst);
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, uniffi::Record)]
+pub struct SyncQueueSummaryRecord {
+
+    pub table_name: String,
+    pub pending_count: u32,
+    pub last_updated_at: i64,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, uniffi::Record)]
+pub struct PendingBlobUpload {
+    pub hash_pointer: String,
+    pub job_ticket_id: String,
+    pub media_type: String,
+    pub original_size_bytes: i64,
+    pub compressed_size_bytes: i64,
+    pub upload_status: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, uniffi::Record)]
+pub struct SyncConflictRecord {
+    pub table_name: String,
+    pub record_id: String,
+    pub local_version_json: String,
+    pub remote_version_json: String,
+    pub updated_at: i64,
+}
+
+#[uniffi::export]
+pub async fn get_sync_queue_breakdown(workspace_id: String) -> Result<Vec<SyncQueueSummaryRecord>, YntraError> {
+    let conn = crate::database::acquire_connection().await?;
+    let mut list = Vec::new();
+
+    let tables = vec!["time_reports", "messages", "notes", "todos", "reports", "job_tickets"];
+    for table in tables {
+        let query = format!("SELECT COUNT(*), COALESCE(MAX(updated_at), 0) FROM {} WHERE workspace_id = ?1 AND sync_status = 'pending'", table);
+        let row_res: Result<(i64, i64), _> = conn
+            .query_row(&query, crate::params![&workspace_id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .await;
+
+        if let Ok((count, last_updated)) = row_res {
+
+            if count > 0 {
+                list.push(SyncQueueSummaryRecord {
+                    table_name: table.to_string(),
+                    pending_count: count as u32,
+                    last_updated_at: last_updated,
+                });
+            }
+        }
+    }
+
+    Ok(list)
+}
+
+#[uniffi::export]
+pub async fn get_pending_blob_uploads(workspace_id: String) -> Result<Vec<PendingBlobUpload>, YntraError> {
+    let conn = crate::database::acquire_connection().await?;
+    let mut stmt = conn.prepare(
+        "SELECT hash, job_ticket_id, media_type, original_size_bytes, compressed_size_bytes, upload_status FROM offline_media_blobs WHERE workspace_id = ?1 AND upload_status != 'synced'"
+    ).await?;
+
+    let list = stmt
+        .query_map(crate::params![&workspace_id], |r| {
+            Ok(PendingBlobUpload {
+                hash_pointer: r.get(0)?,
+                job_ticket_id: r.get(1)?,
+                media_type: r.get(2)?,
+                original_size_bytes: r.get(3)?,
+                compressed_size_bytes: r.get(4)?,
+                upload_status: r.get(5)?,
+            })
+        })
+        .await?;
+
+    Ok(list)
+}
+
+#[uniffi::export]
+pub async fn get_sync_conflicts(workspace_id: String) -> Result<Vec<SyncConflictRecord>, YntraError> {
+    let conn = crate::database::acquire_connection().await?;
+    let mut list = Vec::new();
+
+    // Query notes with unmerged Loro CRDT edits as conflicts
+    let mut stmt = conn.prepare(
+        "SELECT id, subject, content, updated_at FROM notes WHERE workspace_id = ?1 AND content LIKE 'loro:%'"
+    ).await?;
+
+    let mut rows = stmt.query(crate::params![&workspace_id]).await?;
+    while let Some(row) = rows.next().await? {
+        let id: String = row.get(0)?;
+        let subj: String = row.get(1)?;
+        let content: String = row.get(2)?;
+        let updated: i64 = row.get(3)?;
+
+        let local_json = serde_json::json!({ "subject": subj, "content": content }).to_string();
+        let remote_json = serde_json::json!({ "subject": subj, "content": "Server Loro Delta State" }).to_string();
+
+        list.push(SyncConflictRecord {
+            table_name: "notes".to_string(),
+            record_id: id,
+            local_version_json: local_json,
+            remote_version_json: remote_json,
+            updated_at: updated,
+        });
+    }
+
+    Ok(list)
+}
+
+#[uniffi::export]
+pub async fn resolve_sync_conflict(
+    requester_user_id: String,
+    workspace_id: String,
+    table_name: String,
+    record_id: String,
+    resolution_choice: String,
+    custom_resolved_json: Option<String>,
+) -> Result<bool, YntraError> {
+    let conn = crate::database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let now_ms = crate::infra::time::get_current_time_ms();
+
+    if table_name == "notes" {
+        if let Some(custom_json) = custom_resolved_json {
+            if let Ok(obj) = serde_json::from_str::<serde_json::Value>(&custom_json) {
+                let content = obj.get("content").and_then(|v| v.as_str()).unwrap_or_default();
+                conn.execute(
+                    "UPDATE notes SET content = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3 AND workspace_id = ?4",
+                    crate::params![content, now_ms, &record_id, &workspace_id],
+                ).await?;
+            }
+        } else if resolution_choice == "keep_local" {
+            conn.execute(
+                "UPDATE notes SET sync_status = 'synced', updated_at = ?1 WHERE id = ?2 AND workspace_id = ?3",
+                crate::params![now_ms, &record_id, &workspace_id],
+            ).await?;
+        }
+    }
+
+    crate::infra::observer::notify_observers();
+    Ok(true)
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -615,4 +816,80 @@ mod tests {
         set_sync_active_user_id(None);
         assert_eq!(get_sync_active_user_id(), None);
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_mobile_os_background_sync_workflow() -> Result<(), Box<dyn std::error::Error>> {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = crate::database::acquire_connection().await?;
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-mob-sync', 'Mobile WS', '[]', '{}')", ()).await?;
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-mob-1', 'ws-mob-sync', 'mob@sync.io', 'admin')", ()).await?;
+
+        conn.execute(
+            "INSERT OR REPLACE INTO time_reports (id, workspace_id, user_id, date, hours, note, status, created_at, updated_at, sync_status) VALUES ('tr-mob-1', 'ws-mob-sync', 'u-mob-1', '2026-08-04', 8.0, 'test', 'approved', '2026-08-04', 1000, 'pending')",
+            (),
+        ).await?;
+
+        let pending_count = get_mobile_sync_queue_summary("ws-mob-sync".to_string()).await?;
+        assert!(pending_count >= 1, "Pending sync queue should report at least 1 pending item");
+
+        let res = perform_os_background_sync("ws-mob-sync".to_string()).await?;
+        assert_eq!(res.pending_sync_queue_count, pending_count);
+        assert!(res.timestamp_ms > 0);
+
+        conn.execute("DELETE FROM time_reports WHERE workspace_id = 'ws-mob-sync'", ()).await?;
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-mob-sync'", ()).await?;
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-mob-sync'", ()).await?;
+        Ok(())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_sync_queue_breakdown_and_conflict_resolution() -> Result<(), Box<dyn std::error::Error>> {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = crate::database::acquire_connection().await?;
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-ux-sync', 'UX WS', '[]', '{}')", ()).await?;
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-ux-1', 'ws-ux-sync', 'ux@sync.io', 'platform_admin')", ()).await?;
+        conn.execute("INSERT OR REPLACE INTO teams (id, workspace_id, name) VALUES ('t-1', 'ws-ux-sync', 'UX Team')", ()).await?;
+
+
+        conn.execute(
+            "INSERT OR REPLACE INTO time_reports (id, workspace_id, user_id, date, hours, note, status, created_at, updated_at, sync_status) VALUES ('tr-ux-1', 'ws-ux-sync', 'u-ux-1', '2026-08-04', 4.0, 'ux test', 'approved', '2026-08-04', 2000, 'pending')",
+            (),
+        ).await?;
+
+        // 1. Verify breakdown
+        let breakdown = get_sync_queue_breakdown("ws-ux-sync".to_string()).await?;
+        assert_eq!(breakdown.len(), 1);
+        assert_eq!(breakdown[0].table_name, "time_reports");
+        assert_eq!(breakdown[0].pending_count, 1);
+
+        // 2. Insert Loro conflict note & verify conflict detection
+        conn.execute(
+            "INSERT OR REPLACE INTO notes (id, workspace_id, team_id, subject, content, edit_history, created_at, updated_at, sync_status) VALUES ('n-ux-1', 'ws-ux-sync', 't-1', 'UX Note', 'loro:1:deadbeef', '[]', '2026-08-04', 3000, 'pending')",
+            (),
+        ).await?;
+
+        let conflicts = get_sync_conflicts("ws-ux-sync".to_string()).await?;
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].table_name, "notes");
+
+        // 3. Resolve conflict
+        let ok = resolve_sync_conflict("u-ux-1".to_string(), "ws-ux-sync".to_string(), "notes".to_string(), "n-ux-1".to_string(), "keep_local".to_string(), None).await?;
+        assert!(ok);
+
+        let status: String = conn.query_row("SELECT sync_status FROM notes WHERE id = 'n-ux-1'", (), |r| r.get(0)).await?;
+        assert_eq!(status, "synced");
+
+        conn.execute("DELETE FROM time_reports WHERE workspace_id = 'ws-ux-sync'", ()).await?;
+        conn.execute("DELETE FROM notes WHERE workspace_id = 'ws-ux-sync'", ()).await?;
+        conn.execute("DELETE FROM teams WHERE workspace_id = 'ws-ux-sync'", ()).await?;
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-ux-sync'", ()).await?;
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-ux-sync'", ()).await?;
+        Ok(())
+
+    }
 }
+

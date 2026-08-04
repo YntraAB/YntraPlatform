@@ -28,3 +28,5 @@ pub mod in_app_notifications;
 pub mod ai_automation;
 pub mod integrations;
 pub mod industry_templates;
+pub mod csv_import;
+

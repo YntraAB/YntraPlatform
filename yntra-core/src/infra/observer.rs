@@ -10,6 +10,7 @@ pub trait DatabaseObserver: Send + Sync {
     fn on_record_changed(&self, _table: String, _id: String) {
         self.on_table_changed(_table);
     }
+    fn on_sync_status_changed(&self, _pending_count: u32) {}
 }
 
 static MODIFIED_TABLES: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
@@ -152,6 +153,18 @@ pub fn notify_observers() {
         {
             dispatch_fn();
         }
+    }
+}
+
+pub fn notify_sync_status_changed(pending_count: u32) {
+    let observers = if let Ok(lock) = get_observers().read() {
+        lock.clone()
+    } else {
+        Vec::new()
+    };
+
+    for observer in observers {
+        observer.on_sync_status_changed(pending_count);
     }
 }
 

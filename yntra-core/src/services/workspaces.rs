@@ -531,6 +531,64 @@ pub async fn update_workspace_block_settings(
 #[uniffi::export]
 pub fn get_workspace_settings_definitions() -> Vec<crate::models::SettingDefinition> {
     vec![
+        // 0. AI & Guardrail Settings (BYOK)
+        crate::models::SettingDefinition {
+            key: "ai_provider".to_string(),
+            label: "AI Provider Strategy / AI-leverantörsstrategi".to_string(),
+            category: "AI & Guardrail Settings".to_string(),
+            value_type: "select".to_string(),
+            default_value: "local_ast".to_string(),
+            tooltip: "Choose between Local AST Engine or Cloud BYOK providers (OpenAI, Anthropic, Gemini).".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "ai_api_key".to_string(),
+            label: "Workspace BYOK API Key / BYOK API-nyckel".to_string(),
+            category: "AI & Guardrail Settings".to_string(),
+            value_type: "password".to_string(),
+            default_value: "".to_string(),
+            tooltip: "Cloud provider API key (sk-...) used for all employees in this workspace.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "ai_model_name".to_string(),
+            label: "Model Name / Modellnamn".to_string(),
+            category: "AI & Guardrail Settings".to_string(),
+            value_type: "string".to_string(),
+            default_value: "gpt-4o-mini".to_string(),
+            tooltip: "Selected LLM model identifier (e.g. gpt-4o-mini, claude-3-5-sonnet, gemini-1.5-flash).".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "ai_guardrails_enabled".to_string(),
+            label: "AI Guardrails Active / AI-skyddsbarriärer aktiva".to_string(),
+            category: "AI & Guardrail Settings".to_string(),
+            value_type: "boolean".to_string(),
+            default_value: "true".to_string(),
+            tooltip: "Enforce deterministic execution limits and automated risk bounds on AI actions.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "ai_max_allowed_risk".to_string(),
+            label: "Maximum Risk Tolerance / Maximal risktolerans".to_string(),
+            category: "AI & Guardrail Settings".to_string(),
+            value_type: "select".to_string(),
+            default_value: "medium".to_string(),
+            tooltip: "Maximum risk level permitted for automated AI actions (low, medium, high).".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "ai_require_human_approval_above_hours".to_string(),
+            label: "Human Approval Hours Limit / Gräns för manuellt godkännande (timmar)".to_string(),
+            category: "AI & Guardrail Settings".to_string(),
+            value_type: "number".to_string(),
+            default_value: "8.0".to_string(),
+            tooltip: "Shifts logged exceeding this number of hours require mandatory human attestation.".to_string(),
+        },
+        crate::models::SettingDefinition {
+            key: "ai_min_auto_approve_confidence".to_string(),
+            label: "Minimum Auto-Approve Confidence / Minsta tillförlitlighet för autogodkännande".to_string(),
+            category: "AI & Guardrail Settings".to_string(),
+            value_type: "number".to_string(),
+            default_value: "0.90".to_string(),
+            tooltip: "Confidence threshold required before allowing automated AutoApprove actions.".to_string(),
+        },
+
         // 1. Staircase Multipliers
         crate::models::SettingDefinition {
             key: "mult_spiral_staircase".to_string(),
@@ -1165,8 +1223,143 @@ pub async fn get_workspace_role_permissions(
     ])
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, uniffi::Record)]
+pub struct RolePermissionRule {
+    pub role_id: String,
+    pub role_label: String,
+    pub can_view_audit_logs: bool,
+    pub can_export_data: bool,
+    pub can_manage_users: bool,
+    pub can_edit_settings: bool,
+}
+
+#[uniffi::export]
+pub async fn get_workspace_rbac_matrix(
+    requester_user_id: String,
+    workspace_id: String,
+) -> Result<Vec<RolePermissionRule>, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    Ok(vec![
+        RolePermissionRule {
+            role_id: "platform_admin".to_string(),
+            role_label: "Platform Admin".to_string(),
+            can_view_audit_logs: true,
+            can_export_data: true,
+            can_manage_users: true,
+            can_edit_settings: true,
+        },
+        RolePermissionRule {
+            role_id: "admin".to_string(),
+            role_label: "Workspace Administrator".to_string(),
+            can_view_audit_logs: true,
+            can_export_data: true,
+            can_manage_users: true,
+            can_edit_settings: true,
+        },
+        RolePermissionRule {
+            role_id: "manager".to_string(),
+            role_label: "Team Manager".to_string(),
+            can_view_audit_logs: false,
+            can_export_data: true,
+            can_manage_users: false,
+            can_edit_settings: false,
+        },
+        RolePermissionRule {
+            role_id: "field_technician".to_string(),
+            role_label: "Field Specialist / Technician".to_string(),
+            can_view_audit_logs: false,
+            can_export_data: false,
+            can_manage_users: false,
+            can_edit_settings: false,
+        },
+        RolePermissionRule {
+            role_id: "member".to_string(),
+            role_label: "Standard Team Member".to_string(),
+            can_view_audit_logs: false,
+            can_export_data: false,
+            can_manage_users: false,
+            can_edit_settings: false,
+        },
+    ])
+}
+
+#[uniffi::export]
+pub async fn export_workspace_full_data_json(
+    requester_user_id: String,
+    workspace_id: String,
+) -> Result<String, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.role != "admin" {
+        return Err(YntraError::AuthError("Access denied: administrator privileges required".to_string()));
+    }
+
+    let ws: Workspace = get_workspace(requester_user_id.clone()).await?;
+
+    // Query users
+    let mut user_stmt = conn.prepare("SELECT id, email, full_name, role FROM users WHERE workspace_id = ?1").await?;
+    let users: Vec<serde_json::Value> = user_stmt.query_map(crate::params![&workspace_id], |r| {
+        Ok(serde_json::json!({
+            "id": r.get::<String>(0)?,
+            "email": r.get::<String>(1)?,
+            "full_name": r.get::<Option<String>>(2)?,
+            "role": r.get::<String>(3)?,
+        }))
+    }).await?;
+
+    // Query time reports
+    let mut tr_stmt = conn.prepare("SELECT id, user_id, date, hours, note, status FROM time_reports WHERE workspace_id = ?1").await?;
+    let time_reports: Vec<serde_json::Value> = tr_stmt.query_map(crate::params![&workspace_id], |r| {
+        Ok(serde_json::json!({
+            "id": r.get::<String>(0)?,
+            "user_id": r.get::<String>(1)?,
+            "date": r.get::<String>(2)?,
+            "hours": r.get::<f64>(3)?,
+            "note": r.get::<Option<String>>(4)?,
+            "status": r.get::<String>(5)?,
+        }))
+    }).await?;
+
+    // Query notes
+    let mut notes_stmt = conn.prepare("SELECT id, subject, content, created_at FROM notes WHERE workspace_id = ?1").await?;
+    let notes: Vec<serde_json::Value> = notes_stmt.query_map(crate::params![&workspace_id], |r| {
+        Ok(serde_json::json!({
+            "id": r.get::<String>(0)?,
+            "subject": r.get::<String>(1)?,
+            "content": r.get::<String>(2)?,
+            "created_at": r.get::<String>(3)?,
+        }))
+    }).await?;
+
+    // Query audit logs
+    let audit_logs = crate::services::audit::get_audit_logs(requester_user_id.clone()).await.unwrap_or_default();
+
+    let export_bundle = serde_json::json!({
+        "export_info": {
+            "exported_at": crate::infra::time::get_current_time_ms(),
+            "exported_by": requester_user_id,
+            "workspace_id": workspace_id,
+            "compliance_standard": "GDPR_ARTICLE_20_DATA_PORTABILITY"
+        },
+        "workspace": ws,
+        "users": users,
+        "time_reports": time_reports,
+        "notes": notes,
+        "audit_logs": audit_logs
+    });
+
+    serde_json::to_string_pretty(&export_bundle)
+        .map_err(|e| YntraError::DbError(format!("Failed to format workspace export JSON: {}", e)))
+}
+
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]

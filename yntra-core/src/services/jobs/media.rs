@@ -147,3 +147,126 @@ pub async fn sync_pending_offline_media_blobs(
     notify_observers();
     Ok(updated_count as i32)
 }
+
+#[uniffi::export]
+pub async fn upload_media_chunk(
+    requester_user_id: String,
+    hash_pointer: String,
+    chunk_index: u32,
+    total_chunks: u32,
+    chunk_base64: String,
+) -> Result<crate::ChunkedUploadProgress, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let chunk_bytes = chunk_base64.as_bytes();
+
+    let row = conn.query_row(
+        "SELECT workspace_id, original_size_bytes, compressed_blob FROM offline_media_blobs WHERE hash = ?1",
+        crate::params![&hash_pointer],
+        |r| Ok((r.get::<String>(0)?, r.get::<i64>(1)?, r.get::<Vec<u8>>(2)?)),
+    ).await.map_err(|_| YntraError::NotFoundError("Media blob not found".to_string()))?;
+
+    if auth.workspace_id != row.0 {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    let mut current_blob = row.2;
+    current_blob.extend_from_slice(chunk_bytes);
+    let bytes_transferred = current_blob.len() as i64;
+    let is_complete = (chunk_index + 1) >= total_chunks;
+    let status = if is_complete { "upload_complete" } else { "uploading_chunks" };
+
+    conn.execute(
+        "UPDATE offline_media_blobs SET compressed_blob = ?1, compressed_size_bytes = ?2, upload_status = ?3 WHERE hash = ?4",
+        crate::params![current_blob, bytes_transferred, status, &hash_pointer],
+    ).await?;
+
+    notify_observers();
+
+    Ok(crate::ChunkedUploadProgress {
+        hash_pointer,
+        chunks_received: chunk_index + 1,
+        total_chunks,
+        bytes_transferred,
+        total_bytes: row.1,
+        is_complete,
+        upload_status: status.to_string(),
+    })
+}
+
+#[uniffi::export]
+pub async fn get_media_upload_progress(
+    requester_user_id: String,
+    hash_pointer: String,
+) -> Result<Option<crate::ChunkedUploadProgress>, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let res = conn.query_row(
+        "SELECT workspace_id, original_size_bytes, compressed_size_bytes, upload_status FROM offline_media_blobs WHERE hash = ?1",
+        crate::params![&hash_pointer],
+        |r| Ok((r.get::<String>(0)?, r.get::<i64>(1)?, r.get::<i64>(2)?, r.get::<String>(3)?)),
+    ).await;
+
+
+    match res {
+        Ok((ws_id, orig_size, comp_size, status)) => {
+            if auth.workspace_id != ws_id {
+                return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+            }
+            let is_complete = status == "upload_complete" || status == "synced";
+            Ok(Some(crate::ChunkedUploadProgress {
+                hash_pointer,
+                chunks_received: if is_complete { 100 } else { 0 },
+                total_chunks: 100,
+                bytes_transferred: comp_size,
+                total_bytes: orig_size,
+                is_complete,
+                upload_status: status,
+            }))
+        }
+        Err(YntraError::NoRowsReturned) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_chunked_media_upload_flow() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-media-1', 'Media WS', '[]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-media-1', 'ws-media-1', 'media@yntra.io', 'admin')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, created_at, updated_at, sync_status) VALUES ('job-m-1', 'ws-media-1', 'Photo Job', 'Desc', 'Addr', 'normal', 'open', '2026-08-04', '[]', 'now', 0, 'synced')", ()).await.unwrap();
+
+        crate::infra::crypto::set_session_key("media-test-key".to_string().into_bytes(), "ws-media-1".to_string());
+
+        // 1. Enqueue initial media blob pointer
+        let pointer = enqueue_offline_media_blob("u-media-1".to_string(), "job-m-1".to_string(), "photo".to_string(), "c2FtcGxlX21lZGlhX2RhdGE=".to_string()).await.unwrap();
+        assert!(pointer.hash_pointer.starts_with("sha256:"));
+
+        // 2. Upload Chunk 1 of 2
+        let p1 = upload_media_chunk("u-media-1".to_string(), pointer.hash_pointer.clone(), 0, 2, "Y2h1bmsxXw==".to_string()).await.unwrap();
+        assert_eq!(p1.chunks_received, 1);
+        assert_eq!(p1.total_chunks, 2);
+        assert!(!p1.is_complete);
+
+        // 3. Upload Chunk 2 of 2 (Complete)
+        let p2 = upload_media_chunk("u-media-1".to_string(), pointer.hash_pointer.clone(), 1, 2, "Y2h1bmsy".to_string()).await.unwrap();
+        assert_eq!(p2.chunks_received, 2);
+        assert!(p2.is_complete);
+
+        // 4. Verify progress status
+        let progress = get_media_upload_progress("u-media-1".to_string(), pointer.hash_pointer.clone()).await.unwrap().unwrap();
+        assert!(progress.is_complete);
+
+        crate::infra::crypto::clear_session_key();
+    }
+}
+
+

@@ -53,6 +53,208 @@ pub struct DailyAiDigest {
     pub created_at: i64,
 }
 
+#[derive(uniffi::Record, Debug, Clone, PartialEq)]
+pub struct WorkspaceAiConfig {
+    pub provider: String,
+    pub api_key_masked: String,
+    pub model_name: String,
+    pub guardrails_enabled: bool,
+    pub max_allowed_risk: String,
+    pub require_human_approval_above_hours: f64,
+    pub min_auto_approve_confidence: f64,
+}
+
+#[derive(uniffi::Record, Debug, Clone, PartialEq)]
+pub struct GuardrailEvaluationResult {
+    pub passed: bool,
+    pub deterministic_hash: String,
+    pub effective_action: String,
+    pub violation_reason: Option<String>,
+}
+
+pub fn mask_api_key(key: &str) -> String {
+    let trimmed = key.trim();
+    if trimmed.is_empty() {
+        return "".to_string();
+    }
+    if trimmed.len() <= 6 {
+        return "****".to_string();
+    }
+    let prefix = &trimmed[..3];
+    let suffix = &trimmed[trimmed.len() - 4..];
+    format!("{}-****{}", prefix, suffix)
+}
+
+#[uniffi::export]
+pub fn evaluate_ai_guardrails(
+    config: WorkspaceAiConfig,
+    action_type: String,
+    condition_params: String,
+    report_hours: f64,
+    confidence_score: f64,
+) -> GuardrailEvaluationResult {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(action_type.as_bytes());
+    hasher.update(condition_params.as_bytes());
+    hasher.update(report_hours.to_le_bytes());
+    hasher.update(config.provider.as_bytes());
+    let hash_bytes = hasher.finalize();
+    let deterministic_hash = const_hex::encode(hash_bytes);
+
+    if !config.guardrails_enabled {
+        return GuardrailEvaluationResult {
+            passed: true,
+            deterministic_hash,
+            effective_action: action_type,
+            violation_reason: None,
+        };
+    }
+
+    let mut passed = true;
+    let mut effective_action = action_type.clone();
+    let mut violation_reasons = Vec::new();
+
+    if confidence_score < config.min_auto_approve_confidence && action_type == "AutoApprove" {
+        passed = false;
+        violation_reasons.push(format!(
+            "Confidence score ({:.2}) below required threshold ({:.2})",
+            confidence_score, config.min_auto_approve_confidence
+        ));
+    }
+
+    if report_hours > config.require_human_approval_above_hours && action_type == "AutoApprove" {
+        passed = false;
+        violation_reasons.push(format!(
+            "Report hours ({:.1}h) exceed auto-approve threshold ({:.1}h)",
+            report_hours, config.require_human_approval_above_hours
+        ));
+    }
+
+    if config.max_allowed_risk == "low" && action_type == "AutoApprove" {
+        passed = false;
+        violation_reasons.push("Workspace policy prohibits AutoApprove under 'low' risk tolerance".to_string());
+    }
+
+    if !passed {
+        effective_action = "FlagForApproval".to_string();
+    }
+
+    GuardrailEvaluationResult {
+        passed,
+        deterministic_hash,
+        effective_action,
+        violation_reason: if violation_reasons.is_empty() {
+            None
+        } else {
+            Some(violation_reasons.join("; "))
+        },
+    }
+}
+
+#[uniffi::export]
+pub async fn get_workspace_ai_config(
+    requester_user_id: String,
+    workspace_id: String,
+) -> Result<WorkspaceAiConfig, YntraError> {
+    let conn = database::acquire_connection().await?;
+    if requester_user_id != "system" {
+        let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    }
+
+    let settings_json: Option<String> = conn
+        .query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![&workspace_id],
+            |r| r.get(0),
+        )
+        .await
+        .ok();
+
+    let settings: serde_json::Value = settings_json
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+
+    let provider = settings.get("ai_provider").and_then(|v| v.as_str()).unwrap_or("local_ast").to_string();
+    let raw_key = settings.get("ai_api_key").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let model_name = settings.get("ai_model_name").and_then(|v| v.as_str()).unwrap_or("gpt-4o-mini").to_string();
+    let guardrails_enabled = settings.get("ai_guardrails_enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+    let max_allowed_risk = settings.get("ai_max_allowed_risk").and_then(|v| v.as_str()).unwrap_or("medium").to_string();
+    let require_human_approval_above_hours = settings.get("ai_require_human_approval_above_hours").and_then(|v| v.as_f64()).unwrap_or(8.0);
+    let min_auto_approve_confidence = settings.get("ai_min_auto_approve_confidence").and_then(|v| v.as_f64()).unwrap_or(0.90);
+
+    Ok(WorkspaceAiConfig {
+        provider,
+        api_key_masked: mask_api_key(&raw_key),
+        model_name,
+        guardrails_enabled,
+        max_allowed_risk,
+        require_human_approval_above_hours,
+        min_auto_approve_confidence,
+    })
+}
+
+#[uniffi::export]
+pub async fn set_workspace_ai_byok_config(
+    requester_user_id: String,
+    workspace_id: String,
+    provider: String,
+    api_key: String,
+    model_name: String,
+    guardrails_enabled: bool,
+    max_allowed_risk: String,
+    require_human_approval_above_hours: f64,
+    min_auto_approve_confidence: f64,
+) -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if !auth.is_admin {
+        return Err(YntraError::AuthError("Administrator privileges required".to_string()));
+    }
+
+    let settings_json: Option<String> = conn
+        .query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![&workspace_id],
+            |r| r.get(0),
+        )
+        .await
+        .ok();
+
+    let mut settings: serde_json::Map<String, serde_json::Value> = settings_json
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
+
+    settings.insert("ai_provider".to_string(), serde_json::Value::String(provider));
+    settings.insert("ai_api_key".to_string(), serde_json::Value::String(api_key));
+    settings.insert("ai_model_name".to_string(), serde_json::Value::String(model_name));
+    settings.insert("ai_guardrails_enabled".to_string(), serde_json::Value::Bool(guardrails_enabled));
+    settings.insert("ai_max_allowed_risk".to_string(), serde_json::Value::String(max_allowed_risk));
+    settings.insert("ai_require_human_approval_above_hours".to_string(), serde_json::json!(require_human_approval_above_hours));
+    settings.insert("ai_min_auto_approve_confidence".to_string(), serde_json::json!(min_auto_approve_confidence));
+
+    let updated_json = serde_json::to_string(&settings).unwrap_or_else(|_| "{}".to_string());
+    let now_ms = crate::infra::time::get_current_time_ms();
+
+    conn.execute(
+        "UPDATE workspaces SET settings = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
+        crate::params![updated_json, now_ms, &workspace_id],
+    )
+    .await?;
+
+    let _ = log_action_with_conn(
+        &conn,
+        requester_user_id,
+        None,
+        format!("ai_byok_config_updated: workspace={}", workspace_id),
+    )
+    .await;
+
+    notify_observers();
+    Ok(())
+}
+
 /// Multilingual Voice Parser (Swedish + English) with structured feature extraction
 pub fn parse_voice_transcript_to_report(transcript: &str, default_date: Option<&str>) -> VoiceReportProposal {
     let text = transcript.to_lowercase();
@@ -407,7 +609,20 @@ pub async fn evaluate_time_report_triggers_internal(
 
         if matches {
             actions_exec += 1;
-            match act_type.as_str() {
+            let ai_config = get_workspace_ai_config("system".to_string(), workspace_id.to_string()).await.unwrap_or_else(|_| WorkspaceAiConfig {
+                provider: "local_ast".to_string(),
+                api_key_masked: "".to_string(),
+                model_name: "gpt-4o-mini".to_string(),
+                guardrails_enabled: true,
+                max_allowed_risk: "medium".to_string(),
+                require_human_approval_above_hours: 8.0,
+                min_auto_approve_confidence: 0.90,
+            });
+
+            let guardrail_res = evaluate_ai_guardrails(ai_config, act_type.clone(), cond_params.clone(), report.hours, 0.95);
+            let effective_action = guardrail_res.effective_action.clone();
+
+            match effective_action.as_str() {
                 "FlagForApproval" => {
                     conn.execute(
                         "UPDATE time_reports SET status = 'flagged_for_approval', updated_at = ?1 WHERE id = ?2",
@@ -429,7 +644,10 @@ pub async fn evaluate_time_report_triggers_internal(
                 conn,
                 report.user_id.clone(),
                 None,
-                format!("action_trigger_executed: rule={}", id),
+                format!(
+                    "action_trigger_executed: rule={} action={} hash={} passed={}",
+                    id, effective_action, guardrail_res.deterministic_hash, guardrail_res.passed
+                ),
             )
             .await;
         }
@@ -681,8 +899,102 @@ pub async fn export_daily_ai_digest_markdown(
     Ok(digest.markdown_digest)
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, uniffi::Record)]
+pub struct AiActionApprovalItem {
+    pub id: String,
+    pub workspace_id: String,
+    pub proposed_action_type: String,
+    pub target_resource_id: String,
+    pub explainability_rationale: String,
+    pub risk_score: f64,
+    pub status: String,
+    pub created_at: i64,
+}
+
+#[uniffi::export]
+pub async fn get_pending_ai_action_approvals(
+    requester_user_id: String,
+    workspace_id: String,
+) -> Result<Vec<AiActionApprovalItem>, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let mut stmt = conn
+        .prepare("SELECT id, user_id, hours, note, status, updated_at FROM time_reports WHERE workspace_id = ?1 AND (status = 'flagged_for_approval' OR status = 'pending_attest') ORDER BY updated_at DESC")
+        .await?;
+
+    let mut list = Vec::new();
+    let mut rows = stmt.query(crate::params![&workspace_id]).await?;
+    while let Some(row) = rows.next().await? {
+        let id: String = row.get(0)?;
+        let user_id: String = row.get(1)?;
+        let hours: f64 = row.get(2)?;
+        let note: String = row.get::<Option<String>>(3)?.unwrap_or_default();
+        let status: String = row.get(4)?;
+        let updated: i64 = row.get(5)?;
+
+        let rationale = if hours > 8.0 {
+            format!("Logged shift of {:.1}h exceeds maximum automated approval threshold (8.0h). User note: '{}'", hours, note)
+        } else {
+            format!("AI Policy Trigger flagged shift of {:.1}h by user '{}' for human attestation review.", hours, user_id)
+        };
+
+        let risk_score = if hours > 12.0 { 0.85 } else { 0.45 };
+
+        list.push(AiActionApprovalItem {
+            id,
+            workspace_id: workspace_id.clone(),
+            proposed_action_type: "ApproveTimeReport".to_string(),
+            target_resource_id: user_id,
+            explainability_rationale: rationale,
+            risk_score,
+            status,
+            created_at: updated,
+        });
+    }
+
+    Ok(list)
+}
+
+#[uniffi::export]
+pub async fn review_ai_action_approval(
+    requester_user_id: String,
+    workspace_id: String,
+    approval_id: String,
+    approved: bool,
+    reviewer_notes: Option<String>,
+) -> Result<bool, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.role != "admin" && auth.role != "manager" {
+        return Err(YntraError::AuthError("Manager or administrator privileges required".to_string()));
+    }
+
+    let now_ms = crate::infra::time::get_current_time_ms();
+    let new_status = if approved { "approved" } else { "rejected" };
+
+    conn.execute(
+        "UPDATE time_reports SET status = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3 AND workspace_id = ?4",
+        crate::params![new_status, now_ms, &approval_id, &workspace_id],
+    )
+    .await?;
+
+    let notes_str = reviewer_notes.unwrap_or_default();
+    let _ = log_action_with_conn(
+        &conn,
+        requester_user_id,
+        None,
+        format!("ai_action_reviewed: id={} status={} notes={}", approval_id, new_status, notes_str),
+    )
+    .await;
+
+    notify_observers();
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]
@@ -767,4 +1079,90 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_mask_api_key_formatting() {
+        assert_eq!(mask_api_key(""), "");
+        assert_eq!(mask_api_key("sk-123"), "****");
+        assert_eq!(mask_api_key("sk-proj-999888777666"), "sk--****7666");
+    }
+
+    #[test]
+    fn test_ai_guardrail_determinism_and_hash_consistency() {
+        let config = WorkspaceAiConfig {
+            provider: "openai_byok".to_string(),
+            api_key_masked: "sk--****7666".to_string(),
+            model_name: "gpt-4o-mini".to_string(),
+            guardrails_enabled: true,
+            max_allowed_risk: "medium".to_string(),
+            require_human_approval_above_hours: 8.0,
+            min_auto_approve_confidence: 0.90,
+        };
+
+        let res1 = evaluate_ai_guardrails(config.clone(), "AutoApprove".to_string(), "hours > 6.0".to_string(), 7.0, 0.95);
+        let res2 = evaluate_ai_guardrails(config.clone(), "AutoApprove".to_string(), "hours > 6.0".to_string(), 7.0, 0.95);
+
+        assert!(res1.passed);
+        assert_eq!(res1.effective_action, "AutoApprove");
+        assert_eq!(res1.deterministic_hash, res2.deterministic_hash);
+    }
+
+    #[test]
+    fn test_ai_guardrail_overtime_and_risk_downgrade() {
+        let config = WorkspaceAiConfig {
+            provider: "anthropic_byok".to_string(),
+            api_key_masked: "sk--****1234".to_string(),
+            model_name: "claude-3-5-sonnet".to_string(),
+            guardrails_enabled: true,
+            max_allowed_risk: "medium".to_string(),
+            require_human_approval_above_hours: 8.0,
+            min_auto_approve_confidence: 0.90,
+        };
+
+        // Shift exceeding 8.0h threshold
+        let res_overtime = evaluate_ai_guardrails(config.clone(), "AutoApprove".to_string(), "hours > 8.0".to_string(), 9.5, 0.95);
+        assert!(!res_overtime.passed);
+        assert_eq!(res_overtime.effective_action, "FlagForApproval");
+        assert!(res_overtime.violation_reason.unwrap().contains("exceed auto-approve threshold"));
+
+        // Low confidence score
+        let res_low_conf = evaluate_ai_guardrails(config.clone(), "AutoApprove".to_string(), "hours > 5.0".to_string(), 6.0, 0.85);
+        assert!(!res_low_conf.passed);
+        assert_eq!(res_low_conf.effective_action, "FlagForApproval");
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_ai_human_in_the_loop_approval_flow() -> Result<(), Box<dyn std::error::Error>> {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = crate::database::acquire_connection().await?;
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-ai-app', 'AI WS', '[]', '{}')", ()).await?;
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-mgr-1', 'ws-ai-app', 'mgr@ai.io', 'manager')", ()).await?;
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-dev-1', 'ws-ai-app', 'dev@ai.io', 'member')", ()).await?;
+
+        conn.execute(
+            "INSERT OR REPLACE INTO time_reports (id, workspace_id, user_id, date, hours, note, status, created_at, updated_at, sync_status) VALUES ('tr-ai-overtime', 'ws-ai-app', 'u-dev-1', '2026-08-04', 10.5, 'HVAC Overtime', 'flagged_for_approval', '2026-08-04', 5000, 'pending')",
+            (),
+        ).await?;
+
+        // 1. Get pending approvals
+        let approvals = get_pending_ai_action_approvals("u-mgr-1".to_string(), "ws-ai-app".to_string()).await?;
+        assert_eq!(approvals.len(), 1);
+        assert_eq!(approvals[0].id, "tr-ai-overtime");
+        assert!(approvals[0].explainability_rationale.contains("exceeds maximum automated approval threshold"));
+
+        // 2. Manager reviews & approves AI proposal
+        let ok = review_ai_action_approval("u-mgr-1".to_string(), "ws-ai-app".to_string(), "tr-ai-overtime".to_string(), true, Some("Approved overtime".to_string())).await?;
+        assert!(ok);
+
+        let status: String = conn.query_row("SELECT status FROM time_reports WHERE id = 'tr-ai-overtime'", (), |r| r.get(0)).await?;
+        assert_eq!(status, "approved");
+
+        conn.execute("DELETE FROM time_reports WHERE workspace_id = 'ws-ai-app'", ()).await?;
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-ai-app'", ()).await?;
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-ai-app'", ()).await?;
+        Ok(())
+    }
 }
+

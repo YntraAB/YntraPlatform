@@ -2,6 +2,126 @@ use crate::database;
 use crate::observer::notify_observers;
 use crate::{DynamicEntity, YntraError};
 
+#[derive(uniffi::Record, serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub struct FieldPermissionPolicy {
+    pub role: String,
+    pub read_allowed_fields: Vec<String>,
+    pub write_allowed_fields: Vec<String>,
+}
+
+pub fn filter_entity_data_for_role(
+    data_json: &str,
+    role: &str,
+    policies: &[FieldPermissionPolicy],
+) -> String {
+    if role == "platform_admin" || role == "admin" {
+        return data_json.to_string();
+    }
+
+    let policy = policies.iter().find(|p| p.role.eq_ignore_ascii_case(role));
+    let allowed_read = match policy {
+        Some(p) => &p.read_allowed_fields,
+        None => return data_json.to_string(),
+    };
+
+    if allowed_read.contains(&"*".to_string()) {
+        return data_json.to_string();
+    }
+
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(data_json) else {
+        return data_json.to_string();
+    };
+
+    let Some(obj) = val.as_object() else {
+        return data_json.to_string();
+    };
+
+    let mut filtered_map = serde_json::Map::new();
+    for (k, v) in obj {
+        if allowed_read.contains(k) {
+            filtered_map.insert(k.clone(), v.clone());
+        }
+    }
+
+    serde_json::to_string(&filtered_map).unwrap_or_else(|_| data_json.to_string())
+}
+
+pub fn validate_entity_data_write_permissions(
+    data_json: &str,
+    role: &str,
+    policies: &[FieldPermissionPolicy],
+) -> Result<(), YntraError> {
+    if role == "platform_admin" || role == "admin" {
+        return Ok(());
+    }
+
+    let policy = policies.iter().find(|p| p.role.eq_ignore_ascii_case(role));
+    let allowed_write = match policy {
+        Some(p) => &p.write_allowed_fields,
+        None => return Ok(()),
+    };
+
+    if allowed_write.contains(&"*".to_string()) {
+        return Ok(());
+    }
+
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(data_json) else {
+        return Ok(());
+    };
+
+    let Some(obj) = val.as_object() else {
+        return Ok(());
+    };
+
+    for (k, _) in obj {
+        if !allowed_write.contains(k) {
+            return Err(YntraError::AuthError(format!(
+                "Field-level write permission denied for field '{}' under role '{}'",
+                k, role
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn get_field_permission_policies_internal(
+    conn: &database::DbConnection,
+    block_id: &str,
+) -> Vec<FieldPermissionPolicy> {
+    let ui_config_str: Option<String> = conn
+        .query_row(
+            "SELECT ui_config FROM blocks WHERE id = ?1",
+            crate::params![block_id],
+            |r| r.get(0),
+        )
+        .await
+        .ok()
+        .flatten();
+
+    if let Some(cfg) = ui_config_str {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&cfg) {
+            if let Some(perms) = val.get("field_permissions") {
+                if let Ok(policies) = serde_json::from_value::<Vec<FieldPermissionPolicy>>(perms.clone()) {
+                    return policies;
+                }
+            }
+        }
+    }
+    Vec::new()
+}
+
+#[uniffi::export]
+pub async fn get_field_permission_policies(
+    requester_user_id: String,
+    block_id: String,
+) -> Result<Vec<FieldPermissionPolicy>, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    let policies = get_field_permission_policies_internal(&conn, &block_id).await;
+    Ok(policies)
+}
+
 #[uniffi::export]
 pub async fn get_dynamic_entities(
     requester_user_id: String,
@@ -16,18 +136,22 @@ pub async fn get_dynamic_entities(
         ));
     }
 
+    let policies = get_field_permission_policies_internal(&conn, &block_id).await;
+
     let mut stmt = conn
         .prepare("SELECT id, workspace_id, block_id, entity_type, data, created_at, updated_at, sync_status FROM entities WHERE workspace_id = ?1 AND block_id = ?2")
         .await?;
 
     let entities = stmt
         .query_map(crate::params![workspace_id, block_id], |row| {
+            let raw_data: String = row.get(4)?;
+            let filtered_data = filter_entity_data_for_role(&raw_data, &auth.role, &policies);
             Ok(DynamicEntity {
                 id: row.get(0)?,
                 workspace_id: row.get(1)?,
                 block_id: row.get(2)?,
                 entity_type: row.get(3)?,
-                data: row.get(4)?,
+                data: filtered_data,
                 created_at: row.get(5)?,
                 updated_at: row.get(6)?,
                 sync_status: row.get(7)?,
@@ -126,6 +250,8 @@ pub async fn save_dynamic_entity(
             "Access denied: workspace mismatch".to_string(),
         ));
     }
+    let policies = get_field_permission_policies_internal(&conn, &entity.block_id).await;
+    validate_entity_data_write_permissions(&entity.data, &auth.role, &policies)?;
 
     // Retrieve fields_schema for the block to perform validation
     let block_schema: Option<String> = conn
@@ -429,5 +555,35 @@ mod tests {
         let _ = conn
             .execute("DELETE FROM workspaces WHERE id = 'ws-val-test'", ())
             .await;
+    }
+
+    #[test]
+    fn test_field_level_rbac_filtering() {
+        let policies = vec![FieldPermissionPolicy {
+            role: "external_contractor".to_string(),
+            read_allowed_fields: vec!["id".to_string(), "task_name".to_string(), "status".to_string()],
+            write_allowed_fields: vec!["task_name".to_string(), "status".to_string()],
+        }];
+
+        let raw_data = r#"{"id": "t-1", "task_name": "Fix HVAC", "status": "open", "internal_margin": 450.0, "ssn": "123-45"}"#;
+
+        // Admin sees 100% of fields
+        let admin_filtered = filter_entity_data_for_role(raw_data, "admin", &policies);
+        assert!(admin_filtered.contains("internal_margin"));
+        assert!(admin_filtered.contains("ssn"));
+
+        // Contractor only sees allowed fields
+        let contractor_filtered = filter_entity_data_for_role(raw_data, "external_contractor", &policies);
+        assert!(contractor_filtered.contains("task_name"));
+        assert!(!contractor_filtered.contains("internal_margin"));
+        assert!(!contractor_filtered.contains("ssn"));
+
+        // Write validation: writing allowed field passes
+        let ok_write = validate_entity_data_write_permissions(r#"{"task_name": "Fix HVAC", "status": "completed"}"#, "external_contractor", &policies);
+        assert!(ok_write.is_ok());
+
+        // Write validation: writing forbidden field fails
+        let forbidden_write = validate_entity_data_write_permissions(r#"{"task_name": "Fix HVAC", "internal_margin": 999.0}"#, "external_contractor", &policies);
+        assert!(forbidden_write.is_err());
     }
 }

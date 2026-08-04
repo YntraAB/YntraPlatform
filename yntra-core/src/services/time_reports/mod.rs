@@ -1189,4 +1189,48 @@ mod tests {
             .await
             .unwrap();
     }
+
+    #[tokio::test]
+    async fn test_clock_in_geofenced_validation_and_anti_spoofing() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-geo-1', 'Geo WS', '[]', '{}')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-geo-1', 'ws-geo-1', 'geo@yntra.io', 'user')", ()).await.unwrap();
+
+        crate::infra::crypto::set_session_key("geo-test-key".to_string().into_bytes(), "ws-geo-1".to_string());
+
+        // 1. Anti-Spoofing Rejection Test
+        let spoof_res = clock_in_geofenced(
+            "u-geo-1".to_string(), "ws-geo-1".to_string(), "u-geo-1".to_string(), None,
+            "2026-08-04".to_string(), 8.0, "Spoofed Shift".to_string(),
+            59.3293, 18.0686, 59.3293, 18.0686, 250.0,
+            Some(true), None
+        ).await;
+        assert!(spoof_res.is_err());
+        assert!(matches!(spoof_res.err().unwrap(), YntraError::ValidationError(_)));
+
+        // 2. Out-of-bounds Radius Test (Stockholm to Gothenburg ~400km)
+        let radius_res = clock_in_geofenced(
+            "u-geo-1".to_string(), "ws-geo-1".to_string(), "u-geo-1".to_string(), None,
+            "2026-08-04".to_string(), 8.0, "Distant Shift".to_string(),
+            57.7088, 11.9745, 59.3293, 18.0686, 250.0,
+            Some(false), None
+        ).await;
+        assert!(radius_res.is_err());
+
+        // 3. Valid Inside-Radius Clock-In Test
+        let valid_res = clock_in_geofenced(
+            "u-geo-1".to_string(), "ws-geo-1".to_string(), "u-geo-1".to_string(), None,
+            "2026-08-04".to_string(), 8.0, "Site Visit".to_string(),
+            59.3293, 18.0686, 59.3293, 18.0686, 250.0,
+            Some(false), None
+        ).await;
+        assert!(valid_res.is_ok());
+        let report = valid_res.unwrap();
+        assert!(report.note.unwrap().contains("GPS Verified"));
+
+        crate::infra::crypto::clear_session_key();
+    }
 }
+

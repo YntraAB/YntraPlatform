@@ -881,3 +881,26 @@ pub struct MoverFieldSheetManifest {
     pub route_stops_json: Option<String>,
     pub long_carry_meters: i32,
 }
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct ChunkedUploadProgress {
+    pub hash_pointer: String,
+    pub chunks_received: u32,
+    pub total_chunks: u32,
+    pub bytes_transferred: i64,
+    pub total_bytes: i64,
+    pub is_complete: bool,
+    pub upload_status: String,
+}
+

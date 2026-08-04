@@ -674,6 +674,14 @@ impl FromLibsqlRow for bool {
     }
 }
 
+impl FromLibsqlRow for Vec<u8> {
+    fn get_from_row(row: &libsql::Row, idx: i32) -> Result<Self, YntraError> {
+        row.get::<Vec<u8>>(idx)
+            .map_err(|e| YntraError::DbError(e.to_string()))
+    }
+}
+
+
 impl FromLibsqlRow for Option<String> {
     fn get_from_row(row: &libsql::Row, idx: i32) -> Result<Self, YntraError> {
         row.get::<Option<String>>(idx)
