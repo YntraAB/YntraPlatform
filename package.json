@@ -1,0 +1,16 @@
+{
+  "name": "yntra-platform-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Automated End-to-End (E2E) Test Suite for Yntra Platform across Web, Desktop, and Mobile",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:debug": "playwright test --debug"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.42.1",
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  }
+}
