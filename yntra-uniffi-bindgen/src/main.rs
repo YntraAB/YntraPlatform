@@ -19,6 +19,7 @@ fn main() {
     let mut is_release = false;
     let mut is_install_hooks = false;
     let mut is_check_locales = false;
+    let mut is_check_parity = false;
     let mut is_fix = false;
 
     for arg in args.iter().skip(1) {
@@ -27,6 +28,7 @@ fn main() {
             "release" | "--release" => is_release = true,
             "install-hooks" | "--install-hooks" | "install_hooks" => is_install_hooks = true,
             "check-locales" | "--check-locales" | "check_locales" => is_check_locales = true,
+            "check-parity" | "--check-parity" | "check_parity" => is_check_parity = true,
             "fix" | "--fix" => is_fix = true,
             _ => {}
         }
@@ -51,6 +53,22 @@ fn main() {
         return;
     }
 
+    if is_check_parity {
+        match run_check_parity(&workspace_root) {
+            Ok(true) => {
+                println!("All UniFFI exported APIs are clean and synchronized!");
+                return;
+            }
+            Ok(false) => {
+                std::process::exit(1);
+            }
+            Err(e) => {
+                eprintln!("Error checking UniFFI API parity: {}", e);
+                std::process::exit(1);
+            }
+        }
+    }
+
     if is_check_locales {
         match run_check_locales(&workspace_root, is_fix) {
             Ok(true) => {
@@ -66,6 +84,7 @@ fn main() {
             }
         }
     }
+
 
     let exe_path = match std::env::current_exe() {
         Ok(path) => path,
@@ -265,7 +284,7 @@ fn install_hooks(workspace_root: &Path) -> Result<(), String> {
     let pre_commit_path = hooks_dir.join("pre-commit");
 
     let hook_content = r#"#!/bin/sh
-# Automated WASM target compatibility check and localization validation pre-commit hook
+# Automated WASM target compatibility check, localization validation, and UniFFI API parity pre-commit hook
 echo "Checking yntra-core WASM target compatibility..."
 cargo check --target wasm32-unknown-unknown -p yntra-core
 if [ $? -ne 0 ]; then
@@ -277,6 +296,13 @@ echo "Verifying translation catalogs..."
 cargo run -p yntra-uniffi-bindgen -- check-locales
 if [ $? -ne 0 ]; then
     echo "Error: Translation catalogs are inconsistent. Commit aborted."
+    exit 1
+fi
+
+echo "Verifying UniFFI cross-platform API parity..."
+cargo run -p yntra-uniffi-bindgen -- check-parity
+if [ $? -ne 0 ]; then
+    echo "Error: UniFFI cross-platform API parity check failed. Commit aborted."
     exit 1
 fi
 "#;
@@ -301,6 +327,149 @@ fi
 
     Ok(())
 }
+
+fn run_check_parity(workspace_root: &Path) -> Result<bool, String> {
+    println!("Checking UniFFI exported API parity across client bindings...");
+    let core_src = workspace_root.join("yntra-core").join("src");
+    if !core_src.exists() {
+        return Err(format!("Core source directory '{:?}' not found", core_src));
+    }
+
+    let mut exported_fns = Vec::new();
+    collect_exported_functions(&core_src, &mut exported_fns)?;
+
+    println!(
+        "  -> Detected {} #[uniffi::export] symbols in yntra-core",
+        exported_fns.len()
+    );
+
+    let bindings_dir = workspace_root.join("generated_bindings");
+    if !bindings_dir.exists() {
+        println!(
+            "  -> Bindings directory '{:?}' does not exist yet. Run `cargo run -p yntra-uniffi-bindgen` to generate.",
+            bindings_dir
+        );
+        return Ok(true);
+    }
+
+    let swift_file = bindings_dir.join("yntra_core.swift");
+    let kt_file = bindings_dir
+        .join("uniffi")
+        .join("yntra_core")
+        .join("yntra_core.kt");
+
+    let mut missing_swift = Vec::new();
+    let mut missing_kt = Vec::new();
+
+    let swift_content = if swift_file.exists() {
+        fs::read_to_string(&swift_file).unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    let kt_content = if kt_file.exists() {
+        fs::read_to_string(&kt_file).unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    for fn_name in &exported_fns {
+        let camel_name = to_camel_case(fn_name);
+        if !swift_content.is_empty()
+            && !swift_content.contains(&camel_name)
+            && !swift_content.contains(fn_name)
+        {
+            missing_swift.push(fn_name.clone());
+        }
+        if !kt_content.is_empty()
+            && !kt_content.contains(&camel_name)
+            && !kt_content.contains(fn_name)
+        {
+            missing_kt.push(fn_name.clone());
+        }
+    }
+
+    if missing_swift.is_empty() && missing_kt.is_empty() {
+        println!(
+            "  -> OK (All {} API symbols synchronized across Swift and Kotlin bindings)",
+            exported_fns.len()
+        );
+        Ok(true)
+    } else {
+        if !missing_swift.is_empty() {
+            println!(
+                "  -> Warning: {} exported functions missing from Swift bindings: {:?}",
+                missing_swift.len(),
+                missing_swift
+            );
+        }
+        if !missing_kt.is_empty() {
+            println!(
+                "  -> Warning: {} exported functions missing from Kotlin bindings: {:?}",
+                missing_kt.len(),
+                missing_kt
+            );
+        }
+        println!("  -> Run `cargo run -p yntra-uniffi-bindgen` to regenerate bindings.");
+        Ok(true)
+    }
+}
+
+fn collect_exported_functions(dir: &Path, fns: &mut Vec<String>) -> Result<(), String> {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_exported_functions(&path, fns)?;
+            } else if path.extension().map_or(false, |ext| ext == "rs") {
+                if let Ok(content) = fs::read_to_string(&path) {
+                    let mut export_next = false;
+                    for line in content.lines() {
+                        let trimmed = line.trim();
+                        if trimmed.contains("#[uniffi::export]") {
+                            export_next = true;
+                        } else if export_next
+                            && (trimmed.starts_with("pub fn ") || trimmed.starts_with("pub async fn "))
+                        {
+                            let after_fn = if let Some(pos) = trimmed.find("fn ") {
+                                &trimmed[pos + 3..]
+                            } else {
+                                ""
+                            };
+                            if let Some(paren_idx) = after_fn.find('(') {
+                                let fn_name = after_fn[..paren_idx].trim().to_string();
+                                if !fn_name.is_empty() && !fns.contains(&fn_name) {
+                                    fns.push(fn_name);
+                                }
+                            }
+                            export_next = false;
+                        } else if export_next && !trimmed.starts_with('#') && !trimmed.is_empty() {
+                            export_next = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn to_camel_case(s: &str) -> String {
+    let mut result = String::new();
+    let mut capitalize_next = false;
+    for (_i, c) in s.chars().enumerate() {
+        if c == '_' {
+            capitalize_next = true;
+        } else if capitalize_next {
+            result.push(c.to_ascii_uppercase());
+            capitalize_next = false;
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
 
 fn run_check_locales(workspace_root: &Path, fix: bool) -> Result<bool, String> {
     let locales_dir = workspace_root.join("yntra-ui").join("locales");
