@@ -1,0 +1,238 @@
+use crate::components::{Button, LucideIcon};
+use dioxus::prelude::*;
+use yntra_core::{get_sync_conflicts, resolve_sync_conflict, SyncConflictRecord};
+
+#[derive(Props, Clone, PartialEq)]
+pub struct ConflictResolverModalProps {
+    pub active_user_id: String,
+    pub workspace_id: String,
+    pub onresolvecomplete: EventHandler<()>,
+    pub onclose: EventHandler<()>,
+}
+
+#[component]
+pub fn ConflictResolverModal(props: ConflictResolverModalProps) -> Element {
+    let mut conflicts_state = use_signal(|| Vec::<SyncConflictRecord>::new());
+    let mut selected_index = use_signal(|| 0usize);
+    let mut is_resolving = use_signal(|| false);
+    let mut status_msg = use_signal(|| Option::<String>::None);
+
+    let uid_eff = props.active_user_id.clone();
+    let ws_eff = props.workspace_id.clone();
+
+    use_effect(move || {
+        let u = uid_eff.clone();
+        let w = ws_eff.clone();
+        spawn(async move {
+            if let Ok(list) = get_sync_conflicts(w).await {
+                conflicts_state.set(list);
+            }
+        });
+    });
+
+    let conflicts = conflicts_state.read().clone();
+    let idx = *selected_index.read();
+
+    let (local_pretty, remote_pretty) = if let Some(conflict) = conflicts.get(idx) {
+        let l = serde_json::from_str::<serde_json::Value>(&conflict.local_version_json)
+            .map(|v| serde_json::to_string_pretty(&v).unwrap_or_default())
+            .unwrap_or_else(|_| conflict.local_version_json.clone());
+        let r = serde_json::from_str::<serde_json::Value>(&conflict.remote_version_json)
+            .map(|v| serde_json::to_string_pretty(&v).unwrap_or_default())
+            .unwrap_or_else(|_| conflict.remote_version_json.clone());
+        (l, r)
+    } else {
+        (String::new(), String::new())
+    };
+
+    rsx! {
+        div { class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 sm:p-6",
+            div { class: "w-full max-w-4xl rounded-3xl border border-border bg-card p-6 shadow-2xl flex flex-col gap-5 overflow-hidden",
+                // Header
+                div { class: "flex items-center justify-between border-b border-border pb-4",
+                    div { class: "flex items-center gap-3",
+                        div { class: "h-11 w-11 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-500 shadow-sm",
+                            LucideIcon { name: "git-merge", class: "h-6 w-6" }
+                        }
+                        div {
+                            h2 { class: "text-lg font-bold text-foreground m-0 flex items-center gap-2",
+                                "Visual CRDT Conflict Resolution UI"
+                                span { class: "px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-500/10 text-amber-600 border border-amber-500/20", "Offline Edit Conflict" }
+                            }
+                            p { class: "text-xs text-muted-foreground m-0 mt-0.5",
+                                "Compare side-by-side local offline changes vs cloud state and choose resolution"
+                            }
+                        }
+                    }
+
+                    button {
+                        class: "p-2 rounded-xl border border-border bg-secondary text-muted-foreground hover:text-foreground cursor-pointer transition-all",
+                        onclick: move |_| props.onclose.call(()),
+                        LucideIcon { name: "x", class: "h-5 w-5" }
+                    }
+                }
+
+                if let Some(ref msg) = *status_msg.read() {
+                    div { class: "p-3 rounded-xl border border-primary/30 bg-primary/10 text-primary text-xs font-semibold flex items-center gap-2",
+                        LucideIcon { name: "info", class: "h-4 w-4 shrink-0" }
+                        "{msg}"
+                    }
+                }
+
+                if conflicts.is_empty() {
+                    div { class: "p-12 text-center text-muted-foreground space-y-2",
+                        LucideIcon { name: "check-circle", class: "h-10 w-10 text-emerald-500 mx-auto" }
+                        h3 { class: "text-base font-bold text-foreground m-0", "Zero Conflicts Detected" }
+                        p { class: "text-xs m-0", "All local CRDT documents and libSQL rows are harmonized." }
+                    }
+                } else if let Some(conflict) = conflicts.get(idx) {
+                    div { class: "space-y-4",
+                            // Meta info bar
+                            div { class: "p-3 rounded-xl border border-border bg-secondary/30 flex items-center justify-between text-xs",
+                                div { class: "flex items-center gap-2",
+                                    span { class: "font-semibold text-muted-foreground", "Target Table:" }
+                                    span { class: "font-bold text-foreground capitalize px-2 py-0.5 rounded bg-background border border-border", "{conflict.table_name}" }
+                                    span { class: "font-semibold text-muted-foreground ml-2", "Record ID:" }
+                                    span { class: "font-mono font-bold text-foreground", "{conflict.record_id}" }
+                                }
+                                span { class: "text-muted-foreground", "Conflict #{idx + 1} of {conflicts.len()}" }
+                            }
+
+                            // Side-by-side diff viewer
+                            div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
+                                // Local Version
+                                div { class: "rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-2",
+                                    div { class: "flex items-center justify-between border-b border-emerald-500/20 pb-2",
+                                        span { class: "text-xs font-bold text-emerald-600 flex items-center gap-1.5",
+                                            LucideIcon { name: "laptop", class: "h-4 w-4" }
+                                            "Local Offline State (This Device)"
+                                        }
+                                        span { class: "text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-700", "Local" }
+                                    }
+                                    pre { class: "w-full h-48 rounded-xl border border-emerald-500/20 bg-background p-3 text-xs font-mono text-foreground overflow-auto",
+                                        "{local_pretty}"
+                                    }
+                                }
+
+                                // Cloud Server Version
+                                div { class: "rounded-2xl border border-primary/30 bg-primary/5 p-4 space-y-2",
+                                    div { class: "flex items-center justify-between border-b border-primary/20 pb-2",
+                                        span { class: "text-xs font-bold text-primary flex items-center gap-1.5",
+                                            LucideIcon { name: "cloud", class: "h-4 w-4" }
+                                            "Cloud Replication State (Server)"
+                                        }
+                                        span { class: "text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-primary/20 text-primary", "Server" }
+                                    }
+                                    pre { class: "w-full h-48 rounded-xl border border-primary/20 bg-background p-3 text-xs font-mono text-foreground overflow-auto",
+                                        "{remote_pretty}"
+                                    }
+                                }
+                            }
+
+                             // Action buttons
+                            div { class: "flex items-center justify-end gap-3 pt-3 border-t border-border/40",
+                                Button {
+                                    class: "text-xs h-10 px-4 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 cursor-pointer font-semibold",
+                                    disabled: is_resolving,
+                                    onclick: {
+                                        let u = props.active_user_id.clone();
+                                        let w = props.workspace_id.clone();
+                                        let cb = props.onresolvecomplete.clone();
+                                        move |_| {
+                                            let conflicts = conflicts_state.read().clone();
+                                            let idx = *selected_index.read();
+                                            if idx >= conflicts.len() { return; }
+                                            let item = conflicts[idx].clone();
+                                            is_resolving.set(true);
+                                            status_msg.set(None);
+                                            let u = u.clone();
+                                            let w = w.clone();
+                                            let cb = cb.clone();
+                                            spawn(async move {
+                                                if let Ok(_) = resolve_sync_conflict(u.clone(), w.clone(), item.table_name, item.record_id, "keep_local".to_string(), None).await {
+                                                    status_msg.set(Some("Conflict successfully resolved!".to_string()));
+                                                    cb.call(());
+                                                    if let Ok(list) = get_sync_conflicts(w).await {
+                                                        conflicts_state.set(list);
+                                                    }
+                                                }
+                                                is_resolving.set(false);
+                                            });
+                                        }
+                                    },
+                                    LucideIcon { name: "check", class: "h-4 w-4 mr-1" }
+                                    "Keep Local Version"
+                                }
+
+                                Button {
+                                    class: "text-xs h-10 px-4 rounded-xl border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer font-semibold",
+                                    disabled: is_resolving,
+                                    onclick: {
+                                        let u = props.active_user_id.clone();
+                                        let w = props.workspace_id.clone();
+                                        let cb = props.onresolvecomplete.clone();
+                                        move |_| {
+                                            let conflicts = conflicts_state.read().clone();
+                                            let idx = *selected_index.read();
+                                            if idx >= conflicts.len() { return; }
+                                            let item = conflicts[idx].clone();
+                                            is_resolving.set(true);
+                                            status_msg.set(None);
+                                            let u = u.clone();
+                                            let w = w.clone();
+                                            let cb = cb.clone();
+                                            spawn(async move {
+                                                if let Ok(_) = resolve_sync_conflict(u.clone(), w.clone(), item.table_name, item.record_id, "keep_remote".to_string(), None).await {
+                                                    status_msg.set(Some("Conflict successfully resolved!".to_string()));
+                                                    cb.call(());
+                                                    if let Ok(list) = get_sync_conflicts(w).await {
+                                                        conflicts_state.set(list);
+                                                    }
+                                                }
+                                                is_resolving.set(false);
+                                            });
+                                        }
+                                    },
+                                    LucideIcon { name: "cloud-download", class: "h-4 w-4 mr-1" }
+                                    "Keep Server Version"
+                                }
+
+                                Button {
+                                    class: "text-xs h-10 px-5 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm cursor-pointer font-bold",
+                                    disabled: is_resolving,
+                                    onclick: {
+                                        let u = props.active_user_id.clone();
+                                        let w = props.workspace_id.clone();
+                                        let cb = props.onresolvecomplete.clone();
+                                        move |_| {
+                                            let conflicts = conflicts_state.read().clone();
+                                            let idx = *selected_index.read();
+                                            if idx >= conflicts.len() { return; }
+                                            let item = conflicts[idx].clone();
+                                            is_resolving.set(true);
+                                            status_msg.set(None);
+                                            let u = u.clone();
+                                            let w = w.clone();
+                                            let cb = cb.clone();
+                                            spawn(async move {
+                                                if let Ok(_) = resolve_sync_conflict(u.clone(), w.clone(), item.table_name, item.record_id, "crdt_merge".to_string(), None).await {
+                                                    status_msg.set(Some("Conflict successfully resolved!".to_string()));
+                                                    cb.call(());
+                                                    if let Ok(list) = get_sync_conflicts(w).await {
+                                                        conflicts_state.set(list);
+                                                    }
+                                                }
+                                                is_resolving.set(false);
+                                            });
+                                        }
+                                    },
+                                    LucideIcon { name: "sparkles", class: "h-4 w-4 mr-1" }
+                                    "Auto-Merge CRDT"
+                                }
+                            }
+                        }
+                }
+            }
+        }
+    }
+}
