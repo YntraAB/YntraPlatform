@@ -273,11 +273,25 @@ fun ClientDetailDialog(
                     }
 
                     // Log new journal log
+                    val launchJournalCamera = com.yntra.app.utils.rememberCameraLauncher { uri, bitmap ->
+                        newJournalText += " [Photo Attached]"
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        IconButton(
+                            onClick = { launchJournalCamera() },
+                            modifier = Modifier.background(Color(0xFF2563EB), RoundedCornerShape(10.dp))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CameraAlt,
+                                contentDescription = "Capture Photo Note",
+                                tint = Color.White
+                            )
+                        }
+
                         OutlinedTextField(
                             value = newJournalText,
                             onValueChange = { newJournalText = it },

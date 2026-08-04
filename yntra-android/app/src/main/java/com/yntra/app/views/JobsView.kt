@@ -325,6 +325,36 @@ fun JobDetailDialog(
                             placeholderColor = Color(0xFF94A3B8)
                         )
                     )
+
+                    var capturedBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+                    val launchCamera = com.yntra.app.utils.rememberCameraLauncher { uri, bitmap ->
+                        capturedBitmap = bitmap
+                    }
+
+                    Button(
+                        onClick = { launchCamera() },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(imageVector = Icons.Default.CameraAlt, contentDescription = "Camera", tint = Color.White)
+                            Text(text = if (capturedBitmap != null) "Retake Evidence Photo" else "Capture Evidence Photo", fontSize = 13.sp)
+                        }
+                    }
+
+                    capturedBitmap?.let { bitmap ->
+                        androidx.compose.foundation.Image(
+                            bitmap = androidx.compose.ui.graphics.asImageBitmap(bitmap),
+                            contentDescription = "Evidence Photo",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(120.dp)
+                                .background(Color(0xFF1E293B), RoundedCornerShape(12.dp))
+                        )
+                    }
                 } else if (job.status == "completed") {
                     Divider(color = Color(0xFF334155))
                     Text(text = "COMPLETION REPORT", color = Color(0xFF94A3B8), fontSize = 11.sp, fontWeight = FontWeight.Bold)

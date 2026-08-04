@@ -207,6 +207,24 @@ fun AuthView(viewModel: AuthViewModel) {
 
                 Button(
                     onClick = {
+                        viewModel.loginWithBiometrics()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                    shape = RoundedCornerShape(16.dp),
+                    contentPadding = PaddingValues(16.dp)
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(imageVector = Icons.Default.Lock, contentDescription = "Biometric Lock", tint = Color.White)
+                        Text(text = "Login with Fingerprint / Face ID", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Button(
+                    onClick = {
                         viewModel.initiateBankIdLogin("card_or_badge")
                     },
                     modifier = Modifier.fillMaxWidth(),
