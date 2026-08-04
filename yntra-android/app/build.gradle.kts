@@ -20,9 +20,22 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            val keystoreFilePath = System.getenv("KEYSTORE_FILE") ?: project.findProperty("KEYSTORE_FILE") as String?
+            if (keystoreFilePath != null && file(keystoreFilePath).exists()) {
+                storeFile = file(keystoreFilePath)
+                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: project.findProperty("KEYSTORE_PASSWORD") as String? ?: ""
+                keyAlias = System.getenv("KEY_ALIAS") ?: project.findProperty("KEY_ALIAS") as String? ?: ""
+                keyPassword = System.getenv("KEY_PASSWORD") ?: project.findProperty("KEY_PASSWORD") as String? ?: ""
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
@@ -65,6 +78,9 @@ dependencies {
     // JNA is required by UniFFI on Android
     implementation("net.java.dev.jna:jna:5.14.0@aar")
     implementation("com.google.zxing:core:3.5.3")
+
+    // Unified Sentry Android Crash Reporting SDK
+    implementation("io.sentry:sentry-android:7.6.0")
 
     // Instrumented tests
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

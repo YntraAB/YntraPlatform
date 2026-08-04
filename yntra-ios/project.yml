@@ -1,6 +1,11 @@
 name: YntraIOS
 options:
   bundleIdPrefix: com.yntra
+packages:
+  Sentry:
+    url: https://github.com/getsentry/sentry-cocoa
+    from: 8.21.0
+
 targets:
   YntraIOS:
     type: application
@@ -10,6 +15,8 @@ targets:
       - YntraIOS
       - path: ../generated_bindings/yntra_core.swift
         name: yntra_core.swift
+    dependencies:
+      - package: Sentry
     settings:
       INFOPLIST_FILE: YntraIOS/Info.plist
       HEADER_SEARCH_PATHS:
