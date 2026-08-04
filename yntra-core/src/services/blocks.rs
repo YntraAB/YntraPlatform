@@ -45,6 +45,19 @@ pub async fn get_blocks(requester_user_id: String) -> Result<Vec<BlockItem>, Ynt
     }
 }
 
+#[uniffi::export]
+pub async fn get_workspace_blocks_by_category(
+    requester_user_id: String,
+    category: String,
+) -> Result<Vec<BlockItem>, YntraError> {
+    let all_blocks = get_blocks(requester_user_id).await?;
+    let filtered = all_blocks
+        .into_iter()
+        .filter(|b| b.category.to_lowercase() == category.to_lowercase())
+        .collect();
+    Ok(filtered)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

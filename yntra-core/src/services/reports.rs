@@ -269,6 +269,186 @@ pub async fn update_report_status(
     Ok(())
 }
 
+#[uniffi::export]
+pub async fn export_workspace_csv(
+    requester_user_id: String,
+    workspace_id: String,
+    entity_type: String,
+) -> Result<String, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if auth.workspace_id != workspace_id && auth.role != "platform_admin" {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    let mut csv_out = String::new();
+
+    match entity_type.to_lowercase().as_str() {
+        "todos" | "tasks" => {
+            csv_out.push_str("ID,WorkspaceID,Text,Completed,UpdatedAt,SyncStatus\n");
+            let mut stmt = conn.prepare(
+                "SELECT id, workspace_id, text, completed, updated_at, sync_status FROM todos WHERE workspace_id = ?1 ORDER BY updated_at DESC"
+            ).await?;
+            let rows = stmt.query_map(crate::params![&workspace_id], |row| {
+                Ok((
+                    row.get::<String>(0)?,
+                    row.get::<String>(1)?,
+                    row.get::<String>(2)?,
+                    row.get::<i32>(3)?,
+                    row.get::<i64>(4)?,
+                    row.get::<String>(5)?,
+                ))
+            }).await?;
+            for (id, ws, text, comp, updated, sync) in rows {
+                let escaped_text = text.replace('"', "\"\"");
+                csv_out.push_str(&format!(
+                    "\"{}\",\"{}\",\"{}\",{},{},\"{}\"\n",
+                    id, ws, escaped_text, comp != 0, updated, sync
+                ));
+            }
+        }
+        "time_reports" | "timesheets" => {
+            csv_out.push_str("ID,WorkspaceID,UserID,Date,Hours,Category,Description,Status,CreatedAt,UpdatedAt,SyncStatus\n");
+            let mut stmt = conn.prepare(
+                "SELECT id, workspace_id, user_id, date, hours, category, description, status, created_at, updated_at, sync_status FROM time_reports WHERE workspace_id = ?1 ORDER BY date DESC"
+            ).await?;
+            let rows = stmt.query_map(crate::params![&workspace_id], |row| {
+                Ok((
+                    row.get::<String>(0)?,
+                    row.get::<String>(1)?,
+                    row.get::<String>(2)?,
+                    row.get::<String>(3)?,
+                    row.get::<f64>(4)?,
+                    row.get::<String>(5)?,
+                    row.get::<String>(6)?,
+                    row.get::<String>(7)?,
+                    row.get::<String>(8)?,
+                    row.get::<i64>(9)?,
+                    row.get::<String>(10)?,
+                ))
+            }).await?;
+            for (id, ws, uid, dt, hrs, cat, desc, st, cr, up, sync) in rows {
+                let escaped_desc = desc.replace('"', "\"\"");
+                let escaped_cat = cat.replace('"', "\"\"");
+                csv_out.push_str(&format!(
+                    "\"{}\",\"{}\",\"{}\",\"{}\",{},\"{}\",\"{}\",\"{}\",\"{}\",{},\"{}\"\n",
+                    id, ws, uid, dt, hrs, escaped_cat, escaped_desc, st, cr, up, sync
+                ));
+            }
+        }
+        _ => {
+            csv_out.push_str("ID,WorkspaceID,UserID,Type,IsAnonymous,Status,CreatedAt,UpdatedAt,SyncStatus\n");
+            let mut stmt = conn.prepare(
+                "SELECT id, workspace_id, user_id, type, is_anonymous, status, created_at, updated_at, sync_status FROM reports WHERE workspace_id = ?1 ORDER BY created_at DESC"
+            ).await?;
+            let rows = stmt.query_map(crate::params![&workspace_id], |row| {
+                Ok((
+                    row.get::<String>(0)?,
+                    row.get::<String>(1)?,
+                    row.get::<String>(2)?,
+                    row.get::<String>(3)?,
+                    row.get::<i32>(4)?,
+                    row.get::<String>(5)?,
+                    row.get::<String>(6)?,
+                    row.get::<i64>(7)?,
+                    row.get::<String>(8)?,
+                ))
+            }).await?;
+            for (id, ws, uid, tp, anon, st, cr, up, sync) in rows {
+                csv_out.push_str(&format!(
+                    "\"{}\",\"{}\",\"{}\",\"{}\",{},\"{}\",\"{}\",{},\"{}\"\n",
+                    id, ws, uid, tp, anon != 0, st, cr, up, sync
+                ));
+            }
+        }
+    }
+
+    Ok(csv_out)
+}
+
+#[uniffi::export]
+pub async fn export_workspace_json(
+    requester_user_id: String,
+    workspace_id: String,
+    entity_type: String,
+) -> Result<String, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    if auth.workspace_id != workspace_id && auth.role != "platform_admin" {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    let json_val = match entity_type.to_lowercase().as_str() {
+        "todos" | "tasks" => {
+            let mut stmt = conn.prepare(
+                "SELECT id, workspace_id, text, completed, updated_at, sync_status FROM todos WHERE workspace_id = ?1 ORDER BY updated_at DESC"
+            ).await?;
+            let rows = stmt.query_map(crate::params![&workspace_id], |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<String>(0)?,
+                    "workspace_id": row.get::<String>(1)?,
+                    "text": row.get::<String>(2)?,
+                    "completed": row.get::<i32>(3)? != 0,
+                    "updated_at": row.get::<i64>(4)?,
+                    "sync_status": row.get::<String>(5)?,
+                }))
+            }).await?;
+            let items: Vec<serde_json::Value> = rows.into_iter().collect();
+            serde_json::Value::Array(items)
+        }
+        "time_reports" | "timesheets" => {
+            let mut stmt = conn.prepare(
+                "SELECT id, workspace_id, user_id, date, hours, category, description, status, created_at, updated_at, sync_status FROM time_reports WHERE workspace_id = ?1 ORDER BY date DESC"
+            ).await?;
+            let rows = stmt.query_map(crate::params![&workspace_id], |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<String>(0)?,
+                    "workspace_id": row.get::<String>(1)?,
+                    "user_id": row.get::<String>(2)?,
+                    "date": row.get::<String>(3)?,
+                    "hours": row.get::<f64>(4)?,
+                    "category": row.get::<String>(5)?,
+                    "description": row.get::<String>(6)?,
+                    "status": row.get::<String>(7)?,
+                    "created_at": row.get::<String>(8)?,
+                    "updated_at": row.get::<i64>(9)?,
+                    "sync_status": row.get::<String>(10)?,
+                }))
+            }).await?;
+            let items: Vec<serde_json::Value> = rows.into_iter().collect();
+            serde_json::Value::Array(items)
+        }
+        _ => {
+            let mut stmt = conn.prepare(
+                "SELECT id, workspace_id, user_id, type, is_anonymous, status, created_at, updated_at, sync_status FROM reports WHERE workspace_id = ?1 ORDER BY created_at DESC"
+            ).await?;
+            let rows = stmt.query_map(crate::params![&workspace_id], |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<String>(0)?,
+                    "workspace_id": row.get::<String>(1)?,
+                    "user_id": row.get::<String>(2)?,
+                    "type": row.get::<String>(3)?,
+                    "is_anonymous": row.get::<i32>(4)? != 0,
+                    "status": row.get::<String>(5)?,
+                    "created_at": row.get::<String>(6)?,
+                    "updated_at": row.get::<i64>(7)?,
+                    "sync_status": row.get::<String>(8)?,
+                }))
+            }).await?;
+            let items: Vec<serde_json::Value> = rows.into_iter().collect();
+            serde_json::Value::Array(items)
+        }
+    };
+
+    Ok(json_val.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -496,5 +676,70 @@ mod tests {
         .await
         .unwrap();
         crate::infra::crypto::clear_session_key();
+    }
+
+    #[tokio::test]
+    async fn test_export_workspace_csv() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let ws_id = "ws-csv-export";
+        let user_id = "u-csv-user";
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'CSV WS', '[]', '{}')", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES (?1, ?2, 'user@csv.io', 'admin')", crate::params![user_id, ws_id]).await.unwrap();
+
+        let now_ms = crate::infra::time::get_current_time_ms();
+        conn.execute(
+            "INSERT OR REPLACE INTO todos (id, workspace_id, text, completed, updated_at, sync_status)
+             VALUES ('todo-csv-1', ?1, 'Exportable task', 0, ?2, 'pending')",
+            crate::params![ws_id, &now_ms],
+        ).await.unwrap();
+
+        let csv = export_workspace_csv(user_id.to_string(), ws_id.to_string(), "todos".to_string())
+            .await
+            .unwrap();
+
+        assert!(csv.contains("ID,WorkspaceID,Text,Completed"));
+        assert!(csv.contains("todo-csv-1"));
+        assert!(csv.contains("Exportable task"));
+
+        // Clean up
+        conn.execute("DELETE FROM todos WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_export_workspace_json() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let ws_id = "ws-json-export";
+        let user_id = "u-json-user";
+
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'JSON WS', '[]', '{}')", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES (?1, ?2, 'user@json.io', 'admin')", crate::params![user_id, ws_id]).await.unwrap();
+
+        let now_ms = crate::infra::time::get_current_time_ms();
+        conn.execute(
+            "INSERT OR REPLACE INTO todos (id, workspace_id, text, completed, updated_at, sync_status)
+             VALUES ('todo-json-1', ?1, 'JSON Task', 1, ?2, 'synced')",
+            crate::params![ws_id, &now_ms],
+        ).await.unwrap();
+
+        let json_str = export_workspace_json(user_id.to_string(), ws_id.to_string(), "todos".to_string())
+            .await
+            .unwrap();
+
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert!(parsed.is_array());
+        assert_eq!(parsed[0]["id"], "todo-json-1");
+        assert_eq!(parsed[0]["text"], "JSON Task");
+
+        // Clean up
+        conn.execute("DELETE FROM todos WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
     }
 }
