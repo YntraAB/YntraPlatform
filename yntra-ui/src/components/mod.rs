@@ -91,3 +91,5 @@ pub mod workspace_export_modal;
 pub use workspace_export_modal::WorkspaceExportModal;
 pub mod ai_approval_modal;
 pub use ai_approval_modal::AiApprovalModal;
+pub mod sync_indicator;
+pub use sync_indicator::SyncIndicator;

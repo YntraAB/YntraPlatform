@@ -200,6 +200,36 @@ pub async fn compact_all_note_crdt_logs(
     Ok(compacted_count)
 }
 
+#[derive(uniffi::Record, Debug, Clone, PartialEq)]
+pub struct ParagraphBlockValidationResult {
+    pub has_concurrent_conflicts: bool,
+    pub sanitized_text: String,
+    pub conflict_banners: Vec<String>,
+}
+
+#[uniffi::export]
+pub fn validate_compliance_crdt_blocks(text: String) -> ParagraphBlockValidationResult {
+    let mut conflict_banners = Vec::new();
+    let mut has_conflicts = false;
+
+    let lower = text.to_lowercase();
+    if (lower.contains("passed") || lower.contains("approved"))
+        && (lower.contains("failed") || lower.contains("rejected"))
+    {
+        has_conflicts = true;
+        conflict_banners.push(
+            "[CONCURRENT EDIT WARNING: Contradictory compliance status detected in concurrent paragraph blocks. Supervisor sign-off required.]"
+                .to_string(),
+        );
+    }
+
+    ParagraphBlockValidationResult {
+        has_concurrent_conflicts: has_conflicts,
+        sanitized_text: text,
+        conflict_banners,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

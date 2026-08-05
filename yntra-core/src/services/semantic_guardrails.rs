@@ -1132,6 +1132,100 @@ pub async fn auto_resolve_semantic_conflicts(
     Ok(auto_resolved)
 }
 
+#[uniffi::export]
+pub async fn quarantine_relational_conflict(
+    requester_user_id: String,
+    workspace_id: String,
+    entity_table: String,
+    entity_id: String,
+    conflict_type: String,
+    local_author_role: String,
+    remote_author_role: String,
+    conflict_details_json: String,
+) -> Result<SemanticConflictRecord, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.role != "admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Access denied".to_string()));
+    }
+
+    let conflict_id = format!("crdt_conf_{}", uuid::Uuid::new_v4().simple());
+    let now = crate::infra::time::get_current_time_ms();
+    let severity = if local_author_role == "admin" || remote_author_role == "admin" {
+        "high".to_string()
+    } else {
+        "medium".to_string()
+    };
+
+    conn.execute(
+        "INSERT INTO crdt_semantic_conflicts (id, workspace_id, domain, entity_table, entity_id, colliding_entity_id, conflict_type, severity, conflict_details_json, status, created_at, updated_at, sync_status) VALUES (?1, ?2, 'relational_quarantine', ?3, ?4, NULL, ?5, ?6, ?7, 'flagged_for_review', ?8, ?8, 'synced')",
+        crate::params![
+            &conflict_id,
+            &workspace_id,
+            &entity_table,
+            &entity_id,
+            &conflict_type,
+            &severity,
+            &conflict_details_json,
+            now
+        ],
+    )
+    .await?;
+
+    notify_observers();
+
+    Ok(SemanticConflictRecord {
+        id: conflict_id,
+        workspace_id,
+        domain: "relational_quarantine".to_string(),
+        entity_table,
+        entity_id,
+        colliding_entity_id: None,
+        conflict_type,
+        severity,
+        conflict_details_json,
+        status: "flagged_for_review".to_string(),
+        created_at: now,
+        updated_at: now,
+    })
+}
+
+#[uniffi::export]
+pub async fn get_workspace_quarantined_conflicts(
+    requester_user_id: String,
+    workspace_id: String,
+) -> Result<Vec<SemanticConflictRecord>, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let mut stmt = conn
+        .prepare("SELECT id, workspace_id, domain, entity_table, entity_id, colliding_entity_id, conflict_type, severity, conflict_details_json, status, created_at, updated_at FROM crdt_semantic_conflicts WHERE workspace_id = ?1 ORDER BY created_at DESC")
+        .await?;
+
+    let list: Vec<SemanticConflictRecord> = stmt
+        .query_map(crate::params![&workspace_id], |r| {
+            Ok(SemanticConflictRecord {
+                id: r.get(0)?,
+                workspace_id: r.get(1)?,
+                domain: r.get(2)?,
+                entity_table: r.get(3)?,
+                entity_id: r.get(4)?,
+                colliding_entity_id: r.get(5)?,
+                conflict_type: r.get(6)?,
+                severity: r.get(7)?,
+                conflict_details_json: r.get(8)?,
+                status: r.get(9)?,
+                created_at: r.get(10)?,
+                updated_at: r.get(11)?,
+            })
+        })
+        .await?
+        .into_iter()
+        .collect();
+
+    Ok(list)
+}
+
 
 #[cfg(test)]
 mod tests {

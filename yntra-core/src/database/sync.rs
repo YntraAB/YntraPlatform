@@ -58,6 +58,53 @@ pub async fn get_mobile_sync_queue_summary(workspace_id: String) -> Result<u32, 
     Ok(total_pending)
 }
 
+#[derive(uniffi::Record, Debug, Clone, PartialEq)]
+pub struct SyncQueueStatus {
+    pub workspace_id: String,
+    pub pending_changes_count: u32,
+    pub quarantined_conflicts_count: u32,
+    pub last_sync_timestamp_ms: i64,
+    pub state: String,
+}
+
+#[uniffi::export]
+pub async fn get_sync_queue_status(
+    requester_user_id: String,
+    workspace_id: String,
+) -> Result<SyncQueueStatus, YntraError> {
+    let conn = crate::database::acquire_connection().await?;
+    let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let pending_count = get_mobile_sync_queue_summary(workspace_id.clone()).await?;
+
+    let quarantined_count: u32 = conn
+        .query_row(
+            "SELECT count(*) FROM crdt_semantic_conflicts WHERE workspace_id = ?1 AND status = 'flagged_for_review'",
+            crate::params![&workspace_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or(0) as u32;
+
+    let now_ms = crate::infra::time::get_current_time_ms();
+
+    let state = if quarantined_count > 0 {
+        "has_conflicts".to_string()
+    } else if pending_count > 0 {
+        "pending_upload".to_string()
+    } else {
+        "synced".to_string()
+    };
+
+    Ok(SyncQueueStatus {
+        workspace_id,
+        pending_changes_count: pending_count,
+        quarantined_conflicts_count: quarantined_count,
+        last_sync_timestamp_ms: now_ms,
+        state,
+    })
+}
+
 #[uniffi::export]
 pub async fn perform_os_background_sync(
     workspace_id: String,
