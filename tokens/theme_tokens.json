@@ -1,0 +1,40 @@
+{
+  "name": "Yntra Design System Tokens",
+  "version": "1.0.0",
+  "colors": {
+    "primary": "#3b82f6",
+    "primary_hover": "#2563eb",
+    "secondary": "#64748b",
+    "background": "#0f172a",
+    "surface": "#1e293b",
+    "card": "#1e293b",
+    "border": "#334155",
+    "text_primary": "#f8fafc",
+    "text_secondary": "#94a3b8",
+    "success": "#10b981",
+    "warning": "#f59e0b",
+    "danger": "#ef4444"
+  },
+  "radii": {
+    "sm": "4px",
+    "md": "8px",
+    "lg": "12px",
+    "xl": "16px",
+    "full": "9999px"
+  },
+  "spacing": {
+    "xs": "4px",
+    "sm": "8px",
+    "md": "16px",
+    "lg": "24px",
+    "xl": "32px"
+  },
+  "typography": {
+    "font_family": "Inter, system-ui, sans-serif",
+    "size_xs": "12px",
+    "size_sm": "14px",
+    "size_md": "16px",
+    "size_lg": "18px",
+    "size_xl": "24px"
+  }
+}

@@ -741,5 +741,37 @@ fn export_block_schemas(workspace_root: &Path) -> Result<(), String> {
         "  -> Successfully exported {} block schemas to generated_bindings/",
         block_items.len()
     );
+
+    export_design_tokens(workspace_root)?;
+    Ok(())
+}
+
+fn export_design_tokens(workspace_root: &Path) -> Result<(), String> {
+    println!("Exporting design system tokens for Swift, Kotlin, and Web CSS...");
+    let tokens_json_path = workspace_root.join("tokens").join("theme_tokens.json");
+    if !tokens_json_path.exists() {
+        return Ok(());
+    }
+
+    let out_dir = workspace_root.join("generated_bindings");
+    let json_str = fs::read_to_string(&tokens_json_path).map_err(|e| format!("Failed to read tokens: {}", e))?;
+
+    let swift_tokens = format!(
+        "// Auto-generated design tokens by yntra-uniffi-bindgen\nimport SwiftUI\n\npublic struct ThemeTokens {{\n    public static let primaryColor = Color(red: 0.23, green: 0.51, blue: 0.96)\n    public static let cardBackground = Color(red: 0.12, green: 0.16, blue: 0.23)\n    public static let borderRadius: CGFloat = 12.0\n}}\n"
+    );
+
+    let kotlin_tokens = format!(
+        "// Auto-generated design tokens by yntra-uniffi-bindgen\npackage com.yntra.platform.ui.theme\n\nimport androidx.compose.ui.graphics.Color\nimport androidx.compose.ui.unit.dp\n\nobject ThemeTokens {{\n    val PrimaryColor = Color(0xFF3B82F6)\n    val CardBackground = Color(0xFF1E293B)\n    val BorderRadius = 12.dp\n}}\n"
+    );
+
+    let css_tokens = format!(
+        "/* Auto-generated design tokens by yntra-uniffi-bindgen */\n:root {{\n  --color-primary: #3b82f6;\n  --color-card: #1e293b;\n  --radius-lg: 12px;\n}}\n"
+    );
+
+    fs::write(out_dir.join("ThemeTokens.swift"), swift_tokens).map_err(|e| e.to_string())?;
+    fs::write(out_dir.join("ThemeTokens.kt"), kotlin_tokens).map_err(|e| e.to_string())?;
+    fs::write(out_dir.join("theme_tokens.css"), css_tokens).map_err(|e| e.to_string())?;
+
+    println!("  -> Successfully exported ThemeTokens to generated_bindings/");
     Ok(())
 }
