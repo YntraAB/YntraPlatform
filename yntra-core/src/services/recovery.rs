@@ -505,6 +505,55 @@ pub async fn reject_key_recovery(
     Ok(())
 }
 
+#[uniffi::export]
+pub async fn execute_admin_escrow_key_recovery(
+    requester_user_id: String,
+    workspace_id: String,
+    target_user_id: String,
+    escrow_shards: Vec<String>,
+) -> Result<bool, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if !auth.is_admin {
+        return Err(YntraError::AuthError("Admin privileges required for key recovery".to_string()));
+    }
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError("Workspace mismatch".to_string()));
+    }
+
+    let mut parsed_shards = Vec::new();
+    for shard in escrow_shards {
+        let parts: Vec<&str> = shard.splitn(2, ':').collect();
+        if parts.len() == 2 {
+            if let Ok(idx) = parts[0].parse::<u8>() {
+                if let Ok(data) = const_hex::decode(parts[1]) {
+                    parsed_shards.push((idx, data));
+                }
+            }
+        }
+    }
+
+    if parsed_shards.len() < 2 {
+        return Err(YntraError::ValidationError("Minimum threshold of 2 escrow shards required".to_string()));
+    }
+
+    let reconstructed_bytes = crypto::reconstruct_secret(&parsed_shards, 2)?;
+    let reconstructed_key = String::from_utf8(reconstructed_bytes)
+        .map_err(|_| YntraError::CryptoError("Failed to parse reconstructed key as UTF-8".to_string()))?;
+
+    crypto::set_local_secret(&format!("creator_private_key_{}", workspace_id), &reconstructed_key).await?;
+
+    let now_ms = crate::infra::time::get_current_time_ms();
+    let _ = conn.execute(
+        "INSERT INTO audit_logs (id, workspace_id, user_id, action, target_type, target_id, details_json, created_at, sync_status) VALUES (?1, ?2, ?3, 'KEY_RECOVERY_EXECUTED', 'user', ?4, '{}', ?5, 'synced')",
+        crate::params![&format!("audit_rec_{}", uuid::Uuid::new_v4().simple()), &workspace_id, &requester_user_id, &target_user_id, now_ms],
+    ).await;
+
+    notify_observers();
+
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

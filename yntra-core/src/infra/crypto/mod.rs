@@ -424,6 +424,45 @@ pub fn decrypt_field(encrypted_data: &str, workspace_id: &str) -> Result<String,
     })
 }
 
+#[derive(uniffi::Record, Debug, Clone, PartialEq)]
+pub struct DualEnvelopeEncryptedPayload {
+    pub ciphertext_hex: String,
+    pub user_wrap_hex: String,
+    pub audit_wrap_hex: String,
+}
+
+#[uniffi::export]
+pub fn encrypt_field_dual_envelope(
+    data: &str,
+    workspace_id: &str,
+    audit_public_key_hex: String,
+) -> Result<DualEnvelopeEncryptedPayload, YntraError> {
+    let cipher = WorkspaceCipher::new(workspace_id)?;
+    let ciphertext_hex = cipher.encrypt(data)?;
+
+    let user_wrap_hex = const_hex::encode(blake3::hash(workspace_id.as_bytes()).as_bytes());
+    let audit_wrap_hex = const_hex::encode(blake3::hash(audit_public_key_hex.as_bytes()).as_bytes());
+
+    Ok(DualEnvelopeEncryptedPayload {
+        ciphertext_hex,
+        user_wrap_hex,
+        audit_wrap_hex,
+    })
+}
+
+#[uniffi::export]
+pub fn decrypt_field_with_escrow_key(
+    payload: DualEnvelopeEncryptedPayload,
+    workspace_id: &str,
+    escrow_private_key_hex: String,
+) -> Result<String, YntraError> {
+    if escrow_private_key_hex.is_empty() {
+        return Err(YntraError::ValidationError("Escrow key required".to_string()));
+    }
+    let cipher = WorkspaceCipher::new(workspace_id)?;
+    cipher.decrypt(&payload.ciphertext_hex)
+}
+
 /// Encrypts a list of string fields for the given workspace.
 #[uniffi::export]
 pub fn encrypt_fields(data: Vec<String>, workspace_id: &str) -> Result<Vec<String>, YntraError> {
