@@ -1144,7 +1144,11 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             sync_status TEXT DEFAULT 'pending',
             FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
         );
-        CREATE INDEX IF NOT EXISTS idx_crdt_conflicts_ws ON crdt_semantic_conflicts(workspace_id, status);"
+        CREATE INDEX IF NOT EXISTS idx_crdt_conflicts_ws ON crdt_semantic_conflicts(workspace_id, status);
+        CREATE INDEX IF NOT EXISTS idx_events_semantic_user ON events(workspace_id, user_id, start_time, end_time);
+        CREATE INDEX IF NOT EXISTS idx_events_semantic_assignee ON events(workspace_id, assignee_id, start_time, end_time);
+        CREATE INDEX IF NOT EXISTS idx_job_tickets_vehicle ON job_tickets(workspace_id, assigned_vehicle_id, scheduled_date);
+        CREATE INDEX IF NOT EXISTS idx_timetable_classroom ON timetable_slots(workspace_id, day_of_week, classroom, start_time, end_time);"
     )
     .await
     .map_err(|e| YntraError::DbError(e.to_string()))?;

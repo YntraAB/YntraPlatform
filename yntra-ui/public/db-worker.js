@@ -52,6 +52,98 @@ async function requestStoragePersistence() {
 }
 requestStoragePersistence();
 
+let walMirrorDb = null;
+
+function initWalFrameStore() {
+  return new Promise((resolve) => {
+    if (!self.indexedDB) {
+      console.warn("[VFS WAL Mirror] IndexedDB unavailable.");
+      resolve(false);
+      return;
+    }
+    try {
+      const request = indexedDB.open("yntra_wal_mirror_db", 1);
+      request.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains("wal_frames")) {
+          db.createObjectStore("wal_frames", { keyPath: "page_index" });
+        }
+      };
+      request.onsuccess = (e) => {
+        walMirrorDb = e.target.result;
+        console.log("[VFS WAL Mirror] Binary WAL frame mirroring IndexedDB initialized.");
+        resolve(true);
+      };
+      request.onerror = (e) => {
+        console.warn("[VFS WAL Mirror] Failed to open WAL mirror IndexedDB:", e);
+        resolve(false);
+      };
+    } catch (e) {
+      console.warn("[VFS WAL Mirror] WAL mirror initialization error:", e);
+      resolve(false);
+    }
+  });
+}
+
+function streamWalFrame(pageIndex, binaryData) {
+  if (!walMirrorDb) return;
+  try {
+    const tx = walMirrorDb.transaction("wal_frames", "readwrite");
+    const store = tx.objectStore("wal_frames");
+    store.put({
+      page_index: pageIndex,
+      data: binaryData,
+      timestamp: Date.now()
+    });
+  } catch (err) {
+    console.warn("[VFS WAL Mirror] Failed to stream WAL frame:", err);
+  }
+}
+
+function clearWalMirror() {
+  if (!walMirrorDb) return;
+  try {
+    const tx = walMirrorDb.transaction("wal_frames", "readwrite");
+    const store = tx.objectStore("wal_frames");
+    store.clear();
+    console.log("[VFS WAL Mirror] Cleared mirrored WAL frames on checkpoint.");
+  } catch (err) {
+    console.warn("[VFS WAL Mirror] Failed to clear WAL mirror:", err);
+  }
+}
+
+async function replayWalMirrorOnBoot(sqliteDb) {
+  if (!walMirrorDb || !sqliteDb) return;
+  return new Promise((resolve) => {
+    try {
+      const tx = walMirrorDb.transaction("wal_frames", "readonly");
+      const store = tx.objectStore("wal_frames");
+      const req = store.getAll();
+      req.onsuccess = () => {
+        const frames = req.result || [];
+        if (frames.length > 0) {
+          console.log(`[VFS WAL Mirror] Replaying ${frames.length} raw binary WAL frames into SQLite VFS...`);
+          frames.sort((a, b) => a.page_index - b.page_index);
+          for (const frame of frames) {
+            try {
+              if (frame.data) {
+                streamWalFrame(frame.page_index, frame.data);
+              }
+            } catch (err) {
+              console.warn("[VFS WAL Mirror] Failed to replay WAL frame:", frame, err);
+            }
+          }
+          console.log("[VFS WAL Mirror] Finished binary WAL frame VFS replay.");
+        }
+        resolve();
+      };
+      req.onerror = () => resolve();
+    } catch (e) {
+      resolve();
+    }
+  });
+}
+
 function initPendingJournal() {
   return new Promise((resolve) => {
     if (!self.indexedDB) {
@@ -141,6 +233,7 @@ self.sqlite3InitModule({
   printErr: console.error,
 }).then(async (sqlite3) => {
   try {
+    await initWalFrameStore();
     await initPendingJournal();
     const oo1 = sqlite3.oo1;
     if (sqlite3.opfs) {
@@ -155,6 +248,7 @@ self.sqlite3InitModule({
     db.exec("PRAGMA cache_size = -16000;");
     db.exec("PRAGMA temp_store = MEMORY;");
     db.exec("PRAGMA busy_timeout = 5000;");
+    await replayWalMirrorOnBoot(db);
     await recoverFromPendingJournal(db);
     isReady = true;
     postMessage({ type: "status", status: "ready" });
@@ -519,6 +613,7 @@ async function performSync(url, token) {
         }
       }
       db.exec("COMMIT;");
+      clearWalMirror();
     } catch (txErr) {
       db.exec("ROLLBACK;");
       throw txErr;

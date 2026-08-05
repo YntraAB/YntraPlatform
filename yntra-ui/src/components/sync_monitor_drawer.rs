@@ -1,8 +1,8 @@
-use crate::components::{Button, LucideIcon};
+use crate::components::{Button, ConflictResolverModal, LucideIcon};
 use dioxus::prelude::*;
 use yntra_core::{
-    PendingBlobUpload, SyncQueueSummaryRecord, get_pending_blob_uploads, get_sync_queue_breakdown,
-    sync_database,
+    PendingBlobUpload, SyncConflictRecord, SyncQueueSummaryRecord, get_pending_blob_uploads,
+    get_sync_conflicts, get_sync_queue_breakdown, sync_database,
 };
 
 #[derive(Props, Clone, PartialEq)]
@@ -16,6 +16,8 @@ pub fn SyncMonitorDrawer(props: SyncMonitorDrawerProps) -> Element {
     let mut is_syncing = use_signal(|| false);
     let mut queue_records = use_signal(|| Vec::<SyncQueueSummaryRecord>::new());
     let mut pending_blobs = use_signal(|| Vec::<PendingBlobUpload>::new());
+    let mut sync_conflicts = use_signal(|| Vec::<SyncConflictRecord>::new());
+    let mut show_conflict_modal = use_signal(|| false);
     let mut status_msg = use_signal(|| Option::<String>::None);
 
     let ws_id1 = props.workspace_id.clone();
@@ -27,8 +29,11 @@ pub fn SyncMonitorDrawer(props: SyncMonitorDrawerProps) -> Element {
             if let Ok(records) = get_sync_queue_breakdown(ws.clone()).await {
                 queue_records.set(records);
             }
-            if let Ok(blobs) = get_pending_blob_uploads(ws).await {
+            if let Ok(blobs) = get_pending_blob_uploads(ws.clone()).await {
                 pending_blobs.set(blobs);
+            }
+            if let Ok(conflicts) = get_sync_conflicts(ws).await {
+                sync_conflicts.set(conflicts);
             }
         });
     });
@@ -47,8 +52,11 @@ pub fn SyncMonitorDrawer(props: SyncMonitorDrawerProps) -> Element {
                     if let Ok(records) = get_sync_queue_breakdown(ws.clone()).await {
                         queue_records.set(records);
                     }
-                    if let Ok(blobs) = get_pending_blob_uploads(ws).await {
+                    if let Ok(blobs) = get_pending_blob_uploads(ws.clone()).await {
                         pending_blobs.set(blobs);
+                    }
+                    if let Ok(conflicts) = get_sync_conflicts(ws).await {
+                        sync_conflicts.set(conflicts);
                     }
                 }
                 Err(e) => {
@@ -112,6 +120,45 @@ pub fn SyncMonitorDrawer(props: SyncMonitorDrawerProps) -> Element {
                             span { class: "text-2xl font-bold text-foreground", "{blobs.len()}" }
                             span { class: "text-xs text-muted-foreground", "files" }
                         }
+                    }
+                }
+
+                // Sync Conflict & LWW Overwrite Alert Card
+                if !sync_conflicts.read().is_empty() {
+                    div { class: "p-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 flex flex-col gap-2.5 shadow-sm animate-pulse",
+                        div { class: "flex items-center justify-between",
+                            div { class: "flex items-center gap-2 text-amber-600 font-bold text-xs",
+                                LucideIcon { name: "alert-triangle", class: "h-4 w-4 shrink-0" }
+                                "{sync_conflicts.read().len()} Sync Conflict(s) Detected"
+                            }
+                            span { class: "px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-700 uppercase", "Action Required" }
+                        }
+                        p { class: "text-xs text-amber-800/80 dark:text-amber-300/80 m-0",
+                            "Concurrent offline updates require resolution to prevent silent data overwrites."
+                        }
+                        button {
+                            class: "w-full py-2 px-3 rounded-xl bg-amber-500 text-white font-bold text-xs hover:bg-amber-600 cursor-pointer transition-colors shadow-xs flex items-center justify-center gap-2",
+                            onclick: move |_| show_conflict_modal.set(true),
+                            LucideIcon { name: "git-merge", class: "h-4 w-4" }
+                            "Review & Resolve Conflicts"
+                        }
+                    }
+                }
+
+                if *show_conflict_modal.read() {
+                    ConflictResolverModal {
+                        active_user_id: "user-1".to_string(),
+                        workspace_id: props.workspace_id.clone(),
+                        onresolvecomplete: move |_| {
+                            show_conflict_modal.set(false);
+                            let ws = props.workspace_id.clone();
+                            spawn(async move {
+                                if let Ok(conflicts) = get_sync_conflicts(ws).await {
+                                    sync_conflicts.set(conflicts);
+                                }
+                            });
+                        },
+                        onclose: move |_| show_conflict_modal.set(false),
                     }
                 }
 

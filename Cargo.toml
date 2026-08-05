@@ -25,7 +25,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 tokio = { version = "1.40", features = ["time", "rt", "macros", "sync"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["Window", "Worker", "console", "Navigator"] }
+web-sys = { version = "0.3", features = ["Window", "Worker", "console", "Navigator", "StorageManager"] }
 js-sys = "0.3"
 fluent-bundle = "0.15"
 unic-langid = "0.9"

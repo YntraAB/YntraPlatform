@@ -7,17 +7,22 @@ const IMMUTABLE_WASM_CACHE = 'yntra-wasm-v1';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
-  '/manifest.json',
+  '/public/manifest.json',
+  '/public/db-bridge.js',
+  '/public/db-worker.js',
+  '/public/sqlite3.js',
+  '/public/dx-components-theme.css',
+  '/public/tailwind.css',
+  '/public/global.css',
+  '/public/sw-register.js',
   '/db-bridge.js',
   '/db-worker.js',
   '/sqlite3.js',
-  '/dx-components-theme.css',
-  '/tailwind.css',
-  '/global.css',
   '/sw-register.js'
 ];
 
 const WASM_ASSETS = [
+  '/public/sqlite3.wasm',
   '/sqlite3.wasm',
   '/yntra-ui.wasm'
 ];

@@ -34,6 +34,22 @@ fn App() -> Element {
     let state = state::use_init_app_state();
     provide_context(state);
 
+    #[cfg(target_arch = "wasm32")]
+    use_effect(move || {
+        spawn(async move {
+            if let Some(window) = web_sys::window() {
+                let navigator = window.navigator();
+                if let Ok(storage) = js_sys::Reflect::get(&navigator, &wasm_bindgen::JsValue::from_str("storage")) {
+                    if !storage.is_undefined() {
+                        use wasm_bindgen::JsCast;
+                        let storage_mgr: web_sys::StorageManager = storage.unchecked_into();
+                        let _ = storage_mgr.persist();
+                    }
+                }
+            }
+        });
+    });
+
     rsx! {
         Stylesheet {}
         document::Link { rel: "manifest", href: asset!("/public/manifest.json") }

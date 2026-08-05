@@ -13,6 +13,137 @@ pub struct KeyRecoveryRequestRecord {
     pub updated_at: i64,
 }
 
+#[derive(uniffi::Record, Debug, Clone, PartialEq)]
+pub struct ThresholdOpaqueNodeRecord {
+    pub node_index: u8,
+    pub node_pubkey_hex: String,
+    pub encrypted_share_payload: String,
+}
+
+#[uniffi::export]
+pub async fn register_threshold_key_node(
+    requester_user_id: String,
+    workspace_id: String,
+    node_pubkey_hex: String,
+) -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if !auth.is_admin {
+        return Err(YntraError::AuthError("Admin privileges required".to_string()));
+    }
+
+    let settings_str: String = conn
+        .query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![&workspace_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or_else(|_| "{}".to_string());
+
+    let mut settings_json: serde_json::Value =
+        serde_json::from_str(&settings_str).unwrap_or_else(|_| serde_json::json!({}));
+
+    let mut nodes = settings_json
+        .get("threshold_key_nodes")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    if !nodes.iter().any(|v| v.as_str() == Some(&node_pubkey_hex)) {
+        nodes.push(serde_json::Value::String(node_pubkey_hex));
+    }
+
+    settings_json["threshold_key_nodes"] = serde_json::Value::Array(nodes);
+    let new_settings = settings_json.to_string();
+    let now_ms = crate::infra::time::get_current_time_ms();
+
+    conn.execute(
+        "UPDATE workspaces SET settings = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
+        crate::params![new_settings, now_ms, &workspace_id],
+    )
+    .await?;
+
+    notify_observers();
+    Ok(())
+}
+
+#[uniffi::export]
+pub async fn split_passkey_recovery_threshold_shares(
+    requester_user_id: String,
+    _workspace_id: String,
+    credential_id: String,
+    client_salt_hex: String,
+    authenticator_hmac_hex: String,
+    threshold: u32,
+    node_pubkeys: Vec<String>,
+) -> Result<Vec<ThresholdOpaqueNodeRecord>, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let salt_bytes = const_hex::decode(&client_salt_hex)
+        .map_err(|_| YntraError::ValidationError("Invalid salt hex".to_string()))?;
+    let hmac_bytes = const_hex::decode(&authenticator_hmac_hex)
+        .map_err(|_| YntraError::ValidationError("Invalid HMAC hex".to_string()))?;
+
+    let derived_key = crypto::derive_webauthn_prf_key(&credential_id, &salt_bytes, &hmac_bytes)?;
+    let shares = crypto::split_threshold_opaque_shares(&derived_key, threshold as usize, &node_pubkeys)?;
+
+    let records = shares
+        .into_iter()
+        .map(|s| ThresholdOpaqueNodeRecord {
+            node_index: s.node_index,
+            node_pubkey_hex: s.node_pubkey_hex,
+            encrypted_share_payload: s.encrypted_share_payload,
+        })
+        .collect();
+
+    Ok(records)
+}
+
+#[uniffi::export]
+pub async fn reconstruct_passkey_from_threshold_shares(
+    requester_user_id: String,
+    node_shares: Vec<ThresholdOpaqueNodeRecord>,
+    node_privkeys_hex: Vec<String>,
+    threshold: u32,
+) -> Result<String, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let internal_shares: Vec<crypto::ThresholdOpaqueShareNode> = node_shares
+        .into_iter()
+        .map(|s| crypto::ThresholdOpaqueShareNode {
+            node_index: s.node_index,
+            node_pubkey_hex: s.node_pubkey_hex,
+            encrypted_share_payload: s.encrypted_share_payload,
+        })
+        .collect();
+
+    let mut priv_map = std::collections::HashMap::new();
+    for priv_hex in node_privkeys_hex {
+        let priv_bytes = const_hex::decode(&priv_hex)
+            .map_err(|_| YntraError::ValidationError("Invalid node private key hex".to_string()))?;
+        if priv_bytes.len() != 32 {
+            return Err(YntraError::ValidationError("Private key must be 32 bytes".to_string()));
+        }
+        let mut arr = [0u8; 32];
+        arr.copy_from_slice(&priv_bytes);
+        let scalar = crypto::ed25519_seed_to_scalar(&arr);
+        let pub_point = &curve25519_dalek::constants::ED25519_BASEPOINT_POINT * &scalar;
+        let pub_hex = const_hex::encode(pub_point.compress().to_bytes());
+        priv_map.insert(pub_hex, priv_hex);
+    }
+
+    let reconstructed_bytes = crypto::reconstruct_from_threshold_opaque_shares(
+        &internal_shares,
+        &priv_map,
+        threshold as usize,
+    )?;
+
+    Ok(const_hex::encode(reconstructed_bytes))
+}
+
 #[uniffi::export]
 pub async fn split_workspace_key(
     requester_user_id: String,
@@ -488,6 +619,67 @@ mod tests {
         // 4. Verify no pending requests remain
         let pending_after = get_pending_recovery_requests("u-admin-disc".to_string(), ws_id.to_string()).await.unwrap();
         assert_eq!(pending_after.len(), 0);
+
+        // Cleanup
+        conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_threshold_opaque_passkey_recovery_workflow() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let ws_id = "ws-recovery-opaque-test";
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Opaque WS', '{}', '{}')", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, password_hash) VALUES ('u-admin-op', ?1, 'admin@op.com', 'admin', 'hash')", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, password_hash) VALUES ('u-user-op', ?1, 'user@op.com', 'user', 'hash')", crate::params![ws_id]).await.unwrap();
+
+        // 1. Generate 3 node keypairs
+        let mut node_pubkeys = Vec::new();
+        let mut node_privkeys = Vec::new();
+        for i in 10u8..=12u8 {
+            let priv_bytes = [i; 32];
+            let priv_hex = const_hex::encode(priv_bytes);
+            let scalar = crypto::ed25519_seed_to_scalar(&priv_bytes);
+            let pub_point = &curve25519_dalek::constants::ED25519_BASEPOINT_POINT * &scalar;
+            let pub_hex = const_hex::encode(pub_point.compress().to_bytes());
+
+            register_threshold_key_node("u-admin-op".to_string(), ws_id.to_string(), pub_hex.clone()).await.unwrap();
+            node_pubkeys.push(pub_hex);
+            node_privkeys.push(priv_hex);
+        }
+
+        // 2. Perform WebAuthn PRF Threshold Share Splitting
+        let cred_id = "cred-passkey-abc-123";
+        let salt_hex = "0102030405060708090a0b0c0d0e0f10";
+        let hmac_hex = "102030405060708090a0b0c0d0e0f102030405060708090a0b0c0d0e0f102030";
+
+        let shares = split_passkey_recovery_threshold_shares(
+            "u-user-op".to_string(),
+            ws_id.to_string(),
+            cred_id.to_string(),
+            salt_hex.to_string(),
+            hmac_hex.to_string(),
+            2,
+            node_pubkeys,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(shares.len(), 3);
+
+        // 3. Reconstruct derived secret key using 2 nodes
+        let reconstructed_hex = reconstruct_passkey_from_threshold_shares(
+            "u-user-op".to_string(),
+            shares[0..2].to_vec(),
+            node_privkeys[0..2].to_vec(),
+            2,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(reconstructed_hex.len(), 64);
 
         // Cleanup
         conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();

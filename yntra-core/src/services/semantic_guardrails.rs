@@ -75,6 +75,24 @@ pub async fn run_semantic_guardrail_check(
     Ok(newly_flagged)
 }
 
+/// Run O(Delta) incremental post-merge semantic guardrails check for target entity delta IDs.
+#[uniffi::export]
+pub async fn run_semantic_guardrail_check_delta(
+    requester_user_id: String,
+    workspace_id: String,
+    entity_table: String,
+    entity_ids: Vec<String>,
+) -> Result<u32, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+
+    let newly_flagged = execute_guardrail_scan_delta(&conn, &workspace_id, &entity_table, &entity_ids).await?;
+    if newly_flagged > 0 {
+        notify_observers();
+    }
+    Ok(newly_flagged)
+}
+
 pub async fn execute_guardrail_scan(
     conn: &database::DbConnection,
     workspace_id: &str,
@@ -87,100 +105,381 @@ pub async fn execute_guardrail_scan(
     Ok(new_conflicts)
 }
 
-async fn check_overlapping_events(
+pub async fn execute_guardrail_scan_delta(
     conn: &database::DbConnection,
     workspace_id: &str,
+    entity_table: &str,
+    entity_ids: &[String],
 ) -> Result<u32, YntraError> {
-    struct EventRow {
-        id: String,
-        user_id: Option<String>,
-        assignee_id: Option<String>,
-        title: String,
-        start_time: String,
-        end_time: String,
+    if entity_ids.is_empty() {
+        return Ok(0);
     }
 
-    let mut stmt = conn
-        .prepare("SELECT id, user_id, assignee_id, title, start_time, end_time FROM events WHERE workspace_id = ?1")
-        .await?;
-    let mut rows = stmt.query(crate::params![workspace_id]).await?;
-
-    let mut events = Vec::new();
-    while let Some(row) = rows.next().await? {
-        events.push(EventRow {
-            id: row.get(0)?,
-            user_id: row.get(1)?,
-            assignee_id: row.get(2)?,
-            title: row.get(3)?,
-            start_time: row.get(4)?,
-            end_time: row.get(5)?,
-        });
-    }
-
+    let mut new_conflicts = 0u32;
     let now_ms = crate::infra::time::get_current_time_ms();
-    let mut flagged_count = 0u32;
 
-    for i in 0..events.len() {
-        for j in (i + 1)..events.len() {
-            let e1 = &events[i];
-            let e2 = &events[j];
-
-            let same_user = (e1.user_id.is_some() && e1.user_id == e2.user_id)
-                || (e1.assignee_id.is_some() && e1.assignee_id == e2.assignee_id);
-
-            if !same_user {
-                continue;
-            }
-
-            // Simple ISO string overlap check: start1 < end2 AND start2 < end1
-            let overlap = e1.start_time < e2.end_time && e2.start_time < e1.end_time;
-            if overlap {
-                let conflict_id = format!("semantic-event-{}-{}", e1.id, e2.id);
-
-                let existing: Option<i64> = conn
+    match entity_table {
+        "events" => {
+            for entity_id in entity_ids {
+                let event: Option<(Option<String>, Option<String>, String, String, String)> = conn
                     .query_row(
-                        "SELECT 1 FROM crdt_semantic_conflicts WHERE id = ?1",
-                        crate::params![&conflict_id],
-                        |r| r.get(0),
+                        "SELECT user_id, assignee_id, title, start_time, end_time FROM events WHERE id = ?1 AND workspace_id = ?2",
+                        crate::params![entity_id, workspace_id],
+                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
                     )
                     .await
                     .ok();
 
-                if existing.is_none() {
-                    let assigned_to = e1
-                        .assignee_id
-                        .clone()
-                        .or_else(|| e1.user_id.clone())
-                        .unwrap_or_default();
-                    let details_json = serde_json::json!({
-                        "assigned_to": assigned_to,
-                        "entity1": { "id": e1.id, "title": e1.title, "start": e1.start_time, "end": e1.end_time },
-                        "entity2": { "id": e2.id, "title": e2.title, "start": e2.start_time, "end": e2.end_time }
-                    })
-                    .to_string();
+                if let Some((user_id, assignee_id, title, start_time, end_time)) = event {
+                    let mut stmt = conn
+                        .prepare(
+                            "SELECT id, title, start_time, end_time, COALESCE(assignee_id, user_id, '')
+                             FROM events
+                             WHERE workspace_id = ?1
+                               AND id != ?2
+                               AND (
+                                 (?3 IS NOT NULL AND ?3 != '' AND user_id = ?3) OR
+                                 (?4 IS NOT NULL AND ?4 != '' AND assignee_id = ?4)
+                               )
+                               AND start_time < ?5 AND ?6 < end_time"
+                        )
+                        .await?;
 
-                    conn.execute(
-                        "INSERT INTO crdt_semantic_conflicts (id, workspace_id, domain, entity_table, entity_id, colliding_entity_id, conflict_type, severity, conflict_details_json, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-                        crate::params![
-                            &conflict_id,
+                    let user_param = user_id.as_deref().unwrap_or_default();
+                    let assignee_param = assignee_id.as_deref().unwrap_or_default();
+
+                    let mut rows = stmt
+                        .query(crate::params![
                             workspace_id,
-                            "calendar",
-                            "events",
-                            &e1.id,
-                            &e2.id,
-                            "OVERLAPPING_SCHEDULE",
-                            "high",
-                            &details_json,
-                            "flagged_for_review",
-                            now_ms,
-                            now_ms
-                        ],
-                    )
-                    .await?;
+                            entity_id,
+                            user_param,
+                            assignee_param,
+                            &end_time,
+                            &start_time
+                        ])
+                        .await?;
 
-                    flagged_count += 1;
+                    while let Some(row) = rows.next().await? {
+                        let colliding_id: String = row.get(0)?;
+                        let colliding_title: String = row.get(1)?;
+                        let colliding_start: String = row.get(2)?;
+                        let colliding_end: String = row.get(3)?;
+                        let assigned_to: String = row.get(4)?;
+
+                        let (e1_id, e2_id) = if entity_id < &colliding_id {
+                            (entity_id.to_string(), colliding_id.to_string())
+                        } else {
+                            (colliding_id.to_string(), entity_id.to_string())
+                        };
+
+                        let conflict_id = format!("semantic-event-{}-{}", e1_id, e2_id);
+                        let existing: Option<i64> = conn
+                            .query_row(
+                                "SELECT 1 FROM crdt_semantic_conflicts WHERE id = ?1",
+                                crate::params![&conflict_id],
+                                |r| r.get(0),
+                            )
+                            .await
+                            .ok();
+
+                        if existing.is_none() {
+                            let details_json = serde_json::json!({
+                                "assigned_to": assigned_to,
+                                "entity1": { "id": entity_id, "title": title, "start": start_time, "end": end_time },
+                                "entity2": { "id": colliding_id, "title": colliding_title, "start": colliding_start, "end": colliding_end }
+                            })
+                            .to_string();
+
+                            conn.execute(
+                                "INSERT INTO crdt_semantic_conflicts (id, workspace_id, domain, entity_table, entity_id, colliding_entity_id, conflict_type, severity, conflict_details_json, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                                crate::params![
+                                    &conflict_id,
+                                    workspace_id,
+                                    "calendar",
+                                    "events",
+                                    &e1_id,
+                                    &e2_id,
+                                    "OVERLAPPING_SCHEDULE",
+                                    "high",
+                                    &details_json,
+                                    "flagged_for_review",
+                                    now_ms,
+                                    now_ms
+                                ],
+                            )
+                            .await?;
+
+                            new_conflicts += 1;
+                        }
+                    }
                 }
             }
+        }
+        "job_tickets" => {
+            for entity_id in entity_ids {
+                let ticket: Option<(String, Option<String>, Option<String>)> = conn
+                    .query_row(
+                        "SELECT title, assigned_vehicle_id, scheduled_date FROM job_tickets WHERE id = ?1 AND workspace_id = ?2 AND status != 'cancelled'",
+                        crate::params![entity_id, workspace_id],
+                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                    )
+                    .await
+                    .ok();
+
+                if let Some((title, Some(vehicle_id), scheduled_date)) = ticket {
+                    if !vehicle_id.is_empty() {
+                        let sched_date = scheduled_date.unwrap_or_default();
+                        let mut stmt = conn
+                            .prepare(
+                                "SELECT id, title, COALESCE(scheduled_date, '')
+                                 FROM job_tickets
+                                 WHERE workspace_id = ?1
+                                   AND id != ?2
+                                   AND assigned_vehicle_id = ?3
+                                   AND status != 'cancelled'
+                                   AND (
+                                     (?4 != '' AND scheduled_date = ?4)
+                                     OR (?4 = '' OR scheduled_date IS NULL OR scheduled_date = '')
+                                   )"
+                            )
+                            .await?;
+
+                        let mut rows = stmt
+                            .query(crate::params![workspace_id, entity_id, &vehicle_id, &sched_date])
+                            .await?;
+
+                        while let Some(row) = rows.next().await? {
+                            let colliding_id: String = row.get(0)?;
+                            let colliding_title: String = row.get(1)?;
+                            let colliding_sched: String = row.get(2)?;
+
+                            let (t1_id, t2_id) = if entity_id < &colliding_id {
+                                (entity_id.to_string(), colliding_id.to_string())
+                            } else {
+                                (colliding_id.to_string(), entity_id.to_string())
+                            };
+
+                            let conflict_id = format!("semantic-vehicle-{}-{}", t1_id, t2_id);
+                            let existing: Option<i64> = conn
+                                .query_row(
+                                    "SELECT 1 FROM crdt_semantic_conflicts WHERE id = ?1",
+                                    crate::params![&conflict_id],
+                                    |r| r.get(0),
+                                )
+                                .await
+                                .ok();
+
+                            if existing.is_none() {
+                                let details_json = serde_json::json!({
+                                    "vehicle_id": vehicle_id,
+                                    "ticket1": { "id": entity_id, "title": title, "scheduled_date": sched_date },
+                                    "ticket2": { "id": colliding_id, "title": colliding_title, "scheduled_date": colliding_sched }
+                                })
+                                .to_string();
+
+                                conn.execute(
+                                    "INSERT INTO crdt_semantic_conflicts (id, workspace_id, domain, entity_table, entity_id, colliding_entity_id, conflict_type, severity, conflict_details_json, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                                    crate::params![
+                                        &conflict_id,
+                                        workspace_id,
+                                        "dispatch",
+                                        "job_tickets",
+                                        &t1_id,
+                                        &t2_id,
+                                        "DOUBLE_BOOKED_RESOURCE",
+                                        "high",
+                                        &details_json,
+                                        "flagged_for_review",
+                                        now_ms,
+                                        now_ms
+                                    ],
+                                )
+                                .await?;
+
+                                new_conflicts += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        "timetable_slots" => {
+            for entity_id in entity_ids {
+                let slot: Option<(String, i64, String, String, Option<String>)> = conn
+                    .query_row(
+                        "SELECT course_id, day_of_week, start_time, end_time, classroom FROM timetable_slots WHERE id = ?1 AND workspace_id = ?2",
+                        crate::params![entity_id, workspace_id],
+                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+                    )
+                    .await
+                    .ok();
+
+                if let Some((course_id, day_of_week, start_time, end_time, Some(classroom))) = slot {
+                    if !classroom.is_empty() {
+                        let mut stmt = conn
+                            .prepare(
+                                "SELECT id, course_id, start_time, end_time
+                                 FROM timetable_slots
+                                 WHERE workspace_id = ?1
+                                   AND id != ?2
+                                   AND day_of_week = ?3
+                                   AND classroom = ?4
+                                   AND start_time < ?5 AND ?6 < end_time"
+                            )
+                            .await?;
+
+                        let mut rows = stmt
+                            .query(crate::params![
+                                workspace_id,
+                                entity_id,
+                                day_of_week,
+                                &classroom,
+                                &end_time,
+                                &start_time
+                            ])
+                            .await?;
+
+                        while let Some(row) = rows.next().await? {
+                            let colliding_id: String = row.get(0)?;
+                            let colliding_course: String = row.get(1)?;
+                            let colliding_start: String = row.get(2)?;
+                            let colliding_end: String = row.get(3)?;
+
+                            let (s1_id, s2_id) = if entity_id < &colliding_id {
+                                (entity_id.to_string(), colliding_id.to_string())
+                            } else {
+                                (colliding_id.to_string(), entity_id.to_string())
+                            };
+
+                            let conflict_id = format!("semantic-timetable-{}-{}", s1_id, s2_id);
+                            let existing: Option<i64> = conn
+                                .query_row(
+                                    "SELECT 1 FROM crdt_semantic_conflicts WHERE id = ?1",
+                                    crate::params![&conflict_id],
+                                    |r| r.get(0),
+                                )
+                                .await
+                                .ok();
+
+                            if existing.is_none() {
+                                let details_json = serde_json::json!({
+                                    "classroom": classroom,
+                                    "day_of_week": day_of_week,
+                                    "slot1": { "id": entity_id, "course_id": course_id, "start": start_time, "end": end_time },
+                                    "slot2": { "id": colliding_id, "course_id": colliding_course, "start": colliding_start, "end": colliding_end }
+                                })
+                                .to_string();
+
+                                conn.execute(
+                                    "INSERT INTO crdt_semantic_conflicts (id, workspace_id, domain, entity_table, entity_id, colliding_entity_id, conflict_type, severity, conflict_details_json, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                                    crate::params![
+                                        &conflict_id,
+                                        workspace_id,
+                                        "academics",
+                                        "timetable_slots",
+                                        &s1_id,
+                                        &s2_id,
+                                        "CLASSROOM_OVERLAP",
+                                        "medium",
+                                        &details_json,
+                                        "flagged_for_review",
+                                        now_ms,
+                                        now_ms
+                                    ],
+                                )
+                                .await?;
+
+                                new_conflicts += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        _ => {
+            new_conflicts += execute_guardrail_scan(conn, workspace_id).await?;
+        }
+    }
+
+    Ok(new_conflicts)
+}
+
+async fn check_overlapping_events(
+    conn: &database::DbConnection,
+    workspace_id: &str,
+) -> Result<u32, YntraError> {
+    let now_ms = crate::infra::time::get_current_time_ms();
+    let mut stmt = conn
+        .prepare(
+            "SELECT e1.id, e1.title, e1.start_time, e1.end_time,
+                    e2.id, e2.title, e2.start_time, e2.end_time,
+                    COALESCE(e1.assignee_id, e1.user_id, '')
+             FROM events e1
+             JOIN events e2 ON e1.workspace_id = e2.workspace_id
+               AND e1.id < e2.id
+               AND (
+                 (e1.user_id IS NOT NULL AND e1.user_id != '' AND e1.user_id = e2.user_id) OR
+                 (e1.assignee_id IS NOT NULL AND e1.assignee_id != '' AND e1.assignee_id = e2.assignee_id)
+               )
+               AND e1.start_time < e2.end_time
+               AND e2.start_time < e1.end_time
+             WHERE e1.workspace_id = ?1"
+        )
+        .await?;
+
+    let mut rows = stmt.query(crate::params![workspace_id]).await?;
+    let mut flagged_count = 0u32;
+
+    while let Some(row) = rows.next().await? {
+        let e1_id: String = row.get(0)?;
+        let e1_title: String = row.get(1)?;
+        let e1_start: String = row.get(2)?;
+        let e1_end: String = row.get(3)?;
+        let e2_id: String = row.get(4)?;
+        let e2_title: String = row.get(5)?;
+        let e2_start: String = row.get(6)?;
+        let e2_end: String = row.get(7)?;
+        let assigned_to: String = row.get(8)?;
+
+        let conflict_id = format!("semantic-event-{}-{}", e1_id, e2_id);
+
+        let existing: Option<i64> = conn
+            .query_row(
+                "SELECT 1 FROM crdt_semantic_conflicts WHERE id = ?1",
+                crate::params![&conflict_id],
+                |r| r.get(0),
+            )
+            .await
+            .ok();
+
+        if existing.is_none() {
+            let details_json = serde_json::json!({
+                "assigned_to": assigned_to,
+                "entity1": { "id": e1_id, "title": e1_title, "start": e1_start, "end": e1_end },
+                "entity2": { "id": e2_id, "title": e2_title, "start": e2_start, "end": e2_end }
+            })
+            .to_string();
+
+            conn.execute(
+                "INSERT INTO crdt_semantic_conflicts (id, workspace_id, domain, entity_table, entity_id, colliding_entity_id, conflict_type, severity, conflict_details_json, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                crate::params![
+                    &conflict_id,
+                    workspace_id,
+                    "calendar",
+                    "events",
+                    &e1_id,
+                    &e2_id,
+                    "OVERLAPPING_SCHEDULE",
+                    "high",
+                    &details_json,
+                    "flagged_for_review",
+                    now_ms,
+                    now_ms
+                ],
+            )
+            .await?;
+
+            flagged_count += 1;
         }
     }
 
@@ -191,91 +490,78 @@ async fn check_double_booked_vehicles(
     conn: &database::DbConnection,
     workspace_id: &str,
 ) -> Result<u32, YntraError> {
-    struct TicketRow {
-        id: String,
-        title: String,
-        assigned_vehicle_id: String,
-        scheduled_date: String,
-    }
-
-    let mut stmt = conn
-        .prepare("SELECT id, title, assigned_vehicle_id, COALESCE(scheduled_date, '') FROM job_tickets WHERE workspace_id = ?1 AND assigned_vehicle_id IS NOT NULL AND status != 'cancelled'")
-        .await?;
-    let mut rows = stmt.query(crate::params![workspace_id]).await?;
-
-    let mut tickets = Vec::new();
-    while let Some(row) = rows.next().await? {
-        let vehicle_id: String = row.get(2)?;
-        if !vehicle_id.is_empty() {
-            tickets.push(TicketRow {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                assigned_vehicle_id: vehicle_id,
-                scheduled_date: row.get(3)?,
-            });
-        }
-    }
-
     let now_ms = crate::infra::time::get_current_time_ms();
+    let mut stmt = conn
+        .prepare(
+            "SELECT t1.id, t1.title, t1.assigned_vehicle_id, COALESCE(t1.scheduled_date, ''),
+                    t2.id, t2.title, COALESCE(t2.scheduled_date, '')
+             FROM job_tickets t1
+             JOIN job_tickets t2 ON t1.workspace_id = t2.workspace_id
+               AND t1.id < t2.id
+               AND t1.assigned_vehicle_id = t2.assigned_vehicle_id
+               AND (
+                 (t1.scheduled_date IS NOT NULL AND t1.scheduled_date != '' AND t1.scheduled_date = t2.scheduled_date)
+                 OR (t1.scheduled_date IS NULL OR t1.scheduled_date = '' OR t2.scheduled_date IS NULL OR t2.scheduled_date = '')
+               )
+             WHERE t1.workspace_id = ?1
+               AND t1.assigned_vehicle_id IS NOT NULL
+               AND t1.assigned_vehicle_id != ''
+               AND t1.status != 'cancelled'
+               AND t2.status != 'cancelled'"
+        )
+        .await?;
+
+    let mut rows = stmt.query(crate::params![workspace_id]).await?;
     let mut flagged_count = 0u32;
 
-    for i in 0..tickets.len() {
-        for j in (i + 1)..tickets.len() {
-            let t1 = &tickets[i];
-            let t2 = &tickets[j];
+    while let Some(row) = rows.next().await? {
+        let t1_id: String = row.get(0)?;
+        let t1_title: String = row.get(1)?;
+        let vehicle_id: String = row.get(2)?;
+        let t1_sched: String = row.get(3)?;
+        let t2_id: String = row.get(4)?;
+        let t2_title: String = row.get(5)?;
+        let t2_sched: String = row.get(6)?;
 
-            if t1.assigned_vehicle_id != t2.assigned_vehicle_id {
-                continue;
-            }
+        let conflict_id = format!("semantic-vehicle-{}-{}", t1_id, t2_id);
 
-            let overlap = if !t1.scheduled_date.is_empty() && !t2.scheduled_date.is_empty() {
-                t1.scheduled_date == t2.scheduled_date
-            } else {
-                true // Same vehicle assigned simultaneously to active tickets
-            };
+        let existing: Option<i64> = conn
+            .query_row(
+                "SELECT 1 FROM crdt_semantic_conflicts WHERE id = ?1",
+                crate::params![&conflict_id],
+                |r| r.get(0),
+            )
+            .await
+            .ok();
 
-            if overlap {
-                let conflict_id = format!("semantic-vehicle-{}-{}", t1.id, t2.id);
+        if existing.is_none() {
+            let details_json = serde_json::json!({
+                "vehicle_id": vehicle_id,
+                "ticket1": { "id": t1_id, "title": t1_title, "scheduled_date": t1_sched },
+                "ticket2": { "id": t2_id, "title": t2_title, "scheduled_date": t2_sched }
+            })
+            .to_string();
 
-                let existing: Option<i64> = conn
-                    .query_row(
-                        "SELECT 1 FROM crdt_semantic_conflicts WHERE id = ?1",
-                        crate::params![&conflict_id],
-                        |r| r.get(0),
-                    )
-                    .await
-                    .ok();
+            conn.execute(
+                "INSERT INTO crdt_semantic_conflicts (id, workspace_id, domain, entity_table, entity_id, colliding_entity_id, conflict_type, severity, conflict_details_json, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                crate::params![
+                    &conflict_id,
+                    workspace_id,
+                    "dispatch",
+                    "job_tickets",
+                    &t1_id,
+                    &t2_id,
+                    "DOUBLE_BOOKED_RESOURCE",
+                    "high",
+                    &details_json,
+                    "flagged_for_review",
+                    now_ms,
+                    now_ms
+                ],
+            )
+            .await?;
 
-                if existing.is_none() {
-                    let details_json = serde_json::json!({
-                        "vehicle_id": t1.assigned_vehicle_id,
-                        "ticket1": { "id": t1.id, "title": t1.title, "scheduled_date": t1.scheduled_date },
-                        "ticket2": { "id": t2.id, "title": t2.title, "scheduled_date": t2.scheduled_date }
-                    })
-                    .to_string();
-
-                    conn.execute(
-                        "INSERT INTO crdt_semantic_conflicts (id, workspace_id, domain, entity_table, entity_id, colliding_entity_id, conflict_type, severity, conflict_details_json, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-                        crate::params![
-                            &conflict_id,
-                            workspace_id,
-                            "dispatch",
-                            "job_tickets",
-                            &t1.id,
-                            &t2.id,
-                            "DOUBLE_BOOKED_RESOURCE",
-                            "high",
-                            &details_json,
-                            "flagged_for_review",
-                            now_ms,
-                            now_ms
-                        ],
-                    )
-                    .await?;
-
-                    flagged_count += 1;
-                }
-            }
+            flagged_count += 1;
         }
     }
 
@@ -286,91 +572,77 @@ async fn check_timetable_collisions(
     conn: &database::DbConnection,
     workspace_id: &str,
 ) -> Result<u32, YntraError> {
-    struct SlotRow {
-        id: String,
-        course_id: String,
-        day_of_week: i64,
-        start_time: String,
-        end_time: String,
-        classroom: Option<String>,
-    }
-
-    let mut stmt = conn
-        .prepare("SELECT id, course_id, day_of_week, start_time, end_time, classroom FROM timetable_slots WHERE workspace_id = ?1")
-        .await?;
-    let mut rows = stmt.query(crate::params![workspace_id]).await?;
-
-    let mut slots = Vec::new();
-    while let Some(row) = rows.next().await? {
-        slots.push(SlotRow {
-            id: row.get(0)?,
-            course_id: row.get(1)?,
-            day_of_week: row.get(2)?,
-            start_time: row.get(3)?,
-            end_time: row.get(4)?,
-            classroom: row.get(5)?,
-        });
-    }
-
     let now_ms = crate::infra::time::get_current_time_ms();
+    let mut stmt = conn
+        .prepare(
+            "SELECT s1.id, s1.course_id, s1.classroom, s1.day_of_week, s1.start_time, s1.end_time,
+                    s2.id, s2.course_id, s2.start_time, s2.end_time
+             FROM timetable_slots s1
+             JOIN timetable_slots s2 ON s1.workspace_id = s2.workspace_id
+               AND s1.id < s2.id
+               AND s1.day_of_week = s2.day_of_week
+               AND s1.classroom IS NOT NULL AND s1.classroom != '' AND s1.classroom = s2.classroom
+               AND s1.start_time < s2.end_time
+               AND s2.start_time < s1.end_time
+             WHERE s1.workspace_id = ?1"
+        )
+        .await?;
+
+    let mut rows = stmt.query(crate::params![workspace_id]).await?;
     let mut flagged_count = 0u32;
 
-    for i in 0..slots.len() {
-        for j in (i + 1)..slots.len() {
-            let s1 = &slots[i];
-            let s2 = &slots[j];
+    while let Some(row) = rows.next().await? {
+        let s1_id: String = row.get(0)?;
+        let s1_course: String = row.get(1)?;
+        let classroom: String = row.get(2)?;
+        let day_of_week: i64 = row.get(3)?;
+        let s1_start: String = row.get(4)?;
+        let s1_end: String = row.get(5)?;
+        let s2_id: String = row.get(6)?;
+        let s2_course: String = row.get(7)?;
+        let s2_start: String = row.get(8)?;
+        let s2_end: String = row.get(9)?;
 
-            if s1.day_of_week != s2.day_of_week {
-                continue;
-            }
+        let conflict_id = format!("semantic-timetable-{}-{}", s1_id, s2_id);
 
-            let same_classroom = s1.classroom.is_some() && s1.classroom == s2.classroom;
-            if same_classroom {
-                let overlap = s1.start_time < s2.end_time && s2.start_time < s1.end_time;
-                if overlap {
-                    let conflict_id = format!("semantic-timetable-{}-{}", s1.id, s2.id);
+        let existing: Option<i64> = conn
+            .query_row(
+                "SELECT 1 FROM crdt_semantic_conflicts WHERE id = ?1",
+                crate::params![&conflict_id],
+                |r| r.get(0),
+            )
+            .await
+            .ok();
 
-                    let existing: Option<i64> = conn
-                        .query_row(
-                            "SELECT 1 FROM crdt_semantic_conflicts WHERE id = ?1",
-                            crate::params![&conflict_id],
-                            |r| r.get(0),
-                        )
-                        .await
-                        .ok();
+        if existing.is_none() {
+            let details_json = serde_json::json!({
+                "classroom": classroom,
+                "day_of_week": day_of_week,
+                "slot1": { "id": s1_id, "course_id": s1_course, "start": s1_start, "end": s1_end },
+                "slot2": { "id": s2_id, "course_id": s2_course, "start": s2_start, "end": s2_end }
+            })
+            .to_string();
 
-                    if existing.is_none() {
-                        let details_json = serde_json::json!({
-                            "classroom": s1.classroom,
-                            "day_of_week": s1.day_of_week,
-                            "slot1": { "id": s1.id, "course_id": s1.course_id, "start": s1.start_time, "end": s1.end_time },
-                            "slot2": { "id": s2.id, "course_id": s2.course_id, "start": s2.start_time, "end": s2.end_time }
-                        })
-                        .to_string();
+            conn.execute(
+                "INSERT INTO crdt_semantic_conflicts (id, workspace_id, domain, entity_table, entity_id, colliding_entity_id, conflict_type, severity, conflict_details_json, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                crate::params![
+                    &conflict_id,
+                    workspace_id,
+                    "academics",
+                    "timetable_slots",
+                    &s1_id,
+                    &s2_id,
+                    "CLASSROOM_OVERLAP",
+                    "medium",
+                    &details_json,
+                    "flagged_for_review",
+                    now_ms,
+                    now_ms
+                ],
+            )
+            .await?;
 
-                        conn.execute(
-                            "INSERT INTO crdt_semantic_conflicts (id, workspace_id, domain, entity_table, entity_id, colliding_entity_id, conflict_type, severity, conflict_details_json, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-                            crate::params![
-                                &conflict_id,
-                                workspace_id,
-                                "academics",
-                                "timetable_slots",
-                                &s1.id,
-                                &s2.id,
-                                "CLASSROOM_OVERLAP",
-                                "medium",
-                                &details_json,
-                                "flagged_for_review",
-                                now_ms,
-                                now_ms
-                            ],
-                        )
-                        .await?;
-
-                        flagged_count += 1;
-                    }
-                }
-            }
+            flagged_count += 1;
         }
     }
 
@@ -1108,6 +1380,51 @@ mod tests {
         assert_eq!(conflicts.len(), 2);
         assert_eq!(conflicts[0].conflict_type, "INVENTORY_OVERALLOCATION");
         assert_eq!(conflicts[0].domain, "inventory");
+    }
+
+    #[tokio::test]
+    async fn test_delta_incremental_guardrail_detection() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let ws_id = format!("ws-delta-{}", crate::infra::time::get_current_time_ms());
+        conn.execute(
+            "INSERT INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Delta WS', '[]', '{}')",
+            crate::params![&ws_id],
+        )
+        .await
+        .unwrap();
+
+        conn.execute(
+            "INSERT INTO users (id, workspace_id, email, role) VALUES ('u-delta-admin', ?1, 'admin@delta.se', 'platform_admin')",
+            crate::params![&ws_id],
+        )
+        .await
+        .unwrap();
+
+        conn.execute(
+            "INSERT INTO events (id, workspace_id, user_id, title, start_time, end_time) VALUES ('evt-delta-1', ?1, 'u-delta-admin', 'Meeting 1', '2026-08-05T10:00:00Z', '2026-08-05T12:00:00Z')",
+            crate::params![&ws_id],
+        )
+        .await
+        .unwrap();
+
+        conn.execute(
+            "INSERT INTO events (id, workspace_id, user_id, title, start_time, end_time) VALUES ('evt-delta-2', ?1, 'u-delta-admin', 'Meeting 2 Overlap', '2026-08-05T11:00:00Z', '2026-08-05T13:00:00Z')",
+            crate::params![&ws_id],
+        )
+        .await
+        .unwrap();
+
+        // Perform incremental delta check on evt-delta-2
+        let flagged = execute_guardrail_scan_delta(&conn, &ws_id, "events", &["evt-delta-2".to_string()]).await.unwrap();
+        assert_eq!(flagged, 1, "Expected 1 delta conflict detected for evt-delta-2");
+
+        let conflicts = get_semantic_conflicts("u-delta-admin".to_string(), ws_id, None)
+            .await
+            .unwrap_or_default();
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].conflict_type, "OVERLAPPING_SCHEDULE");
     }
 }
 

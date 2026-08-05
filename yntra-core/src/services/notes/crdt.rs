@@ -106,6 +106,100 @@ pub async fn get_merged_loro_doc(
     Ok(doc)
 }
 
+pub async fn compact_note_crdt_snapshot(
+    conn: &database::DbConnection,
+    note_id: &str,
+    threshold_count: usize,
+) -> Result<bool, YntraError> {
+    let pending_updates_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM note_updates WHERE note_id = ?1",
+            crate::params![note_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or(0);
+
+    if (pending_updates_count as usize) < threshold_count {
+        return Ok(false);
+    }
+
+    let doc = get_merged_loro_doc(conn, note_id).await?;
+    let snapshot_bytes = doc
+        .export(loro::ExportMode::Snapshot)
+        .map_err(|e| YntraError::SerializationError(e.to_string()))?;
+
+    let max_seq: i64 = conn
+        .query_row(
+            "SELECT IFNULL(MAX(seq), -1) FROM note_updates WHERE note_id = ?1",
+            crate::params![note_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or(-1);
+
+    let compressed_content = format!(
+        "loro:{}:{}",
+        max_seq,
+        crate::infra::crypto::hex_encode(&snapshot_bytes)
+    );
+
+    conn.begin_transaction().await?;
+
+    let res = async {
+        conn.execute(
+            "UPDATE notes SET content = ?1, updated_at = ?2 WHERE id = ?3",
+            crate::params![
+                compressed_content,
+                crate::infra::time::get_current_time_ms(),
+                note_id
+            ],
+        )
+        .await?;
+
+        conn.execute(
+            "DELETE FROM note_updates WHERE note_id = ?1 AND seq <= ?2",
+            crate::params![note_id, max_seq],
+        )
+        .await?;
+
+        Ok::<(), YntraError>(())
+    }
+    .await;
+
+    if let Err(e) = res {
+        let _ = conn.rollback().await;
+        Err(e)
+    } else {
+        conn.commit().await?;
+        Ok(true)
+    }
+}
+
+#[uniffi::export]
+pub async fn compact_all_note_crdt_logs(
+    workspace_id: String,
+    threshold: u32,
+) -> Result<u32, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let mut stmt = conn
+        .prepare("SELECT id FROM notes WHERE workspace_id = ?1")
+        .await?;
+    let mut rows = stmt.query(crate::params![workspace_id]).await?;
+
+    let mut compacted_count = 0u32;
+    let thresh = if threshold == 0 { 10 } else { threshold as usize };
+
+    while let Some(row) = rows.next().await? {
+        let note_id: String = row.get(0)?;
+        if compact_note_crdt_snapshot(&conn, &note_id, thresh).await? {
+            compacted_count += 1;
+        }
+    }
+
+    Ok(compacted_count)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,5 +378,74 @@ mod tests {
 
         apply_diff_to_loro(&text_emoji, "😅Hello CRDT World", "😅Goodbye World").unwrap();
         assert_eq!(text_emoji.to_string(), "😅Goodbye World");
+    }
+
+    #[tokio::test]
+    async fn test_crdt_snapshot_compaction_and_pruning() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = crate::database::acquire_connection().await.unwrap();
+
+        let ws_id = "ws-compaction-test";
+        let note_id = "note-compaction-1";
+
+        conn.execute(
+            "INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings, brand_color, updated_at) VALUES (?1, 'WS Compaction', '{}', '{}', 'blue', 100)",
+            crate::params![ws_id],
+        ).await.unwrap();
+
+        conn.execute(
+            "INSERT OR REPLACE INTO notes (id, workspace_id, team_id, subject, content, created_at, updated_at) VALUES (?1, ?2, 'team-1', 'Compaction Test', 'Base Compaction Content', '2026-08-05', 100)",
+            crate::params![note_id, ws_id],
+        ).await.unwrap();
+
+        let _ = conn
+            .execute(
+                "DELETE FROM note_updates WHERE note_id = ?1",
+                crate::params![note_id],
+            )
+            .await;
+
+        for i in 1..=12 {
+            let doc = loro::LoroDoc::new();
+            let text = doc.get_text("content");
+            text.insert(0, &format!("Edit {}", i)).unwrap();
+            let hex = crate::infra::crypto::hex_encode(
+                &doc.export(loro::ExportMode::Snapshot).unwrap(),
+            );
+
+            conn.execute(
+                "INSERT INTO note_updates (id, note_id, client_id, seq, update_data, created_at) VALUES (?1, ?2, 'client-1', ?3, ?4, ?5)",
+                crate::params![format!("upd-comp-{}", i), note_id, i as i64, hex, 100 + i as i64],
+            ).await.unwrap();
+        }
+
+        let count_before: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM note_updates WHERE note_id = ?1",
+                crate::params![note_id],
+                |r| r.get(0),
+            )
+            .await
+            .unwrap();
+        assert_eq!(count_before, 12);
+
+        let compacted = compact_note_crdt_snapshot(&conn, note_id, 10)
+            .await
+            .unwrap();
+        assert!(compacted);
+
+        let count_after: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM note_updates WHERE note_id = ?1",
+                crate::params![note_id],
+                |r| r.get(0),
+            )
+            .await
+            .unwrap();
+        assert_eq!(count_after, 0);
+
+        let merged_doc = get_merged_loro_doc(&conn, note_id).await.unwrap();
+        let text_res = merged_doc.get_text("content").to_string();
+        assert!(text_res.contains("Edit 12"));
     }
 }

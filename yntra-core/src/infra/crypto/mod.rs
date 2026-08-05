@@ -482,6 +482,13 @@ pub struct EncryptedSearchCandidate {
     pub encrypted_content: String,
 }
 
+#[derive(uniffi::Record, Debug, Clone, PartialEq)]
+pub struct EncryptedVectorIndexRecord {
+    pub id: String,
+    pub minhash_tokens: Vec<String>,
+    pub encrypted_vector_bytes: Vec<u8>,
+}
+
 #[uniffi::export]
 pub fn hash_search_query_term(query_term: &str, workspace_id: &str) -> Result<String, YntraError> {
     let key = get_encryption_keys_internal(workspace_id)?;
@@ -518,6 +525,73 @@ pub fn generate_blind_search_tokens(text: &str, workspace_id: &str) -> Result<Ve
 }
 
 #[uniffi::export]
+pub fn generate_ngram_minhash_tokens(
+    text: &str,
+    workspace_id: &str,
+    ngram_size: u32,
+    num_hashes: u32,
+) -> Result<Vec<String>, YntraError> {
+    let key = get_encryption_keys_internal(workspace_id)?;
+    let words: Vec<&str> = text
+        .split(|c: char| !c.is_alphanumeric() && c != '-')
+        .filter(|w| !w.is_empty())
+        .collect();
+
+    let n = ngram_size.max(2).min(10) as usize;
+    let k = num_hashes.max(4).min(64) as usize;
+    let mut all_tokens = Vec::new();
+
+    for word in words {
+        let normalized = word.trim().to_lowercase();
+        let chars: Vec<char> = normalized.chars().collect();
+
+        if chars.len() < n {
+            let blind = hash_search_query_term(&normalized, workspace_id)?;
+            if !all_tokens.contains(&blind) {
+                all_tokens.push(blind);
+            }
+            continue;
+        }
+
+        let mut ngrams = Vec::new();
+        for i in 0..=(chars.len() - n) {
+            let shingle: String = chars[i..(i + n)].iter().collect();
+            if !ngrams.contains(&shingle) {
+                ngrams.push(shingle);
+            }
+        }
+
+        let mut min_hashes = vec![u64::MAX; k];
+        for shingle in &ngrams {
+            for seed_idx in 0..k {
+                let context_str = CryptoDomain::UserKeyDerivation.get_context(2)?;
+                let mut hasher = blake3::Hasher::new_derive_key(context_str);
+                hasher.update(&*key);
+                hasher.update(&(seed_idx as u64).to_be_bytes());
+                hasher.update(workspace_id.as_bytes());
+                hasher.update(shingle.as_bytes());
+
+                let mut out = [0u8; 8];
+                hasher.finalize_xof().fill(&mut out);
+                let val = u64::from_be_bytes(out);
+                if val < min_hashes[seed_idx] {
+                    min_hashes[seed_idx] = val;
+                }
+            }
+        }
+
+        for h in min_hashes {
+            let tok = format!("mh:{}", const_hex::encode(h.to_be_bytes()));
+            if !all_tokens.contains(&tok) {
+                all_tokens.push(tok);
+            }
+        }
+    }
+
+    Ok(all_tokens)
+}
+
+#[uniffi::export]
 pub fn search_encrypted_records(
     query_term: String,
     workspace_id: String,
@@ -531,6 +605,35 @@ pub fn search_encrypted_records(
             matching_ids.push(candidate.id);
         }
     }
+    Ok(matching_ids)
+}
+
+#[uniffi::export]
+pub fn search_encrypted_records_minhash(
+    query_term: String,
+    workspace_id: String,
+    candidates: Vec<EncryptedSearchCandidate>,
+    similarity_threshold: f64,
+) -> Result<Vec<String>, YntraError> {
+    let query_tokens = generate_ngram_minhash_tokens(&query_term, &workspace_id, 3, 16)?;
+    if query_tokens.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut matching_ids = Vec::new();
+
+    for candidate in candidates {
+        let matches = query_tokens
+            .iter()
+            .filter(|qt| candidate.blind_tokens.contains(qt))
+            .count();
+
+        let jaccard_sim = (matches as f64) / (query_tokens.len() as f64);
+        if jaccard_sim >= similarity_threshold {
+            matching_ids.push(candidate.id);
+        }
+    }
+
     Ok(matching_ids)
 }
 
@@ -926,6 +1029,39 @@ mod tests {
         let results_excavator = search_encrypted_records("excavator".to_string(), ws_id.to_string(), candidates).unwrap();
         assert_eq!(results_excavator.len(), 1);
         assert_eq!(results_excavator[0], "rec-2");
+
+        clear_session_key();
+    }
+
+    #[test]
+    fn test_ngram_minhash_fuzzy_encrypted_search() {
+        let _test_lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let ws_id = "ws-minhash-test";
+        set_session_key("minhash-key-secret".to_string().into_bytes(), ws_id.to_string());
+
+        let doc1 = "Whistleblower anti-corruption compliance report";
+        let doc2 = "Routine maintenance vehicle inspection log";
+
+        let tokens1 = generate_ngram_minhash_tokens(doc1, ws_id, 3, 16).unwrap();
+        let tokens2 = generate_ngram_minhash_tokens(doc2, ws_id, 3, 16).unwrap();
+
+        let candidates = vec![
+            EncryptedSearchCandidate {
+                id: "doc-1".to_string(),
+                blind_tokens: tokens1,
+                encrypted_content: encrypt_field(doc1, ws_id).unwrap(),
+            },
+            EncryptedSearchCandidate {
+                id: "doc-2".to_string(),
+                blind_tokens: tokens2,
+                encrypted_content: encrypt_field(doc2, ws_id).unwrap(),
+            },
+        ];
+
+        // Fuzzy match: query "whistleblowing" should match doc1 ("Whistleblower") via N-gram MinHash overlap
+        let results = search_encrypted_records_minhash("whistleblowing".to_string(), ws_id.to_string(), candidates, 0.25).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], "doc-1");
 
         clear_session_key();
     }

@@ -1,17 +1,49 @@
 // db-bridge.js
 // Interface between Rust WASM core and the SQLite Web Worker
 
+window.yntra_persistent_storage_granted = false;
+
 if (navigator.storage && navigator.storage.persist) {
   navigator.storage.persist().then((persistent) => {
+    window.yntra_persistent_storage_granted = persistent;
     console.log(`[Yntra Storage] Persistent storage granted: ${persistent}`);
   });
 }
 
-const worker = new Worker('/db-worker.js');
+// Sub-200ms Cold-Start Optimization: Pre-fetch & Pre-compile WASM Module with Robust MIME Fallback
+const precompileWasm = async (url) => {
+  try {
+    if ('WebAssembly' in window && WebAssembly.compileStreaming) {
+      const response = fetch(url, { cache: 'force-cache' });
+      return await WebAssembly.compileStreaming(response);
+    }
+  } catch (e) {
+    console.warn(`[WASM Pre-compile] compileStreaming failed for ${url}, trying arrayBuffer fallback:`, e);
+    try {
+      const res = await fetch(url, { cache: 'force-cache' });
+      const buffer = await res.arrayBuffer();
+      return await WebAssembly.compile(buffer);
+    } catch (fallbackErr) {
+      console.warn(`[WASM Pre-compile] ArrayBuffer fallback failed for ${url}:`, fallbackErr);
+    }
+  }
+  return null;
+};
+
+// Trigger parallel WASM streaming compilation immediately on script evaluation
+const wasmPreloadPromise = precompileWasm('/public/sqlite3.wasm');
+
+const worker = new Worker('/public/db-worker.js');
 const pendingRequests = new Map();
 let messageId = 0;
 let isDbReady = false;
 const readyCallbacks = [];
+
+wasmPreloadPromise.then((compiledModule) => {
+  if (compiledModule) {
+    console.log('[Yntra Cold-Start] SQLite WASM module pre-compiled in parallel.');
+  }
+});
 
 worker.onmessage = function(e) {
   const { id, type, status, success, rows, rowsAffected, error, hasChanges } = e.data;

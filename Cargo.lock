@@ -9630,6 +9630,7 @@ dependencies = [
 name = "yntra-uniffi-bindgen"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "uniffi",
  "yntra-core",
 ]

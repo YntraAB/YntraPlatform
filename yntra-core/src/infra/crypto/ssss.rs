@@ -273,7 +273,7 @@ pub fn decrypt_with_workspace_privkey(
     Ok(decrypted)
 }
 
-fn ed25519_seed_to_scalar(seed: &[u8; 32]) -> Scalar {
+pub fn ed25519_seed_to_scalar(seed: &[u8; 32]) -> Scalar {
     use sha2::{Digest, Sha512};
     let mut hasher = Sha512::new();
     hasher.update(seed);
@@ -284,6 +284,87 @@ fn ed25519_seed_to_scalar(seed: &[u8; 32]) -> Scalar {
     scalar_bytes[31] &= 127;
     scalar_bytes[31] |= 64;
     Scalar::from_bytes_mod_order(scalar_bytes)
+}
+
+pub fn derive_webauthn_prf_key(
+    credential_id: &str,
+    client_salt: &[u8],
+    authenticator_hmac_output: &[u8],
+) -> Result<Vec<u8>, YntraError> {
+    if client_salt.len() < 16 {
+        return Err(YntraError::CryptoError(
+            "Salt must be at least 16 bytes".to_string(),
+        ));
+    }
+    let mut hasher = blake3::Hasher::new_derive_key("yntra-webauthn-prf-kdf-v1");
+    hasher.update(credential_id.as_bytes());
+    hasher.update(client_salt);
+    hasher.update(authenticator_hmac_output);
+    let key_bytes = hasher.finalize();
+    Ok(key_bytes.as_bytes().to_vec())
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+pub struct ThresholdOpaqueShareNode {
+    pub node_index: u8,
+    pub node_pubkey_hex: String,
+    pub encrypted_share_payload: String,
+}
+
+pub fn split_threshold_opaque_shares(
+    secret: &[u8],
+    threshold: usize,
+    node_pubkeys: &[String],
+) -> Result<Vec<ThresholdOpaqueShareNode>, YntraError> {
+    let total_nodes = node_pubkeys.len();
+    if threshold < 1 || total_nodes < threshold || total_nodes > 255 {
+        return Err(YntraError::CryptoError(
+            "Invalid threshold node parameters".to_string(),
+        ));
+    }
+
+    let shards = split_secret(secret, threshold, total_nodes)?;
+    let mut node_shares = Vec::with_capacity(total_nodes);
+
+    for ((idx, shard_bytes), pubkey_hex) in shards.into_iter().zip(node_pubkeys.iter()) {
+        let encrypted_payload = encrypt_with_workspace_pubkey(pubkey_hex, &shard_bytes)?;
+        node_shares.push(ThresholdOpaqueShareNode {
+            node_index: idx,
+            node_pubkey_hex: pubkey_hex.clone(),
+            encrypted_share_payload: encrypted_payload,
+        });
+    }
+
+    Ok(node_shares)
+}
+
+pub fn reconstruct_from_threshold_opaque_shares(
+    node_shares: &[ThresholdOpaqueShareNode],
+    node_privkeys_map: &std::collections::HashMap<String, String>,
+    threshold: usize,
+) -> Result<Vec<u8>, YntraError> {
+    if node_shares.len() < threshold {
+        return Err(YntraError::CryptoError(
+            "Insufficient threshold node shares provided".to_string(),
+        ));
+    }
+
+    let mut decrypted_shards = Vec::with_capacity(threshold);
+    for share in node_shares.iter().take(threshold) {
+        let node_privkey = node_privkeys_map
+            .get(&share.node_pubkey_hex)
+            .ok_or_else(|| {
+                YntraError::CryptoError(format!(
+                    "Private key missing for node pubkey {}",
+                    share.node_pubkey_hex
+                ))
+            })?;
+
+        let shard_data = decrypt_with_workspace_privkey(node_privkey, &share.encrypted_share_payload)?;
+        decrypted_shards.push((share.node_index, shard_data));
+    }
+
+    reconstruct_secret(&decrypted_shards, threshold)
 }
 
 #[cfg(test)]
@@ -343,5 +424,39 @@ mod tests {
         } else {
             panic!("Expected CryptoError for duplicate shard IDs");
         }
+    }
+
+    #[test]
+    fn test_threshold_opaque_shares_and_prf() {
+        // 1. WebAuthn PRF Key Derivation Test
+        let cred_id = "cred_webauthn_passkey_12345";
+        let client_salt = b"0123456789abcdef0123456789abcdef";
+        let hmac_out = b"authenticator_hmac_secret_output_bytes_32";
+        let prf_key = derive_webauthn_prf_key(cred_id, client_salt, hmac_out).unwrap();
+        assert_eq!(prf_key.len(), 32);
+
+        // 2. Generate 3 mock key server node pairs
+        let mut node_pubkeys = Vec::new();
+        let mut node_privkeys_map = std::collections::HashMap::new();
+
+        for i in 1u8..=3 {
+            let priv_seed = [i; 32];
+            let priv_hex = const_hex::encode(priv_seed);
+            let scalar = ed25519_seed_to_scalar(&priv_seed);
+            let pub_point = &ED25519_BASEPOINT_POINT * &scalar;
+            let pub_hex = const_hex::encode(pub_point.compress().to_bytes());
+
+            node_pubkeys.push(pub_hex.clone());
+            node_privkeys_map.insert(pub_hex, priv_hex);
+        }
+
+        // 3. Split passkey master secret using 2-of-3 threshold
+        let master_passkey_secret = b"my-decentralized-passkey-recovery-seed";
+        let shares = split_threshold_opaque_shares(master_passkey_secret, 2, &node_pubkeys).unwrap();
+        assert_eq!(shares.len(), 3);
+
+        // 4. Reconstruct secret from 2 nodes
+        let restored = reconstruct_from_threshold_opaque_shares(&shares[0..2], &node_privkeys_map, 2).unwrap();
+        assert_eq!(restored, master_passkey_secret);
     }
 }
