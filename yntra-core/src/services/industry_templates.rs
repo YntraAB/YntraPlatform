@@ -235,6 +235,18 @@ pub async fn install_industry_template(
         }
     }
 
+    // 4. Auto-register pre-wired cross-block event rules for the suite bundle
+    let (src_b, tgt_b, trig_e, act_t) = match template_id.as_str() {
+        "hvac_work_orders" => ("time", "jobs", "TimeLogSubmitted", "UpdateJobCosting"),
+        "healthcare_patient_log" => ("journals", "messaging", "CareNoteLogged", "PostEmergencyAlert"),
+        _ => ("scheduling", "messaging", "DispatchScheduled", "NotifyCrewMessaging"),
+    };
+    let rule_id = format!("rule_auto_{}", Uuid::new_v4().simple());
+    let _ = conn.execute(
+        "INSERT INTO event_rules (id, workspace_id, source_block_id, target_block_id, trigger_event, action_type, config_json, is_active, created_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, '{}', 1, ?7, 'synced')",
+        crate::params![&rule_id, &workspace_id, src_b, tgt_b, trig_e, act_t, now_ms],
+    ).await;
+
     notify_observers();
 
     Ok(BlockItem {
