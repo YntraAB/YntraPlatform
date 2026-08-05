@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "Yntra Platform Design Tokens",
+  "version": "1.0.0",
+  "color": {
+    "primary": {
+      "hex": "#2563EB",
+      "hsl": "221.2 83.2% 53.3%",
+      "rgb": [37, 99, 235]
+    },
+    "primary_dark": {
+      "hex": "#1D4ED8",
+      "hsl": "224.3 76.3% 48%",
+      "rgb": [29, 78, 216]
+    },
+    "background_dark": {
+      "hex": "#0E1117",
+      "hsl": "220 15% 6%",
+      "rgb": [14, 17, 23]
+    },
+    "card_dark": {
+      "hex": "#11161D",
+      "hsl": "220 15% 8%",
+      "rgb": [17, 22, 29]
+    },
+    "popover_dark": {
+      "hex": "#11161D",
+      "hsl": "220 15% 8%",
+      "rgb": [17, 22, 29]
+    },
+    "foreground_dark": {
+      "hex": "#FAFAFA",
+      "hsl": "0 0% 98%",
+      "rgb": [250, 250, 250]
+    },
+    "muted_dark": {
+      "hex": "#232A35",
+      "hsl": "220 12% 18%",
+      "rgb": [35, 42, 53]
+    },
+    "muted_foreground_dark": {
+      "hex": "#A4B0C0",
+      "hsl": "220 12% 70%",
+      "rgb": [164, 176, 192]
+    },
+    "border_dark": {
+      "hex": "#232A35",
+      "hsl": "220 12% 18%",
+      "rgb": [35, 42, 53]
+    },
+    "input_dark": {
+      "hex": "#1B212A",
+      "hsl": "220 12% 14%",
+      "rgb": [27, 33, 42]
+    },
+    "ring": {
+      "hex": "#3B82F6",
+      "hsl": "217.2 91.2% 59.8%",
+      "rgb": [59, 130, 246]
+    },
+    "success": {
+      "hex": "#10B981",
+      "hsl": "142.1 76.2% 36.3%",
+      "rgb": [16, 185, 129]
+    },
+    "warning": {
+      "hex": "#F59E0B",
+      "hsl": "38 92% 50%",
+      "rgb": [245, 158, 11]
+    },
+    "destructive": {
+      "hex": "#EF4444",
+      "hsl": "0 84.2% 60.2%",
+      "rgb": [239, 68, 68]
+    }
+  }
+}

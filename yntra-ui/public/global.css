@@ -461,7 +461,7 @@ body {
 }
 
 .yntra-table tr:hover td {
-    background: hsl(240, 5.9%, 10%);
+    background: var(--card-hover);
 }
 
 .login-container {
@@ -470,7 +470,7 @@ body {
     justify-content: center;
     height: 100vh;
     width: 100vw;
-    background: hsl(240, 10%, 3.9%);
+    background: var(--bg-main);
     overflow: hidden;
     position: relative;
 }
@@ -519,7 +519,7 @@ body {
 .login-tabs {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    background: hsl(240, 5.9%, 10%);
+    background: var(--card-hover);
     border-radius: 8px;
     padding: 0.2rem;
     border: 1px solid var(--border-color);
@@ -538,7 +538,7 @@ body {
 }
 
 .login-tab-btn.active {
-    background: hsl(240, 3.7%, 15.9%);
+    background: var(--border-color);
     color: var(--text-primary);
 }
 
@@ -598,7 +598,7 @@ body {
 }
 
 .bankid-modal {
-    background: hsl(240, 10%, 3.9%);
+    background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: 12px;
     padding: 2rem;

@@ -432,9 +432,6 @@ pub fn AccountSettings(props: AccountSettingsProps) -> Element {
                                         vec![
                                             ("light", "sun", t("settings-theme-light", &props.locale)),
                                             ("dark", "moon", t("settings-theme-dark", &props.locale)),
-                                            ("midnight", "zap", "Midnight".to_string()),
-                                            ("slate", "shield", "Slate".to_string()),
-                                            ("forest", "leaf", "Forest".to_string()),
                                             ("system", "monitor", t("settings-theme-system", &props.locale)),
                                         ].into_iter().map(|(val, icon, label)| {
                                             let is_active = *selected_theme.read() == val;

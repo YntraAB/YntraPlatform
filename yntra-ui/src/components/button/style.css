@@ -152,29 +152,24 @@
 }
 
 .dx-button[data-style="ghost"]:not(:disabled):hover {
-  background-color: var(--light, var(--primary-color-5))
-    var(--dark, color-mix(in oklab, var(--primary-color-5) 50%, transparent));
+  background-color: var(--primary-color-4);
   color: var(--secondary-color-1);
 }
 
 .dx-button[data-style="outline"] {
-  border: 1px solid var(--light, var(--primary-color-6))
-    var(--dark, var(--primary-color-7));
-  background-color: var(--light, var(--primary-color))
-    var(--dark, color-mix(in oklab, var(--primary-color-7) 30%, transparent));
+  border: 1px solid var(--primary-color-6);
+  background-color: var(--primary-color-2);
   box-shadow: 0 1px 2px 0 rgb(0 0 0 / 5%);
   color: var(--secondary-color-4);
 }
 
 .dx-button[data-style="outline"]:not(:disabled):hover {
-  background-color: var(--light, var(--primary-color-5))
-    var(--dark, color-mix(in oklab, var(--primary-color-7) 50%, transparent));
+  background-color: var(--primary-color-4);
   color: var(--secondary-color-1);
 }
 
 .dx-button[data-style="destructive"] {
-  background-color: var(--light, var(--primary-error-color))
-    var(--dark, color-mix(in oklab, var(--primary-error-color) 60%, transparent));
+  background-color: var(--primary-error-color);
   color: var(--contrast-error-color);
 }
 

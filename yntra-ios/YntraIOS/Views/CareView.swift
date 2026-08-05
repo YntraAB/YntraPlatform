@@ -6,8 +6,8 @@ struct CareView: View {
     
     @State private var selectedClient: ClientProfile? = nil
     
-    private let darkBackground = Color(red: 0.04, green: 0.06, blue: 0.1)
-    private let cardBackground = Color(red: 0.12, green: 0.16, blue: 0.23)
+    private let darkBackground = ColorTokens.backgroundDark
+    private let cardBackground = ColorTokens.cardDark
 
     var body: some View {
         ZStack {
@@ -108,8 +108,8 @@ struct ClientDetailView: View {
     @State private var showAddMedSheet = false
     @State private var showNoteCameraSheet = false
     
-    private let darkBackground = Color(red: 0.04, green: 0.06, blue: 0.1)
-    private let cardBackground = Color(red: 0.12, green: 0.16, blue: 0.23)
+    private let darkBackground = ColorTokens.backgroundDark
+    private let cardBackground = ColorTokens.cardDark
     
     var body: some View {
         NavigationView {

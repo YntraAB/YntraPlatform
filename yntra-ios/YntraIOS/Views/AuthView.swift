@@ -10,11 +10,11 @@ struct AuthView: View {
     @State private var showCredentialsFallback: Bool = false
     @StateObject private var biometricManager = BiometricAuthManager()
     
-    // Brand Colors
-    private let darkBackground = Color(red: 0.04, green: 0.06, blue: 0.1)
-    private let cardBackground = Color(red: 0.12, green: 0.16, blue: 0.23)
+    // Brand Colors (Synced via Central Token Pipeline)
+    private let darkBackground = ColorTokens.backgroundDark
+    private let cardBackground = ColorTokens.cardDark
     private let primaryGradient = LinearGradient(
-        colors: [Color(red: 0.31, green: 0.27, blue: 0.9), Color(red: 0.54, green: 0.36, blue: 0.96)],
+        colors: [ColorTokens.primary, ColorTokens.primaryDark],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
