@@ -180,3 +180,111 @@ pub struct WebhookDeliveryLog {
     pub next_retry_at: i64,
     pub created_at: i64,
 }
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct EhrIntegrationConfig {
+    pub id: String,
+    pub workspace_id: String,
+    pub provider: String,
+    pub fhir_endpoint_url: String,
+    pub account_id: Option<String>,
+    pub api_token: Option<String>,
+    pub refresh_token: Option<String>,
+    pub token_expires_at: i64,
+    pub mtls_client_cert_pem: Option<String>,
+    pub mtls_client_key_pem: Option<String>,
+    pub sync_direction: String,
+    pub auto_sync_enabled: bool,
+    pub last_synced_at: i64,
+    pub sync_status: String,
+    pub error_message: Option<String>,
+    pub sync_token: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct EhrSyncResult {
+    pub integration_id: String,
+    pub provider: String,
+    pub records_pulled: u32,
+    pub records_pushed: u32,
+    pub conflicts_resolved: u32,
+    pub status: String,
+    pub error_message: Option<String>,
+    pub synced_at: i64,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct SisIntegrationConfig {
+    pub id: String,
+    pub workspace_id: String,
+    pub provider: String,
+    pub edfi_endpoint_url: String,
+    pub client_key: Option<String>,
+    pub client_secret: Option<String>,
+    pub sync_direction: String,
+    pub auto_sync_enabled: bool,
+    pub last_synced_at: i64,
+    pub sync_status: String,
+    pub error_message: Option<String>,
+    pub sync_token: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct SisSyncResult {
+    pub integration_id: String,
+    pub provider: String,
+    pub records_pulled: u32,
+    pub records_pushed: u32,
+    pub conflicts_resolved: u32,
+    pub status: String,
+    pub error_message: Option<String>,
+    pub synced_at: i64,
+}

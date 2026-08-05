@@ -43,6 +43,7 @@ pub struct MedicationItem {
     pub dosage: Option<String>,
     pub frequency: Option<String>,
     pub instructions: Option<String>,
+    pub fhir_payload: Option<String>,
     pub updated_at: i64,
     pub sync_status: String,
 }

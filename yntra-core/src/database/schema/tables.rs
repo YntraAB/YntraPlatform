@@ -192,6 +192,7 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             dosage TEXT,
             frequency TEXT,
             instructions TEXT,
+            fhir_payload TEXT DEFAULT '{}',
             updated_at INTEGER NOT NULL DEFAULT 0,
             sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
             FOREIGN KEY(client_id) REFERENCES clients(id)
@@ -644,6 +645,93 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             FOREIGN KEY(block_id) REFERENCES blocks(id)
         );
 
+        CREATE TABLE IF NOT EXISTS wasm_plugins (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            domain_scope TEXT NOT NULL,
+            name TEXT NOT NULL,
+            version TEXT NOT NULL,
+            bytecode_base64 TEXT NOT NULL,
+            manifest_json TEXT NOT NULL DEFAULT '{}',
+            created_at INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+            FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS ehr_integrations (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            fhir_endpoint_url TEXT NOT NULL,
+            account_id TEXT,
+            api_token TEXT,
+            refresh_token TEXT,
+            token_expires_at INTEGER NOT NULL DEFAULT 0,
+            mtls_client_cert_pem TEXT,
+            mtls_client_key_pem TEXT,
+            sync_direction TEXT NOT NULL DEFAULT 'two_way',
+            auto_sync_enabled INTEGER NOT NULL DEFAULT 1,
+            last_synced_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT NOT NULL DEFAULT 'idle',
+            error_message TEXT,
+            sync_token TEXT,
+            created_at INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS ehr_sync_mappings (
+            id TEXT PRIMARY KEY,
+            integration_id TEXT NOT NULL,
+            workspace_id TEXT NOT NULL,
+            local_entity_id TEXT NOT NULL,
+            external_fhir_id TEXT NOT NULL,
+            external_etag TEXT,
+            last_synced_at INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY(integration_id) REFERENCES ehr_integrations(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS sis_integrations (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            edfi_endpoint_url TEXT NOT NULL,
+            client_key TEXT,
+            client_secret TEXT,
+            sync_direction TEXT NOT NULL DEFAULT 'two_way',
+            auto_sync_enabled INTEGER NOT NULL DEFAULT 1,
+            last_synced_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT NOT NULL DEFAULT 'idle',
+            error_message TEXT,
+            sync_token TEXT,
+            created_at INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS sis_sync_mappings (
+            id TEXT PRIMARY KEY,
+            integration_id TEXT NOT NULL,
+            workspace_id TEXT NOT NULL,
+            local_entity_id TEXT NOT NULL,
+            external_edfi_id TEXT NOT NULL,
+            external_etag TEXT,
+            last_synced_at INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY(integration_id) REFERENCES sis_integrations(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS audit_merkle_nodes (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            tree_level INTEGER NOT NULL,
+            node_index INTEGER NOT NULL,
+            hash TEXT NOT NULL,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_merkle_level_index ON audit_merkle_nodes(workspace_id, tree_level, node_index);
+
         CREATE TABLE IF NOT EXISTS student_profiles (
             id TEXT PRIMARY KEY,
             workspace_id TEXT NOT NULL,
@@ -744,6 +832,7 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             gpa REAL NOT NULL,
             principal_comments TEXT,
             status TEXT NOT NULL DEFAULT 'draft',
+            edfi_payload TEXT DEFAULT '{}',
             updated_at INTEGER NOT NULL,
             sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
             FOREIGN KEY(student_id) REFERENCES student_profiles(id)
@@ -1148,7 +1237,45 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
         CREATE INDEX IF NOT EXISTS idx_events_semantic_user ON events(workspace_id, user_id, start_time, end_time);
         CREATE INDEX IF NOT EXISTS idx_events_semantic_assignee ON events(workspace_id, assignee_id, start_time, end_time);
         CREATE INDEX IF NOT EXISTS idx_job_tickets_vehicle ON job_tickets(workspace_id, assigned_vehicle_id, scheduled_date);
-        CREATE INDEX IF NOT EXISTS idx_timetable_classroom ON timetable_slots(workspace_id, day_of_week, classroom, start_time, end_time);"
+        CREATE INDEX IF NOT EXISTS idx_timetable_classroom ON timetable_slots(workspace_id, day_of_week, classroom, start_time, end_time);
+
+        CREATE TABLE IF NOT EXISTS event_rules (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            source_block_id TEXT NOT NULL,
+            target_block_id TEXT NOT NULL,
+            trigger_event TEXT NOT NULL,
+            action_type TEXT NOT NULL,
+            config_json TEXT DEFAULT '{}',
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT DEFAULT 'pending',
+            FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS event_logs (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            block_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            status TEXT NOT NULL DEFAULT 'processed',
+            created_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT DEFAULT 'pending',
+            FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS outbox_events (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            status TEXT NOT NULL DEFAULT 'pending',
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT DEFAULT 'pending',
+            FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
+        );"
     )
     .await
     .map_err(|e| YntraError::DbError(e.to_string()))?;

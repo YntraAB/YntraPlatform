@@ -1265,6 +1265,129 @@ pub async fn run_schema_migrations(
         }
         version = 33;
     }
+    if version < 34 {
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE client_medications ADD COLUMN fhir_payload TEXT DEFAULT '{}'",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE report_cards ADD COLUMN edfi_payload TEXT DEFAULT '{}'",
+        )
+        .await?;
+        version = 34;
+    }
+    if version < 35 {
+        execute_migration_batch(
+            conn,
+            "CREATE TABLE IF NOT EXISTS wasm_plugins (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                domain_scope TEXT NOT NULL,
+                name TEXT NOT NULL,
+                version TEXT NOT NULL,
+                bytecode_base64 TEXT NOT NULL,
+                manifest_json TEXT NOT NULL DEFAULT '{}',
+                created_at INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL DEFAULT 0,
+                sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_wasm_plugins_workspace ON wasm_plugins(workspace_id, domain_scope);",
+        )
+        .await?;
+        version = 35;
+    }
+    if version < 36 {
+        execute_migration_batch(
+            conn,
+            "CREATE TABLE IF NOT EXISTS ehr_integrations (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                fhir_endpoint_url TEXT NOT NULL,
+                account_id TEXT,
+                api_token TEXT,
+                sync_direction TEXT NOT NULL DEFAULT 'two_way',
+                auto_sync_enabled INTEGER NOT NULL DEFAULT 1,
+                last_synced_at INTEGER NOT NULL DEFAULT 0,
+                sync_status TEXT NOT NULL DEFAULT 'idle',
+                error_message TEXT,
+                sync_token TEXT,
+                created_at INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
+            );
+            CREATE TABLE IF NOT EXISTS ehr_sync_mappings (
+                id TEXT PRIMARY KEY,
+                integration_id TEXT NOT NULL,
+                workspace_id TEXT NOT NULL,
+                local_entity_id TEXT NOT NULL,
+                external_fhir_id TEXT NOT NULL,
+                external_etag TEXT,
+                last_synced_at INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY(integration_id) REFERENCES ehr_integrations(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS sis_integrations (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                edfi_endpoint_url TEXT NOT NULL,
+                client_key TEXT,
+                client_secret TEXT,
+                sync_direction TEXT NOT NULL DEFAULT 'two_way',
+                auto_sync_enabled INTEGER NOT NULL DEFAULT 1,
+                last_synced_at INTEGER NOT NULL DEFAULT 0,
+                sync_status TEXT NOT NULL DEFAULT 'idle',
+                error_message TEXT,
+                sync_token TEXT,
+                created_at INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
+            );
+            CREATE TABLE IF NOT EXISTS sis_sync_mappings (
+                id TEXT PRIMARY KEY,
+                integration_id TEXT NOT NULL,
+                workspace_id TEXT NOT NULL,
+                local_entity_id TEXT NOT NULL,
+                external_edfi_id TEXT NOT NULL,
+                external_etag TEXT,
+                last_synced_at INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY(integration_id) REFERENCES sis_integrations(id) ON DELETE CASCADE
+            );",
+        )
+        .await?;
+        version = 36;
+    }
+    if version < 37 {
+        let _ = execute_migration_batch(
+            conn,
+            "ALTER TABLE ehr_integrations ADD COLUMN refresh_token TEXT;
+             ALTER TABLE ehr_integrations ADD COLUMN token_expires_at INTEGER NOT NULL DEFAULT 0;
+             ALTER TABLE ehr_integrations ADD COLUMN mtls_client_cert_pem TEXT;
+             ALTER TABLE ehr_integrations ADD COLUMN mtls_client_key_pem TEXT;",
+        )
+        .await;
+        version = 37;
+    }
+    if version < 38 {
+        let _ = execute_migration_batch(
+            conn,
+            "CREATE TABLE IF NOT EXISTS audit_merkle_nodes (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                tree_level INTEGER NOT NULL,
+                node_index INTEGER NOT NULL,
+                hash TEXT NOT NULL,
+                updated_at INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_merkle_level_index ON audit_merkle_nodes(workspace_id, tree_level, node_index);",
+        )
+        .await;
+        version = 38;
+    }
     Ok(version)
 }
 
@@ -1294,7 +1417,7 @@ mod tests {
         conn.execute("PRAGMA user_version = 0", ()).await.unwrap();
 
         let migrated_version = run_schema_migrations(&conn, 0).await.unwrap();
-        assert_eq!(migrated_version, 33);
+        assert_eq!(migrated_version, 38);
 
         let has_oauth_sessions = conn.query_row(
             "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='oauth_auth_sessions'",

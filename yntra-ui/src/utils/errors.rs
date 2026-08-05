@@ -93,6 +93,13 @@ pub fn map_error(err: &yntra_core::YntraError) -> UserFriendlyError {
                     .to_string(),
             }
         }
+        yntra_core::YntraError::ModuleDisabledError(detail) => {
+            log::error!("Module disabled: {}", detail);
+            UserFriendlyError {
+                title: "Feature Unavailable".to_string(),
+                description: detail.clone(),
+            }
+        }
     }
 }
 

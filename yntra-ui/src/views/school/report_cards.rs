@@ -324,6 +324,7 @@ pub fn ReportCardsView(props: SchoolViewProps) -> Element {
                                             gpa: *report_gpa.read(),
                                             principal_comments: Some(encrypt_field_with_proof(&seed_val, &report_comments.read(), &u_id, &role)),
                                             status: "published".to_string(),
+                                            edfi_payload: None,
                                             updated_at: 0,
                                         };
                                         let uid_c = uid.clone();

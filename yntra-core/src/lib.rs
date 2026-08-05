@@ -22,14 +22,17 @@ pub use services::audit::*;
 pub use services::auth::*;
 pub use services::billing::*;
 pub use services::blocks::*;
+#[cfg(feature = "domain-care")]
 pub use services::clients::*;
 pub use services::csv_import::*;
 pub use services::dashboard::*;
 pub use services::directory::*;
 pub use services::dynamic_entities::*;
+pub use services::event_bus::*;
 pub use services::in_app_notifications::*;
 pub use services::industry_templates::*;
 pub use services::integrations::*;
+#[cfg(feature = "domain-jobs")]
 pub use services::jobs::*;
 pub use services::messages::*;
 pub use services::metrics::*;
@@ -37,6 +40,7 @@ pub use services::notes::*;
 pub use services::presence::*;
 pub use services::reports::*;
 pub use services::role_templates::*;
+#[cfg(feature = "domain-school")]
 pub use services::school::*;
 pub use services::semantic_guardrails::*;
 pub use services::support::*;
@@ -46,8 +50,13 @@ pub use services::time_reports::*;
 pub use services::todos::*;
 pub use services::updater::*;
 pub use services::users::*;
+pub use infra::kernel::*;
+pub use infra::wasm_host::*;
+#[cfg(feature = "domain-vehicles")]
 pub use services::vehicles::*;
+pub use services::wasm_plugins::*;
 pub use services::workspaces::*;
+
 
 pub use services::auth::hardware::{
     PasskeyCredentialInfo, authenticate_with_passkey, delete_passkey_credential, get_user_passkeys,
@@ -375,4 +384,32 @@ pub async fn load_workspace_zero_copy_stores(workspace_id: String) -> Result<(),
     services::notes::load_notes_from_opfs_internal(&workspace_id).await?;
     services::audit::load_audits_from_opfs_internal(&workspace_id).await?;
     Ok(())
+}
+
+// ============================================================================
+// UniFFI Feature Fallback Wrappers for Mobile SDK Linkage Protection
+// ============================================================================
+
+#[cfg(not(feature = "domain-care"))]
+#[uniffi::export]
+pub async fn get_care_clients(_requester_user_id: String, _workspace_id: String) -> Result<Vec<models::ClientProfile>, YntraError> {
+    Err(YntraError::ModuleDisabledError("Care domain feature ('domain-care') is disabled in this binary build.".to_string()))
+}
+
+#[cfg(not(feature = "domain-school"))]
+#[uniffi::export]
+pub async fn get_school_students(_requester_user_id: String, _workspace_id: String) -> Result<Vec<models::StudentProfile>, YntraError> {
+    Err(YntraError::ModuleDisabledError("School domain feature ('domain-school') is disabled in this binary build.".to_string()))
+}
+
+#[cfg(not(feature = "domain-jobs"))]
+#[uniffi::export]
+pub async fn get_job_assignments(_requester_user_id: String, _workspace_id: String) -> Result<Vec<models::JobTicket>, YntraError> {
+    Err(YntraError::ModuleDisabledError("Jobs domain feature ('domain-jobs') is disabled in this binary build.".to_string()))
+}
+
+#[cfg(not(feature = "domain-vehicles"))]
+#[uniffi::export]
+pub async fn get_vehicle_fleet(_requester_user_id: String, _workspace_id: String) -> Result<Vec<models::MoveVehicle>, YntraError> {
+    Err(YntraError::ModuleDisabledError("Vehicles domain feature ('domain-vehicles') is disabled in this binary build.".to_string()))
 }

@@ -20,6 +20,8 @@ pub enum YntraError {
     InvitationError(String),
     #[error("Crypto error: {0}")]
     CryptoError(String),
+    #[error("Module disabled error: {0}")]
+    ModuleDisabledError(String),
     #[error("No rows returned from query")]
     NoRowsReturned,
 }

@@ -208,6 +208,7 @@ pub struct ReportCard {
     pub gpa: f64,
     pub principal_comments: Option<String>,
     pub status: String,
+    pub edfi_payload: Option<String>,
     pub updated_at: i64,
 }
 

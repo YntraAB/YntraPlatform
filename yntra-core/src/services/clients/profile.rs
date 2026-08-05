@@ -490,7 +490,7 @@ pub async fn get_medications(
     }
 
     let mut stmt = conn
-        .prepare("SELECT id, client_id, workspace_id, name, dosage, frequency, instructions, updated_at, sync_status \
+        .prepare("SELECT id, client_id, workspace_id, name, dosage, frequency, instructions, fhir_payload, updated_at, sync_status \
                   FROM client_medications WHERE client_id = ?1")
         .await?;
     let mut rows = stmt.query(crate::params![&client_id]).await?;
@@ -504,8 +504,9 @@ pub async fn get_medications(
             dosage: row.get(4)?,
             frequency: row.get(5)?,
             instructions: row.get(6)?,
-            updated_at: row.get(7)?,
-            sync_status: row.get(8)?,
+            fhir_payload: row.get(7)?,
+            updated_at: row.get(8)?,
+            sync_status: row.get(9)?,
         });
     }
     Ok(list)
@@ -519,6 +520,28 @@ pub async fn add_medication(
     dosage: String,
     frequency: String,
     instructions: String,
+) -> Result<(), YntraError> {
+    add_medication_with_fhir(
+        actor_id,
+        client_id,
+        name,
+        dosage,
+        frequency,
+        instructions,
+        None,
+    )
+    .await
+}
+
+#[uniffi::export]
+pub async fn add_medication_with_fhir(
+    actor_id: String,
+    client_id: String,
+    name: String,
+    dosage: String,
+    frequency: String,
+    instructions: String,
+    fhir_payload: Option<String>,
 ) -> Result<(), YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &actor_id).await?;
@@ -541,12 +564,21 @@ pub async fn add_medication(
         ));
     }
 
+    if let Some(ref payload) = fhir_payload {
+        if !crate::infra::standards::validate_fhir_payload(payload) {
+            return Err(YntraError::ValidationError(
+                "Invalid HL7 FHIR MedicationRequest payload".to_string(),
+            ));
+        }
+    }
+
     let id = uuid::Uuid::new_v4().to_string();
     let now_ms = crate::infra::time::get_current_time_ms();
+    let fhir_str = fhir_payload.unwrap_or_else(|| "{}".to_string());
 
     conn.execute(
-        "INSERT INTO client_medications (id, client_id, workspace_id, name, dosage, frequency, instructions, updated_at, sync_status) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending')",
+        "INSERT INTO client_medications (id, client_id, workspace_id, name, dosage, frequency, instructions, fhir_payload, updated_at, sync_status) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending')",
         crate::params![
             &id,
             &client_id,
@@ -555,6 +587,7 @@ pub async fn add_medication(
             if dosage.is_empty() { None } else { Some(dosage) },
             if frequency.is_empty() { None } else { Some(frequency) },
             if instructions.is_empty() { None } else { Some(instructions) },
+            &fhir_str,
             now_ms
         ],
     ).await?;

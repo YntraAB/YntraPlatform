@@ -633,6 +633,62 @@ impl AuthContext {
     }
 }
 
+#[derive(uniffi::Record, Debug, Clone, PartialEq)]
+pub struct RoleLeaseTokenStatus {
+    pub is_valid: bool,
+    pub user_id: String,
+    pub workspace_id: String,
+    pub expires_at_ms: i64,
+    pub is_expired: bool,
+}
+
+#[uniffi::export]
+pub fn validate_time_bound_role_lease(
+    user_id: String,
+    workspace_id: String,
+    lease_token: String,
+    expires_at_ms: i64,
+) -> RoleLeaseTokenStatus {
+    let now_ms = crate::infra::time::get_current_time_ms();
+    let is_expired = now_ms > expires_at_ms;
+
+    if is_expired {
+        crate::infra::crypto::clear_session_key();
+    }
+
+    RoleLeaseTokenStatus {
+        is_valid: !is_expired && !lease_token.is_empty(),
+        user_id,
+        workspace_id,
+        expires_at_ms,
+        is_expired,
+    }
+}
+
+#[uniffi::export]
+pub async fn verify_workspace_auth_epoch(
+    workspace_id: String,
+    client_epoch: u64,
+) -> Result<bool, YntraError> {
+    let conn = crate::database::acquire_connection().await?;
+    let settings_str: String = conn
+        .query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![&workspace_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or_else(|_| "{}".to_string());
+
+    let server_epoch = extract_auth_epoch(&settings_str).unwrap_or(0);
+    if (server_epoch as u64) > client_epoch {
+        crate::infra::crypto::clear_session_key();
+        return Err(YntraError::AuthError("Workspace auth epoch updated. Local session invalidated.".to_string()));
+    }
+
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

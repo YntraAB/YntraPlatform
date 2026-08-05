@@ -1,4 +1,5 @@
 use crate::database;
+use crate::infra::time::get_current_time_ms;
 use crate::{AuditLogEntry, YntraError};
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
@@ -592,6 +593,270 @@ pub async fn verify_audit_log_chain(requester_user_id: String) -> Result<bool, Y
     Ok(true)
 }
 
+#[derive(
+    uniffi::Record,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct ComplianceAuditReport {
+    pub is_valid: bool,
+    pub total_entries: i64,
+    pub verified_signatures: i64,
+    pub chain_integrity: bool,
+    pub merkle_root_hash: String,
+    pub compliance_standards: Vec<String>,
+}
+
+#[derive(
+    uniffi::Record,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct AuditMerkleProof {
+    pub entry_id: String,
+    pub seq: i64,
+    pub entry_hash: String,
+    pub merkle_root: String,
+    pub proof_path: Vec<String>,
+}
+
+#[uniffi::export]
+pub async fn verify_compliance_audit_chain(
+    requester_user_id: String,
+    workspace_id: String,
+) -> Result<ComplianceAuditReport, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    let store = get_audit_store(&workspace_id);
+    let mut entries = store.read_all_audit_logs().map_err(|e| YntraError::DbError(e.to_string()))?;
+    entries.sort_by_key(|e| e.seq);
+
+    let creator_pub: Option<String> = conn
+        .query_row(
+            "SELECT creator_public_key FROM workspaces WHERE id = ?1",
+            crate::params![&workspace_id],
+            |r| r.get(0),
+        )
+        .await
+        .ok();
+
+    let mut last_hash = "genesis".to_string();
+    let mut expected_seq = 0;
+    let mut verified_sigs = 0i64;
+    let mut is_chain_valid = true;
+    let mut leaf_hashes = Vec::new();
+
+    for entry in &entries {
+        leaf_hashes.push(entry.curr_hash.clone());
+        if entry.seq != expected_seq || entry.prev_hash != last_hash {
+            is_chain_valid = false;
+        }
+
+        let computed = compute_hash(
+            &entry.id,
+            &entry.actor_id,
+            entry.target_client_id.as_deref(),
+            &entry.action_type,
+            entry.timestamp,
+            &entry.prev_hash,
+            entry.seq,
+        );
+        if computed != entry.curr_hash {
+            is_chain_valid = false;
+        }
+
+        if let Some(ref pub_key) = creator_pub {
+            if !pub_key.trim().is_empty() {
+                if let Some(sig) = &entry.signature {
+                    if verify_signature(pub_key, &entry.curr_hash, sig) {
+                        verified_sigs += 1;
+                    } else {
+                        is_chain_valid = false;
+                    }
+                }
+            }
+        }
+        last_hash = entry.curr_hash.clone();
+        expected_seq += 1;
+    }
+
+    // Compute Merkle Root
+    let merkle_root = compute_merkle_root(&leaf_hashes);
+
+    let standards = vec![
+        "HIPAA §164.312(b) Security Audit Controls".to_string(),
+        "ISO/IEC 27001:2022 Annex A.12.4 Logging & Monitoring".to_string(),
+        "GDPR Article 30 Records of Processing Activities".to_string(),
+    ];
+
+    Ok(ComplianceAuditReport {
+        is_valid: is_chain_valid,
+        total_entries: entries.len() as i64,
+        verified_signatures: verified_sigs,
+        chain_integrity: is_chain_valid,
+        merkle_root_hash: merkle_root,
+        compliance_standards: standards,
+    })
+}
+
+#[uniffi::export]
+pub async fn generate_audit_entry_proof(
+    requester_user_id: String,
+    workspace_id: String,
+    entry_id: String,
+) -> Result<AuditMerkleProof, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    let store = get_audit_store(&workspace_id);
+    let mut entries = store.read_all_audit_logs().map_err(|e| YntraError::DbError(e.to_string()))?;
+    entries.sort_by_key(|e| e.seq);
+
+    let (target_idx, target_entry) = entries
+        .iter()
+        .enumerate()
+        .find(|(_, e)| e.id == entry_id)
+        .ok_or_else(|| YntraError::NotFoundError("Audit log entry not found".to_string()))?;
+
+    // O(N) lightweight hash projection and O(1) indexed node caching
+    let leaf_hashes: Vec<&str> = entries.iter().map(|e| e.curr_hash.as_str()).collect();
+    let merkle_root = index_and_cache_merkle_nodes(&conn, &workspace_id, &leaf_hashes).await?;
+    let proof_path = build_merkle_proof_refs(&leaf_hashes, target_idx);
+
+    Ok(AuditMerkleProof {
+        entry_id: target_entry.id.clone(),
+        seq: target_entry.seq,
+        entry_hash: target_entry.curr_hash.clone(),
+        merkle_root,
+        proof_path,
+    })
+}
+
+pub async fn index_and_cache_merkle_nodes(
+    conn: &crate::database::DbConnection,
+    workspace_id: &str,
+    leaf_hashes: &[&str],
+) -> Result<String, YntraError> {
+    if leaf_hashes.is_empty() {
+        return Ok("empty_merkle_root".to_string());
+    }
+
+    let now = get_current_time_ms();
+    let mut current_level: Vec<String> = leaf_hashes.iter().map(|s| s.to_string()).collect();
+    let mut level = 0i64;
+
+    while current_level.len() > 1 {
+        for (idx, hash) in current_level.iter().enumerate() {
+            let node_id = format!("{}:{}:{}", workspace_id, level, idx);
+            let _ = conn.execute(
+                "INSERT OR REPLACE INTO audit_merkle_nodes (id, workspace_id, tree_level, node_index, hash, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                crate::params![&node_id, workspace_id, level, idx as i64, hash.as_str(), now],
+            ).await;
+        }
+
+        let mut next_level = Vec::new();
+        for chunk in current_level.chunks(2) {
+            if chunk.len() == 2 {
+                let combined = format!("{}{}", chunk[0], chunk[1]);
+                let hash = blake3::hash(combined.as_bytes()).to_hex().to_string();
+                next_level.push(hash);
+            } else {
+                next_level.push(chunk[0].clone());
+            }
+        }
+        current_level = next_level;
+        level += 1;
+    }
+
+    if let Some(root_hash) = current_level.first() {
+        let node_id = format!("{}:{}:0", workspace_id, level);
+        let _ = conn.execute(
+            "INSERT OR REPLACE INTO audit_merkle_nodes (id, workspace_id, tree_level, node_index, hash, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            crate::params![&node_id, workspace_id, level, 0i64, root_hash.as_str(), now],
+        ).await;
+        Ok(root_hash.clone())
+    } else {
+        Ok("empty_merkle_root".to_string())
+    }
+}
+
+fn compute_merkle_root_refs(hashes: &[&str]) -> String {
+    if hashes.is_empty() {
+        return "empty_merkle_root".to_string();
+    }
+    let mut current: Vec<String> = hashes.iter().map(|s| s.to_string()).collect();
+    while current.len() > 1 {
+        let mut next_level = Vec::new();
+        for chunk in current.chunks(2) {
+            if chunk.len() == 2 {
+                let combined = format!("{}{}", chunk[0], chunk[1]);
+                let hash = blake3::hash(combined.as_bytes()).to_hex().to_string();
+                next_level.push(hash);
+            } else {
+                next_level.push(chunk[0].clone());
+            }
+        }
+        current = next_level;
+    }
+    current[0].clone()
+}
+
+fn compute_merkle_root(hashes: &[String]) -> String {
+    let refs: Vec<&str> = hashes.iter().map(|s| s.as_str()).collect();
+    compute_merkle_root_refs(&refs)
+}
+
+fn build_merkle_proof_refs(hashes: &[&str], mut idx: usize) -> Vec<String> {
+    let mut proof = Vec::new();
+    let mut current: Vec<String> = hashes.iter().map(|s| s.to_string()).collect();
+
+    while current.len() > 1 {
+        let sibling_idx = if idx % 2 == 0 { idx + 1 } else { idx - 1 };
+        if sibling_idx < current.len() {
+            proof.push(current[sibling_idx].clone());
+        }
+        let mut next_level = Vec::new();
+        for chunk in current.chunks(2) {
+            if chunk.len() == 2 {
+                let combined = format!("{}{}", chunk[0], chunk[1]);
+                let hash = blake3::hash(combined.as_bytes()).to_hex().to_string();
+                next_level.push(hash);
+            } else {
+                next_level.push(chunk[0].clone());
+            }
+        }
+        current = next_level;
+        idx /= 2;
+    }
+
+    proof
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -716,5 +981,44 @@ mod tests {
         let _ = crate::infra::crypto::set_local_secret("creator_private_key_workspace-test-2", "")
             .await;
         Ok(())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_compliance_audit_verification_and_merkle_proofs() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let ws_id = "ws-compliance-test";
+        let admin_id = "u-compliance-admin";
+
+        // Setup workspace and admin
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Compliance WS', '[]', '{}')", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES (?1, ?2, 'compliance@yntra.se', 'admin')", crate::params![admin_id, ws_id]).await.unwrap();
+
+        // Clear store
+        let _ = get_audit_store(ws_id).write_audit_logs(Vec::new());
+
+        // Log actions
+        let entry1 = log_action(admin_id.to_string(), admin_id.to_string(), None, "access_medical_records".to_string()).await.unwrap();
+        let _entry2 = log_action(admin_id.to_string(), admin_id.to_string(), None, "export_audit_log".to_string()).await.unwrap();
+
+        // Verify compliance report
+        let report = verify_compliance_audit_chain(admin_id.to_string(), ws_id.to_string()).await.unwrap();
+        assert!(report.is_valid);
+        assert_eq!(report.total_entries, 2);
+        assert!(report.merkle_root_hash.len() > 10);
+        assert!(report.compliance_standards.iter().any(|s| s.contains("HIPAA")));
+
+        // Verify Merkle Proof for entry1
+        let proof = generate_audit_entry_proof(admin_id.to_string(), ws_id.to_string(), entry1.id.clone()).await.unwrap();
+        assert_eq!(proof.entry_id, entry1.id);
+        assert_eq!(proof.merkle_root, report.merkle_root_hash);
+
+        // Cleanup
+        let _ = get_audit_store(ws_id).write_audit_logs(Vec::new());
+        conn.execute("DELETE FROM audit_merkle_nodes WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM users WHERE id = ?1", crate::params![admin_id]).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
     }
 }

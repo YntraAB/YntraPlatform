@@ -226,6 +226,7 @@ async fn test_school_service_crud() {
         gpa: 4.0,
         principal_comments: Some("Outstanding student".to_string()),
         status: "published".to_string(),
+        edfi_payload: None,
         updated_at: 0,
     };
     publish_report_card("u-school-admin".to_string(), rc, None)

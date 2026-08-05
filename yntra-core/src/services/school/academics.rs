@@ -586,9 +586,18 @@ pub async fn publish_report_card(
         .await?;
     }
 
+    if let Some(ref payload) = report.edfi_payload {
+        if !crate::infra::standards::validate_edfi_payload(payload) {
+            return Err(YntraError::ValidationError(
+                "Invalid Ed-Fi StudentAcademicRecord payload".to_string(),
+            ));
+        }
+    }
+
     let now_ms = crate::infra::time::get_current_time_ms();
+    let edfi_str = report.edfi_payload.clone().unwrap_or_else(|| "{}".to_string());
     conn.execute(
-        "INSERT OR REPLACE INTO report_cards (id, workspace_id, student_id, term_name, gpa, principal_comments, status, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending')",
+        "INSERT OR REPLACE INTO report_cards (id, workspace_id, student_id, term_name, gpa, principal_comments, status, edfi_payload, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending')",
         crate::params![
             &report.id,
             &report.workspace_id,
@@ -597,6 +606,7 @@ pub async fn publish_report_card(
             &report.gpa,
             &report.principal_comments,
             &report.status,
+            &edfi_str,
             &now_ms,
         ]
     ).await?;
@@ -622,7 +632,7 @@ pub async fn get_report_cards(
     verify_student_access(&conn, &auth, &student_id).await?;
 
     let mut stmt = conn
-        .prepare("SELECT id, workspace_id, student_id, term_name, gpa, principal_comments, status, updated_at FROM report_cards WHERE workspace_id = ?1 AND student_id = ?2")
+        .prepare("SELECT id, workspace_id, student_id, term_name, gpa, principal_comments, status, edfi_payload, updated_at FROM report_cards WHERE workspace_id = ?1 AND student_id = ?2")
         .await?;
 
     let list = stmt
@@ -635,7 +645,8 @@ pub async fn get_report_cards(
                 gpa: row.get(4)?,
                 principal_comments: row.get(5)?,
                 status: row.get(6)?,
-                updated_at: row.get(7)?,
+                edfi_payload: row.get(7)?,
+                updated_at: row.get(8)?,
             })
         })
         .await?;

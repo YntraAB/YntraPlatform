@@ -3,14 +3,17 @@ pub mod audit;
 pub mod auth;
 pub mod billing;
 pub mod blocks;
+#[cfg(feature = "domain-care")]
 pub mod clients;
 pub mod csv_import;
 pub mod dashboard;
 pub mod directory;
 pub mod dynamic_entities;
+pub mod event_bus;
 pub mod in_app_notifications;
 pub mod industry_templates;
 pub mod integrations;
+#[cfg(feature = "domain-jobs")]
 pub mod jobs;
 pub mod messages;
 pub mod metrics;
@@ -19,6 +22,7 @@ pub mod presence;
 pub mod recovery;
 pub mod reports;
 pub mod role_templates;
+#[cfg(feature = "domain-school")]
 pub mod school;
 pub mod semantic_guardrails;
 pub mod support;
@@ -28,5 +32,8 @@ pub mod time_reports;
 pub mod todos;
 pub mod updater;
 pub mod users;
+#[cfg(feature = "domain-vehicles")]
 pub mod vehicles;
+pub mod wasm_plugins;
 pub mod workspaces;
+
