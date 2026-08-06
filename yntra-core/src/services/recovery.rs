@@ -348,8 +348,23 @@ pub async fn approve_key_recovery(
         let mut metadata_json: serde_json::Value =
             serde_json::from_str(&metadata_str).unwrap_or_else(|_| serde_json::json!({}));
 
-        metadata_json["recovery_status"] = serde_json::Value::String("approved".to_string());
-        metadata_json["temp_wrapped_key"] = serde_json::Value::String(temp_wrapped_key);
+        let mut approvals: Vec<String> = metadata_json
+            .get("admin_approvals")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+
+        if !approvals.contains(&admin_user_id) {
+            approvals.push(admin_user_id.clone());
+        }
+        metadata_json["admin_approvals"] = serde_json::to_value(&approvals).unwrap_or_else(|_| serde_json::json!([]));
+
+        if approvals.len() >= 2 {
+            metadata_json["recovery_status"] = serde_json::Value::String("approved".to_string());
+            metadata_json["temp_wrapped_key"] = serde_json::Value::String(temp_wrapped_key);
+        } else {
+            metadata_json["recovery_status"] = serde_json::Value::String("partially_approved".to_string());
+        }
+
         let new_metadata_str = metadata_json.to_string();
         let now_ms = crate::infra::time::get_current_time_ms();
         conn.execute(
@@ -418,6 +433,8 @@ pub async fn claim_recovered_key(requester_user_id: String) -> Result<String, Yn
     Err(YntraError::AuthError("User not found".to_string()))
 }
 
+
+
 #[uniffi::export]
 pub async fn get_pending_recovery_requests(
     admin_user_id: String,
@@ -430,7 +447,7 @@ pub async fn get_pending_recovery_requests(
     }
 
     let mut stmt = conn
-        .prepare("SELECT id, email, full_name, metadata, updated_at FROM users WHERE workspace_id = ?1 AND metadata LIKE '%\"recovery_status\":\"pending\"%' ORDER BY updated_at DESC")
+        .prepare("SELECT id, email, full_name, metadata, updated_at FROM users WHERE workspace_id = ?1 AND metadata LIKE '%\"recovery_status\"%' ORDER BY updated_at DESC")
         .await?;
     let mut rows = stmt.query(crate::params![workspace_id]).await?;
 
@@ -444,20 +461,28 @@ pub async fn get_pending_recovery_requests(
 
         let metadata_json: serde_json::Value =
             serde_json::from_str(&metadata_str).unwrap_or_else(|_| serde_json::json!({}));
-        let escrowed_present = metadata_json
-            .get("escrowed_private_key")
+        let rec_status = metadata_json
+            .get("recovery_status")
             .and_then(|v| v.as_str())
-            .map(|s| !s.is_empty())
-            .unwrap_or(false);
+            .unwrap_or("none")
+            .to_string();
 
-        records.push(KeyRecoveryRequestRecord {
-            user_id,
-            email,
-            full_name,
-            recovery_status: "pending".to_string(),
-            escrowed_private_key_present: escrowed_present,
-            updated_at,
-        });
+        if rec_status == "pending" || rec_status == "partially_approved" {
+            let escrowed_present = metadata_json
+                .get("escrowed_private_key")
+                .and_then(|v| v.as_str())
+                .map(|s| !s.is_empty())
+                .unwrap_or(false);
+
+            records.push(KeyRecoveryRequestRecord {
+                user_id,
+                email,
+                full_name,
+                recovery_status: rec_status,
+                escrowed_private_key_present: escrowed_present,
+                updated_at,
+            });
+        }
     }
 
     Ok(records)
@@ -567,6 +592,7 @@ mod tests {
         // 1. Setup mock workspace and users
         conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-recovery-test', 'Test School', '{}', '{}')", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, password_hash) VALUES ('u-admin', 'ws-recovery-test', 'admin@school.com', 'admin', 'hash')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, password_hash) VALUES ('u-admin2', 'ws-recovery-test', 'admin2@school.com', 'admin', 'hash')", ()).await.unwrap();
         conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, password_hash) VALUES ('u-teacher', 'ws-recovery-test', 'teacher@school.com', 'user', 'hash')", ()).await.unwrap();
 
         let initial_priv_key = "41528659d48b1bfcb4659b85c13b28b78997a0a0a0a0a0a0a0a0a0a0a0a0a0a0";
@@ -616,9 +642,17 @@ mod tests {
         // 7. Request Recovery
         request_key_recovery("u-teacher".to_string()).await.unwrap();
 
-        // 8. Approve Recovery
+        // 8. Approve Recovery (Requires 2-Admin Threshold Consensus)
         approve_key_recovery(
             "u-admin".to_string(),
+            "u-teacher".to_string(),
+            "temp-wrapped-key-value".to_string(),
+        )
+        .await
+        .unwrap();
+
+        approve_key_recovery(
+            "u-admin2".to_string(),
             "u-teacher".to_string(),
             "temp-wrapped-key-value".to_string(),
         )
@@ -729,6 +763,38 @@ mod tests {
         .unwrap();
 
         assert_eq!(reconstructed_hex.len(), 64);
+
+        // Cleanup
+        conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
+        conn.execute("DELETE FROM workspaces WHERE id = ?1", crate::params![ws_id]).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_multi_admin_threshold_consensus_recovery() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let ws_id = "ws-consensus-test";
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Consensus WS', '{}', '{}')", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, password_hash, metadata) VALUES ('u-admin1', ?1, 'admin1@co.com', 'admin', 'hash', '{}')", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, password_hash, metadata) VALUES ('u-admin2', ?1, 'admin2@co.com', 'admin', 'hash', '{}')", crate::params![ws_id]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, password_hash, metadata) VALUES ('u-employee', ?1, 'emp@co.com', 'user', 'hash', '{}')", crate::params![ws_id]).await.unwrap();
+
+        // 1. Employee submits request
+        request_key_recovery("u-employee".to_string()).await.unwrap();
+
+        // 2. Admin 1 approves -> status becomes partially_approved (1/2)
+        approve_key_recovery("u-admin1".to_string(), "u-employee".to_string(), "wrapped_key_payload_123".to_string()).await.unwrap();
+        let pending = get_pending_recovery_requests("u-admin1".to_string(), ws_id.to_string()).await.unwrap();
+        let req = pending.iter().find(|r| r.user_id == "u-employee").unwrap();
+        assert_eq!(req.recovery_status, "partially_approved");
+
+        // 3. Admin 2 approves -> status becomes approved (2/2)
+        approve_key_recovery("u-admin2".to_string(), "u-employee".to_string(), "wrapped_key_payload_123".to_string()).await.unwrap();
+
+        // 4. Employee claims key
+        let claimed = claim_recovered_key("u-employee".to_string()).await.unwrap();
+        assert_eq!(claimed, "wrapped_key_payload_123");
 
         // Cleanup
         conn.execute("DELETE FROM users WHERE workspace_id = ?1", crate::params![ws_id]).await.unwrap();
