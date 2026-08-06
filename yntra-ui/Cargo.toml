@@ -38,4 +38,13 @@ rfd = "0.17"
 
 [dev-dependencies]
 dioxus-ssr = "0.7"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "i18n_benchmarks"
+harness = false
+
+[[bench]]
+name = "ssr_rendering_benchmarks"
+harness = false
 

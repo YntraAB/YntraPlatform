@@ -13,7 +13,7 @@ use yntra_core::{
     export_workspace_fhir_bundle, get_calendar_integrations, get_data_imports,
     get_fda_part11_signatures, get_fhir_resource_mappings, get_hl7_messages, get_mllp_listeners,
     get_ncpdp_prescriptions, get_webhook_delivery_logs, get_webhook_endpoints,
-    import_fhir_r4_resource, parse_and_import_inbound_ncpdp_xml, preview_data_import,
+    import_fhir_r4_resource, is_server_gateway_compiled, parse_and_import_inbound_ncpdp_xml, preview_data_import,
     process_raw_hl7_v2_message, reset_webhook_circuit_breaker, retry_webhook_delivery,
     save_calendar_integration, save_mllp_listener, save_webhook_endpoint, start_mllp_listener,
     stop_mllp_listener, transmit_ncpdp_script_to_surescripts, trigger_calendar_sync,
@@ -982,17 +982,36 @@ pub fn EcosystemIntegrationsView(
                             div {
                                 h2 { class: "text-lg font-bold text-foreground m-0 flex items-center gap-2",
                                     components::LucideIcon { name: "activity", class: "h-5 w-5 text-primary" }
-                                    "HL7 v2 MLLP Socket Feeds (Hospital ADT / ORU / ORM)"
+                                    "HL7 v2 MLLP Gateway Feeds (Hospital ADT / ORU / ORM)"
                                 }
                                 p { class: "text-xs text-muted-foreground mt-1 m-0",
-                                    "Real-time Minimal Lower Layer Protocol over TCP socket ingestion with pipe-delimited segment parsing & automated ACK responses."
+                                    "Enterprise Server Gateway Minimal Lower Layer Protocol over TCP socket ingestion with pipe-delimited segment parsing & automated ACK responses."
                                 }
                             }
-                            button {
-                                class: "flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition-all cursor-pointer shadow-sm",
-                                onclick: move |_| show_mllp_modal.set(true),
-                                components::LucideIcon { name: "plus", class: "h-4 w-4" }
-                                "New MLLP Listener"
+                            if is_server_gateway_compiled() {
+                                button {
+                                    class: "flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition-all cursor-pointer shadow-sm",
+                                    onclick: move |_| show_mllp_modal.set(true),
+                                    components::LucideIcon { name: "plus", class: "h-4 w-4" }
+                                    "New MLLP Listener"
+                                }
+                            } else {
+                                span {
+                                    class: "px-3 py-1.5 text-xs font-semibold rounded-xl bg-amber-500/10 text-amber-500 border border-amber-500/20 flex items-center gap-1.5",
+                                    components::LucideIcon { name: "lock", class: "h-3.5 w-3.5" }
+                                    "Server Gateway Build Required"
+                                }
+                            }
+                        }
+
+                        // Enterprise Security Governance Banner
+                        div { class: "rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 space-y-1.5 text-xs text-blue-900 dark:text-blue-200 shadow-xs",
+                            div { class: "flex items-center gap-2 font-bold text-blue-700 dark:text-blue-400",
+                                components::LucideIcon { name: "shield-check", class: "h-4 w-4 text-blue-600 dark:text-blue-400" }
+                                "Enterprise Security & HIPAA Network Segmentation Rule"
+                            }
+                            p { class: "m-0 leading-relaxed text-[11px]",
+                                "To comply with HIPAA §164.312(b) audit controls and hospital network segmentation rules, raw MLLP TCP socket listeners (port 2575) must run on dedicated Enterprise Server Gateways inside secure server VLANs. Desktop clients should use the interactive ER7 Sandbox below for manual testing and schema verification."
                             }
                         }
 
@@ -1615,6 +1634,9 @@ pub fn EcosystemIntegrationsView(
                                                         days,
                                                         refs,
                                                         sig_text,
+                                                        None,
+                                                        None,
+                                                        None,
                                                     ).await {
                                                         Ok(res) => {
                                                             generated_ncpdp_xml.set(res.xml_payload);

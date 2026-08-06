@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use yntra_core::process_update_manifest;
+use yntra_core::{is_mdm_update_disabled, process_update_manifest};
 
 #[component]
 pub fn AutoUpdateToast() -> Element {
@@ -9,6 +9,7 @@ pub fn AutoUpdateToast() -> Element {
     let mut is_downloading = use_signal(|| false);
     let mut download_progress = use_signal(|| 0u32);
     let mut is_ready_to_restart = use_signal(|| false);
+    let is_mdm_managed = is_mdm_update_disabled();
 
     // Initial check on mount
     use_effect(move || {
@@ -112,6 +113,18 @@ pub fn AutoUpdateToast() -> Element {
                         class: "px-3 py-1.5 text-xs font-medium bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white rounded-lg transition-all shadow-md shadow-emerald-900/30 flex items-center gap-1.5",
                         onclick: handle_restart,
                         "Restart & Install Update"
+                    }
+                }
+            } else if is_mdm_managed {
+                div {
+                    class: "mt-4 flex items-center justify-between gap-2 border-t border-slate-800 pt-3",
+                    span { class: "text-[11px] text-amber-400 font-semibold flex items-center gap-1",
+                        "🛡️ Managed by Enterprise MDM (Updates deployed by IT)"
+                    }
+                    button {
+                        class: "px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors",
+                        onclick: move |_| show_banner.set(false),
+                        "Dismiss"
                     }
                 }
             } else {

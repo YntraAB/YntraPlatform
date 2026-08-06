@@ -61,7 +61,7 @@ pub fn SyncIndicator(props: SyncIndicatorProps) -> Element {
         _ => (
             "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20 shadow-emerald-500/10",
             "check-circle-2",
-            "Synced (0ms)".to_string(),
+            "Audited Server Sync".to_string(),
             format!("Seq #{}", *ack_seq.read()),
         ),
     };

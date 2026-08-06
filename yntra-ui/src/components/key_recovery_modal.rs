@@ -223,13 +223,13 @@ pub fn KeyRecoveryModal(props: KeyRecoveryModalProps) -> Element {
                     }
                 } else if tab == "peer" {
                     div { class: "space-y-4 py-2",
-                        div { class: "p-4 rounded-2xl border border-primary/30 bg-primary/5 space-y-2",
+                        div { class: "p-4 rounded-2xl border border-amber-500/30 bg-amber-500/5 space-y-2",
                             h3 { class: "text-sm font-bold text-foreground m-0 flex items-center gap-2",
-                                LucideIcon { name: "shield", class: "h-4 w-4 text-primary" }
-                                "Shamir Secret Sharing Peer Escrow Node Registry"
+                                LucideIcon { name: "shield-alert", class: "h-4 w-4 text-amber-600 dark:text-amber-400" }
+                                "Shamir Secret Sharing (Emergency Master Vault Recovery Only)"
                             }
-                            p { class: "text-xs text-muted-foreground m-0",
-                                "Register trusted peer node curve25519 public keys for zero-knowledge multi-approver threshold key escrow."
+                            p { class: "text-xs text-muted-foreground m-0 leading-relaxed",
+                                "Shamir threshold key splitting (3-of-5) is strictly reserved for Emergency Master Vault Disaster Recovery. Routine user account unlocks and password resets must use Enterprise SAML 2.0 / OIDC SSO (Okta, Entra ID) or delegated Helpdesk approvals."
                             }
                         }
 

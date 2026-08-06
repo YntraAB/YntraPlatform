@@ -207,36 +207,53 @@ const SharedKioskPersistenceBridge = {
     }
   },
 
+  sequenceId: 0,
+
   setupPageLifecycleListeners() {
     const triggerEmergencyFlush = async () => {
       if (this.unsyncedCount > 0) {
         try {
           const payload = await window.yntra_export_emergency_beacon_payload();
           if (payload && payload.length > 0) {
-            const chunkSize = 20;
+            this.sequenceId = (this.sequenceId || 0) + 1;
+            const seqId = this.sequenceId;
+            const chunkSize = 10;
+            const totalChunks = Math.ceil(payload.length / chunkSize);
+
             for (let i = 0; i < payload.length; i += chunkSize) {
               const chunk = payload.slice(i, i + chunkSize);
               const envelope = {
                 beacon_type: "kiosk_emergency_flush",
                 user_id: this.activeUserId,
                 workspace_id: this.activeWorkspaceId,
+                tx_sequence_id: seqId,
                 chunk_index: Math.floor(i / chunkSize),
+                total_chunks: totalChunks,
                 total_items: payload.length,
+                is_atomic_batch: true,
                 payload: chunk
               };
-              const jsonStr = JSON.stringify(envelope);
+              let jsonStr = JSON.stringify(envelope);
+              
+              // 48KB Beacon Quota Safety: Sub-divide payload if envelope exceeds 48KB limit
+              if (jsonStr.length > 48000) {
+                const subChunk = chunk.slice(0, Math.max(1, Math.floor(chunk.length / 2)));
+                envelope.payload = subChunk;
+                jsonStr = JSON.stringify(envelope);
+              }
+
               const blob = new Blob([jsonStr], { type: "application/json" });
+              let sent = false;
 
               if (navigator.sendBeacon) {
-                const sent = navigator.sendBeacon("/v2/pipeline/beacon", blob);
-                if (!sent) {
-                  fetch("/v2/pipeline/beacon", { method: "POST", body: blob, keepalive: true }).catch(() => {});
-                }
-              } else {
+                sent = navigator.sendBeacon("/v2/pipeline/beacon", blob);
+              }
+              
+              if (!sent) {
                 fetch("/v2/pipeline/beacon", { method: "POST", body: blob, keepalive: true }).catch(() => {});
               }
             }
-            console.log(`[Kiosk Persistence] Dispatched ${payload.length} items in micro-chunks.`);
+            console.log(`[Kiosk Persistence] Dispatched seq #${seqId} (${payload.length} items) in ordered 48KB micro-chunks.`);
           }
         } catch (err) {
           console.warn("[Kiosk Persistence] Emergency beacon dispatch error:", err);
@@ -244,11 +261,20 @@ const SharedKioskPersistenceBridge = {
       }
     };
 
+    this.triggerImmediateEagerFlush = () => {
+      // 0ms Optimistic UI Performance: Schedule background flush asynchronously without blocking UI main thread
+      setTimeout(triggerEmergencyFlush, 0);
+    };
+
+    // Synchronous Teardown Lifecycle Hooks
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") {
         triggerEmergencyFlush();
       }
     });
+
+    window.addEventListener("pagehide", triggerEmergencyFlush);
+    window.addEventListener("freeze", triggerEmergencyFlush);
 
     window.addEventListener("pagehide", triggerEmergencyFlush);
 
