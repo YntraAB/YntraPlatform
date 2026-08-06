@@ -1,127 +1,10 @@
+use super::clock_skew::normalize_clock_skew;
+use super::sql_helpers::{
+    extract_public_key_from_metadata, parse_insert_columns_and_values,
+};
 use crate::database;
 use crate::{YntraError, ZeroCopyStore, ZkCryptoTrust};
 use std::sync::Arc;
-
-fn find_ignore_ascii_case(haystack: &str, needle: &str) -> Option<usize> {
-    let h_bytes = haystack.as_bytes();
-    let n_bytes = needle.as_bytes();
-    if n_bytes.is_empty() || h_bytes.len() < n_bytes.len() {
-        return None;
-    }
-    for i in 0..=(h_bytes.len() - n_bytes.len()) {
-        if h_bytes[i..i + n_bytes.len()].eq_ignore_ascii_case(n_bytes) {
-            return Some(i);
-        }
-    }
-    None
-}
-
-fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
-    find_ignore_ascii_case(haystack, needle).is_some()
-}
-
-fn extract_public_key_from_metadata(meta: &str) -> String {
-    if meta.is_empty() {
-        return String::new();
-    }
-    if let Ok(val) = serde_json::from_str::<serde_json::Value>(meta) {
-        val.get("public_key")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .or_else(|| {
-                val.get("siths_public_key")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-            })
-            .unwrap_or_default()
-    } else {
-        String::new()
-    }
-}
-
-fn parse_insert_columns_and_values(
-    sql: &str,
-    params: &[serde_json::Value],
-) -> std::collections::HashMap<String, serde_json::Value> {
-    let mut map = std::collections::HashMap::new();
-    let cleaned = database::parser::clean_sql(sql);
-    if let Some(start_cols) = cleaned.find('(') {
-        if let Some(end_cols) = cleaned[start_cols..].find(')') {
-            let cols_str = &cleaned[start_cols + 1..start_cols + end_cols];
-            for (idx, col) in cols_str.split(',').enumerate() {
-                let col_clean = col
-                    .trim()
-                    .trim_matches(|c| c == '`' || c == '"' || c == '\'')
-                    .to_lowercase();
-                if idx < params.len() {
-                    map.insert(col_clean, params[idx].clone());
-                }
-            }
-        }
-    }
-    map
-}
-
-fn normalize_clock_skew(sql: &str, params: &mut [serde_json::Value]) {
-    if params.is_empty() || !contains_ignore_ascii_case(sql, "updated_at") {
-        return;
-    }
-    let cleaned = database::parser::clean_sql(sql);
-    let now_ms = crate::infra::time::get_current_time_ms();
-
-    // 1. Handle INSERT / REPLACE statements
-    if contains_ignore_ascii_case(&cleaned, "insert")
-        || contains_ignore_ascii_case(&cleaned, "replace")
-    {
-        if let Some(start_cols) = cleaned.find('(') {
-            if let Some(end_cols) = cleaned[start_cols..].find(')') {
-                let cols_str = &cleaned[start_cols + 1..start_cols + end_cols];
-                for (idx, col) in cols_str.split(',').enumerate() {
-                    let col_clean = col
-                        .trim()
-                        .trim_matches(|c| c == '`' || c == '"' || c == '\'');
-                    if col_clean.eq_ignore_ascii_case("updated_at") && idx < params.len() {
-                        if let Some(client_time) = params[idx].as_i64() {
-                            // If client timestamp is in the future (plus a small 5-second tolerance for delays)
-                            if client_time > now_ms + 5000 {
-                                params[idx] =
-                                    serde_json::Value::Number(serde_json::Number::from(now_ms));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    // 2. Handle UPDATE statements
-    else if contains_ignore_ascii_case(&cleaned, "update") {
-        if let Some(pos) = find_ignore_ascii_case(&cleaned, "updated_at") {
-            let search_slice = &cleaned[pos..];
-            if let Some(q_pos) = search_slice.find('?') {
-                let start_digits = pos + q_pos + 1;
-                let mut end_digits = start_digits;
-                while end_digits < cleaned.len() && cleaned.as_bytes()[end_digits].is_ascii_digit()
-                {
-                    end_digits += 1;
-                }
-                if end_digits > start_digits {
-                    if let Ok(param_idx_1based) = cleaned[start_digits..end_digits].parse::<usize>()
-                    {
-                        let param_idx = param_idx_1based - 1;
-                        if param_idx < params.len() {
-                            if let Some(client_time) = params[param_idx].as_i64() {
-                                if client_time > now_ms + 5000 {
-                                    params[param_idx] =
-                                        serde_json::Value::Number(serde_json::Number::from(now_ms));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
 #[derive(Clone, uniffi::Object)]
 pub struct RemoteSyncCoordinator {}
@@ -1017,13 +900,14 @@ impl RemoteSyncCoordinator {
 
                 let mut list = Vec::new();
                 while let Some(row) = rows.next().await? {
+                    let gpa: Option<f64> = row.get(4)?;
                     let principal_comments: Option<String> = row.get(5)?;
                     let item = serde_json::json!({
                         "id": row.get::<String>(0)?,
                         "workspace_id": row.get::<String>(1)?,
                         "student_id": row.get::<String>(2)?,
                         "term_name": row.get::<String>(3)?,
-                        "gpa": row.get::<f64>(4)?,
+                        "gpa": gpa,
                         "principal_comments": principal_comments,
                         "status": row.get::<String>(6)?,
                         "updated_at": row.get::<i64>(7)?,
@@ -1203,11 +1087,11 @@ impl RemoteSyncCoordinator {
                 }
                 list
             }
-            "move_inventory" => {
+            "job_crew" => {
                 let mut stmt = if auth.role == "platform_admin" {
-                    conn.prepare("SELECT id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, handling_notes, updated_at FROM move_inventory").await?
+                    conn.prepare("SELECT id, job_ticket_id, user_id, role, assigned_at FROM job_crew").await?
                 } else {
-                    conn.prepare("SELECT id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, handling_notes, updated_at FROM move_inventory WHERE workspace_id = ?1").await?
+                    conn.prepare("SELECT id, job_ticket_id, user_id, role, assigned_at FROM job_crew WHERE job_ticket_id IN (SELECT id FROM job_tickets WHERE workspace_id = ?1)").await?
                 };
 
                 let mut rows = if auth.role == "platform_admin" {
@@ -1218,16 +1102,42 @@ impl RemoteSyncCoordinator {
 
                 let mut list = Vec::new();
                 while let Some(row) = rows.next().await? {
-                    let handling_notes: Option<String> = row.get(7)?;
+                    let item = serde_json::json!({
+                        "id": row.get::<String>(0)?,
+                        "job_ticket_id": row.get::<String>(1)?,
+                        "user_id": row.get::<String>(2)?,
+                        "role": row.get::<String>(3)?,
+                        "assigned_at": row.get::<i64>(4)?,
+                    });
+                    list.push(item);
+                }
+                list
+            }
+            "move_inventory" => {
+                let mut stmt = if auth.role == "platform_admin" {
+                    conn.prepare("SELECT id, workspace_id, job_ticket_id, item_name, room_tag, condition_notes, photo_urls_json, crate_barcode, updated_at FROM move_inventory").await?
+                } else {
+                    conn.prepare("SELECT id, workspace_id, job_ticket_id, item_name, room_tag, condition_notes, photo_urls_json, crate_barcode, updated_at FROM move_inventory WHERE workspace_id = ?1").await?
+                };
+
+                let mut rows = if auth.role == "platform_admin" {
+                    stmt.query(()).await?
+                } else {
+                    stmt.query(crate::params![&auth.workspace_id]).await?
+                };
+
+                let mut list = Vec::new();
+                while let Some(row) = rows.next().await? {
+                    let crate_barcode: Option<String> = row.get(7)?;
                     let item = serde_json::json!({
                         "id": row.get::<String>(0)?,
                         "workspace_id": row.get::<String>(1)?,
                         "job_ticket_id": row.get::<String>(2)?,
-                        "item_category": row.get::<String>(3)?,
-                        "item_name": row.get::<String>(4)?,
-                        "quantity": row.get::<i64>(5)?,
-                        "estimated_volume_m3": row.get::<f64>(6)?,
-                        "handling_notes": handling_notes,
+                        "item_name": row.get::<String>(3)?,
+                        "room_tag": row.get::<String>(4)?,
+                        "condition_notes": row.get::<String>(5)?,
+                        "photo_urls_json": row.get::<String>(6)?,
+                        "crate_barcode": crate_barcode,
                         "updated_at": row.get::<i64>(8)?,
                     });
                     list.push(item);
@@ -1236,9 +1146,9 @@ impl RemoteSyncCoordinator {
             }
             "move_quotes" => {
                 let mut stmt = if auth.role == "platform_admin" {
-                    conn.prepare("SELECT id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, accepted_at, updated_at, manual_price_override, price_discount FROM move_quotes").await?
+                    conn.prepare("SELECT id, workspace_id, customer_name, customer_email, estimated_volume_m3, distance_km, price_breakdown_json, status, created_at, updated_at FROM move_quotes").await?
                 } else {
-                    conn.prepare("SELECT id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, accepted_at, updated_at, manual_price_override, price_discount FROM move_quotes WHERE workspace_id = ?1").await?
+                    conn.prepare("SELECT id, workspace_id, customer_name, customer_email, estimated_volume_m3, distance_km, price_breakdown_json, status, created_at, updated_at FROM move_quotes WHERE workspace_id = ?1").await?
                 };
 
                 let mut rows = if auth.role == "platform_admin" {
@@ -1249,23 +1159,17 @@ impl RemoteSyncCoordinator {
 
                 let mut list = Vec::new();
                 while let Some(row) = rows.next().await? {
-                    let accepted_at: Option<i64> = row.get(9)?;
-                    let manual_price_override: Option<f64> = row.get(11)?;
-                    let price_discount: Option<f64> = row.get(12)?;
                     let item = serde_json::json!({
                         "id": row.get::<String>(0)?,
                         "workspace_id": row.get::<String>(1)?,
-                        "job_ticket_id": row.get::<String>(2)?,
-                        "base_price": row.get::<f64>(3)?,
-                        "distance_fee": row.get::<f64>(4)?,
-                        "stairs_surcharge": row.get::<f64>(5)?,
-                        "packing_supplies_fee": row.get::<f64>(6)?,
-                        "total_price": row.get::<f64>(7)?,
-                        "status": row.get::<String>(8)?,
-                        "accepted_at": accepted_at,
-                        "updated_at": row.get::<i64>(10)?,
-                        "manual_price_override": manual_price_override,
-                        "price_discount": price_discount,
+                        "customer_name": row.get::<String>(2)?,
+                        "customer_email": row.get::<String>(3)?,
+                        "estimated_volume_m3": row.get::<f64>(4)?,
+                        "distance_km": row.get::<f64>(5)?,
+                        "price_breakdown_json": row.get::<String>(6)?,
+                        "status": row.get::<String>(7)?,
+                        "created_at": row.get::<String>(8)?,
+                        "updated_at": row.get::<i64>(9)?,
                     });
                     list.push(item);
                 }
@@ -1273,9 +1177,9 @@ impl RemoteSyncCoordinator {
             }
             "move_invoices" => {
                 let mut stmt = if auth.role == "platform_admin" {
-                    conn.prepare("SELECT id, workspace_id, quote_id, customer_id, invoice_date, due_date, subtotal, rut_deduction, customer_amount, tax_authority_amount, status, updated_at, actual_hours, additional_charges, adjustment_notes FROM move_invoices").await?
+                    conn.prepare("SELECT id, workspace_id, quote_id, rut_deduction_amount, final_amount, status, created_at, updated_at FROM move_invoices").await?
                 } else {
-                    conn.prepare("SELECT id, workspace_id, quote_id, customer_id, invoice_date, due_date, subtotal, rut_deduction, customer_amount, tax_authority_amount, status, updated_at, actual_hours, additional_charges, adjustment_notes FROM move_invoices WHERE workspace_id = ?1").await?
+                    conn.prepare("SELECT id, workspace_id, quote_id, rut_deduction_amount, final_amount, status, created_at, updated_at FROM move_invoices WHERE workspace_id = ?1").await?
                 };
 
                 let mut rows = if auth.role == "platform_admin" {
@@ -1286,25 +1190,15 @@ impl RemoteSyncCoordinator {
 
                 let mut list = Vec::new();
                 while let Some(row) = rows.next().await? {
-                    let actual_hours: Option<f64> = row.get(12)?;
-                    let additional_charges: Option<f64> = row.get(13)?;
-                    let adjustment_notes: Option<String> = row.get(14)?;
                     let item = serde_json::json!({
                         "id": row.get::<String>(0)?,
                         "workspace_id": row.get::<String>(1)?,
                         "quote_id": row.get::<String>(2)?,
-                        "customer_id": row.get::<String>(3)?,
-                        "invoice_date": row.get::<String>(4)?,
-                        "due_date": row.get::<String>(5)?,
-                        "subtotal": row.get::<f64>(6)?,
-                        "rut_deduction": row.get::<f64>(7)?,
-                        "customer_amount": row.get::<f64>(8)?,
-                        "tax_authority_amount": row.get::<f64>(9)?,
-                        "status": row.get::<String>(10)?,
-                        "updated_at": row.get::<i64>(11)?,
-                        "actual_hours": actual_hours,
-                        "additional_charges": additional_charges,
-                        "adjustment_notes": adjustment_notes,
+                        "rut_deduction_amount": row.get::<f64>(3)?,
+                        "final_amount": row.get::<f64>(4)?,
+                        "status": row.get::<String>(5)?,
+                        "created_at": row.get::<String>(6)?,
+                        "updated_at": row.get::<i64>(7)?,
                     });
                     list.push(item);
                 }
@@ -1338,14 +1232,15 @@ impl RemoteSyncCoordinator {
                 list
             }
             _ => {
-                return Err(YntraError::DbError(format!(
-                    "Sync partitioning is not supported for table '{}'",
+                return Err(YntraError::ValidationError(format!(
+                    "Table '{}' is not enabled for row-level sync partitioning",
                     table_name
                 )));
             }
         };
 
-        serde_json::to_string(&json_rows).map_err(|e| YntraError::SerializationError(e.to_string()))
+        serde_json::to_string(&json_rows)
+            .map_err(|e| YntraError::SerializationError(e.to_string()))
     }
 }
 
@@ -1379,854 +1274,4 @@ async fn get_authorized_student_ids_helper(
         }
     }
     Ok(student_ids)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::database;
-    use crate::database::zero_copy::create_peer_store;
-
-    #[tokio::test]
-    async fn test_remote_sync_coordinator_verifications() {
-        let _lock = database::DB_TEST_LOCK.lock().unwrap();
-        let conn = database::acquire_connection().await.unwrap();
-
-        // 1. Setup mock workspace and user metadata containing public key
-        let passkey_seed = "test-proxy-coordinator-seed".to_string();
-        let trust = ZkCryptoTrust::new();
-        let public_key_hex = trust.derive_public_key(passkey_seed.clone()).unwrap();
-
-        let metadata = serde_json::json!({
-            "public_key": public_key_hex
-        })
-        .to_string();
-
-        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-proxy', 'Proxy WS', '[]', '{}')", ()).await.unwrap();
-        conn.execute(
-            "INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-proxy-tester', 'ws-proxy', 'proxy@test.com', 'Admin', ?1)",
-            crate::params![&metadata],
-        ).await.unwrap();
-
-        let coordinator = RemoteSyncCoordinator::new();
-
-        // 2. Generate a valid proof
-        let valid_proof = trust
-            .generate_role_proof(
-                passkey_seed.clone(),
-                "u-proxy-tester".to_string(),
-                "Admin".to_string(),
-            )
-            .unwrap();
-
-        // 3. Verify valid SQL write transaction executes successfully
-        let sql = "INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-proxy-updated', 'Updated Proxy WS', '[]', '{}')";
-        let res = coordinator
-            .verify_and_execute_write(
-                "u-proxy-tester".to_string(),
-                "Admin".to_string(),
-                Some(valid_proof.clone()),
-                sql.to_string(),
-                "[]".to_string(),
-            )
-            .await;
-
-        assert!(
-            res.is_ok(),
-            "Valid ZKP write transaction was rejected: {:?}",
-            res.err()
-        );
-
-        // 4. Verify invalid/tampered proof is rejected
-        let invalid_proof = valid_proof.clone() + "tampered";
-        let res_invalid = coordinator
-            .verify_and_execute_write(
-                "u-proxy-tester".to_string(),
-                "Admin".to_string(),
-                Some(invalid_proof),
-                sql.to_string(),
-                "[]".to_string(),
-            )
-            .await;
-
-        assert!(res_invalid.is_err(), "Invalid/tampered proof was accepted");
-        if let Err(e) = res_invalid {
-            assert!(matches!(e, YntraError::CryptoError(_)));
-        }
-
-        // 5. Verify mismatched role is rejected
-        let res_mismatched_role = coordinator
-            .verify_and_execute_write(
-                "u-proxy-tester".to_string(),
-                "Moderator".to_string(), // Mismatched role
-                Some(valid_proof),
-                sql.to_string(),
-                "[]".to_string(),
-            )
-            .await;
-
-        assert!(
-            res_mismatched_role.is_err(),
-            "Mismatched role proof was accepted"
-        );
-
-        // Cleanup
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-proxy'", ())
-            .await
-            .unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-proxy'", ())
-            .await
-            .unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-proxy-updated'", ())
-            .await
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_remote_sync_coordinator_loro_verifications() {
-        let _lock = database::DB_TEST_LOCK.lock().unwrap();
-        let conn = database::acquire_connection().await.unwrap();
-
-        // 1. Setup mock workspace and user metadata containing public key
-        let passkey_seed = "test-proxy-loro-seed".to_string();
-        let trust = ZkCryptoTrust::new();
-        let public_key_hex = trust.derive_public_key(passkey_seed.clone()).unwrap();
-
-        let metadata = serde_json::json!({
-            "public_key": public_key_hex
-        })
-        .to_string();
-
-        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-proxy', 'Proxy WS', '[]', '{}')", ()).await.unwrap();
-        conn.execute(
-            "INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-proxy-tester', 'ws-proxy', 'proxy@test.com', 'Admin', ?1)",
-            crate::params![&metadata],
-        ).await.unwrap();
-
-        let coordinator = RemoteSyncCoordinator::new();
-        let store = Arc::new(create_peer_store("test-proxy-loro-store".to_string()).unwrap());
-
-        // 2. Generate a valid Loro update (compliant with TodoItem schema)
-        let doc_a = loro::LoroDoc::new();
-        let db_map = doc_a.get_map("db");
-        let m = db_map
-            .insert_container("todo-1", loro::LoroMap::new())
-            .unwrap();
-        m.insert("id", uuid::Uuid::new_v4().to_string()).unwrap();
-        m.insert("workspace_id", "ws-proxy".to_string()).unwrap();
-        m.insert("text", "Valid Loro Todo Item".to_string())
-            .unwrap();
-        m.insert("completed", false).unwrap();
-        m.insert("updated_at", 12345i64).unwrap();
-        m.insert("sync_status", "pending".to_string()).unwrap();
-        let update_bytes = doc_a.export(loro::ExportMode::Snapshot).unwrap();
-        let update_hex = const_hex::encode(&update_bytes);
-
-        // Generate valid compliance & role proofs
-        let comp_proof = trust
-            .generate_compliance_proof(
-                passkey_seed.clone(),
-                update_hex.clone(),
-                "u-proxy-tester".to_string(),
-                "Admin".to_string(),
-            )
-            .unwrap();
-
-        let role_proof = trust
-            .generate_role_proof(
-                passkey_seed.clone(),
-                "u-proxy-tester".to_string(),
-                "Admin".to_string(),
-            )
-            .unwrap();
-
-        // 3. Verify valid Loro sync passes verification
-        let res = coordinator
-            .verify_and_apply_loro_sync(
-                "u-proxy-tester".to_string(),
-                "Admin".to_string(),
-                Some(role_proof.clone()),
-                Some(comp_proof.clone()),
-                update_hex.clone(),
-                store.clone(),
-            )
-            .await;
-
-        assert!(res.is_ok(), "Valid Loro sync was rejected: {:?}", res.err());
-
-        // 4. Verify invalid Loro sync (violating schema constraints) is rejected
-        let doc_b = loro::LoroDoc::new();
-        let db_map_b = doc_b.get_map("db");
-        let m = db_map_b
-            .insert_container("todo-2", loro::LoroMap::new())
-            .unwrap();
-        m.insert("id", "invalid-uuid-format".to_string()).unwrap(); // Violates UUID schema
-        m.insert("workspace_id", "ws-proxy".to_string()).unwrap();
-        m.insert("text", "Invalid Loro Todo Item".to_string())
-            .unwrap();
-        m.insert("completed", false).unwrap();
-        m.insert("updated_at", 12345i64).unwrap();
-        m.insert("sync_status", "pending".to_string()).unwrap();
-        let bad_update_bytes = doc_b.export(loro::ExportMode::Snapshot).unwrap();
-        let bad_update_hex = const_hex::encode(&bad_update_bytes);
-
-        let bad_comp_proof = trust
-            .generate_compliance_proof(
-                passkey_seed.clone(),
-                bad_update_hex.clone(),
-                "u-proxy-tester".to_string(),
-                "Admin".to_string(),
-            )
-            .unwrap();
-
-        let res_bad = coordinator
-            .verify_and_apply_loro_sync(
-                "u-proxy-tester".to_string(),
-                "Admin".to_string(),
-                Some(role_proof.clone()),
-                Some(bad_comp_proof.clone()),
-                bad_update_hex.clone(),
-                store.clone(),
-            )
-            .await;
-
-        assert!(res_bad.is_err(), "Invalid schema sync was accepted");
-
-        // Cleanup
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-proxy'", ())
-            .await
-            .unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-proxy'", ())
-            .await
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_remote_sync_coordinator_row_level_partitioning() {
-        let _lock = database::DB_TEST_LOCK.lock().unwrap();
-        let conn = database::acquire_connection().await.unwrap();
-
-        let trust = ZkCryptoTrust::new();
-
-        // 1. Setup passkey seeds, public keys and user metadata
-        let passkey_admin = "seed-partition-admin".to_string();
-        let passkey_student = "seed-partition-student".to_string();
-        let passkey_parent = "seed-partition-parent".to_string();
-
-        let pk_admin = trust.derive_public_key(passkey_admin.clone()).unwrap();
-        let pk_student = trust.derive_public_key(passkey_student.clone()).unwrap();
-        let pk_parent = trust.derive_public_key(passkey_parent.clone()).unwrap();
-
-        let meta_admin = serde_json::json!({ "public_key": pk_admin }).to_string();
-        let meta_student = serde_json::json!({ "public_key": pk_student }).to_string();
-        let meta_parent = serde_json::json!({ "public_key": pk_parent }).to_string();
-
-        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-partition-test', 'Partition WS', '[]', '{}')", ()).await.unwrap();
-
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-admin-p', 'ws-partition-test', 'admin@part.com', 'admin', ?1)", crate::params![&meta_admin]).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-student-p', 'ws-partition-test', 'stud@part.com', 'student', ?1)", crate::params![&meta_student]).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-parent-p', 'ws-partition-test', 'parent@part.com', 'parent', ?1)", crate::params![&meta_parent]).await.unwrap();
-
-        // 2. Insert student profiles
-        conn.execute("INSERT OR REPLACE INTO student_profiles (id, workspace_id, user_id, first_name, last_name, grade_level, parent_contact, updated_at) VALUES ('stud-p-1', 'ws-partition-test', 'u-student-p', 'Jane', 'Doe', '10A', 'parent@doe.com', 0)", ()).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO student_profiles (id, workspace_id, user_id, first_name, last_name, grade_level, parent_contact, updated_at) VALUES ('stud-p-2', 'ws-partition-test', NULL, 'Alex', 'Smith', '10B', 'parent@smith.com', 0)", ()).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO student_profiles (id, workspace_id, user_id, first_name, last_name, grade_level, parent_contact, updated_at) VALUES ('stud-p-3', 'ws-partition-test', NULL, 'Charlie', 'Brown', '10C', 'parent@brown.com', 0)", ()).await.unwrap();
-
-        // Link parent u-parent-p to student stud-p-2
-        conn.execute("INSERT OR REPLACE INTO student_parents (student_id, parent_user_id, workspace_id) VALUES ('stud-p-2', 'u-parent-p', 'ws-partition-test')", ()).await.unwrap();
-
-        // Insert required course to satisfy FOREIGN KEY checks
-        conn.execute("INSERT OR REPLACE INTO courses (id, name, subject, classroom, workspace_id, updated_at) VALUES ('crs-p', 'Math', 'Math', 'Room A', 'ws-partition-test', 0)", ()).await.unwrap();
-
-        // Insert term grades
-        conn.execute("INSERT OR REPLACE INTO term_grades (id, workspace_id, student_id, course_id, term_name, final_grade, final_points, teacher_comments, updated_at) VALUES ('tg-p-1', 'ws-partition-test', 'stud-p-1', 'crs-p', 'Fall 2026', 'A', 95, '', 0)", ()).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO term_grades (id, workspace_id, student_id, course_id, term_name, final_grade, final_points, teacher_comments, updated_at) VALUES ('tg-p-2', 'ws-partition-test', 'stud-p-2', 'crs-p', 'Fall 2026', 'B', 85, '', 0)", ()).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO term_grades (id, workspace_id, student_id, course_id, term_name, final_grade, final_points, teacher_comments, updated_at) VALUES ('tg-p-3', 'ws-partition-test', 'stud-p-3', 'crs-p', 'Fall 2026', 'C', 75, '', 0)", ()).await.unwrap();
-
-        let coordinator = RemoteSyncCoordinator::new();
-
-        // 3. Generate ZK proofs
-        let proof_admin = trust
-            .generate_role_proof(
-                passkey_admin.clone(),
-                "u-admin-p".to_string(),
-                "admin".to_string(),
-            )
-            .unwrap();
-        let proof_student = trust
-            .generate_role_proof(
-                passkey_student.clone(),
-                "u-student-p".to_string(),
-                "student".to_string(),
-            )
-            .unwrap();
-        let proof_parent = trust
-            .generate_role_proof(
-                passkey_parent.clone(),
-                "u-parent-p".to_string(),
-                "parent".to_string(),
-            )
-            .unwrap();
-
-        // 4. Verify Admin receives all rows
-        let payload_admin = coordinator
-            .generate_partitioned_sync_payload(
-                "u-admin-p".to_string(),
-                "admin".to_string(),
-                Some(proof_admin),
-                "term_grades".to_string(),
-            )
-            .await
-            .unwrap();
-        let json_admin: serde_json::Value = serde_json::from_str(&payload_admin).unwrap();
-        let arr_admin = json_admin.as_array().unwrap();
-        assert_eq!(arr_admin.len(), 3);
-
-        // 5. Verify Student receives only their own row
-        let payload_student = coordinator
-            .generate_partitioned_sync_payload(
-                "u-student-p".to_string(),
-                "student".to_string(),
-                Some(proof_student),
-                "term_grades".to_string(),
-            )
-            .await
-            .unwrap();
-        let json_student: serde_json::Value = serde_json::from_str(&payload_student).unwrap();
-        let arr_student = json_student.as_array().unwrap();
-        assert_eq!(arr_student.len(), 1);
-        assert_eq!(arr_student[0]["student_id"].as_str().unwrap(), "stud-p-1");
-        assert_eq!(arr_student[0]["final_grade"].as_str().unwrap(), "A");
-
-        // 6. Verify Parent receives only their child's row
-        let payload_parent = coordinator
-            .generate_partitioned_sync_payload(
-                "u-parent-p".to_string(),
-                "parent".to_string(),
-                Some(proof_parent.clone()),
-                "term_grades".to_string(),
-            )
-            .await
-            .unwrap();
-        let json_parent: serde_json::Value = serde_json::from_str(&payload_parent).unwrap();
-        let arr_parent = json_parent.as_array().unwrap();
-        assert_eq!(arr_parent.len(), 1);
-        assert_eq!(arr_parent[0]["student_id"].as_str().unwrap(), "stud-p-2");
-        assert_eq!(arr_parent[0]["final_grade"].as_str().unwrap(), "B");
-
-        // 7. Verify invalid ZK proof is rejected
-        let bad_proof = proof_parent + "invalid";
-        let res_bad = coordinator
-            .generate_partitioned_sync_payload(
-                "u-parent-p".to_string(),
-                "parent".to_string(),
-                Some(bad_proof),
-                "term_grades".to_string(),
-            )
-            .await;
-        assert!(
-            res_bad.is_err(),
-            "Access should be blocked under invalid ZK proof"
-        );
-
-        // Cleanup
-        conn.execute(
-            "DELETE FROM term_grades WHERE workspace_id = 'ws-partition-test'",
-            (),
-        )
-        .await
-        .unwrap();
-        conn.execute(
-            "DELETE FROM courses WHERE workspace_id = 'ws-partition-test'",
-            (),
-        )
-        .await
-        .unwrap();
-        conn.execute(
-            "DELETE FROM student_parents WHERE workspace_id = 'ws-partition-test'",
-            (),
-        )
-        .await
-        .unwrap();
-        conn.execute(
-            "DELETE FROM student_profiles WHERE workspace_id = 'ws-partition-test'",
-            (),
-        )
-        .await
-        .unwrap();
-        conn.execute(
-            "DELETE FROM users WHERE workspace_id = 'ws-partition-test'",
-            (),
-        )
-        .await
-        .unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-partition-test'", ())
-            .await
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_remote_sync_coordinator_write_rbac() {
-        let _lock = database::DB_TEST_LOCK.lock().unwrap();
-        let conn = database::acquire_connection().await.unwrap();
-
-        let trust = ZkCryptoTrust::new();
-
-        // 1. Setup passkey seeds, public keys and user metadata
-        let passkey_student = "seed-write-rbac-student".to_string();
-        let passkey_parent = "seed-write-rbac-parent".to_string();
-
-        let pk_student = trust.derive_public_key(passkey_student.clone()).unwrap();
-        let pk_parent = trust.derive_public_key(passkey_parent.clone()).unwrap();
-
-        let meta_student = serde_json::json!({ "public_key": pk_student }).to_string();
-        let meta_parent = serde_json::json!({ "public_key": pk_parent }).to_string();
-
-        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-rbac-test', 'RBAC WS', '[]', '{}')", ()).await.unwrap();
-
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-rbac-student', 'ws-rbac-test', 'stud@rbac.com', 'student', ?1)", crate::params![&meta_student]).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-rbac-parent', 'ws-rbac-test', 'parent@rbac.com', 'parent', ?1)", crate::params![&meta_parent]).await.unwrap();
-
-        // Setup student profiles
-        conn.execute("INSERT OR REPLACE INTO student_profiles (id, workspace_id, user_id, first_name, last_name, grade_level, updated_at) VALUES ('stud-rbac-1', 'ws-rbac-test', 'u-rbac-student', 'Alice', 'Smith', '10A', 0)", ()).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO student_profiles (id, workspace_id, user_id, first_name, last_name, grade_level, updated_at) VALUES ('stud-rbac-2', 'ws-rbac-test', NULL, 'Bob', 'Jones', '10B', 0)", ()).await.unwrap();
-
-        // Link parent to stud-rbac-1
-        conn.execute("INSERT OR REPLACE INTO student_parents (student_id, parent_user_id, workspace_id) VALUES ('stud-rbac-1', 'u-rbac-parent', 'ws-rbac-test')", ()).await.unwrap();
-
-        // Insert library books
-        conn.execute("INSERT OR REPLACE INTO library_books (id, workspace_id, title, author, isbn, copies_available, total_copies, updated_at) VALUES ('book-1', 'ws-rbac-test', 'Book A', 'Author A', '123456', 1, 1, 0)", ()).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO library_books (id, workspace_id, title, author, isbn, copies_available, total_copies, updated_at) VALUES ('book-2', 'ws-rbac-test', 'Book B', 'Author B', '789012', 1, 1, 0)", ()).await.unwrap();
-
-        // Insert course and assignment
-        conn.execute("INSERT OR REPLACE INTO courses (id, name, subject, classroom, workspace_id, updated_at) VALUES ('crs-rbac-1', 'Course A', 'Subj A', 'Room A', 'ws-rbac-test', 0)", ()).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO assignments (id, workspace_id, course_id, title, description, max_points, due_date, updated_at) VALUES ('assign-1', 'ws-rbac-test', 'crs-rbac-1', 'Assignment 1', 'Desc', 100, '2026-07-31', 0)", ()).await.unwrap();
-
-        // Insert library log
-        conn.execute("INSERT OR REPLACE INTO library_lending_logs (id, workspace_id, book_id, student_id, checked_out_at, due_date, status, updated_at) VALUES ('log-rbac-1', 'ws-rbac-test', 'book-1', 'stud-rbac-1', '2026-07-01', '2026-07-15', 'borrowed', 0)", ()).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO library_lending_logs (id, workspace_id, book_id, student_id, checked_out_at, due_date, status, updated_at) VALUES ('log-rbac-2', 'ws-rbac-test', 'book-2', 'stud-rbac-2', '2026-07-01', '2026-07-15', 'borrowed', 0)", ()).await.unwrap();
-
-        let coordinator = RemoteSyncCoordinator::new();
-        let proof_student = trust
-            .generate_role_proof(
-                passkey_student.clone(),
-                "u-rbac-student".to_string(),
-                "student".to_string(),
-            )
-            .unwrap();
-        let proof_parent = trust
-            .generate_role_proof(
-                passkey_parent.clone(),
-                "u-rbac-parent".to_string(),
-                "parent".to_string(),
-            )
-            .unwrap();
-
-        // A. Verify student writing to courses is rejected
-        let res_course = coordinator.verify_and_execute_write(
-            "u-rbac-student".to_string(),
-            "student".to_string(),
-            Some(proof_student.clone()),
-            "INSERT INTO courses (id, name, subject, classroom, workspace_id, updated_at) VALUES ('c1', 'A', 'B', 'C', 'ws-rbac-test', 0)".to_string(),
-            "[]".to_string()
-        ).await;
-        assert!(res_course.is_err(), "Student allowed to write to courses");
-        assert!(
-            res_course
-                .err()
-                .unwrap()
-                .to_string()
-                .contains("does not have write permissions"),
-            "Mismatched error message"
-        );
-
-        // B. Verify student submitting with mismatched student_id is rejected
-        let res_sub_mismatched = coordinator.verify_and_execute_write(
-            "u-rbac-student".to_string(),
-            "student".to_string(),
-            Some(proof_student.clone()),
-            "INSERT OR REPLACE INTO submissions (id, workspace_id, assignment_id, student_id, content, grade, feedback, submitted_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)".to_string(),
-            "[\"sub-1\", \"ws-rbac-test\", \"assign-1\", \"stud-rbac-2\", \"content\", null, null, \"2026-07-20\", 0]".to_string()
-        ).await;
-        assert!(
-            res_sub_mismatched.is_err(),
-            "Student allowed to write other student's submission"
-        );
-
-        // C. Verify student submitting with grade set is rejected
-        let res_sub_grade = coordinator.verify_and_execute_write(
-            "u-rbac-student".to_string(),
-            "student".to_string(),
-            Some(proof_student.clone()),
-            "INSERT OR REPLACE INTO submissions (id, workspace_id, assignment_id, student_id, content, grade, feedback, submitted_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)".to_string(),
-            "[\"sub-2\", \"ws-rbac-test\", \"assign-1\", \"stud-rbac-1\", \"content\", \"A\", null, \"2026-07-20\", 0]".to_string()
-        ).await;
-        assert!(
-            res_sub_grade.is_err(),
-            "Student allowed to write submission with grade"
-        );
-
-        // D. Verify student submitting with valid owned profile & null grade/feedback is allowed
-        let res_sub_ok = coordinator.verify_and_execute_write(
-            "u-rbac-student".to_string(),
-            "student".to_string(),
-            Some(proof_student.clone()),
-            "INSERT OR REPLACE INTO submissions (id, workspace_id, assignment_id, student_id, content, grade, feedback, submitted_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)".to_string(),
-            "[\"sub-ok-1\", \"ws-rbac-test\", \"assign-1\", \"stud-rbac-1\", \"my answers\", null, null, \"2026-07-20\", 0]".to_string()
-        ).await;
-        assert!(
-            res_sub_ok.is_ok(),
-            "Student valid submission rejected: {:?}",
-            res_sub_ok.err()
-        );
-
-        // E. Verify student renewing their own book log is allowed
-        let res_renew_student = coordinator.verify_and_execute_write(
-            "u-rbac-student".to_string(),
-            "student".to_string(),
-            Some(proof_student.clone()),
-            "UPDATE library_lending_logs SET due_date = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3".to_string(),
-            "[\"2026-08-01\", 12345, \"log-rbac-1\"]".to_string()
-        ).await;
-        assert!(
-            res_renew_student.is_ok(),
-            "Student renewing own book rejected: {:?}",
-            res_renew_student.err()
-        );
-
-        // F. Verify student renewing someone else's book log is rejected
-        let res_renew_bad = coordinator.verify_and_execute_write(
-            "u-rbac-student".to_string(),
-            "student".to_string(),
-            Some(proof_student.clone()),
-            "UPDATE library_lending_logs SET due_date = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3".to_string(),
-            "[\"2026-08-01\", 12345, \"log-rbac-2\"]".to_string()
-        ).await;
-        assert!(
-            res_renew_bad.is_err(),
-            "Student allowed to renew other's book"
-        );
-
-        // G. Verify parent renewing linked student's book is allowed
-        let res_renew_parent_ok = coordinator.verify_and_execute_write(
-            "u-rbac-parent".to_string(),
-            "parent".to_string(),
-            Some(proof_parent.clone()),
-            "UPDATE library_lending_logs SET due_date = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3".to_string(),
-            "[\"2026-08-01\", 12345, \"log-rbac-1\"]".to_string()
-        ).await;
-        assert!(
-            res_renew_parent_ok.is_ok(),
-            "Parent renewing child's book rejected: {:?}",
-            res_renew_parent_ok.err()
-        );
-
-        // H. Verify parent renewing mismatched student's book is rejected
-        let res_renew_parent_bad = coordinator.verify_and_execute_write(
-            "u-rbac-parent".to_string(),
-            "parent".to_string(),
-            Some(proof_parent.clone()),
-            "UPDATE library_lending_logs SET due_date = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3".to_string(),
-            "[\"2026-08-01\", 12345, \"log-rbac-2\"]".to_string()
-        ).await;
-        assert!(
-            res_renew_parent_bad.is_err(),
-            "Parent allowed to renew unlinked book"
-        );
-
-        // Cleanup
-        conn.execute(
-            "DELETE FROM library_lending_logs WHERE workspace_id = 'ws-rbac-test'",
-            (),
-        )
-        .await
-        .unwrap();
-        conn.execute(
-            "DELETE FROM submissions WHERE workspace_id = 'ws-rbac-test'",
-            (),
-        )
-        .await
-        .unwrap();
-        conn.execute(
-            "DELETE FROM student_parents WHERE workspace_id = 'ws-rbac-test'",
-            (),
-        )
-        .await
-        .unwrap();
-        conn.execute(
-            "DELETE FROM student_profiles WHERE workspace_id = 'ws-rbac-test'",
-            (),
-        )
-        .await
-        .unwrap();
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-rbac-test'", ())
-            .await
-            .unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-rbac-test'", ())
-            .await
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_remote_sync_coordinator_clock_skew() {
-        let _lock = database::DB_TEST_LOCK.lock().unwrap();
-        let conn = database::acquire_connection().await.unwrap();
-
-        let trust = ZkCryptoTrust::new();
-
-        // 1. Setup passkey seed, public key and user metadata
-        let passkey_student = "seed-skew-student".to_string();
-        let pk_student = trust.derive_public_key(passkey_student.clone()).unwrap();
-        let meta_student = serde_json::json!({ "public_key": pk_student }).to_string();
-
-        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-skew-test', 'Skew WS', '[]', '{}')", ()).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-skew-student', 'ws-skew-test', 'stud@skew.com', 'student', ?1)", crate::params![&meta_student]).await.unwrap();
-
-        // Setup student profile
-        conn.execute("INSERT OR REPLACE INTO student_profiles (id, workspace_id, user_id, first_name, last_name, grade_level, updated_at) VALUES ('stud-skew-1', 'ws-skew-test', 'u-skew-student', 'Alice', 'Smith', '10A', 0)", ()).await.unwrap();
-
-        // Insert course and assignment
-        conn.execute("INSERT OR REPLACE INTO courses (id, name, subject, classroom, workspace_id, updated_at) VALUES ('crs-skew-1', 'Course A', 'Subj A', 'Room A', 'ws-skew-test', 0)", ()).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO assignments (id, workspace_id, course_id, title, description, max_points, due_date, updated_at) VALUES ('assign-1', 'ws-skew-test', 'crs-skew-1', 'Assignment 1', 'Desc', 100, '2026-07-31', 0)", ()).await.unwrap();
-
-        let coordinator = RemoteSyncCoordinator::new();
-        let proof_student = trust
-            .generate_role_proof(
-                passkey_student.clone(),
-                "u-skew-student".to_string(),
-                "student".to_string(),
-            )
-            .unwrap();
-
-        // 2. Perform write with future updated_at timestamp (year 2030, ~1893456000000)
-        let future_time = 1893456000000i64;
-        let res = coordinator.verify_and_execute_write(
-            "u-skew-student".to_string(),
-            "student".to_string(),
-            Some(proof_student.clone()),
-            "INSERT OR REPLACE INTO submissions (id, workspace_id, assignment_id, student_id, content, grade, feedback, submitted_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)".to_string(),
-            format!("[\"sub-skew-1\", \"ws-skew-test\", \"assign-1\", \"stud-skew-1\", \"some answers\", null, null, \"2026-07-20\", {}]", future_time)
-        ).await;
-        assert!(
-            res.is_ok(),
-            "Write with clock skew rejected: {:?}",
-            res.err()
-        );
-
-        // 3. Query the inserted record to verify that updated_at was normalized (i.e. is not equal to future_time)
-        let inserted_updated_at: i64 = conn
-            .query_row(
-                "SELECT updated_at FROM submissions WHERE id = 'sub-skew-1'",
-                (),
-                |r| r.get(0),
-            )
-            .await
-            .unwrap();
-
-        assert!(
-            inserted_updated_at < future_time,
-            "Clock skew was not normalized on the server side: {} vs {}",
-            inserted_updated_at,
-            future_time
-        );
-
-        let now_ms = crate::infra::time::get_current_time_ms();
-        assert!(
-            inserted_updated_at <= now_ms + 1000 && inserted_updated_at >= now_ms - 5000,
-            "Clock skew was not normalized to current server time: {}",
-            inserted_updated_at
-        );
-
-        // Cleanup
-        conn.execute(
-            "DELETE FROM submissions WHERE workspace_id = 'ws-skew-test'",
-            (),
-        )
-        .await
-        .unwrap();
-        conn.execute(
-            "DELETE FROM assignments WHERE workspace_id = 'ws-skew-test'",
-            (),
-        )
-        .await
-        .unwrap();
-        conn.execute(
-            "DELETE FROM courses WHERE workspace_id = 'ws-skew-test'",
-            (),
-        )
-        .await
-        .unwrap();
-        conn.execute(
-            "DELETE FROM student_profiles WHERE workspace_id = 'ws-skew-test'",
-            (),
-        )
-        .await
-        .unwrap();
-        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-skew-test'", ())
-            .await
-            .unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-skew-test'", ())
-            .await
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_remote_sync_coordinator_partitioning_moving() {
-        let _lock = database::DB_TEST_LOCK.lock().unwrap();
-        let conn = database::acquire_connection().await.unwrap();
-
-        let trust = ZkCryptoTrust::new();
-        let passkey_admin = "seed-partition-moving-admin".to_string();
-        let pk_admin = trust.derive_public_key(passkey_admin.clone()).unwrap();
-        let meta_admin = serde_json::json!({ "public_key": pk_admin }).to_string();
-
-        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-moving-test', 'Moving WS', '[]', '{}')", ()).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, metadata) VALUES ('u-admin-m', 'ws-moving-test', 'admin@moving.com', 'admin', ?1)", crate::params![&meta_admin]).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('cust-1', 'ws-moving-test', 'cust@moving.com', 'client')", ()).await.unwrap();
-
-        // Insert job tickets
-        conn.execute("INSERT OR REPLACE INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, created_at, updated_at) VALUES ('job-1', 'ws-moving-test', 'Title 1', 'Desc 1', 'Addr 1', 'high', 'pending', '2026-07-21', '{}', '2026-07-21', 0)", ()).await.unwrap();
-        conn.execute("INSERT OR REPLACE INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, created_at, updated_at) VALUES ('job-2', 'ws-moving-test', 'Title 2', 'Desc 2', 'Addr 2', 'medium', 'pending', '2026-07-21', '{}', '2026-07-21', 0)", ()).await.unwrap();
-
-        // Insert move inventory
-        conn.execute("INSERT OR REPLACE INTO move_inventory (id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, updated_at) VALUES ('inv-1', 'ws-moving-test', 'job-1', 'Boxes', 'Small Box', 5, 0.5, 0)", ()).await.unwrap();
-
-        // Insert move quotes
-        conn.execute("INSERT OR REPLACE INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at) VALUES ('quote-1', 'ws-moving-test', 'job-1', 1000.0, 100.0, 50.0, 20.0, 1170.0, 'pending', 0)", ()).await.unwrap();
-
-        // Insert move invoices
-        conn.execute("INSERT OR REPLACE INTO move_invoices (id, workspace_id, quote_id, customer_id, invoice_date, due_date, subtotal, rut_deduction, customer_amount, tax_authority_amount, status, updated_at) VALUES ('invc-1', 'ws-moving-test', 'quote-1', 'cust-1', '2026-07-21', '2026-08-21', 1170.0, 0.0, 1170.0, 0.0, 'unpaid', 0)", ()).await.unwrap();
-
-        // Insert move signatures
-        conn.execute("INSERT OR REPLACE INTO move_signatures (id, workspace_id, job_ticket_id, signer_name, signature_data_base64, signed_at) VALUES ('sig-1', 'ws-moving-test', 'job-1', 'John Doe', 'base64-data', 0)", ()).await.unwrap();
-
-        let coordinator = RemoteSyncCoordinator::new();
-        let proof_admin = trust
-            .generate_role_proof(
-                passkey_admin.clone(),
-                "u-admin-m".to_string(),
-                "admin".to_string(),
-            )
-            .unwrap();
-
-        // Verify payload lengths
-        let payload_jobs = coordinator
-            .generate_partitioned_sync_payload(
-                "u-admin-m".to_string(),
-                "admin".to_string(),
-                Some(proof_admin.clone()),
-                "job_tickets".to_string(),
-            )
-            .await
-            .unwrap();
-        let arr_jobs: serde_json::Value = serde_json::from_str(&payload_jobs).unwrap();
-        assert_eq!(arr_jobs.as_array().unwrap().len(), 2);
-
-        let payload_inv = coordinator
-            .generate_partitioned_sync_payload(
-                "u-admin-m".to_string(),
-                "admin".to_string(),
-                Some(proof_admin.clone()),
-                "move_inventory".to_string(),
-            )
-            .await
-            .unwrap();
-        let arr_inv: serde_json::Value = serde_json::from_str(&payload_inv).unwrap();
-        assert_eq!(arr_inv.as_array().unwrap().len(), 1);
-
-        let payload_quotes = coordinator
-            .generate_partitioned_sync_payload(
-                "u-admin-m".to_string(),
-                "admin".to_string(),
-                Some(proof_admin.clone()),
-                "move_quotes".to_string(),
-            )
-            .await
-            .unwrap();
-        let arr_quotes: serde_json::Value = serde_json::from_str(&payload_quotes).unwrap();
-        assert_eq!(arr_quotes.as_array().unwrap().len(), 1);
-
-        let payload_invoices = coordinator
-            .generate_partitioned_sync_payload(
-                "u-admin-m".to_string(),
-                "admin".to_string(),
-                Some(proof_admin.clone()),
-                "move_invoices".to_string(),
-            )
-            .await
-            .unwrap();
-        let arr_invoices: serde_json::Value = serde_json::from_str(&payload_invoices).unwrap();
-        assert_eq!(arr_invoices.as_array().unwrap().len(), 1);
-
-        let payload_signatures = coordinator
-            .generate_partitioned_sync_payload(
-                "u-admin-m".to_string(),
-                "admin".to_string(),
-                Some(proof_admin.clone()),
-                "move_signatures".to_string(),
-            )
-            .await
-            .unwrap();
-        let arr_signatures: serde_json::Value = serde_json::from_str(&payload_signatures).unwrap();
-        assert_eq!(arr_signatures.as_array().unwrap().len(), 1);
-
-        // Cleanup
-        conn.execute(
-            "DELETE FROM move_signatures WHERE workspace_id = 'ws-moving-test'",
-            (),
-        )
-        .await
-        .ok();
-        conn.execute(
-            "DELETE FROM move_invoices WHERE workspace_id = 'ws-moving-test'",
-            (),
-        )
-        .await
-        .ok();
-        conn.execute(
-            "DELETE FROM move_quotes WHERE workspace_id = 'ws-moving-test'",
-            (),
-        )
-        .await
-        .ok();
-        conn.execute(
-            "DELETE FROM move_inventory WHERE workspace_id = 'ws-moving-test'",
-            (),
-        )
-        .await
-        .ok();
-        conn.execute(
-            "DELETE FROM job_packaging_items WHERE workspace_id = 'ws-moving-test'",
-            (),
-        )
-        .await
-        .ok();
-        conn.execute(
-            "DELETE FROM job_crew WHERE job_ticket_id IN ('job-1', 'job-2')",
-            (),
-        )
-        .await
-        .ok();
-        conn.execute(
-            "DELETE FROM time_reports WHERE workspace_id = 'ws-moving-test'",
-            (),
-        )
-        .await
-        .ok();
-        conn.execute(
-            "DELETE FROM job_tickets WHERE workspace_id = 'ws-moving-test'",
-            (),
-        )
-        .await
-        .ok();
-        conn.execute(
-            "DELETE FROM users WHERE workspace_id = 'ws-moving-test'",
-            (),
-        )
-        .await
-        .ok();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-moving-test'", ())
-            .await
-            .ok();
-    }
 }

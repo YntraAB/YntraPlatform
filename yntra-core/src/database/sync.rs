@@ -755,13 +755,16 @@ pub struct PendingBlobUpload {
     pub upload_status: String,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, uniffi::Record)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, uniffi::Record, PartialEq)]
 pub struct SyncConflictRecord {
     pub table_name: String,
     pub record_id: String,
     pub local_version_json: String,
     pub remote_version_json: String,
     pub updated_at: i64,
+    pub conflict_type: String,
+    pub severity: String,
+    pub conflict_id: Option<String>,
 }
 
 #[uniffi::export]
@@ -836,17 +839,62 @@ pub async fn get_sync_conflicts(
     let conn = crate::database::acquire_connection().await?;
     let mut list = Vec::new();
 
-    // Query notes with unmerged Loro CRDT edits as conflicts
+    // 1. Query crdt_semantic_conflicts flagged for review
     let mut stmt = conn.prepare(
-        "SELECT id, subject, content, updated_at FROM notes WHERE workspace_id = ?1 AND content LIKE 'loro:%'"
+        "SELECT id, domain, entity_table, entity_id, colliding_entity_id, conflict_type, severity, conflict_details_json, updated_at FROM crdt_semantic_conflicts WHERE workspace_id = ?1 AND status = 'flagged_for_review' ORDER BY updated_at DESC"
     ).await?;
 
     let mut rows = stmt.query(crate::params![&workspace_id]).await?;
     while let Some(row) = rows.next().await? {
+        let cid: String = row.get(0)?;
+        let _domain: String = row.get(1)?;
+        let table_name: String = row.get(2)?;
+        let record_id: String = row.get(3)?;
+        let _colliding_id: Option<String> = row.get(4)?;
+        let conflict_type: String = row.get(5)?;
+        let severity: String = row.get(6)?;
+        let conflict_details: String = row.get(7)?;
+        let updated_at: i64 = row.get(8)?;
+
+        let mut local_json = serde_json::json!({ "record_id": record_id, "status": "pending_local_edit" }).to_string();
+        let mut remote_json = conflict_details.clone();
+
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&conflict_details) {
+            if let Some(loc) = parsed.get("local_version") {
+                local_json = loc.to_string();
+            }
+            if let Some(rem) = parsed.get("remote_version") {
+                remote_json = rem.to_string();
+            }
+        }
+
+        list.push(SyncConflictRecord {
+            table_name,
+            record_id,
+            local_version_json: local_json,
+            remote_version_json: remote_json,
+            updated_at,
+            conflict_type,
+            severity,
+            conflict_id: Some(cid),
+        });
+    }
+
+    // 2. Query notes with unmerged Loro CRDT edits as conflicts
+    let mut stmt_notes = conn.prepare(
+        "SELECT id, subject, content, updated_at FROM notes WHERE workspace_id = ?1 AND content LIKE 'loro:%'"
+    ).await?;
+
+    let mut rows_notes = stmt_notes.query(crate::params![&workspace_id]).await?;
+    while let Some(row) = rows_notes.next().await? {
         let id: String = row.get(0)?;
         let subj: String = row.get(1)?;
         let content: String = row.get(2)?;
         let updated: i64 = row.get(3)?;
+
+        if list.iter().any(|item| item.table_name == "notes" && item.record_id == id) {
+            continue;
+        }
 
         let local_json = serde_json::json!({ "subject": subj, "content": content }).to_string();
         let remote_json =
@@ -859,6 +907,9 @@ pub async fn get_sync_conflicts(
             local_version_json: local_json,
             remote_version_json: remote_json,
             updated_at: updated,
+            conflict_type: "crdt_loro_divergence".to_string(),
+            severity: "high".to_string(),
+            conflict_id: None,
         });
     }
 
@@ -884,23 +935,68 @@ pub async fn resolve_sync_conflict(
 
     let now_ms = crate::infra::time::get_current_time_ms();
 
+    // Mark corresponding semantic conflicts in crdt_semantic_conflicts as resolved
+    let _ = conn.execute(
+        "UPDATE crdt_semantic_conflicts SET status = 'resolved', updated_at = ?1 WHERE (entity_id = ?2 OR id = ?2) AND workspace_id = ?3",
+        crate::params![now_ms, &record_id, &workspace_id],
+    ).await;
+
     if table_name == "notes" {
-        if let Some(custom_json) = custom_resolved_json {
-            if let Ok(obj) = serde_json::from_str::<serde_json::Value>(&custom_json) {
+        if let Some(ref custom_json) = custom_resolved_json {
+            if let Ok(obj) = serde_json::from_str::<serde_json::Value>(custom_json) {
                 let content = obj
                     .get("content")
                     .and_then(|v| v.as_str())
                     .unwrap_or_default();
-                conn.execute(
-                    "UPDATE notes SET content = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3 AND workspace_id = ?4",
-                    crate::params![content, now_ms, &record_id, &workspace_id],
-                ).await?;
+                let subject = obj
+                    .get("subject")
+                    .and_then(|v| v.as_str());
+                if let Some(subj) = subject {
+                    let _ = conn.execute(
+                        "UPDATE notes SET subject = ?1, content = ?2, updated_at = ?3, sync_status = 'pending' WHERE id = ?4 AND workspace_id = ?5",
+                        crate::params![subj, content, now_ms, &record_id, &workspace_id],
+                    ).await;
+                } else {
+                    let _ = conn.execute(
+                        "UPDATE notes SET content = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3 AND workspace_id = ?4",
+                        crate::params![content, now_ms, &record_id, &workspace_id],
+                    ).await;
+                }
             }
-        } else if resolution_choice == "keep_local" {
-            conn.execute(
+        } else if resolution_choice == "keep_local" || resolution_choice == "keep_remote" {
+            let _ = conn.execute(
                 "UPDATE notes SET sync_status = 'synced', updated_at = ?1 WHERE id = ?2 AND workspace_id = ?3",
                 crate::params![now_ms, &record_id, &workspace_id],
-            ).await?;
+            ).await;
+        }
+    } else {
+        if resolution_choice == "keep_local" {
+            let update_sql = format!(
+                "UPDATE {} SET sync_status = 'synced', updated_at = ?1 WHERE id = ?2 AND workspace_id = ?3",
+                table_name
+            );
+            let _ = conn.execute(&update_sql, crate::params![now_ms, &record_id, &workspace_id]).await;
+        } else if resolution_choice == "keep_remote" || resolution_choice == "crdt_merge" || resolution_choice == "custom_merge" {
+            if let Some(ref custom_json) = custom_resolved_json {
+                if let Ok(serde_json::Value::Object(map)) = serde_json::from_str::<serde_json::Value>(custom_json) {
+                    for (key, val) in map {
+                        if key != "id" && key != "workspace_id" {
+                            let val_str = val.as_str().map(|s| s.to_string()).unwrap_or_else(|| val.to_string());
+                            let update_field_sql = format!(
+                                "UPDATE {} SET {} = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3 AND workspace_id = ?4",
+                                table_name, key
+                            );
+                            let _ = conn.execute(&update_field_sql, crate::params![&val_str, now_ms, &record_id, &workspace_id]).await;
+                        }
+                    }
+                }
+            } else {
+                let update_sql = format!(
+                    "UPDATE {} SET sync_status = 'synced', updated_at = ?1 WHERE id = ?2 AND workspace_id = ?3",
+                    table_name
+                );
+                let _ = conn.execute(&update_sql, crate::params![now_ms, &record_id, &workspace_id]).await;
+            }
         }
     }
 
@@ -999,17 +1095,45 @@ mod tests {
         assert_eq!(breakdown[0].table_name, "time_reports");
         assert_eq!(breakdown[0].pending_count, 1);
 
-        // 2. Insert Loro conflict note & verify conflict detection
+        // 2. Insert Loro conflict note & crdt_semantic_conflicts record, then verify conflict detection
         conn.execute(
             "INSERT OR REPLACE INTO notes (id, workspace_id, team_id, subject, content, edit_history, created_at, updated_at, sync_status) VALUES ('n-ux-1', 'ws-ux-sync', 't-1', 'UX Note', 'loro:1:deadbeef', '[]', '2026-08-04', 3000, 'pending')",
             (),
         ).await?;
 
-        let conflicts = get_sync_conflicts("ws-ux-sync".to_string()).await?;
-        assert_eq!(conflicts.len(), 1);
-        assert_eq!(conflicts[0].table_name, "notes");
+        conn.execute(
+            "INSERT OR REPLACE INTO crdt_semantic_conflicts (id, workspace_id, domain, entity_table, entity_id, colliding_entity_id, conflict_type, severity, conflict_details_json, status, created_at, updated_at, sync_status) VALUES ('c-ux-1', 'ws-ux-sync', 'operational_quarantine', 'time_reports', 'tr-ux-1', NULL, 'overlapping_hours', 'high', '{\"local_version\":{\"hours\":4.0},\"remote_version\":{\"hours\":8.0}}', 'flagged_for_review', 3000, 3000, 'pending')",
+            (),
+        ).await?;
 
-        // 3. Resolve conflict
+        let conflicts = get_sync_conflicts("ws-ux-sync".to_string()).await?;
+        assert!(conflicts.len() >= 2, "Expected at least 2 conflicts (semantic conflict + Loro note)");
+        let semantic_conf = conflicts.iter().find(|c| c.table_name == "time_reports").unwrap();
+        assert_eq!(semantic_conf.severity, "high");
+        assert_eq!(semantic_conf.conflict_type, "overlapping_hours");
+
+        // 3. Resolve semantic conflict
+        let ok_sem = resolve_sync_conflict(
+            "u-ux-1".to_string(),
+            "ws-ux-sync".to_string(),
+            "time_reports".to_string(),
+            "tr-ux-1".to_string(),
+            "keep_remote".to_string(),
+            Some("{\"hours\":8.0}".to_string()),
+        )
+        .await?;
+        assert!(ok_sem);
+
+        let sem_status: String = conn
+            .query_row(
+                "SELECT status FROM crdt_semantic_conflicts WHERE id = 'c-ux-1'",
+                (),
+                |r| r.get(0),
+            )
+            .await?;
+        assert_eq!(sem_status, "resolved");
+
+        // 4. Resolve Loro note conflict
         let ok = resolve_sync_conflict(
             "u-ux-1".to_string(),
             "ws-ux-sync".to_string(),
@@ -1030,6 +1154,10 @@ mod tests {
             .await?;
         assert_eq!(status, "synced");
 
+        conn.execute(
+            "DELETE FROM crdt_semantic_conflicts WHERE workspace_id = 'ws-ux-sync'",
+            (),
+        ).await?;
         conn.execute(
             "DELETE FROM time_reports WHERE workspace_id = 'ws-ux-sync'",
             (),
