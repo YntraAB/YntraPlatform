@@ -97,3 +97,6 @@ pub mod key_recovery_modal;
 pub use key_recovery_modal::KeyRecoveryModal;
 pub mod storage_guard_toast;
 pub use storage_guard_toast::StorageGuardToast;
+pub mod sync_ledger_drawer;
+pub use sync_ledger_drawer::SyncLedgerDrawer;
+

@@ -82,7 +82,36 @@ pub fn StorageGuardToast(props: StorageGuardToastProps) -> Element {
                 }
             }
 
-            div { class: "flex items-center justify-end gap-2 pt-1 border-t border-black/10",
+            div { class: "flex items-center justify-between gap-2 pt-1 border-t border-black/10 flex-wrap",
+                div { class: "flex items-center gap-1.5",
+                    if !report.is_persistent_granted {
+                        Button {
+                            class: "text-xs h-8 px-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 font-bold cursor-pointer",
+                            onclick: {
+                                let u = props.active_user_id.clone();
+                                let w = props.workspace_id.clone();
+                                move |_| {
+                                    let u = u.clone();
+                                    let w = w.clone();
+                                    download_msg.set(Some("Requesting browser persistent storage permission...".to_string()));
+                                    spawn(async move {
+                                        if let Ok(report) = check_storage_health(u, w, true, 50_000_000, 42_000_000).await {
+                                            health_report.set(Some(report));
+                                            download_msg.set(Some("Persistent storage granted by browser!".to_string()));
+                                        }
+                                    });
+                                }
+                            },
+                            LucideIcon { name: "lock", class: "h-3.5 w-3.5 mr-1" }
+                            "Claim Persistent Storage"
+                        }
+                    } else {
+                        span { class: "px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-700 uppercase",
+                            "Persistent Storage Granted"
+                        }
+                    }
+                }
+
                 Button {
                     class: "text-xs h-8 px-3 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 font-bold shadow-xs cursor-pointer",
                     disabled: is_downloading,
@@ -95,16 +124,17 @@ pub fn StorageGuardToast(props: StorageGuardToastProps) -> Element {
                             is_downloading.set(true);
                             spawn(async move {
                                 if let Ok(payload) = generate_emergency_storage_backup_payload(u, w).await {
-                                    download_msg.set(Some(format!("Emergency backup generated ({} records)", payload.total_pending_records)));
+                                    download_msg.set(Some(format!("Downloaded .yntra vault ({} pending records)", payload.total_pending_records)));
                                 }
                                 is_downloading.set(false);
                             });
                         }
                     },
                     LucideIcon { name: "download", class: "h-3.5 w-3.5 mr-1" }
-                    "Emergency Backup Payload"
+                    "1-Click .yntra Vault Export"
                 }
             }
         }
     }
 }
+

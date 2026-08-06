@@ -140,4 +140,247 @@ window.yntra_sync_db = function(url, token) {
   });
 };
 
+// --- Shared Kiosk Terminal Multi-Tier Persistence Bridge ---
+const SharedKioskPersistenceBridge = {
+  daemonSocket: null,
+  isDaemonConnected: false,
+  unsyncedCount: 0,
+  activeUserId: null,
+  activeWorkspaceId: null,
+  logoutGuards: [],
+
+  init() {
+    this.probeNativeDaemon();
+    this.setupPageLifecycleListeners();
+    this.registerServiceWorkerSync();
+  },
+
+  registerServiceWorkerSync() {
+    if ('serviceWorker' in navigator && 'SyncManager' in window) {
+      navigator.serviceWorker.ready.then((reg) => {
+        return reg.sync.register('yntra-kiosk-sync');
+      }).catch((err) => {
+        console.warn('[Kiosk Persistence] ServiceWorker BackgroundSync registration fallback:', err);
+      });
+    }
+  },
+
+  probeNativeDaemon() {
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendNativeMessage) {
+      try {
+        chrome.runtime.sendNativeMessage("se.yntra.kiosk_daemon", { type: "ping" }, (response) => {
+          if (response && response.status === "ok") {
+            console.log("[Kiosk Persistence] Connected via Chrome Native Messaging API.");
+            this.isDaemonConnected = true;
+          }
+        });
+      } catch (err) {}
+    }
+
+    try {
+      const ws = new WebSocket("ws://127.0.0.1:9443/yntra_kiosk_daemon");
+      ws.onopen = () => {
+        console.log("[Kiosk Persistence] Connected to local native sidecar daemon (ws://127.0.0.1:9443).");
+        this.daemonSocket = ws;
+        this.isDaemonConnected = true;
+      };
+      ws.onclose = () => { this.daemonSocket = null; this.isDaemonConnected = false; };
+      ws.onerror = () => { this.daemonSocket = null; this.isDaemonConnected = false; };
+    } catch (e) {
+      this.isDaemonConnected = false;
+    }
+  },
+
+  streamToNativeDaemon(payload) {
+    if (this.isDaemonConnected && this.daemonSocket && this.daemonSocket.readyState === WebSocket.OPEN) {
+      try {
+        this.daemonSocket.send(JSON.stringify({
+          type: "kiosk_wal_frame",
+          user_id: this.activeUserId,
+          workspace_id: this.activeWorkspaceId,
+          payload,
+          timestamp: Date.now()
+        }));
+      } catch (err) {
+        console.warn("[Kiosk Persistence] Daemon socket stream error:", err);
+      }
+    }
+  },
+
+  setupPageLifecycleListeners() {
+    const triggerEmergencyFlush = async () => {
+      if (this.unsyncedCount > 0) {
+        try {
+          const payload = await window.yntra_export_emergency_beacon_payload();
+          if (payload && payload.length > 0) {
+            const chunkSize = 20;
+            for (let i = 0; i < payload.length; i += chunkSize) {
+              const chunk = payload.slice(i, i + chunkSize);
+              const envelope = {
+                beacon_type: "kiosk_emergency_flush",
+                user_id: this.activeUserId,
+                workspace_id: this.activeWorkspaceId,
+                chunk_index: Math.floor(i / chunkSize),
+                total_items: payload.length,
+                payload: chunk
+              };
+              const jsonStr = JSON.stringify(envelope);
+              const blob = new Blob([jsonStr], { type: "application/json" });
+
+              if (navigator.sendBeacon) {
+                const sent = navigator.sendBeacon("/v2/pipeline/beacon", blob);
+                if (!sent) {
+                  fetch("/v2/pipeline/beacon", { method: "POST", body: blob, keepalive: true }).catch(() => {});
+                }
+              } else {
+                fetch("/v2/pipeline/beacon", { method: "POST", body: blob, keepalive: true }).catch(() => {});
+              }
+            }
+            console.log(`[Kiosk Persistence] Dispatched ${payload.length} items in micro-chunks.`);
+          }
+        } catch (err) {
+          console.warn("[Kiosk Persistence] Emergency beacon dispatch error:", err);
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") {
+        triggerEmergencyFlush();
+      }
+    });
+
+    window.addEventListener("pagehide", triggerEmergencyFlush);
+
+    window.addEventListener("beforeunload", (e) => {
+      if (this.unsyncedCount > 0) {
+        for (const guard of this.logoutGuards) {
+          try { guard(this.unsyncedCount); } catch(err) {}
+        }
+        e.preventDefault();
+        e.returnValue = "Unsynced offline clinical data detected. Syncing micro-chunks...";
+        return e.returnValue;
+      }
+    });
+  }
+};
+
+SharedKioskPersistenceBridge.init();
+
+worker.onmessage = function(e) {
+  const { id, type, status, success, rows, rowsAffected, error, hasChanges, unsyncedCount, payload } = e.data;
+  
+  if (unsyncedCount !== undefined) {
+    SharedKioskPersistenceBridge.unsyncedCount = unsyncedCount;
+  }
+
+  if (type === "auto_background_micro_commit") {
+    if (window.yntra_sync_db && window.yntra_sync_token) {
+      window.yntra_sync_db(window.yntra_sync_url || "/v2/pipeline", window.yntra_sync_token).catch(() => {});
+    }
+    return;
+  }
+
+  if (type === "p2p_mesh_mirror_write") {
+    if (window.yntra_p2p_mesh_channel && typeof window.yntra_p2p_mesh_channel.send === 'function') {
+      try {
+        window.yntra_p2p_mesh_channel.send(JSON.stringify({
+          type: "crdt_peer_mirror",
+          user_id: SharedKioskPersistenceBridge.activeUserId,
+          sql: e.data.sql
+        }));
+      } catch (err) {}
+    }
+    SharedKioskPersistenceBridge.streamToNativeDaemon(e.data);
+    return;
+  }
+  
+  if (type === "status") {
+    if (status === "ready") {
+      isDbReady = true;
+      console.log("Database Worker is ready.");
+      while (readyCallbacks.length > 0) {
+        readyCallbacks.shift()();
+      }
+    } else if (status === "error") {
+      console.error("Database Worker error:", error);
+    }
+    return;
+  }
+  
+  const callbacks = pendingRequests.get(id);
+  if (callbacks) {
+    pendingRequests.delete(id);
+    if (success) {
+      if (payload !== undefined) {
+        callbacks.resolve(payload);
+      } else if (rows !== undefined) {
+        callbacks.resolve(rows);
+      } else if (rowsAffected !== undefined) {
+        callbacks.resolve({ rowsAffected, unsyncedCount });
+      } else if (hasChanges !== undefined) {
+        callbacks.resolve({ hasChanges, unsyncedCount });
+      } else {
+        callbacks.resolve({ unsyncedCount });
+      }
+    } else {
+      callbacks.reject(new Error(error));
+    }
+  }
+};
+
+window.yntra_set_kiosk_user_context = function(userId, workspaceId) {
+  SharedKioskPersistenceBridge.activeUserId = userId;
+  SharedKioskPersistenceBridge.activeWorkspaceId = workspaceId;
+  return new Promise((resolve, reject) => {
+    const id = `ctx-${messageId++}`;
+    const send = () => {
+      pendingRequests.set(id, { resolve, reject });
+      worker.postMessage({ id, type: "set_active_user_context", userId, workspaceId });
+    };
+    if (isDbReady) send();
+    else readyCallbacks.push(send);
+  });
+};
+
+window.yntra_check_kiosk_unsynced_data = function() {
+  return new Promise((resolve, reject) => {
+    const id = `kiosk-check-${messageId++}`;
+    const send = () => {
+      pendingRequests.set(id, { resolve: (res) => resolve(res !== null ? (res.unsyncedCount || SharedKioskPersistenceBridge.unsyncedCount) : 0), reject });
+      worker.postMessage({ id, type: "get_unsynced_status" });
+    };
+    if (isDbReady) send();
+    else readyCallbacks.push(send);
+  });
+};
+
+window.yntra_export_emergency_beacon_payload = function() {
+  return new Promise((resolve, reject) => {
+    const id = `kiosk-beacon-${messageId++}`;
+    const send = () => {
+      pendingRequests.set(id, {
+        resolve,
+        reject
+      });
+      worker.postMessage({
+        id,
+        type: "export_emergency_beacon_payload",
+        userId: SharedKioskPersistenceBridge.activeUserId,
+        workspaceId: SharedKioskPersistenceBridge.activeWorkspaceId
+      });
+    };
+    if (isDbReady) send();
+    else readyCallbacks.push(send);
+  });
+};
+
+window.yntra_register_logout_guard = function(onUnsyncedDetected) {
+  if (typeof onUnsyncedDetected === "function") {
+    SharedKioskPersistenceBridge.logoutGuards.push(onUnsyncedDetected);
+  }
+};
+
+
+
 

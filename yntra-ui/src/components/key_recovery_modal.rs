@@ -2,8 +2,10 @@ use crate::components::{Button, LucideIcon};
 use dioxus::prelude::*;
 use yntra_core::{
     KeyRecoveryRequestRecord, approve_key_recovery, claim_recovered_key,
-    get_pending_recovery_requests, reject_key_recovery, request_key_recovery,
+    generate_passkey_threshold_key_pair, get_pending_recovery_requests,
+    register_threshold_key_node, reject_key_recovery, request_key_recovery,
 };
+
 
 #[derive(Props, Clone, PartialEq)]
 pub struct KeyRecoveryModalProps {
@@ -20,6 +22,7 @@ pub fn KeyRecoveryModal(props: KeyRecoveryModalProps) -> Element {
     let mut status_msg = use_signal(|| Option::<String>::None);
     let mut is_processing = use_signal(|| false);
     let mut claimed_key_result = use_signal(|| Option::<String>::None);
+    let mut generated_pubkey = use_signal(|| Option::<String>::None);
 
     let uid_eff = props.active_user_id.clone();
     let ws_eff = props.workspace_id.clone();
@@ -68,7 +71,7 @@ pub fn KeyRecoveryModal(props: KeyRecoveryModalProps) -> Element {
                 }
 
                 // Tabs
-                div { class: "flex items-center gap-2 border-b border-border pb-2 text-xs font-semibold",
+                div { class: "flex items-center gap-2 border-b border-border pb-2 text-xs font-semibold flex-wrap",
                     button {
                         class: if tab == "request" { "px-4 py-2 rounded-xl bg-primary text-primary-foreground font-bold" } else { "px-4 py-2 rounded-xl bg-secondary text-secondary-foreground hover:bg-secondary/80" },
                         onclick: move |_| active_tab.set("request"),
@@ -80,6 +83,11 @@ pub fn KeyRecoveryModal(props: KeyRecoveryModalProps) -> Element {
                             onclick: move |_| active_tab.set("admin"),
                             "IT Admin Approvals ({requests.len()})"
                         }
+                        button {
+                            class: if tab == "peer" { "px-4 py-2 rounded-xl bg-primary text-primary-foreground font-bold" } else { "px-4 py-2 rounded-xl bg-secondary text-secondary-foreground hover:bg-secondary/80" },
+                            onclick: move |_| active_tab.set("peer"),
+                            "Threshold Peer Escrow"
+                        }
                     }
                     button {
                         class: if tab == "claim" { "px-4 py-2 rounded-xl bg-primary text-primary-foreground font-bold" } else { "px-4 py-2 rounded-xl bg-secondary text-secondary-foreground hover:bg-secondary/80" },
@@ -87,6 +95,7 @@ pub fn KeyRecoveryModal(props: KeyRecoveryModalProps) -> Element {
                         "Claim Key on New Device"
                     }
                 }
+
 
                 if let Some(ref msg) = *status_msg.read() {
                     div { class: "p-3 rounded-xl border border-primary/30 bg-primary/10 text-primary text-xs font-semibold flex items-center gap-2",
@@ -212,7 +221,51 @@ pub fn KeyRecoveryModal(props: KeyRecoveryModalProps) -> Element {
                             }
                         }
                     }
+                } else if tab == "peer" {
+                    div { class: "space-y-4 py-2",
+                        div { class: "p-4 rounded-2xl border border-primary/30 bg-primary/5 space-y-2",
+                            h3 { class: "text-sm font-bold text-foreground m-0 flex items-center gap-2",
+                                LucideIcon { name: "shield", class: "h-4 w-4 text-primary" }
+                                "Shamir Secret Sharing Peer Escrow Node Registry"
+                            }
+                            p { class: "text-xs text-muted-foreground m-0",
+                                "Register trusted peer node curve25519 public keys for zero-knowledge multi-approver threshold key escrow."
+                            }
+                        }
+
+                        if let Some(ref pubkey) = *generated_pubkey.read() {
+                            div { class: "p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 text-xs font-mono break-all",
+                                "Generated Escrow Node Pubkey: {pubkey}"
+                            }
+                        }
+
+                        div { class: "flex items-center justify-end gap-3 pt-2",
+                            Button {
+                                class: "text-xs h-10 px-5 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm cursor-pointer font-bold",
+                                onclick: {
+                                    let u = props.active_user_id.clone();
+                                    let w = props.workspace_id.clone();
+                                    move |_| {
+                                        let u = u.clone();
+                                        let w = w.clone();
+                                        if let Ok(kp) = generate_passkey_threshold_key_pair() {
+                                            generated_pubkey.set(Some(kp.public_key_hex.clone()));
+                                            let pk = kp.public_key_hex.clone();
+                                            spawn(async move {
+                                                if let Ok(_) = register_threshold_key_node(u, w, pk).await {
+                                                    status_msg.set(Some("Trusted peer escrow node registered successfully!".to_string()));
+                                                }
+                                            });
+                                        }
+                                    }
+                                },
+                                LucideIcon { name: "plus-circle", class: "h-4 w-4 mr-1.5" }
+                                "Generate & Register Peer Node Key"
+                            }
+                        }
+                    }
                 } else if tab == "claim" {
+
                     div { class: "space-y-4 py-2",
                         div { class: "p-4 rounded-2xl border border-border bg-secondary/20 space-y-2",
                             h3 { class: "text-sm font-bold text-foreground m-0", "Claim Released Key Payload" }

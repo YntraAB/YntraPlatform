@@ -209,3 +209,63 @@ pub fn encrypt_opt_field_with_proof(
 pub fn decrypt_opt_field(seed: &str, val: Option<String>) -> Option<String> {
     val.map(|v| decrypt_field(seed, &v))
 }
+
+pub fn decrypt_field_break_glass(
+    escrow_seed: &str,
+    val: &str,
+    operator_id: &str,
+    patient_id: &str,
+    emergency_reason: &str,
+) -> Result<yntra_core::BreakGlassResult, String> {
+    let trust = yntra_core::ZkCryptoTrust::new();
+    let ciphertext = if val.starts_with("zero_copy_enc:") {
+        let parts: Vec<&str> = val.split(':').collect();
+        if parts.len() == 3 {
+            parts[2].to_string()
+        } else {
+            val.to_string()
+        }
+    } else {
+        val.to_string()
+    };
+    trust
+        .decrypt_workspace_field_break_glass(
+            escrow_seed.to_string(),
+            ciphertext,
+            operator_id.to_string(),
+            patient_id.to_string(),
+            emergency_reason.to_string(),
+        )
+        .map_err(|e| e.to_string())
+}
+
+pub fn decrypt_field_break_glass_threshold(
+    threshold_shares: Vec<String>,
+    val: &str,
+    operator_id: &str,
+    patient_id: &str,
+    emergency_reason: &str,
+) -> Result<yntra_core::BreakGlassResult, String> {
+    let trust = yntra_core::ZkCryptoTrust::new();
+    let ciphertext = if val.starts_with("zero_copy_enc:") {
+        let parts: Vec<&str> = val.split(':').collect();
+        if parts.len() == 3 {
+            parts[2].to_string()
+        } else {
+            val.to_string()
+        }
+    } else {
+        val.to_string()
+    };
+    trust
+        .decrypt_workspace_field_break_glass_threshold(
+            threshold_shares,
+            ciphertext,
+            operator_id.to_string(),
+            patient_id.to_string(),
+            emergency_reason.to_string(),
+        )
+        .map_err(|e| e.to_string())
+}
+
+

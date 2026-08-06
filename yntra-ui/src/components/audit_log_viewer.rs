@@ -2,8 +2,9 @@ use crate::components::{Button, LucideIcon};
 use dioxus::prelude::*;
 use yntra_core::{
     AuditLogEntry, export_audit_logs_csv, export_audit_logs_json, get_audit_logs,
-    verify_audit_log_chain,
+    revert_workspace_to_timestamp, verify_audit_log_chain,
 };
+
 
 #[derive(Props, Clone, PartialEq)]
 pub struct AuditLogViewerProps {
@@ -179,6 +180,7 @@ pub fn AuditLogViewer(props: AuditLogViewerProps) -> Element {
                                     th { class: "p-3", "Timestamp" }
                                     th { class: "p-3 font-mono", "BLAKE3 Hash" }
                                     th { class: "p-3 font-mono", "Ed25519 Sig" }
+                                    th { class: "p-3 font-sans text-right", "Actions" }
                                 }
                             }
                             tbody { class: "divide-y divide-border/60 text-foreground",
@@ -186,6 +188,9 @@ pub fn AuditLogViewer(props: AuditLogViewerProps) -> Element {
                                     {
                                         let short_hash = if entry.curr_hash.len() > 14 { format!("{}...", &entry.curr_hash[..14]) } else { entry.curr_hash.clone() };
                                         let short_sig = entry.signature.as_ref().map(|s| if s.len() > 12 { format!("{}...", &s[..12]) } else { s.clone() }).unwrap_or_else(|| "Unsigned".to_string());
+                                        let ts = entry.timestamp;
+                                        let u_rev = props.active_user_id.clone();
+                                        let w_rev = props.workspace_id.clone();
 
                                         rsx! {
                                             tr { key: "{entry.id}", class: "hover:bg-muted/30 transition-colors font-mono text-[11px]",
@@ -199,6 +204,22 @@ pub fn AuditLogViewer(props: AuditLogViewerProps) -> Element {
                                                 td { class: "p-3 font-sans text-muted-foreground", "{entry.timestamp}" }
                                                 td { class: "p-3 text-muted-foreground", "{short_hash}" }
                                                 td { class: "p-3 text-emerald-600 font-semibold", "{short_sig}" }
+                                                td { class: "p-3 text-right font-sans",
+                                                    button {
+                                                        class: "px-2.5 py-1 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 font-bold text-[10px] cursor-pointer transition-colors flex items-center gap-1 ml-auto",
+                                                        onclick: move |_| {
+                                                            let u = u_rev.clone();
+                                                            let w = w_rev.clone();
+                                                            spawn(async move {
+                                                                if let Ok(_) = revert_workspace_to_timestamp(u, w, ts).await {
+                                                                    status_msg.set(Some(format!("Workspace snapshot successfully rolled back to timestamp {}!", ts)));
+                                                                }
+                                                            });
+                                                        },
+                                                        LucideIcon { name: "rotate-ccw", class: "h-3 w-3" }
+                                                        "Revert Snapshot"
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -211,3 +232,4 @@ pub fn AuditLogViewer(props: AuditLogViewerProps) -> Element {
         }
     }
 }
+

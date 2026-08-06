@@ -1,6 +1,6 @@
 use crate::components::LucideIcon;
 use dioxus::prelude::*;
-use yntra_core::get_sync_queue_status;
+use yntra_core::{get_current_state_sequence_number, get_sync_queue_status, reconcile_foreground_state};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct SyncIndicatorProps {
@@ -15,6 +15,7 @@ pub fn SyncIndicator(props: SyncIndicatorProps) -> Element {
     let mut pending_count = use_signal(|| 0u32);
     let mut quarantined_count = use_signal(|| 0u32);
     let mut sync_state = use_signal(|| "synced".to_string());
+    let mut ack_seq = use_signal(get_current_state_sequence_number);
 
     let uid = props.active_user_id.read().clone();
     let ws_id = props.workspace_id.clone();
@@ -25,6 +26,10 @@ pub fn SyncIndicator(props: SyncIndicatorProps) -> Element {
         let u = uid.clone();
         let w = ws_id.clone();
         spawn(async move {
+            let last_seq = *ack_seq.read();
+            let recon = reconcile_foreground_state(last_seq);
+            ack_seq.set(recon.current_sequence);
+
             if let Ok(status) = get_sync_queue_status(u, w).await {
                 pending_count.set(status.pending_changes_count);
                 quarantined_count.set(status.quarantined_conflicts_count);
@@ -34,6 +39,9 @@ pub fn SyncIndicator(props: SyncIndicatorProps) -> Element {
     });
 
     let on_click = move |_| {
+        let last_seq = *ack_seq.read();
+        let recon = reconcile_foreground_state(last_seq);
+        ack_seq.set(recon.current_sequence);
         props.on_open_drawer.call(());
     };
 
@@ -42,21 +50,22 @@ pub fn SyncIndicator(props: SyncIndicatorProps) -> Element {
             "bg-rose-500/10 text-rose-500 border-rose-500/30 hover:bg-rose-500/20 shadow-rose-500/10",
             "alert-triangle",
             format!("{} Conflicts", quarantined_count.read()),
-            "Action Required",
+            format!("Seq #{}", *ack_seq.read()),
         ),
         "pending_upload" => (
             "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20 shadow-amber-500/10",
             "cloud-upload",
             format!("Saved Locally ({} pending)", pending_count.read()),
-            "Queue Active",
+            format!("Seq #{}", *ack_seq.read()),
         ),
         _ => (
             "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20 shadow-emerald-500/10",
             "check-circle-2",
             "Synced (0ms)".to_string(),
-            "Zero-Delay Engine",
+            format!("Seq #{}", *ack_seq.read()),
         ),
     };
+
 
     rsx! {
         button {

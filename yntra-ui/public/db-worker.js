@@ -274,10 +274,85 @@ function sanitizeBind(bind) {
   return bind;
 }
 
+function updateUnsyncedCount() {
+  if (!db) return 0;
+  let count = 0;
+  try {
+    const tables = [];
+    db.exec({
+      sql: "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'local_%' AND name != 'system_settings'",
+      rowMode: 'object',
+      callback: (row) => { tables.push(row.name); }
+    });
+    for (const tbl of tables) {
+      const cols = getTableColumns(tbl);
+      if (cols.includes('sync_status')) {
+        db.exec({
+          sql: `SELECT count(*) as cnt FROM ${tbl} WHERE sync_status = 'pending'`,
+          rowMode: 'object',
+          callback: (row) => { count += (parseInt(row.cnt) || 0); }
+        });
+      }
+    }
+  } catch (e) {
+    console.warn("[Worker] Failed to query unsynced count:", e);
+  }
+  return count;
+}
+
+let activeUserId = null;
+let activeWorkspaceId = null;
+
+setInterval(() => {
+  if (isReady && db) {
+    const unsyncedCount = updateUnsyncedCount();
+    if (unsyncedCount > 0) {
+      postMessage({ type: "auto_background_micro_commit", unsyncedCount, activeUserId, activeWorkspaceId });
+    }
+  }
+}, 500);
+
+function collectEmergencyBeaconPayload(userId, workspaceId) {
+  if (!db) return [];
+  const payload = [];
+  const uid = userId || activeUserId || "usr_anonymous";
+  const wid = workspaceId || activeWorkspaceId || "default";
+  try {
+    const tables = [];
+    db.exec({
+      sql: "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'local_%' AND name != 'system_settings'",
+      rowMode: 'object',
+      callback: (row) => { tables.push(row.name); }
+    });
+    for (const tbl of tables) {
+      const cols = getTableColumns(tbl);
+      if (cols.includes('sync_status')) {
+        db.exec({
+          sql: `SELECT * FROM ${tbl} WHERE sync_status = 'pending'`,
+          rowMode: 'object',
+          callback: (row) => {
+            payload.push({ table: tbl, user_id: uid, workspace_id: wid, data: row, timestamp: Date.now() });
+          }
+        });
+      }
+    }
+  } catch (e) {
+    console.warn("[Worker] Failed to collect emergency beacon payload:", e);
+  }
+  return payload;
+}
+
 // Handle messages from the main thread
 onmessage = async function(e) {
-  const { id, type, sql, params, url, token } = e.data;
+  const { id, type, sql, params, url, token, userId, workspaceId } = e.data;
   
+  if (type === "set_active_user_context") {
+    if (userId) activeUserId = userId;
+    if (workspaceId) activeWorkspaceId = workspaceId;
+    if (id) postMessage({ id, success: true });
+    return;
+  }
+
   if (!isReady) {
     postMessage({ id, success: false, error: "Database is not initialized yet" });
     return;
@@ -291,7 +366,11 @@ onmessage = async function(e) {
         bind: sanitizeBind(params) || [],
       });
       const rowsAffected = db.changes();
-      postMessage({ id, success: true, rowsAffected });
+      const unsyncedCount = updateUnsyncedCount();
+      postMessage({ id, success: true, rowsAffected, unsyncedCount });
+      if (unsyncedCount > 0) {
+        postMessage({ type: "p2p_mesh_mirror_write", sql, unsyncedCount });
+      }
     } else if (type === "query") {
       const rows = [];
       db.exec({
@@ -306,7 +385,11 @@ onmessage = async function(e) {
       db.exec({
         sql: sql,
       });
-      postMessage({ id, success: true });
+      const unsyncedCount = updateUnsyncedCount();
+      postMessage({ id, success: true, unsyncedCount });
+      if (unsyncedCount > 0) {
+        postMessage({ type: "p2p_mesh_mirror_write", sql, unsyncedCount });
+      }
     } else if (type === "execute_statements") {
       try {
         let idx = 0;
@@ -325,17 +408,30 @@ onmessage = async function(e) {
           }
           idx++;
         }
-        postMessage({ id, success: true });
+        const unsyncedCount = updateUnsyncedCount();
+        postMessage({ id, success: true, unsyncedCount });
+        if (unsyncedCount > 0) {
+          postMessage({ type: "p2p_mesh_mirror_write", unsyncedCount });
+        }
       } catch (err) {
         throw err;
       }
     } else if (type === "sync") {
       performSync(url, token)
-        .then((hasChanges) => postMessage({ id, success: true, hasChanges }))
+        .then((hasChanges) => {
+          const unsyncedCount = updateUnsyncedCount();
+          postMessage({ id, success: true, hasChanges, unsyncedCount });
+        })
         .catch(err => {
           console.error("Sync error in worker:", err);
           postMessage({ id, success: false, error: err.toString() });
         });
+    } else if (type === "get_unsynced_status") {
+      const count = updateUnsyncedCount();
+      postMessage({ id, success: true, unsyncedCount: count });
+    } else if (type === "export_emergency_beacon_payload") {
+      const payload = collectEmergencyBeaconPayload(userId, workspaceId);
+      postMessage({ id, success: true, payload });
     } else {
       postMessage({ id, success: false, error: `Unknown query type: ${type}` });
     }

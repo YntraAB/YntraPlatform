@@ -348,9 +348,53 @@ pub fn BlockSettings(props: BlockSettingsProps) -> Element {
                                             }
                                         }
                                     }
-                                    components::CardContent { class: "p-4 pt-0",
+                                    components::CardContent { class: "p-4 pt-0 space-y-2",
                                         components::CardDescription { class: "line-clamp-2 text-[11px] leading-relaxed text-muted-foreground/80",
                                             "{block_desc_translated}"
+                                        }
+                                        {
+                                            let tier_str = block_item.tier.clone().unwrap_or_else(|| {
+                                                crate::blocks::get_block_by_id(&block_id)
+                                                    .map(|s| s.tier.as_str().to_string())
+                                                    .unwrap_or_else(|| "core_platform".to_string())
+                                            });
+
+                                            let jurisdiction_str = block_item.jurisdiction.clone().unwrap_or_else(|| {
+                                                crate::blocks::get_block_by_id(&block_id)
+                                                    .map(|s| s.standards.jurisdiction.to_string())
+                                                    .unwrap_or_else(|| "Global".to_string())
+                                            });
+
+                                            let standards_list: Vec<String> = block_item
+                                                .compliance_standards
+                                                .as_ref()
+                                                .and_then(|s| serde_json::from_str(s).ok())
+                                                .unwrap_or_else(|| {
+                                                    crate::blocks::get_block_by_id(&block_id)
+                                                        .map(|s| s.standards.compliance_standards.iter().map(|&x| x.to_string()).collect())
+                                                        .unwrap_or_default()
+                                                });
+
+                                            rsx! {
+                                                div { class: "mt-2.5 flex flex-wrap gap-1 items-center",
+                                                    span { class: match tier_str.as_str() {
+                                                        "enterprise_vertical" => "inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20",
+                                                        "regional_extension" => "inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-500/10 text-amber-600 border border-amber-500/20",
+                                                        _ => "inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-blue-500/10 text-blue-600 border border-blue-500/20",
+                                                    },
+                                                        match tier_str.as_str() {
+                                                            "enterprise_vertical" => "Enterprise Vertical".to_string(),
+                                                            "regional_extension" => format!("Regional Extension ({})", jurisdiction_str),
+                                                            _ => "Core OS".to_string(),
+                                                        }
+                                                    }
+                                                    for std in standards_list.iter().take(2) {
+                                                        span { class: "inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-mono bg-muted/80 text-muted-foreground border border-border/40",
+                                                            "{std}"
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                     if is_enabled {

@@ -107,36 +107,95 @@ pub fn ConflictResolverModal(props: ConflictResolverModalProps) -> Element {
                             span { class: "text-muted-foreground font-semibold", "Conflict #{idx + 1} of {conflicts.len()}" }
                         }
 
-                        // Side-by-side diff viewer
-                        div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
-                            // Local Version
-                            div { class: "rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-2",
-                                div { class: "flex items-center justify-between border-b border-emerald-500/20 pb-2",
-                                    span { class: "text-xs font-bold text-emerald-600 flex items-center gap-1.5",
-                                        LucideIcon { name: "laptop", class: "h-4 w-4" }
-                                        "Local Device Offline State"
-                                    }
-                                    span { class: "text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-700", "Local Edit" }
+                        // Mode Selector / Info Bar
+                        div { class: "flex items-center justify-between border-b border-border/60 pb-2",
+                            div { class: "flex items-center gap-2",
+                                button {
+                                    class: if !*custom_merge_mode.read() { "px-3 py-1 rounded-lg text-xs font-bold bg-primary text-primary-foreground shadow-xs" } else { "px-3 py-1 rounded-lg text-xs font-semibold bg-secondary text-secondary-foreground hover:bg-secondary/80" },
+                                    onclick: move |_| custom_merge_mode.set(false),
+                                    "Field-by-Field CRDT Diffs"
                                 }
-                                pre { class: "w-full h-48 rounded-xl border border-emerald-500/20 bg-background p-3 text-xs font-mono text-foreground overflow-auto",
-                                    "{local_pretty}"
+                                button {
+                                    class: if *custom_merge_mode.read() { "px-3 py-1 rounded-lg text-xs font-bold bg-primary text-primary-foreground shadow-xs" } else { "px-3 py-1 rounded-lg text-xs font-semibold bg-secondary text-secondary-foreground hover:bg-secondary/80" },
+                                    onclick: move |_| custom_merge_mode.set(true),
+                                    "Raw JSON Payloads"
                                 }
                             }
+                            span { class: "text-[11px] font-semibold text-muted-foreground",
+                                "{conflict.field_diffs.iter().filter(|d| d.is_conflicting).count()} conflicting field(s)"
+                            }
+                        }
 
-                            // Cloud Server Version
-                            div { class: "rounded-2xl border border-primary/30 bg-primary/5 p-4 space-y-2",
-                                div { class: "flex items-center justify-between border-b border-primary/20 pb-2",
-                                    span { class: "text-xs font-bold text-primary flex items-center gap-1.5",
-                                        LucideIcon { name: "cloud", class: "h-4 w-4" }
-                                        "Cloud Replication Payload"
+                        if !*custom_merge_mode.read() && !conflict.field_diffs.is_empty() {
+                            // Field-by-Field Breakdown
+                            div { class: "max-h-72 overflow-y-auto space-y-3 pr-1",
+                                for diff in conflict.field_diffs.iter() {
+                                    {
+                                        let fname = diff.field_name.clone();
+                                        let lval = diff.local_value.clone();
+                                        let rval = diff.remote_value.clone();
+                                        let is_conf = diff.is_conflicting;
+
+                                        rsx! {
+                                            div { key: "{fname}", class: "p-3 rounded-2xl border border-border bg-background space-y-2",
+                                                div { class: "flex items-center justify-between text-xs",
+                                                    div { class: "flex items-center gap-2",
+                                                        span { class: "font-mono font-bold text-foreground capitalize", "{fname}" }
+                                                        if is_conf {
+                                                            span { class: "px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-600 border border-amber-500/20", "Conflicting Edit" }
+                                                        } else {
+                                                            span { class: "px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20", "Clean Field" }
+                                                        }
+                                                    }
+                                                }
+                                                div { class: "grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono",
+                                                    div { class: "p-2.5 rounded-xl border border-emerald-500/20 bg-emerald-500/5 text-foreground overflow-x-auto",
+                                                        span { class: "text-[10px] font-bold uppercase text-emerald-600 block mb-1", "Local Field Value" }
+                                                        "{lval}"
+                                                    }
+                                                    div { class: "p-2.5 rounded-xl border border-primary/20 bg-primary/5 text-foreground overflow-x-auto",
+                                                        span { class: "text-[10px] font-bold uppercase text-primary block mb-1", "Cloud Server Value" }
+                                                        "{rval}"
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
-                                    span { class: "text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-primary/20 text-primary", "Server Payload" }
                                 }
-                                pre { class: "w-full h-48 rounded-xl border border-primary/20 bg-background p-3 text-xs font-mono text-foreground overflow-auto",
-                                    "{remote_pretty}"
+                            }
+                        } else {
+                            // Side-by-side raw diff viewer
+                            div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
+                                // Local Version
+                                div { class: "rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-2",
+                                    div { class: "flex items-center justify-between border-b border-emerald-500/20 pb-2",
+                                        span { class: "text-xs font-bold text-emerald-600 flex items-center gap-1.5",
+                                            LucideIcon { name: "laptop", class: "h-4 w-4" }
+                                            "Local Device Offline State"
+                                        }
+                                        span { class: "text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-700", "Local Edit" }
+                                    }
+                                    pre { class: "w-full h-48 rounded-xl border border-emerald-500/20 bg-background p-3 text-xs font-mono text-foreground overflow-auto",
+                                        "{local_pretty}"
+                                    }
+                                }
+
+                                // Cloud Server Version
+                                div { class: "rounded-2xl border border-primary/30 bg-primary/5 p-4 space-y-2",
+                                    div { class: "flex items-center justify-between border-b border-primary/20 pb-2",
+                                        span { class: "text-xs font-bold text-primary flex items-center gap-1.5",
+                                            LucideIcon { name: "cloud", class: "h-4 w-4" }
+                                            "Cloud Replication Payload"
+                                        }
+                                        span { class: "text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-primary/20 text-primary", "Server Payload" }
+                                    }
+                                    pre { class: "w-full h-48 rounded-xl border border-primary/20 bg-background p-3 text-xs font-mono text-foreground overflow-auto",
+                                        "{remote_pretty}"
+                                    }
                                 }
                             }
                         }
+
 
                         // Action buttons
                         div { class: "flex items-center justify-between pt-3 border-t border-border/40 flex-wrap gap-3",

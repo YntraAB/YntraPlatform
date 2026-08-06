@@ -100,6 +100,20 @@ pub fn map_error(err: &yntra_core::YntraError) -> UserFriendlyError {
                 description: detail.clone(),
             }
         }
+        yntra_core::YntraError::ComplianceError(detail) => {
+            log::error!("Compliance error: {}", detail);
+            UserFriendlyError {
+                title: "Compliance Failure".to_string(),
+                description: detail.clone(),
+            }
+        }
+        yntra_core::YntraError::DlpViolation(detail) => {
+            log::error!("DLP policy violation: {}", detail);
+            UserFriendlyError {
+                title: "DLP Policy Violation".to_string(),
+                description: detail.clone(),
+            }
+        }
     }
 }
 

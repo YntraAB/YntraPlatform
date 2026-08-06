@@ -2,6 +2,7 @@ use crate::components;
 use dioxus::prelude::*;
 use yntra_core::{
     AdyenPaymentSession, StripePaymentSession, SwishPaymentSession, accept_move_quote,
+    accept_move_quote_with_rut, accept_move_quote_with_deposit,
     calculate_and_save_move_quote, check_swish_payment_status, create_move_inventory_item,
     delete_move_inventory_item, generate_move_invoice, get_job_tickets, get_move_inventory,
     get_move_invoice, get_move_quote, initiate_adyen_payment, initiate_stripe_payment,
@@ -208,6 +209,7 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
         .sum();
     let quote = quote_res.read().clone().flatten();
     let mut use_rut = use_signal(|| false);
+    let mut personal_number = use_signal(String::new);
     let mut show_add_form = use_signal(|| false);
     let mut selected_template_idx = use_signal(|| 999);
     let mut new_item_name = use_signal(String::new);
@@ -420,8 +422,10 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
     let on_accept_quote = move |quote_id: String| {
         let uid = active_uid_for_accept_c.clone();
         let apply_rut = *use_rut.read();
+        let pnum_str = personal_number.read().clone();
         spawn(async move {
-            if accept_move_quote(uid.clone(), quote_id.clone())
+            let pnum_opt = if pnum_str.trim().is_empty() { None } else { Some(pnum_str) };
+            if accept_move_quote_with_rut(uid.clone(), quote_id.clone(), apply_rut, pnum_opt)
                 .await
                 .is_ok()
             {
@@ -841,18 +845,31 @@ pub fn MovingPortal(props: MovingPortalProps) -> Element {
                                             }
 
                                             if show_rut {
-                                                div { class: "flex items-center gap-2 pt-2.5 border-t border-border/20 text-xs text-muted-foreground",
-                                                    input {
-                                                        r#type: "checkbox",
-                                                        id: "rut_checkbox",
-                                                        checked: is_rut,
-                                                        onclick: move |_| {
-                                                            let val = *use_rut.read();
-                                                            use_rut.set(!val);
-                                                        },
-                                                        class: "rounded border-border bg-background text-primary focus:ring-primary cursor-pointer"
+                                                div { class: "flex flex-col gap-2 pt-2.5 border-t border-border/20 text-xs text-muted-foreground",
+                                                    div { class: "flex items-center gap-2",
+                                                        input {
+                                                            r#type: "checkbox",
+                                                            id: "rut_checkbox",
+                                                            checked: is_rut,
+                                                            onclick: move |_| {
+                                                                let val = *use_rut.read();
+                                                                use_rut.set(!val);
+                                                            },
+                                                            class: "rounded border-border bg-background text-primary focus:ring-primary cursor-pointer"
+                                                        }
+                                                        label { r#for: "rut_checkbox", class: "font-bold cursor-pointer select-none text-foreground/80 hover:text-foreground", "Ansök om RUT-avdrag (50% på arbetskostnad)" }
                                                     }
-                                                    label { r#for: "rut_checkbox", class: "font-bold cursor-pointer select-none text-foreground/80 hover:text-foreground", "Ansök om RUT-avdrag" }
+                                                    if is_rut {
+                                                        div { class: "pl-6 space-y-1",
+                                                            input {
+                                                                r#type: "text",
+                                                                placeholder: "Personnummer (ÅÅÅÅMMDD-XXXX)",
+                                                                value: "{personal_number.read()}",
+                                                                oninput: move |evt| personal_number.set(evt.value()),
+                                                                class: "w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                             }
 

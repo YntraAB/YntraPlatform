@@ -680,9 +680,15 @@ fn extract_variables(s: &str) -> Vec<String> {
 
 fn export_block_schemas(workspace_root: &Path) -> Result<(), String> {
     println!("Exporting dynamic block schemas for Swift and Kotlin mobile clients...");
-    let blocks_rs = workspace_root.join("yntra-ui").join("src").join("blocks.rs");
+    let mut blocks_rs = workspace_root.join("yntra-ui").join("src").join("blocks.rs");
     if !blocks_rs.exists() {
-        return Err(format!("blocks.rs not found at {:?}", blocks_rs));
+        blocks_rs = workspace_root.join("yntra-ui").join("src").join("blocks").join("mod.rs");
+    }
+    if !blocks_rs.exists() {
+        blocks_rs = workspace_root.join("yntra-ui").join("src").join("blocks").join("registry.rs");
+    }
+    if !blocks_rs.exists() {
+        return Err(format!("blocks schema file not found at {:?}", blocks_rs));
     }
 
     let content = fs::read_to_string(&blocks_rs)
