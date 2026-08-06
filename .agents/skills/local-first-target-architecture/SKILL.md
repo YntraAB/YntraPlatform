@@ -42,3 +42,14 @@ An end-to-end encrypted (E2EE) database model where the cloud server never sees 
 1. **Local Envelope Encryption**: Encrypt all workspace fields locally using keys derived from user Passkeys/Hardware security keys.
 2. **Local ZK Proof Generation**: When writing data, generate a ZK-proof on the device showing that the encrypted write complies with schemas and user authorization policies.
 3. **Zero-Knowledge Cloud Verification**: The remote sync engine verifies the ZK-proof and commits the encrypted state without decryptions.
+
+---
+
+## 4. Enterprise Shared Kiosk & Workstation Session Resilience
+
+### What it is
+A zero-data-loss persistence layer designed for shared workstation terminals (hospitals, labs) governed by Active Directory or Jamf GPOs that wipe browser site data (OPFS, IndexedDB, site caches) on user logout or session timeout.
+
+### How to Implement
+1. **Multi-Tier Persistence Engine**: Web client combines WASM OPFS with in-room P2P mesh mirroring, loopback native daemon IPC (`ws://127.0.0.1:9443`), and synchronous emergency beacon flushes (`navigator.sendBeacon`).
+2. **Pre-Logout Guard**: Intercepts session termination events, preventing profile wiping until offline writes are confirmed synced or mirrored to local network peers.

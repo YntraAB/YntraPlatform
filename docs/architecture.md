@@ -47,6 +47,12 @@ Yntra standardizes on **libSQL** (the open-contribution engine behind Turso) as 
 All database queries run in-process directly on the host device:
 *   **Performance**: Queries are executed locally on disk or in memory without network latency.
 *   **Web (libSQL WASM)**: Runs inside a Web Worker communicating with the browser's **Origin Private File System (OPFS)** for high-throughput persistence.
+*   **Enterprise Shared Workstations & Kiosks (4-Tier Hybrid Persistence Engine)**:
+    Shared terminals in healthcare and education (nurse stations, computer labs, mobile carts) are governed by strict IT Group Policies (Active Directory / Jamf) that wipe browser site data (OPFS, IndexedDB, site caches) upon user logout or session timeout. To guarantee zero data loss of un-replicated offline clinical notes or critical updates, Yntra enforces a 4-tier resilience architecture:
+    1. **Tier 1 (Browser VFS)**: High-speed local reads/writes executed via SQLite WASM in OPFS with binary WAL frame mirroring.
+    2. **Tier 2 (In-Room P2P Mesh Mirroring)**: Real-time broadcast of offline CRDT deltas/WAL frames over WebRTC Data Channels (`ComplianceMode::AuditedLocalP2P`) to adjacent local network nodes (e.g., nurse tablets or peer ward stations).
+    3. **Tier 3 (Kiosk Native Sidecar Daemon)**: Background loopback IPC (`ws://127.0.0.1:9443` or Native Messaging) streaming encrypted WAL frames outside the browser sandbox into OS-protected storage (`%LocalAppData%\Yntra\kiosk_journal` or `/var/lib/yntra`) immune to browser cache purges.
+    4. **Tier 4 (Pre-Logout Guard & Emergency Beacon)**: Browser Page Lifecycle hooks (`visibilitychange`, `pagehide`, `beforeunload`) triggering synchronous `navigator.sendBeacon` micro-batch flushes and blocking session destruction UI guards when un-synced data is pending.
 *   **Native (Desktop & Mobile)**: Compiles via static bindings using the Rust `libsql` client crate.
 
 ### Synchronization (Embedded Replicas)

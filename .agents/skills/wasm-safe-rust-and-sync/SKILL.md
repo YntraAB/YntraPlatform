@@ -46,6 +46,10 @@ The database driver changes depending on the execution target:
 ### Web Environment:
 * Uses SQLite WASM running inside a Web Worker utilizing the **Origin Private File System (OPFS)**.
 * Communication happens via `wasm_bindgen` calling `yntra_execute_sql` in `db-bridge.js` which posts messages to `db-worker.js`.
+* **Kiosk Resilience Engine**: Integrates `SharedKioskPersistenceBridge` with:
+  1. Local loopback daemon probe (`ws://127.0.0.1:9443`) for native filesystem backup outside browser sandbox.
+  2. Real-time P2P WebRTC Data Channel frame mirroring across local room peers.
+  3. Pre-logout emergency beacon dispatch (`navigator.sendBeacon`) on session termination.
 
 ---
 

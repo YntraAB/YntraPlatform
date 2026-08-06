@@ -32,3 +32,15 @@ To allow the cloud sync server to verify write authority without knowing the use
 
 * **Zeroization**: Sensitive memory regions holding temporary keys or passwords must implement `zeroize` traits to clean memory footprints immediately after operations complete.
 * **Secure Storage Providers**: Integrate platform-specific Keychain features via `SecureStorageProvider` callbacks to handle persistent storage on iOS/Android native backends.
+
+---
+
+## 4. Multi-Recipient Envelope Encryption & Break-Glass Recovery
+
+To protect patient safety and institutional business continuity (HIPAA § 164.312(a)(2)(ii)):
+
+1. **Dual-Recipient Key Wrapping**: Sensitive fields must be envelope-encrypted under both the user's Passkey key wrap AND the Institutional Emergency Escrow key wrap (`encrypt_workspace_field_with_escrow`).
+2. **Break-Glass Emergency Decryption**: In emergency healthcare scenarios (e.g. Code Blue, ICU admissions, attending physician off-duty), authorized emergency operators unwrap the DEK using the institutional escrow key via `decrypt_workspace_field_break_glass`.
+3. **Cryptographic ZKP Audit Trails**: Break-glass operations generate an immutable ZKP Break-Glass Audit Proof (`generate_break_glass_audit_proof`) signed by the operator attesting to `(operator_id, patient_id, emergency_reason, timestamp, dek_hash)`.
+4. **Audit Verification**: Database observers and sync nodes verify break-glass audit proofs via `verify_break_glass_audit_proof` to enforce non-repudiation and prevent unauthorized emergency access.
+

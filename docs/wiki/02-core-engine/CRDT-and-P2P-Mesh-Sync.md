@@ -1,6 +1,6 @@
-# CRDT & Peer-to-Peer (P2P) Mesh Sync
+# CRDT & Peer-to-Peer (P2P) Mesh Sync & HIPAA/FERPA Governance
 
-For high-concurrency collaborative editing (notes, field checklists, messaging) without a central cloud server, Yntra integrates **Loro / Automerge binary CRDTs** over WebRTC P2P mesh data channels.
+For high-concurrency collaborative editing (notes, field checklists, messaging) without a central cloud server, Yntra integrates **Loro / Automerge binary CRDTs** over WebRTC P2P mesh data channels with an enterprise compliance policy engine.
 
 ---
 
@@ -9,7 +9,7 @@ For high-concurrency collaborative editing (notes, field checklists, messaging) 
 Collab columns in libSQL store raw binary CRDT operation logs:
 
 ```rust
-use yntra_core::{ZeroCopyNoteStore, P2PMeshSyncRouter};
+use yntra_core::{ZeroCopyNoteStore, P2PMeshSyncRouter, ComplianceMode, DlpPolicy};
 
 // Write collaborative note update
 let store = ZeroCopyNoteStore::new(workspace_id);
@@ -18,13 +18,47 @@ store.apply_binary_log(crdt_payload)?;
 
 ---
 
-## 2. WebRTC Peer Mesh Router
+## 2. Enterprise Governance & Compliance Modes (`ComplianceMode`)
 
-When devices reside on the same local Wi-Fi or ad-hoc WebRTC mesh network, `P2PMeshSyncRouter` exchanges CRDT binary delta logs directly between peer nodes without contacting the central cloud database.
+For healthcare (HIPAA §164.312(b)), educational institutions (FERPA 34 CFR Part 99), and enterprise environments, `P2PMeshSyncRouter` enforces strict compliance operational modes:
+
+| Operational Mode | Description | Direct P2P Channel | Audit Logging | DLP Inspection |
+|---|---|---|---|---|
+| `StrictServerOnly` | Mandatory for HIPAA/FERPA regulated tiers. Direct P2P disabled. | Disabled | Immutable Server Audit | Proxy / Edge TLS |
+| `AuditedProxyRelay` | Reroutes P2P traffic through compliance proxy. | Proxy Relayed | Merkle Ledger Logged | Real-Time Scanner |
+| `AuditedLocalP2P` | Local P2P permitted if client-side DLP passes. | Permitted | Local Signed Log | Client-Side Scanner |
+| `UnrestrictedLocalP2P` | Legacy un-audited P2P sync for dev environments. | Permitted | None | Disabled |
 
 ---
 
-## 3. CRDT Log Compaction & Garbage Collection (GC) Policy
+## 3. Real-Time Data Loss Prevention (DLP) & Audit Sequence
+
+```mermaid
+sequenceDiagram
+    participant Nurse as Nurse Tablet (Client A)
+    participant Router as P2PMeshSyncRouter
+    participant DLP as DLP Scanner
+    participant Audit as ZeroCopyAuditStore
+    participant Relay as Audited Compliance Relay Proxy
+    participant Doctor as Doctor Workstation (Client B)
+
+    Nurse->>Router: broadcast_write_network(payload)
+    Router->>DLP: inspect_payload_dlp_bytes(payload)
+    alt PHI or FERPA Violation Detected
+        DLP-->>Router: Violation (PHI_DETECTED / FERPA_DETECTED)
+        Router->>Audit: Record DlpViolation Event (BLAKE3 Hash)
+        Router-->>Nurse: Abort Broadcast (Blocked by DLP Policy)
+    else Clean Payload & Compliance Approved
+        DLP-->>Router: Clean / Approved
+        Router->>Audit: Record Sync Event to Signed Ledger
+        Router->>Relay: POST /relay/broadcast (TLS + Signed Envelope)
+        Relay->>Doctor: Forward Verified & Audited CRDT Delta
+    end
+```
+
+---
+
+## 4. CRDT Log Compaction & Garbage Collection (GC) Policy
 
 > [!IMPORTANT]
 > Uncompacted CRDT operation logs can cause rapid SQLite storage bloat. `yntra-core` enforces automatic log compaction and GC snapshots.
@@ -36,7 +70,7 @@ When devices reside on the same local Wi-Fi or ad-hoc WebRTC mesh network, `P2PM
 
 ---
 
-## 4. WebRTC TURN Relay Fallback SLA & NAT Traversal
+## 5. WebRTC TURN Relay Fallback SLA & NAT Traversal
 
 In enterprise environments with symmetric NATs, strict corporate firewalls, or mobile carrier CGNAT, direct P2P ICE candidate traversal can fail in **15–20% of sessions**.
 
@@ -60,4 +94,3 @@ sequenceDiagram
 ### TURN Fallback SLA Guarantees
 1. **ICE Candidate Timeout**: If direct P2P connectivity is not established within **3,000ms**, `P2PMeshSyncRouter` automatically switches to secure TLS-encrypted TURN relay servers.
 2. **End-to-End Encryption (E2EE)**: All CRDT delta payloads routed via TURN servers are encrypted client-side via Noise Protocol / ChaCha20-Poly1305, ensuring TURN server operators cannot view payload contents.
-

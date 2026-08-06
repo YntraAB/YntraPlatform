@@ -18,6 +18,9 @@ All UI blocks must be registered statically within [`yntra-ui/src/blocks.rs`](fi
 - **`BlockDefinition`**:
   * `id`: Unique string identifying the functional block (e.g. `"messaging"`).
   * `name`: Human-readable name used internally/fallback.
+  * `domain_category`: `BlockDomainCategory` (`CoreWorkOS`, `EnterpriseHealthcare`, `EnterpriseAcademics`, `FieldAndLogistics`, `RegionalRegulatory`).
+  * `tier`: `ModuleTier` (`CorePlatform`, `EnterpriseVertical`, `RegionalExtension`).
+  * `standards`: `EnterpriseStandardsSpec` (`compliance_standards`, `supported_protocols`, `enterprise_connectors`, `jurisdiction`).
   * `navigation`: Static list of main navigation items (`BlockNavItem`).
 
 - **`BlockNavItem`**:
@@ -41,14 +44,22 @@ All UI blocks must be registered statically within [`yntra-ui/src/blocks.rs`](fi
 
 ## 2. Implementation Blueprint
 
-### Step A: Register the Block in [`blocks.rs`](file:///c:/Users/hellich/Desktop/YntraPlatform/yntra-ui/src/blocks.rs)
+### Step A: Register the Block in [`yntra-ui/src/blocks/registry.rs`](file:///c:/Users/hellich/Desktop/YntraPlatform/yntra-ui/src/blocks/registry.rs)
 
 Append a new definition to the `BLOCK_REGISTRY` static array:
 
 ```rust
 BlockDefinition {
     id: "inventory",
-    name: "Inventory",
+    name: "Inventory & Supply Chain",
+    domain_category: BlockDomainCategory::FieldAndLogistics,
+    tier: ModuleTier::CorePlatform,
+    standards: EnterpriseStandardsSpec {
+        compliance_standards: &["GS1-128", "ISO-28000"],
+        supported_protocols: &["REST", "RFID-EPCIS"],
+        enterprise_connectors: &["SAP S/4HANA", "Oracle SCM"],
+        jurisdiction: "Global",
+    },
     navigation: &[BlockNavItem {
         id: "inventory",
         label_key: "section-inventory",
