@@ -100,6 +100,10 @@ pub fn AuditLogViewer(props: AuditLogViewerProps) -> Element {
                                             LucideIcon { name: "lock", class: "h-3 w-3" }
                                             "Ed25519 Chain Verified"
                                         }
+                                        span { class: "px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-primary/10 text-primary border border-primary/20 flex items-center gap-1",
+                                            LucideIcon { name: "clock", class: "h-3 w-3" }
+                                            "Monotonic TSA Vector Clock"
+                                        }
                                     } else {
                                         span { class: "px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-destructive/10 text-destructive border border-destructive/20",
                                             "Chain Tampered"

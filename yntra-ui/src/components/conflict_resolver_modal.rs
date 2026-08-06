@@ -16,6 +16,7 @@ pub fn ConflictResolverModal(props: ConflictResolverModalProps) -> Element {
     let mut selected_index = use_signal(|| 0usize);
     let mut is_resolving = use_signal(|| false);
     let mut status_msg = use_signal(|| Option::<String>::None);
+    let mut custom_merge_mode = use_signal(|| false);
 
     let uid_eff = props.active_user_id.clone();
     let ws_eff = props.workspace_id.clone();
@@ -33,16 +34,22 @@ pub fn ConflictResolverModal(props: ConflictResolverModalProps) -> Element {
     let conflicts = conflicts_state.read().clone();
     let idx = *selected_index.read();
 
-    let (local_pretty, remote_pretty) = if let Some(conflict) = conflicts.get(idx) {
+    let (local_pretty, remote_pretty, severity, conflict_type) = if let Some(conflict) = conflicts.get(idx) {
         let l = serde_json::from_str::<serde_json::Value>(&conflict.local_version_json)
             .map(|v| serde_json::to_string_pretty(&v).unwrap_or_default())
             .unwrap_or_else(|_| conflict.local_version_json.clone());
         let r = serde_json::from_str::<serde_json::Value>(&conflict.remote_version_json)
             .map(|v| serde_json::to_string_pretty(&v).unwrap_or_default())
             .unwrap_or_else(|_| conflict.remote_version_json.clone());
-        (l, r)
+        (l, r, conflict.severity.clone(), conflict.conflict_type.clone())
     } else {
-        (String::new(), String::new())
+        (String::new(), String::new(), "medium".to_string(), "unknown".to_string())
+    };
+
+    let sev_badge_class = match severity.to_lowercase().as_str() {
+        "critical" | "high" => "bg-red-500/10 text-red-600 border-red-500/20",
+        "medium" => "bg-amber-500/10 text-amber-600 border-amber-500/20",
+        _ => "bg-blue-500/10 text-blue-600 border-blue-500/20",
     };
 
     rsx! {
@@ -56,11 +63,11 @@ pub fn ConflictResolverModal(props: ConflictResolverModalProps) -> Element {
                         }
                         div {
                             h2 { class: "text-lg font-bold text-foreground m-0 flex items-center gap-2",
-                                "Visual CRDT Conflict Resolution UI"
-                                span { class: "px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-500/10 text-amber-600 border border-amber-500/20", "Offline Edit Conflict" }
+                                "Visual Offline Conflict Quarantine Center"
+                                span { class: "px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-500/10 text-amber-600 border border-amber-500/20", "Offline Conflict" }
                             }
                             p { class: "text-xs text-muted-foreground m-0 mt-0.5",
-                                "Compare side-by-side local offline changes vs cloud state and choose resolution"
+                                "Review quarantined offline edits and perform side-by-side verification to avoid data overwrites."
                             }
                         }
                     }
@@ -82,55 +89,75 @@ pub fn ConflictResolverModal(props: ConflictResolverModalProps) -> Element {
                 if conflicts.is_empty() {
                     div { class: "p-12 text-center text-muted-foreground space-y-2",
                         LucideIcon { name: "check-circle", class: "h-10 w-10 text-emerald-500 mx-auto" }
-                        h3 { class: "text-base font-bold text-foreground m-0", "Zero Conflicts Detected" }
-                        p { class: "text-xs m-0", "All local CRDT documents and libSQL rows are harmonized." }
+                        h3 { class: "text-base font-bold text-foreground m-0", "Zero Conflicts Quarantined" }
+                        p { class: "text-xs m-0", "All offline operational records and database replicas are synchronized." }
                     }
                 } else if let Some(conflict) = conflicts.get(idx) {
                     div { class: "space-y-4",
-                            // Meta info bar
-                            div { class: "p-3 rounded-xl border border-border bg-secondary/30 flex items-center justify-between text-xs",
-                                div { class: "flex items-center gap-2",
-                                    span { class: "font-semibold text-muted-foreground", "Target Table:" }
-                                    span { class: "font-bold text-foreground capitalize px-2 py-0.5 rounded bg-background border border-border", "{conflict.table_name}" }
-                                    span { class: "font-semibold text-muted-foreground ml-2", "Record ID:" }
-                                    span { class: "font-mono font-bold text-foreground", "{conflict.record_id}" }
-                                }
-                                span { class: "text-muted-foreground", "Conflict #{idx + 1} of {conflicts.len()}" }
+                        // Meta info bar
+                        div { class: "p-3 rounded-xl border border-border bg-secondary/30 flex items-center justify-between text-xs",
+                            div { class: "flex items-center gap-2 flex-wrap",
+                                span { class: "font-semibold text-muted-foreground", "Entity Table:" }
+                                span { class: "font-bold text-foreground capitalize px-2 py-0.5 rounded bg-background border border-border", "{conflict.table_name}" }
+                                span { class: "font-semibold text-muted-foreground ml-2", "ID:" }
+                                span { class: "font-mono font-bold text-foreground", "{conflict.record_id}" }
+                                span { class: "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border ml-2 {sev_badge_class}", "{severity}" }
+                                span { class: "px-2 py-0.5 rounded text-[10px] font-mono bg-secondary text-secondary-foreground border border-border ml-1", "{conflict_type}" }
                             }
+                            span { class: "text-muted-foreground font-semibold", "Conflict #{idx + 1} of {conflicts.len()}" }
+                        }
 
-                            // Side-by-side diff viewer
-                            div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
-                                // Local Version
-                                div { class: "rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-2",
-                                    div { class: "flex items-center justify-between border-b border-emerald-500/20 pb-2",
-                                        span { class: "text-xs font-bold text-emerald-600 flex items-center gap-1.5",
-                                            LucideIcon { name: "laptop", class: "h-4 w-4" }
-                                            "Local Offline State (This Device)"
-                                        }
-                                        span { class: "text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-700", "Local" }
+                        // Side-by-side diff viewer
+                        div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
+                            // Local Version
+                            div { class: "rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-2",
+                                div { class: "flex items-center justify-between border-b border-emerald-500/20 pb-2",
+                                    span { class: "text-xs font-bold text-emerald-600 flex items-center gap-1.5",
+                                        LucideIcon { name: "laptop", class: "h-4 w-4" }
+                                        "Local Device Offline State"
                                     }
-                                    pre { class: "w-full h-48 rounded-xl border border-emerald-500/20 bg-background p-3 text-xs font-mono text-foreground overflow-auto",
-                                        "{local_pretty}"
-                                    }
+                                    span { class: "text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-700", "Local Edit" }
                                 }
-
-                                // Cloud Server Version
-                                div { class: "rounded-2xl border border-primary/30 bg-primary/5 p-4 space-y-2",
-                                    div { class: "flex items-center justify-between border-b border-primary/20 pb-2",
-                                        span { class: "text-xs font-bold text-primary flex items-center gap-1.5",
-                                            LucideIcon { name: "cloud", class: "h-4 w-4" }
-                                            "Cloud Replication State (Server)"
-                                        }
-                                        span { class: "text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-primary/20 text-primary", "Server" }
-                                    }
-                                    pre { class: "w-full h-48 rounded-xl border border-primary/20 bg-background p-3 text-xs font-mono text-foreground overflow-auto",
-                                        "{remote_pretty}"
-                                    }
+                                pre { class: "w-full h-48 rounded-xl border border-emerald-500/20 bg-background p-3 text-xs font-mono text-foreground overflow-auto",
+                                    "{local_pretty}"
                                 }
                             }
 
-                             // Action buttons
-                            div { class: "flex items-center justify-end gap-3 pt-3 border-t border-border/40",
+                            // Cloud Server Version
+                            div { class: "rounded-2xl border border-primary/30 bg-primary/5 p-4 space-y-2",
+                                div { class: "flex items-center justify-between border-b border-primary/20 pb-2",
+                                    span { class: "text-xs font-bold text-primary flex items-center gap-1.5",
+                                        LucideIcon { name: "cloud", class: "h-4 w-4" }
+                                        "Cloud Replication Payload"
+                                    }
+                                    span { class: "text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-primary/20 text-primary", "Server Payload" }
+                                }
+                                pre { class: "w-full h-48 rounded-xl border border-primary/20 bg-background p-3 text-xs font-mono text-foreground overflow-auto",
+                                    "{remote_pretty}"
+                                }
+                            }
+                        }
+
+                        // Action buttons
+                        div { class: "flex items-center justify-between pt-3 border-t border-border/40 flex-wrap gap-3",
+                            div { class: "flex items-center gap-2",
+                                if conflicts.len() > 1 {
+                                    Button {
+                                        class: "text-xs h-9 px-3 rounded-xl border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80",
+                                        disabled: idx == 0,
+                                        onclick: move |_| selected_index.set(idx.saturating_sub(1)),
+                                        "Previous"
+                                    }
+                                    Button {
+                                        class: "text-xs h-9 px-3 rounded-xl border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80",
+                                        disabled: idx + 1 >= conflicts.len(),
+                                        onclick: move |_| selected_index.set(idx + 1),
+                                        "Next"
+                                    }
+                                }
+                            }
+
+                            div { class: "flex items-center gap-2",
                                 Button {
                                     class: "text-xs h-10 px-4 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 cursor-pointer font-semibold",
                                     disabled: is_resolving,
@@ -150,7 +177,7 @@ pub fn ConflictResolverModal(props: ConflictResolverModalProps) -> Element {
                                             let cb = cb.clone();
                                             spawn(async move {
                                                 if let Ok(_) = resolve_sync_conflict(u.clone(), w.clone(), item.table_name, item.record_id, "keep_local".to_string(), None).await {
-                                                    status_msg.set(Some("Conflict successfully resolved!".to_string()));
+                                                    status_msg.set(Some("Resolved using Local Device version!".to_string()));
                                                     cb.call(());
                                                     if let Ok(list) = get_sync_conflicts(w).await {
                                                         conflicts_state.set(list);
@@ -183,7 +210,7 @@ pub fn ConflictResolverModal(props: ConflictResolverModalProps) -> Element {
                                             let cb = cb.clone();
                                             spawn(async move {
                                                 if let Ok(_) = resolve_sync_conflict(u.clone(), w.clone(), item.table_name, item.record_id, "keep_remote".to_string(), None).await {
-                                                    status_msg.set(Some("Conflict successfully resolved!".to_string()));
+                                                    status_msg.set(Some("Resolved using Server Cloud payload!".to_string()));
                                                     cb.call(());
                                                     if let Ok(list) = get_sync_conflicts(w).await {
                                                         conflicts_state.set(list);
@@ -216,7 +243,7 @@ pub fn ConflictResolverModal(props: ConflictResolverModalProps) -> Element {
                                             let cb = cb.clone();
                                             spawn(async move {
                                                 if let Ok(_) = resolve_sync_conflict(u.clone(), w.clone(), item.table_name, item.record_id, "crdt_merge".to_string(), None).await {
-                                                    status_msg.set(Some("Conflict successfully resolved!".to_string()));
+                                                    status_msg.set(Some("Conflict harmonized via CRDT merge engine!".to_string()));
                                                     cb.call(());
                                                     if let Ok(list) = get_sync_conflicts(w).await {
                                                         conflicts_state.set(list);
@@ -231,6 +258,7 @@ pub fn ConflictResolverModal(props: ConflictResolverModalProps) -> Element {
                                 }
                             }
                         }
+                    }
                 }
             }
         }

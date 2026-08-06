@@ -93,3 +93,7 @@ pub mod ai_approval_modal;
 pub use ai_approval_modal::AiApprovalModal;
 pub mod sync_indicator;
 pub use sync_indicator::SyncIndicator;
+pub mod key_recovery_modal;
+pub use key_recovery_modal::KeyRecoveryModal;
+pub mod storage_guard_toast;
+pub use storage_guard_toast::StorageGuardToast;

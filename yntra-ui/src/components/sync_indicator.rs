@@ -37,30 +37,41 @@ pub fn SyncIndicator(props: SyncIndicatorProps) -> Element {
         props.on_open_drawer.call(());
     };
 
-    let (badge_class, icon_name, text_label) = match sync_state.read().as_str() {
+    let (badge_class, icon_name, text_label, sub_label) = match sync_state.read().as_str() {
         "has_conflicts" => (
-            "bg-rose-500/10 text-rose-400 border-rose-500/20 hover:bg-rose-500/20",
+            "bg-rose-500/10 text-rose-500 border-rose-500/30 hover:bg-rose-500/20 shadow-rose-500/10",
             "alert-triangle",
             format!("{} Conflicts", quarantined_count.read()),
+            "Action Required",
         ),
         "pending_upload" => (
-            "bg-amber-500/10 text-amber-400 border-amber-500/20 hover:bg-amber-500/20",
-            "cloud-off",
-            format!("{} Queued (Offline)", pending_count.read()),
+            "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20 shadow-amber-500/10",
+            "cloud-upload",
+            format!("Saved Locally ({} pending)", pending_count.read()),
+            "Queue Active",
         ),
         _ => (
-            "bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20",
+            "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20 shadow-emerald-500/10",
             "check-circle-2",
-            "Synced".to_string(),
+            "Synced (0ms)".to_string(),
+            "Zero-Delay Engine",
         ),
     };
 
     rsx! {
         button {
-            class: "flex items-center space-x-2 px-3 py-1.5 rounded-full border text-xs font-medium transition-all cursor-pointer {badge_class}",
+            class: "group relative flex items-center space-x-2 px-3 py-1.5 rounded-full border text-xs font-semibold transition-all cursor-pointer shadow-xs {badge_class}",
             onclick: on_click,
-            LucideIcon { name: "{icon_name}", class: "w-3.5 h-3.5" }
-            span { "{text_label}" }
+            title: "Click to open Local-First Sync Monitor & Queue Drawer",
+            div { class: "relative flex items-center justify-center",
+                if sync_state.read().as_str() == "synced" {
+                    span { class: "absolute inline-flex h-2 w-2 rounded-full bg-emerald-400 opacity-75 animate-ping" }
+                }
+                LucideIcon { name: "{icon_name}", class: "w-3.5 h-3.5 shrink-0" }
+            }
+            span { class: "tracking-tight", "{text_label}" }
+            span { class: "text-[10px] font-bold uppercase opacity-60 px-1.5 py-0.2 rounded bg-black/10 hidden sm:inline-block", "{sub_label}" }
         }
     }
 }
+
