@@ -99,13 +99,78 @@ pub fn has_write_keyword(sql: &str) -> bool {
     false
 }
 
+fn strip_cte(sql: &str) -> &str {
+    let trimmed = sql.trim_start();
+    if trimmed.len() >= 4 && trimmed[..4].eq_ignore_ascii_case("WITH") {
+        let lower = trimmed.to_lowercase();
+        if let Some(pos) = lower.find("update ")
+            .or_else(|| lower.find("insert "))
+            .or_else(|| lower.find("delete "))
+        {
+            return &trimmed[pos..];
+        }
+    }
+    trimmed
+}
+
+pub fn extract_table_name_ast(sql: &str) -> Option<String> {
+    use sqlparser::ast::Statement;
+    use sqlparser::dialect::SQLiteDialect;
+    use sqlparser::parser::Parser;
+
+    let dialect = SQLiteDialect {};
+    let target_sql = strip_cte(sql);
+    if let Ok(statements) = Parser::parse_sql(&dialect, target_sql) {
+
+        for stmt in statements {
+            match stmt {
+                Statement::Insert(insert) => {
+                    let name_str = insert.table.to_string();
+                    let clean = name_str.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
+                    if !clean.is_empty() {
+                        return Some(clean.to_lowercase());
+                    }
+                }
+                Statement::Update { table, .. } => {
+                    let name_str = table.relation.to_string();
+                    let clean = name_str.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
+                    if !clean.is_empty() {
+                        return Some(clean.to_lowercase());
+                    }
+                }
+
+                Statement::Delete(delete) => {
+                    let name_str = delete.to_string();
+                    let mut words = name_str.split_whitespace();
+                    while let Some(w) = words.next() {
+                        if w.eq_ignore_ascii_case("FROM") {
+                            if let Some(target) = words.next() {
+                                let clean = target.trim_matches(|c| c == '`' || c == '"' || c == '[' || c == ']' || c == '\'');
+                                return Some(clean.to_lowercase());
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    None
+}
+
+
 pub fn extract_table_name(sql: &str) -> Option<String> {
     // Pre-screen to avoid any allocations/parsing for read-only queries (SELECT, etc.)
     if !has_write_keyword(sql) {
         return None;
     }
 
+    if let Some(ast_table) = extract_table_name_ast(sql) {
+        return Some(ast_table);
+    }
+
     // Fast path: if the query is simple and contains no comments or CTEs, parse directly.
+
     let trimmed = sql.trim_start();
     let is_simple = if trimmed.len() >= 6 {
         let prefix = &trimmed[..6];
@@ -612,4 +677,31 @@ mod tests {
             vec!["INSERT INTO users (name) VALUES ('O''Brien')", "SELECT 1"]
         );
     }
+
+    #[test]
+    fn test_ast_update_and_evasion_resilience() {
+        use crate::database::proxy::sql_helpers::parse_insert_columns_and_values;
+
+        let sql1 = "UPDATE submissions SET grade = 'A+' WHERE id = 1";
+        assert_eq!(extract_table_name(sql1), Some("submissions".to_string()));
+        let col1 = parse_insert_columns_and_values(sql1, &[]);
+        assert_eq!(col1.get("grade").and_then(|v| v.as_str()), Some("A+"));
+
+        let sql2 = "UPDATE \"submissions\" SET \"feedback\" = 'good work'";
+        assert_eq!(extract_table_name(sql2), Some("submissions".to_string()));
+        let col2 = parse_insert_columns_and_values(sql2, &[]);
+        assert_eq!(col2.get("feedback").and_then(|v| v.as_str()), Some("good work"));
+
+        let sql3 = "UPDATE submissions SET grade = ? WHERE student_id = ?";
+        let params = vec![serde_json::json!("100"), serde_json::json!("student_123")];
+        let col3 = parse_insert_columns_and_values(sql3, &params);
+        assert_eq!(col3.get("grade").and_then(|v| v.as_str()), Some("100"));
+        assert_eq!(col3.get("student_id").and_then(|v| v.as_str()), Some("student_123"));
+
+        let sql4 = "WITH cte AS (SELECT 1) UPDATE submissions SET feedback = 'approved'";
+        assert_eq!(extract_table_name(sql4), Some("submissions".to_string()));
+        let col4 = parse_insert_columns_and_values(sql4, &[]);
+        assert_eq!(col4.get("feedback").and_then(|v| v.as_str()), Some("approved"));
+    }
 }
+

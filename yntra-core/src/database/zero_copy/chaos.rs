@@ -4,7 +4,9 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
-use std::time::{Duration, Instant};
+use std::time::Instant;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Duration;
 
 /// Configuration for simulated network chaos conditions
 #[derive(Clone, Debug)]
@@ -75,20 +77,21 @@ impl ChaosNetworkProxy {
             return false;
         }
 
-        // Simulate network latency jitter
-        let latency_span = self
-            .config
-            .max_latency_ms
-            .saturating_sub(self.config.min_latency_ms);
-        let jitter = if latency_span > 0 {
-            (seq % latency_span) + self.config.min_latency_ms
-        } else {
-            self.config.min_latency_ms
-        };
-
         #[cfg(not(target_arch = "wasm32"))]
-        if jitter > 0 {
-            tokio::time::sleep(Duration::from_millis(jitter)).await;
+        {
+            let latency_span = self
+                .config
+                .max_latency_ms
+                .saturating_sub(self.config.min_latency_ms);
+            let jitter = if latency_span > 0 {
+                (seq % latency_span) + self.config.min_latency_ms
+            } else {
+                self.config.min_latency_ms
+            };
+
+            if jitter > 0 {
+                tokio::time::sleep(Duration::from_millis(jitter)).await;
+            }
         }
 
         let mut queues = self.peer_queues.lock().unwrap_or_else(|e| e.into_inner());

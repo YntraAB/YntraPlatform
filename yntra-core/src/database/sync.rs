@@ -1327,6 +1327,10 @@ mod tests {
             (),
         ).await?;
         conn.execute(
+            "DELETE FROM audit_logs WHERE workspace_id = 'ws-ux-sync'",
+            (),
+        ).await?;
+        conn.execute(
             "DELETE FROM time_reports WHERE workspace_id = 'ws-ux-sync'",
             (),
         )

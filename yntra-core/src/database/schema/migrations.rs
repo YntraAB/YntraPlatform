@@ -1393,6 +1393,128 @@ pub async fn run_schema_migrations(
         .await;
         version = 38;
     }
+    if version < 39 {
+        let _ = execute_migration_batch(
+            conn,
+            "CREATE TABLE IF NOT EXISTS mllp_listeners (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                port INTEGER NOT NULL DEFAULT 2575,
+                bind_address TEXT NOT NULL DEFAULT '0.0.0.0',
+                tls_enabled INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'stopped',
+                last_active_at INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS hl7_messages (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                listener_id TEXT,
+                message_type TEXT NOT NULL,
+                trigger_event TEXT NOT NULL,
+                sending_app TEXT,
+                sending_facility TEXT,
+                message_control_id TEXT NOT NULL,
+                patient_mrn TEXT,
+                patient_name TEXT,
+                encounter_id TEXT,
+                raw_payload TEXT NOT NULL,
+                parsed_json TEXT NOT NULL,
+                ack_status TEXT NOT NULL DEFAULT 'AA',
+                ack_payload TEXT,
+                status TEXT NOT NULL DEFAULT 'processed',
+                received_at INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_hl7_messages_ws ON hl7_messages(workspace_id, received_at DESC);",
+        )
+        .await;
+        version = 39;
+    }
+    if version < 40 {
+        let _ = execute_migration_batch(
+            conn,
+            "CREATE TABLE IF NOT EXISTS fhir_resource_mappings (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                resource_type TEXT NOT NULL,
+                fhir_id TEXT NOT NULL,
+                internal_entity_type TEXT NOT NULL,
+                internal_entity_id TEXT NOT NULL,
+                raw_fhir_json TEXT NOT NULL,
+                last_synced_at INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_fhir_mappings_ws ON fhir_resource_mappings(workspace_id, resource_type, fhir_id);",
+        )
+        .await;
+        version = 40;
+    }
+    if version < 41 {
+        let _ = execute_migration_batch(
+            conn,
+            "CREATE TABLE IF NOT EXISTS ncpdp_prescriptions (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                client_id TEXT NOT NULL,
+                prescriber_id TEXT NOT NULL,
+                prescriber_npi TEXT NOT NULL,
+                pharmacy_npi TEXT NOT NULL,
+                pharmacy_name TEXT,
+                drug_name TEXT NOT NULL,
+                rxnorm_code TEXT,
+                ndc_code TEXT,
+                quantity REAL NOT NULL,
+                days_supply INTEGER NOT NULL,
+                refills INTEGER NOT NULL DEFAULT 0,
+                sig_instructions TEXT NOT NULL,
+                transaction_type TEXT NOT NULL DEFAULT 'NewRx',
+                status TEXT NOT NULL DEFAULT 'draft',
+                surescripts_tx_id TEXT,
+                raw_xml_payload TEXT NOT NULL,
+                created_at INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_ncpdp_prescriptions_ws ON ncpdp_prescriptions(workspace_id, client_id);",
+        )
+        .await;
+        version = 41;
+    }
+    if version < 42 {
+        let _ = execute_migration_batch(
+            conn,
+            "CREATE TABLE IF NOT EXISTS fda_part11_signatures (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                target_record_type TEXT NOT NULL,
+                target_record_id TEXT NOT NULL,
+                primary_signer_id TEXT NOT NULL,
+                primary_signer_name TEXT NOT NULL,
+                primary_intent TEXT NOT NULL,
+                primary_ed25519_sig TEXT NOT NULL,
+                primary_pubkey TEXT NOT NULL,
+                secondary_signer_id TEXT,
+                secondary_signer_name TEXT,
+                secondary_intent TEXT,
+                secondary_ed25519_sig TEXT,
+                secondary_pubkey TEXT,
+                dual_sign_completed INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_fda_part11_target ON fda_part11_signatures(workspace_id, target_record_type, target_record_id);",
+        )
+        .await;
+        version = 42;
+    }
     Ok(version)
 }
 
@@ -1422,7 +1544,7 @@ mod tests {
         conn.execute("PRAGMA user_version = 0", ()).await.unwrap();
 
         let migrated_version = run_schema_migrations(&conn, 0).await.unwrap();
-        assert_eq!(migrated_version, 38);
+        assert_eq!(migrated_version, 42);
 
         let has_oauth_sessions = conn.query_row(
             "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='oauth_auth_sessions'",

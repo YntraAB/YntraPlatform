@@ -219,6 +219,7 @@ pub struct WsConnection;
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub enum ComplianceMode {
     StrictServerOnly,
+    StrictServerOnlyWithLocalLanFallback,
     AuditedProxyRelay,
     AuditedLocalP2P,
     UnrestrictedLocalP2P,
@@ -226,7 +227,7 @@ pub enum ComplianceMode {
 
 impl Default for ComplianceMode {
     fn default() -> Self {
-        Self::AuditedProxyRelay
+        Self::StrictServerOnly
     }
 }
 
@@ -245,6 +246,9 @@ impl Default for ComplianceMode {
 pub struct DlpPolicy {
     pub enable_phi_inspection: bool,
     pub enable_ferpa_inspection: bool,
+    pub enable_uk_nhs_inspection: bool,
+    pub enable_eu_gdpr_inspection: bool,
+    pub enable_canadian_hin_inspection: bool,
     pub block_on_match: bool,
     pub custom_keywords: Vec<String>,
 }
@@ -254,6 +258,9 @@ impl Default for DlpPolicy {
         Self {
             enable_phi_inspection: true,
             enable_ferpa_inspection: true,
+            enable_uk_nhs_inspection: true,
+            enable_eu_gdpr_inspection: true,
+            enable_canadian_hin_inspection: true,
             block_on_match: true,
             custom_keywords: Vec::new(),
         }
@@ -279,42 +286,81 @@ pub struct DlpInspectionResult {
     pub timestamp: i64,
 }
 
+fn extract_loro_value_content(val: &loro::ValueOrContainer, extracted: &mut String) {
+    match val {
+        loro::ValueOrContainer::Value(v) => match v {
+            loro::LoroValue::String(s) => {
+                extracted.push_str(s);
+                extracted.push(' ');
+            }
+            loro::LoroValue::I64(n) => {
+                extracted.push_str(&n.to_string());
+                extracted.push(' ');
+            }
+            loro::LoroValue::Double(d) => {
+                extracted.push_str(&d.to_string());
+                extracted.push(' ');
+            }
+            _ => {}
+        },
+        loro::ValueOrContainer::Container(c) => match c {
+            loro::Container::Text(t) => {
+                extracted.push_str(&t.to_string());
+                extracted.push(' ');
+            }
+            loro::Container::Map(m) => {
+                m.for_each(|_k, mval| {
+                    extract_loro_value_content(&mval, extracted);
+                });
+            }
+            loro::Container::List(l) => {
+                l.for_each(|lval| {
+                    extract_loro_value_content(&lval, extracted);
+                });
+            }
+            _ => {}
+        },
+    }
+}
+
 pub fn extract_strings_from_loro_bytes(data: &[u8]) -> String {
     let mut extracted = String::new();
     let doc = loro::LoroDoc::new();
     if doc.import(data).is_ok() {
         let db_map = doc.get_map("db");
-        db_map.for_each(|k, val| {
-            extracted.push_str(k);
-            extracted.push(' ');
-            if let loro::ValueOrContainer::Container(loro::Container::Map(m)) = val {
-                m.for_each(|mk, mval| {
-                    extracted.push_str(mk);
-                    extracted.push(' ');
-                    match mval {
-                        loro::ValueOrContainer::Value(loro::LoroValue::String(s)) => {
-                            extracted.push_str(&s);
-                            extracted.push(' ');
-                        }
-                        loro::ValueOrContainer::Container(loro::Container::Text(t)) => {
-                            let text_content = t.to_string();
-                            extracted.push_str(&text_content);
-                            extracted.push(' ');
-                        }
-                        _ => {}
-                    }
-                });
-            }
+        db_map.for_each(|_k, val| {
+            extract_loro_value_content(&val, &mut extracted);
         });
+    } else {
+        // Fallback: extract printable ASCII/UTF-8 runs from raw binary data
+        let mut current = String::new();
+        for &b in data {
+            if b.is_ascii_graphic() || b == b' ' {
+                current.push(b as char);
+            } else {
+                if current.len() >= 4 {
+                    extracted.push_str(&current);
+                    extracted.push(' ');
+                }
+                current.clear();
+            }
+        }
+        if current.len() >= 4 {
+            extracted.push_str(&current);
+            extracted.push(' ');
+        }
     }
     extracted
 }
 
 pub fn inspect_payload_dlp_bytes(data: &[u8], policy: &DlpPolicy) -> DlpInspectionResult {
     let now = chrono::Utc::now().timestamp_millis();
-    let raw_text = String::from_utf8_lossy(data);
     let loro_text = extract_strings_from_loro_bytes(data);
-    let full_text = format!("{} {}", raw_text, loro_text);
+    let full_text = if !loro_text.trim().is_empty() {
+        loro_text
+    } else {
+        String::from_utf8_lossy(data).to_string()
+    };
     let text_lower = full_text.to_lowercase();
     let mut matched_patterns = Vec::new();
 
@@ -341,18 +387,13 @@ pub fn inspect_payload_dlp_bytes(data: &[u8], policy: &DlpPolicy) -> DlpInspecti
             matched_patterns.push("PHI_SSN_PATTERN".to_string());
         }
 
-        // Medical Record Number (MRN), ICD-10/11 diagnosis, or clinical keywords
+        // Medical Record Number (MRN), ICD-10/11 diagnosis codes, or formatted PHI tags
         if text_lower.contains("mrn-")
             || text_lower.contains("icd-10")
             || text_lower.contains("icd-11")
-            || text_lower.contains("diagnosis:")
-            || text_lower.contains("protected health information")
             || text_lower.contains("phi_record")
-            || text_lower.contains("patient id")
-            || text_lower.contains("medical record")
-            || text_lower.contains("prescription")
-            || text_lower.contains("clinical note")
-            || text_lower.contains("patient name")
+            || text_lower.contains("patient_id:")
+            || text_lower.contains("protected_health_info:")
         {
             matched_patterns.push("PHI_MEDICAL_RECORD_PATTERN".to_string());
         }
@@ -361,14 +402,42 @@ pub fn inspect_payload_dlp_bytes(data: &[u8], policy: &DlpPolicy) -> DlpInspecti
     if policy.enable_ferpa_inspection {
         if text_lower.contains("sid-")
             || text_lower.contains("ferpa_record")
-            || text_lower.contains("cumulative gpa:")
-            || text_lower.contains("student transcript")
-            || text_lower.contains("education_record")
-            || text_lower.contains("student id")
-            || text_lower.contains("ferpa")
-            || text_lower.contains("academic record")
+            || text_lower.contains("student_id:")
+            || text_lower.contains("cumulative_gpa:")
         {
             matched_patterns.push("FERPA_STUDENT_RECORD_PATTERN".to_string());
+        }
+    }
+
+    if policy.enable_uk_nhs_inspection {
+        if text_lower.contains("nhs-")
+            || text_lower.contains("nhs_number")
+            || text_lower.contains("national health service id")
+            || text_lower.contains("nhs patient")
+        {
+            matched_patterns.push("UK_NHS_PATTERN".to_string());
+        }
+    }
+
+    if policy.enable_eu_gdpr_inspection {
+        if text_lower.contains("cpr-")
+            || text_lower.contains("pic-")
+            || text_lower.contains("personnummer-")
+            || text_lower.contains("personnummer")
+            || text_lower.contains("cpr_number")
+            || text_lower.contains("gdpr_health_data")
+        {
+            matched_patterns.push("EU_HEALTH_ID_PATTERN".to_string());
+        }
+    }
+
+    if policy.enable_canadian_hin_inspection {
+        if text_lower.contains("hin-")
+            || text_lower.contains("health_insurance_number")
+            || text_lower.contains("ohip-")
+            || text_lower.contains("ramq-")
+        {
+            matched_patterns.push("CANADIAN_HIN_PATTERN".to_string());
         }
     }
 
@@ -384,6 +453,12 @@ pub fn inspect_payload_dlp_bytes(data: &[u8], policy: &DlpPolicy) -> DlpInspecti
             "PHI_DETECTED".to_string()
         } else if matched_patterns.iter().any(|p| p.starts_with("FERPA")) {
             "FERPA_DETECTED".to_string()
+        } else if matched_patterns.iter().any(|p| p.starts_with("UK_NHS")) {
+            "UK_NHS_DETECTED".to_string()
+        } else if matched_patterns.iter().any(|p| p.starts_with("EU_HEALTH")) {
+            "EU_HEALTH_ID_DETECTED".to_string()
+        } else if matched_patterns.iter().any(|p| p.starts_with("CANADIAN_HIN")) {
+            "CANADIAN_HIN_DETECTED".to_string()
         } else {
             "CUSTOM_KEYWORD_MATCH".to_string()
         }
@@ -706,6 +781,7 @@ pub struct P2PMeshSyncRouter {
     compliance_mode: Arc<Mutex<ComplianceMode>>,
     dlp_policy: Arc<Mutex<DlpPolicy>>,
     workspace_id: Arc<Mutex<String>>,
+    local_lan_relay_url: Arc<Mutex<Option<String>>>,
 }
 
 fn create_http_client() -> reqwest::Client {
@@ -733,9 +809,10 @@ impl P2PMeshSyncRouter {
             client: create_http_client(),
             signing_key: Arc::new(Mutex::new(None)),
             ws_conn: Arc::new(Mutex::new(None)),
-            compliance_mode: Arc::new(Mutex::new(ComplianceMode::AuditedProxyRelay)),
+            compliance_mode: Arc::new(Mutex::new(ComplianceMode::StrictServerOnly)),
             dlp_policy: Arc::new(Mutex::new(DlpPolicy::default())),
             workspace_id: Arc::new(Mutex::new("workspace-1".to_string())),
+            local_lan_relay_url: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -748,9 +825,10 @@ impl P2PMeshSyncRouter {
             client: create_http_client(),
             signing_key: Arc::new(Mutex::new(None)),
             ws_conn: Arc::new(Mutex::new(None)),
-            compliance_mode: Arc::new(Mutex::new(ComplianceMode::AuditedProxyRelay)),
+            compliance_mode: Arc::new(Mutex::new(ComplianceMode::StrictServerOnly)),
             dlp_policy: Arc::new(Mutex::new(DlpPolicy::default())),
             workspace_id: Arc::new(Mutex::new("workspace-1".to_string())),
+            local_lan_relay_url: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -770,6 +848,7 @@ impl P2PMeshSyncRouter {
             compliance_mode: Arc::new(Mutex::new(compliance_mode)),
             dlp_policy: Arc::new(Mutex::new(dlp_policy)),
             workspace_id: Arc::new(Mutex::new("workspace-1".to_string())),
+            local_lan_relay_url: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -789,6 +868,68 @@ impl P2PMeshSyncRouter {
 
     pub fn get_compliance_mode(&self) -> ComplianceMode {
         *self.compliance_mode.lock_poison_safe()
+    }
+
+    pub fn set_local_lan_relay_url(&self, url: String) {
+        let mut guard = self.local_lan_relay_url.lock_poison_safe();
+        *guard = Some(url);
+    }
+
+    pub fn get_local_lan_relay_url(&self) -> Option<String> {
+        self.local_lan_relay_url.lock_poison_safe().clone()
+    }
+
+    pub fn configure_p2p_isolation(&self, disable_p2p_mesh: bool, enforce_hipaa_ferpa: bool) {
+        let mut mode_guard = self.compliance_mode.lock_poison_safe();
+        let mut dlp_guard = self.dlp_policy.lock_poison_safe();
+
+        if disable_p2p_mesh {
+            *mode_guard = ComplianceMode::StrictServerOnly;
+            if enforce_hipaa_ferpa {
+                dlp_guard.enable_phi_inspection = true;
+                dlp_guard.enable_ferpa_inspection = true;
+                dlp_guard.block_on_match = true;
+            }
+            tracing::info!(
+                "P2P Mesh Sync ISOLATED: Direct WebRTC LAN syncing disabled (StrictServerOnly). Enforce HIPAA/FERPA DLP={}.",
+                enforce_hipaa_ferpa
+            );
+        } else {
+            *mode_guard = ComplianceMode::AuditedLocalP2P;
+            tracing::info!("P2P Mesh Sync enabled (AuditedLocalP2P).");
+        }
+    }
+
+    pub fn configure_for_workspace_category(&self, category: &str) {
+        let cat_lower = category.to_lowercase();
+        if cat_lower.contains("health") || cat_lower.contains("academic") || cat_lower.contains("medical") || cat_lower.contains("education") {
+            let mut mode_guard = self.compliance_mode.lock_poison_safe();
+            *mode_guard = ComplianceMode::StrictServerOnlyWithLocalLanFallback;
+            let mut dlp_guard = self.dlp_policy.lock_poison_safe();
+            dlp_guard.enable_phi_inspection = true;
+            dlp_guard.enable_ferpa_inspection = true;
+            tracing::info!(
+                "Regulated workspace category '{}' configured with StrictServerOnlyWithLocalLanFallback compliance mode.",
+                category
+            );
+        }
+    }
+
+    pub fn is_p2p_mesh_disabled(&self) -> bool {
+        let mode = *self.compliance_mode.lock_poison_safe();
+        mode == ComplianceMode::StrictServerOnly || mode == ComplianceMode::StrictServerOnlyWithLocalLanFallback
+    }
+
+    pub fn get_active_sync_target_url(&self) -> Option<String> {
+        let primary = self.relay_url.lock_poison_safe().clone();
+        if primary.is_some() {
+            return primary;
+        }
+        let mode = *self.compliance_mode.lock_poison_safe();
+        if mode == ComplianceMode::StrictServerOnlyWithLocalLanFallback {
+            return self.get_local_lan_relay_url();
+        }
+        None
     }
 
     pub fn set_dlp_policy(&self, policy: DlpPolicy) {
@@ -1123,7 +1264,7 @@ impl P2PMeshSyncRouter {
 #[uniffi::export]
 impl P2PMeshSyncRouter {
     pub fn broadcast_write_network(&self, from_peer: String, data: Vec<u8>) {
-        let mode = self.get_compliance_mode();
+        let mode = *self.compliance_mode.lock_poison_safe();
         let policy = self.get_dlp_policy();
         let dlp_res = inspect_payload_dlp_bytes(&data, &policy);
         let ws_id = self.get_workspace_id();
@@ -1149,6 +1290,7 @@ impl P2PMeshSyncRouter {
 
             if policy.block_on_match
                 || mode == ComplianceMode::StrictServerOnly
+                || mode == ComplianceMode::StrictServerOnlyWithLocalLanFallback
                 || mode == ComplianceMode::AuditedProxyRelay
                 || mode == ComplianceMode::AuditedLocalP2P
             {
@@ -1173,13 +1315,22 @@ impl P2PMeshSyncRouter {
         let relay_opt = self.relay_url.lock_poison_safe().clone();
         let peers = self.peers.lock_poison_safe().clone();
 
-        // Under StrictServerOnly, direct P2P mesh sync channels are strictly disabled.
-        if mode == ComplianceMode::StrictServerOnly {
+        // Under StrictServerOnly and StrictServerOnlyWithLocalLanFallback, direct P2P mesh sync channels are strictly disabled.
+        if mode == ComplianceMode::StrictServerOnly || mode == ComplianceMode::StrictServerOnlyWithLocalLanFallback {
             tracing::warn!(
-                "Direct P2P Mesh sync disabled for peer {} under StrictServerOnly compliance mode",
-                from_peer
+                "Direct P2P Mesh sync disabled for peer {} under {:?} compliance mode",
+                from_peer, mode
             );
-            if let Some(relay_url) = relay_opt {
+
+            let target_url = if let Some(url) = relay_opt {
+                Some(url)
+            } else if mode == ComplianceMode::StrictServerOnlyWithLocalLanFallback {
+                self.get_local_lan_relay_url()
+            } else {
+                None
+            };
+
+            if let Some(relay_url) = target_url {
                 let client = self.client.clone();
                 let key = self.signing_key.lock_poison_safe().clone();
                 let queue_clone = Some(self.failed_broadcasts.clone());
@@ -1206,7 +1357,7 @@ impl P2PMeshSyncRouter {
                     ));
                 }
             } else {
-                tracing::error!("P2P sync failed: StrictServerOnly mode requires an active compliance relay server URL");
+                tracing::error!("P2P sync failed: StrictServerOnly mode requires an active compliance relay server URL or local LAN fallback URL");
             }
             return;
         }

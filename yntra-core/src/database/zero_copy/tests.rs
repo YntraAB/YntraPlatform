@@ -1698,6 +1698,25 @@ fn test_hipaa_ferpa_dlp_payload_inspection() {
     assert!(res_custom.matched_patterns.iter().any(|p| p.contains("CONFIDENTIAL_PROJECT_X")));
 }
 
+#[test]
+fn test_legitimate_clinical_and_academic_notes_pass_dlp() {
+    use super::sync::{DlpPolicy, inspect_payload_dlp_bytes};
+
+    let policy = DlpPolicy::default();
+
+    // Legitimate clinical notes written in Care Journals / EMR blocks should pass as CLEAN
+    let clinical_note = b"Clinical Note: Patient diagnosis: hypertension, prescription issued for amlodipine 5mg daily. Patient name: John Doe";
+    let res_clinical = inspect_payload_dlp_bytes(clinical_note, &policy);
+    assert!(!res_clinical.is_violation, "Clinical notes should not trigger false-positive DLP blocks: {:?}", res_clinical.matched_patterns);
+    assert_eq!(res_clinical.classification, "CLEAN");
+
+    // Legitimate student academic notes should pass as CLEAN
+    let academic_note = b"Student transcript review: Academic record update for student enrolled in Biology 101 with grade A";
+    let res_academic = inspect_payload_dlp_bytes(academic_note, &policy);
+    assert!(!res_academic.is_violation, "Academic notes should not trigger false-positive DLP blocks: {:?}", res_academic.matched_patterns);
+    assert_eq!(res_academic.classification, "CLEAN");
+}
+
 #[tokio::test]
 async fn test_compliance_mode_governance_and_dlp_audit_logging() {
     use super::sync::{ComplianceMode, DlpPolicy, P2PMeshSyncRouter};
@@ -1724,6 +1743,20 @@ async fn test_compliance_mode_governance_and_dlp_audit_logging() {
     router.broadcast_write_network("peer-nurse-tablet".to_string(), phi_payload);
 }
 
+#[tokio::test]
+async fn test_configure_p2p_isolation_hipaa_ferpa() {
+    use super::sync::{ComplianceMode, P2PMeshSyncRouter};
+
+    let router = P2PMeshSyncRouter::new();
+    router.set_compliance_mode(ComplianceMode::AuditedLocalP2P);
+    assert!(!router.is_p2p_mesh_disabled());
+
+    // Isolate P2P Mesh for HIPAA/FERPA networks
+    router.configure_p2p_isolation(true, true);
+    assert!(router.is_p2p_mesh_disabled());
+    assert_eq!(router.get_compliance_mode(), ComplianceMode::StrictServerOnly);
+}
+
 #[test]
 fn test_loro_crdt_doc_payload_expansion_dlp() {
     use super::sync::{DlpPolicy, inspect_payload_dlp_bytes};
@@ -1744,6 +1777,66 @@ fn test_loro_crdt_doc_payload_expansion_dlp() {
     assert!(res.is_violation);
     assert_eq!(res.classification, "PHI_DETECTED");
     assert!(res.matched_patterns.contains(&"PHI_MEDICAL_RECORD_PATTERN".to_string()));
+}
+
+#[test]
+fn test_extract_strings_from_loro_bytes_recursive_and_schema_isolation() {
+    use super::sync::{DlpPolicy, extract_strings_from_loro_bytes, inspect_payload_dlp_bytes};
+    use loro::{ExportMode, LoroDoc};
+
+    // Verify schema keys (e.g. "mrn_key_column") do NOT pollute value extraction
+    let doc = LoroDoc::new();
+    let map = doc.get_map("db");
+    let schema_map = map.insert_container("mrn_key_column", loro::LoroMap::new()).unwrap();
+    schema_map.insert("ssn_field_id", "Clean value with no PII").unwrap();
+
+    let binary_snapshot = doc.export(ExportMode::Snapshot).unwrap();
+    let extracted_text = extract_strings_from_loro_bytes(&binary_snapshot);
+
+    assert!(!extracted_text.contains("mrn_key_column"), "Extracted text should not contain container key names");
+    assert!(!extracted_text.contains("ssn_field_id"), "Extracted text should not contain map key names");
+    assert!(extracted_text.contains("Clean value with no PII"));
+
+    let policy = DlpPolicy::default();
+    let res = inspect_payload_dlp_bytes(&binary_snapshot, &policy);
+    assert!(!res.is_violation, "Schema key names must not trigger false positive DLP violations");
+    assert_eq!(res.classification, "CLEAN");
+}
+
+#[test]
+fn test_configure_for_workspace_category_regulated_fallback() {
+    use super::sync::{ComplianceMode, P2PMeshSyncRouter};
+
+    let router = P2PMeshSyncRouter::new();
+    router.configure_for_workspace_category("Healthcare Enterprise");
+
+    assert_eq!(router.get_compliance_mode(), ComplianceMode::StrictServerOnlyWithLocalLanFallback);
+    assert!(router.is_p2p_mesh_disabled());
+
+    let school_router = P2PMeshSyncRouter::new();
+    school_router.configure_for_workspace_category("Academic Enterprise");
+
+    assert_eq!(school_router.get_compliance_mode(), ComplianceMode::StrictServerOnlyWithLocalLanFallback);
+    assert!(school_router.is_p2p_mesh_disabled());
+}
+
+#[tokio::test]
+async fn test_zero_copy_read_access_audit_logging() {
+    let entry = crate::services::audit::log_action_with_conn(
+        &crate::database::acquire_connection().await.unwrap(),
+        "user_doctor_1".to_string(),
+        Some("client_patient_42".to_string()),
+        "PHI_READ:clinical_evaluation".to_string(),
+    ).await.unwrap();
+
+    assert_eq!(entry.action_type, "PHI_READ:clinical_evaluation");
+    assert_eq!(entry.actor_id, "user_doctor_1");
+    assert_eq!(entry.target_client_id, Some("client_patient_42".to_string()));
+    assert!(!entry.curr_hash.is_empty());
+
+    let audit_store = crate::services::audit::get_audit_store(&entry.workspace_id);
+    let logs = audit_store.read_all_audit_logs().unwrap();
+    assert!(logs.iter().any(|e| e.id == entry.id));
 }
 
 #[test]
@@ -1774,6 +1867,54 @@ fn test_ed25519_signed_sync_audit_events_and_tenant_scoping() {
     let entry = sync_log.unwrap();
     assert_eq!(entry.workspace_id, custom_tenant);
     assert!(entry.signature.is_some());
+}
+
+#[test]
+fn test_international_health_dlp_inspection_uk_eu_canadian() {
+    use super::sync::{DlpPolicy, inspect_payload_dlp_bytes};
+
+    let policy = DlpPolicy::default();
+
+    // 1. UK NHS Number Inspection
+    let uk_payload = b"UK Patient NHS-4857392014 registered at St Thomas Hospital";
+    let uk_res = inspect_payload_dlp_bytes(uk_payload, &policy);
+    assert!(uk_res.is_violation);
+    assert_eq!(uk_res.classification, "UK_NHS_DETECTED");
+    assert!(uk_res.matched_patterns.contains(&"UK_NHS_PATTERN".to_string()));
+
+    // 2. EU Nordic Personnummer / CPR Inspection
+    let eu_payload = b"Nordic Health Record CPR-290384-1234 active patient note";
+    let eu_res = inspect_payload_dlp_bytes(eu_payload, &policy);
+    assert!(eu_res.is_violation);
+    assert_eq!(eu_res.classification, "EU_HEALTH_ID_DETECTED");
+    assert!(eu_res.matched_patterns.contains(&"EU_HEALTH_ID_PATTERN".to_string()));
+
+    // 3. Canadian HIN Inspection
+    let ca_payload = b"Canadian Coverage HIN-987654321 OHIP-patient record";
+    let ca_res = inspect_payload_dlp_bytes(ca_payload, &policy);
+    assert!(ca_res.is_violation);
+    assert_eq!(ca_res.classification, "CANADIAN_HIN_DETECTED");
+    assert!(ca_res.matched_patterns.contains(&"CANADIAN_HIN_PATTERN".to_string()));
+}
+
+#[test]
+fn test_strict_server_only_with_local_lan_fallback() {
+    use super::sync::{ComplianceMode, DlpPolicy, P2PMeshSyncRouter};
+
+    let router = P2PMeshSyncRouter::with_compliance(
+        None,
+        ComplianceMode::StrictServerOnlyWithLocalLanFallback,
+        DlpPolicy::default(),
+    );
+
+    assert_eq!(router.get_compliance_mode(), ComplianceMode::StrictServerOnlyWithLocalLanFallback);
+    assert_eq!(router.get_active_sync_target_url(), None);
+
+    let lan_relay = "http://ward-4-local-relay.internal:8080".to_string();
+    router.set_local_lan_relay_url(lan_relay.clone());
+
+    assert_eq!(router.get_local_lan_relay_url(), Some(lan_relay.clone()));
+    assert_eq!(router.get_active_sync_target_url(), Some(lan_relay));
 }
 
 
