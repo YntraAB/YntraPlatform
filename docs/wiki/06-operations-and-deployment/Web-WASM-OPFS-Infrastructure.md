@@ -67,14 +67,20 @@ graph LR
 
 ## 4. Enterprise Shared Workstations & Kiosk GPO Cache Wipes
 
-Shared workstation terminals in hospitals and computer labs (Active Directory / Jamf GPO managed) wipe browser site data (OPFS, IndexedDB, site caches) on user logout or session idle timeouts.
+Shared workstation terminals in hospitals (nursing stations, emergency rooms) and educational institutions (computer labs, mobile cart laptops) run Active Directory or Jamf GPOs that forcibly wipe all browser site data (OPFS, IndexedDB, site caches, cookies) upon user logout or session idle timeouts.
 
-To prevent un-synced offline data loss when enterprise cache wiping scripts execute:
+To guarantee zero data loss when browser caches are purged:
 
-### 4-Tier Protection Protocol Strategy
+### Enterprise Kiosk Persistence Standard
 
-1. **Tier 1 (OPFS + WAL Mirror)**: High-speed local VFS operations run inside SQLite WASM OPFS.
-2. **Tier 2 (In-Room P2P Mesh Mirroring)**: Un-synced transactions are broadcast in real-time over local WebRTC Data Channels (`ComplianceMode::AuditedLocalP2P`) to adjacent active peer nodes in the same ward/room.
-3. **Tier 3 (Kiosk Native Sidecar Daemon)**: Web client probes `ws://127.0.0.1:9443` for `yntra-daemon`. When available, encrypted WAL frames stream outside the browser sandbox into protected OS system paths (`%LocalAppData%\Yntra\kiosk_journal` or `/var/lib/yntra`).
-4. **Tier 4 (Pre-Logout Guard & Emergency Beacon)**: Listens for `PageLifecycle` events (`visibilitychange`, `pagehide`, `beforeunload`). On session logout with un-synced offline edits, dispatches micro-batches via `navigator.sendBeacon` and displays an interactive modal guard delaying session destruction until writes are confirmed safe.
+1. **Eager Synchronous Cloud Write-Through (Web Client Default)**:
+   On web browser sessions running in shared kiosk mode (`YNTRA_SHARED_KIOSK_MODE=1` or when persistent storage permission is un-granted), all state mutations bypass offline queuing and perform an eager synchronous write-through push to the cloud primary server / enterprise relay using `fetch(..., { keepalive: true })` streams before resolving the UI action. Zero un-synced state is left behind in fragile browser OPFS storage.
+
+2. **Native Desktop Application Deployment Standard (Recommended for Hospitals & Labs)**:
+   Enterprise IT administrators deploying dedicated shared workstation terminals are instructed to deploy the **Yntra Native Desktop App (Wry/Dioxus)**. Native desktop instances store SQLite WAL database files in protected system directories (`%LocalAppData%\Yntra` or `/var/lib/yntra`), which are completely isolated and immune to browser GPO site-data purges.
+
+3. **Multi-Tier Fallback & Micro-Chunk Emergency Flushes**:
+   - **Tier 1 (Eager Cloud Push)**: Instant server-backed write-through.
+   - **Tier 2 (Continuous Micro-Chunk Beacon)**: Real-time `navigator.sendBeacon` micro-batch dispatch on every local write event.
+   - **Tier 3 (Native Sidecar Loopback)**: Probes `ws://127.0.0.1:9443` (`yntra-daemon`) to mirror encrypted WAL frames into system user profile paths.
 

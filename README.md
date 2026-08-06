@@ -94,3 +94,19 @@ The app uses local libSQL as the single source of truth. Every transaction is wr
 - **Workspace Partitioning:** Row-level isolation using `workspace_id`.
 - **Background Replication**: Bidirectional database sync is handled automatically by the libSQL client to a primary server, ensuring data consistency without writing custom sync pipelines.
 - **Offline-First:** The app runs with full capability in complete offline environments; modifications are queued in a local transaction log and synced when connection resumes.
+
+---
+
+## Benchmarking & Performance
+
+The platform includes a State-Of-The-Art (SOTA) Criterion benchmark suite with **21 specialized benchmark targets** measuring quantitative throughput (`ops/sec`, `MB/sec`, `tokens/sec`) across all 5 architectural tiers.
+
+```bash
+# Run a specific benchmark suite (e.g. auth_benchmarks)
+cargo bench -p yntra-core --bench auth_benchmarks
+
+# Run targeted benchmark filters for specific functions
+cargo bench -p yntra-core --bench billing_benchmarks -- "check_feature_tier_gate"
+```
+
+For complete documentation on benchmark suite coverage, quantitative metrics, and targeted execution instructions, see [`docs/benchmarks.md`](docs/benchmarks.md).

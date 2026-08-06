@@ -57,3 +57,22 @@ The auto-updater integrates into the main application layout via `AutoUpdateToas
 * **Location**: Mounted in `ToastProvider` in [`yntra-ui/src/main.rs`](file:///c:/Users/hellich/Desktop/YntraPlatform/yntra-ui/src/main.rs).
 * **Component Path**: [`yntra-ui/src/components/auto_updater.rs`](file:///c:/Users/hellich/Desktop/YntraPlatform/yntra-ui/src/components/auto_updater.rs).
 * **Features**: Dynamic download progress bar, release notes preview, "Remind Me Later", and "Restart & Install" triggers.
+
+---
+
+## 5. Enterprise MDM Governance & GPO Control Standard
+
+To prevent Endpoint Detection and Response (EDR) agents (CrowdStrike, SentinelOne) from quarantining desktop applications and comply with IT SecOps software distribution policies:
+
+* **MDM Policy Suppression (`is_mdm_update_disabled()`)**: On enterprise-managed workstations, setting `YNTRA_DISABLE_AUTO_UPDATE=1` or `YNTRA_MANAGED_BY_MDM=1` completely suppresses in-app binary downloading and executable staging.
+* **Centralized Package Deployment**: Enterprise IT administrators for hospitals and schools are provided with signed `.msi` (Microsoft Intune / SCCM) and `.pkg` (Jamf Pro) packages for silent deployment across managed endpoints.
+
+---
+
+## 6. Native Active Directory GPO Registry Key Schema
+
+On Windows Active Directory domains, sysadmins can deploy standard GPO Administrative Templates (`.admx`) targeting:
+
+* **Registry Key Path**: `HKLM\SOFTWARE\Policies\Yntra` or `HKCU\SOFTWARE\Policies\Yntra`
+* **DWORD Value Name**: `DisableAutoUpdate` (Set to `1`) or `ManagedByMDM` (Set to `1`)
+* **Default-Secure Policy**: System directory installations (`%ProgramFiles%\Yntra`, `/Applications/Yntra.app`) default to MDM Managed mode automatically unless overridden by `YNTRA_ALLOW_IN_APP_AUTO_UPDATE=1`.
