@@ -14,6 +14,7 @@ pub use database::zero_copy::{
 };
 pub use infra::auth::AuthContext;
 pub use infra::errors::*;
+pub use infra::hl7_v2::*;
 pub use infra::observer::*;
 pub use models::*;
 
@@ -46,6 +47,7 @@ pub use services::role_templates::*;
 #[cfg(feature = "domain-school")]
 pub use services::school::*;
 pub use services::semantic_guardrails::*;
+pub use services::siem::*;
 pub use services::storage_guard::*;
 pub use services::support::*;
 pub use services::teams::*;
@@ -64,8 +66,9 @@ pub use services::workspaces::*;
 
 
 pub use services::auth::hardware::{
-    PasskeyCredentialInfo, authenticate_with_passkey, delete_passkey_credential, get_user_passkeys,
-    register_passkey_credential,
+    FdaPart11Signature, PasskeyCredentialInfo, authenticate_with_passkey,
+    create_fda_part11_intent_signature, delete_passkey_credential, get_user_passkeys,
+    register_passkey_credential, verify_fda_part11_intent_signature,
 };
 pub use services::users::{delete_user_account, export_user_personal_data};
 
@@ -79,7 +82,10 @@ pub use infra::crypto::{
     revoke_ephemeral_session_token, set_session_key, touch_session_sync_timestamp,
     validate_active_session_token,
 };
+pub use infra::compliance::*;
 pub use infra::errors;
+pub use infra::fhir_r4::*;
+pub use infra::ncpdp_script::*;
 pub use infra::observer;
 
 #[cfg(not(target_arch = "wasm32"))]

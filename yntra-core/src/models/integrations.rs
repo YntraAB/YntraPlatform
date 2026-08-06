@@ -288,3 +288,260 @@ pub struct SisSyncResult {
     pub error_message: Option<String>,
     pub synced_at: i64,
 }
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct MllpListenerConfig {
+    pub id: String,
+    pub workspace_id: String,
+    pub name: String,
+    pub port: u16,
+    pub bind_address: String,
+    pub tls_enabled: bool,
+    pub status: String,
+    pub last_active_at: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl Default for MllpListenerConfig {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            workspace_id: String::new(),
+            name: "HL7 ADT MLLP Listener".to_string(),
+            port: 2575,
+            bind_address: "0.0.0.0".to_string(),
+            tls_enabled: false,
+            status: "stopped".to_string(),
+            last_active_at: 0,
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Default,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct Hl7MessageRecord {
+    pub id: String,
+    pub workspace_id: String,
+    pub listener_id: Option<String>,
+    pub message_type: String,
+    pub trigger_event: String,
+    pub sending_app: Option<String>,
+    pub sending_facility: Option<String>,
+    pub message_control_id: String,
+    pub patient_mrn: Option<String>,
+    pub patient_name: Option<String>,
+    pub encounter_id: Option<String>,
+    pub raw_payload: String,
+    pub parsed_json: String,
+    pub ack_status: String,
+    pub ack_payload: Option<String>,
+    pub status: String,
+    pub received_at: i64,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Default,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct FhirExportResult {
+    pub resource_type: String,
+    pub fhir_id: String,
+    pub json_payload: String,
+    pub validation_passed: bool,
+    pub warnings: Vec<String>,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Default,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct FhirImportResult {
+    pub resource_type: String,
+    pub internal_entity_id: String,
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Default,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct FhirResourceMappingRecord {
+    pub id: String,
+    pub workspace_id: String,
+    pub resource_type: String,
+    pub fhir_id: String,
+    pub internal_entity_type: String,
+    pub internal_entity_id: String,
+    pub raw_fhir_json: String,
+    pub last_synced_at: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Default,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct NcpdpPrescriptionRecord {
+    pub id: String,
+    pub workspace_id: String,
+    pub client_id: String,
+    pub prescriber_id: String,
+    pub prescriber_npi: String,
+    pub pharmacy_npi: String,
+    pub pharmacy_name: Option<String>,
+    pub drug_name: String,
+    pub rxnorm_code: Option<String>,
+    pub ndc_code: Option<String>,
+    pub quantity: f64,
+    pub days_supply: u32,
+    pub refills: u32,
+    pub sig_instructions: String,
+    pub transaction_type: String,
+    pub status: String,
+    pub surescripts_tx_id: Option<String>,
+    pub raw_xml_payload: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Default,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct NcpdpTransmitResult {
+    pub prescription_id: String,
+    pub transaction_type: String,
+    pub surescripts_tx_id: String,
+    pub status: String,
+    pub xml_payload: String,
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Default,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct FdaDualSignatureRecord {
+    pub id: String,
+    pub workspace_id: String,
+    pub target_record_type: String,
+    pub target_record_id: String,
+    pub primary_signer_id: String,
+    pub primary_signer_name: String,
+    pub primary_intent: String,
+    pub primary_ed25519_sig: String,
+    pub primary_pubkey: String,
+    pub secondary_signer_id: Option<String>,
+    pub secondary_signer_name: Option<String>,
+    pub secondary_intent: Option<String>,
+    pub secondary_ed25519_sig: Option<String>,
+    pub secondary_pubkey: Option<String>,
+    pub dual_sign_completed: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Default,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct FdaSignatureResult {
+    pub signature_id: String,
+    pub target_record_id: String,
+    pub dual_sign_completed: bool,
+    pub is_valid: bool,
+    pub primary_verified: bool,
+    pub secondary_verified: bool,
+    pub message: String,
+}

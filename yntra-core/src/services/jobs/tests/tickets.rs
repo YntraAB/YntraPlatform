@@ -251,13 +251,13 @@ async fn test_digital_signature_capture() {
     let conn = database::acquire_connection().await.unwrap();
 
     // Setup test workspace and users
-    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-sig-test', 'Sig Test WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
-    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-sig-staff', 'ws-sig-test', 'staff@sig.io', 'admin')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO workspaces (id, name, modules_active, settings) VALUES ('ws-job-sig', 'Sig Test WS', '[\"moving_company\"]', '{}')", ()).await.unwrap();
+    conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('u-job-sig-staff', 'ws-job-sig', 'staff@sig.io', 'admin')", ()).await.unwrap();
 
     // Create job ticket
     let job = create_job_ticket(
-        "u-sig-staff".to_string(),
-        "ws-sig-test".to_string(),
+        "u-job-sig-staff".to_string(),
+        "ws-job-sig".to_string(),
         "Cabinet relocation".to_string(),
         "Delicate office cabinets".to_string(),
         "Cabinet Road 10".to_string(),
@@ -278,7 +278,7 @@ async fn test_digital_signature_capture() {
     .unwrap();
 
     // 1. Initially verify no signature exists
-    let sig_opt = get_job_signature("u-sig-staff".to_string(), job.id.clone())
+    let sig_opt = get_job_signature("u-job-sig-staff".to_string(), job.id.clone())
         .await
         .unwrap();
     assert!(sig_opt.is_none());
@@ -286,7 +286,7 @@ async fn test_digital_signature_capture() {
     // 2. Save signature with legal audit trail and transport terms (Bohag 2020)
     let mock_signature = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIA...";
     save_job_signature_with_audit_trail(
-        "u-sig-staff".to_string(),
+        "u-job-sig-staff".to_string(),
         job.id.clone(),
         "John Doe (Customer)".to_string(),
         mock_signature.to_string(),
@@ -299,7 +299,7 @@ async fn test_digital_signature_capture() {
     .unwrap();
 
     // 3. Retrieve and verify signature details and legal audit trail
-    let sig_opt_2 = get_job_signature("u-sig-staff".to_string(), job.id.clone())
+    let sig_opt_2 = get_job_signature("u-job-sig-staff".to_string(), job.id.clone())
         .await
         .unwrap();
     assert!(sig_opt_2.is_some());
@@ -307,7 +307,7 @@ async fn test_digital_signature_capture() {
     assert_eq!(sig.signer_name, "John Doe (Customer)");
     assert_eq!(sig.signature_data_base64, mock_signature);
     assert_eq!(sig.job_ticket_id, job.id);
-    assert_eq!(sig.workspace_id, "ws-sig-test");
+    assert_eq!(sig.workspace_id, "ws-job-sig");
     assert_eq!(sig.ip_address, Some("192.168.1.100".to_string()));
     assert_eq!(sig.geolocation, Some("59.3293,18.0686".to_string()));
     assert_eq!(sig.terms_version, Some("Bohag 2020".to_string()));
@@ -327,10 +327,13 @@ async fn test_digital_signature_capture() {
     )
     .await
     .unwrap();
-    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-sig-test'", ())
+    conn.execute("DELETE FROM audit_logs WHERE workspace_id = 'ws-job-sig'", ())
         .await
         .unwrap();
-    conn.execute("DELETE FROM workspaces WHERE id = 'ws-sig-test'", ())
+    conn.execute("DELETE FROM users WHERE workspace_id = 'ws-job-sig'", ())
+        .await
+        .unwrap();
+    conn.execute("DELETE FROM workspaces WHERE id = 'ws-job-sig'", ())
         .await
         .unwrap();
 }

@@ -528,6 +528,106 @@ pub async fn update_workspace_settings(
 }
 
 #[uniffi::export]
+pub async fn set_workspace_zk_proof_policy(
+    requester_user_id: String,
+    workspace_id: String,
+    require_zk_proofs: bool,
+) -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if !auth.is_admin {
+        return Err(YntraError::AuthError(
+            "Access denied: administrator privileges required".to_string(),
+        ));
+    }
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    let existing_settings: String = conn
+        .query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![&workspace_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or_else(|_| "{}".to_string());
+
+    let mut val: serde_json::Value = serde_json::from_str(&existing_settings)
+        .unwrap_or_else(|_| serde_json::json!({}));
+
+    if let Some(obj) = val.as_object_mut() {
+        obj.insert("require_zk_proofs".to_string(), serde_json::Value::Bool(require_zk_proofs));
+        obj.insert("bypass_zk_proofs".to_string(), serde_json::Value::Bool(!require_zk_proofs));
+    }
+
+    let updated_json = val.to_string();
+    let now_ms = crate::infra::time::get_current_time_ms();
+    conn.execute(
+        "UPDATE workspaces SET settings = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
+        crate::params![updated_json, now_ms, &workspace_id],
+    ).await?;
+
+    crate::infra::auth::invalidate_auth_context_cache_for_workspace(&workspace_id);
+    notify_observers();
+    Ok(())
+}
+
+#[uniffi::export]
+pub async fn set_workspace_p2p_isolation_policy(
+    requester_user_id: String,
+    workspace_id: String,
+    disable_p2p_mesh: bool,
+    enforce_hipaa_ferpa_dlp: bool,
+) -> Result<(), YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if !auth.is_admin {
+        return Err(YntraError::AuthError(
+            "Access denied: administrator privileges required".to_string(),
+        ));
+    }
+    if auth.role != "platform_admin" && auth.workspace_id != workspace_id {
+        return Err(YntraError::AuthError(
+            "Access denied: workspace mismatch".to_string(),
+        ));
+    }
+
+    let existing_settings: String = conn
+        .query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![&workspace_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or_else(|_| "{}".to_string());
+
+    let mut val: serde_json::Value = serde_json::from_str(&existing_settings)
+        .unwrap_or_else(|_| serde_json::json!({}));
+
+    if let Some(obj) = val.as_object_mut() {
+        obj.insert("disable_p2p_mesh".to_string(), serde_json::Value::Bool(disable_p2p_mesh));
+        obj.insert("enforce_hipaa_ferpa_dlp".to_string(), serde_json::Value::Bool(enforce_hipaa_ferpa_dlp));
+        obj.insert("compliance_mode".to_string(), serde_json::Value::String(
+            if disable_p2p_mesh { "StrictServerOnly".to_string() } else { "AuditedLocalP2P".to_string() }
+        ));
+    }
+
+    let updated_json = val.to_string();
+    let now_ms = crate::infra::time::get_current_time_ms();
+    conn.execute(
+        "UPDATE workspaces SET settings = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
+        crate::params![updated_json, now_ms, &workspace_id],
+    ).await?;
+
+    crate::infra::auth::invalidate_auth_context_cache_for_workspace(&workspace_id);
+    notify_observers();
+    Ok(())
+}
+
+#[uniffi::export]
 pub async fn update_workspace_block_settings(
     requester_user_id: String,
     workspace_id: String,

@@ -26,6 +26,7 @@ pub mod role_templates;
 #[cfg(feature = "domain-school")]
 pub mod school;
 pub mod semantic_guardrails;
+pub mod siem;
 pub mod storage_guard;
 pub mod support;
 pub mod teams;

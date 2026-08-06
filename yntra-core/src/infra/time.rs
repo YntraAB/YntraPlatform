@@ -88,12 +88,14 @@ pub fn update_hsm_monotonic_counter(hsm_counter: i64) {
     }
 }
 
+#[allow(dead_code)]
 struct MonotonicAnchor {
     wall_start_ms: i64,
     #[cfg(not(target_arch = "wasm32"))]
     instant_start: std::time::Instant,
 }
 
+#[allow(dead_code)]
 fn get_anchor() -> &'static std::sync::Mutex<MonotonicAnchor> {
     static ANCHOR: OnceLock<std::sync::Mutex<MonotonicAnchor>> = OnceLock::new();
     ANCHOR.get_or_init(|| {

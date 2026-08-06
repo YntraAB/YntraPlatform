@@ -1094,6 +1094,84 @@ pub async fn preflight_check_intent(
     })
 }
 
+fn get_role_hierarchy_weight(role: &str) -> u32 {
+    let r = role.to_lowercase();
+    if r.contains("admin") || r.contains("doctor") || r.contains("director") || r.contains("principal") {
+        100
+    } else if r.contains("nurse") || r.contains("teacher") || r.contains("manager") || r.contains("physician") {
+        50
+    } else if r.contains("staff") || r.contains("employee") || r.contains("member") {
+        30
+    } else if r.contains("student") || r.contains("parent") || r.contains("guest") {
+        10
+    } else {
+        20
+    }
+}
+
+async fn get_entity_author_and_timestamp(
+    conn: &database::DbConnection,
+    workspace_id: &str,
+    table_name: &str,
+    entity_id: &str,
+) -> (String, i64) {
+    match table_name {
+        "events" => {
+            let res: Option<(String, Option<i64>)> = conn
+                .query_row(
+                    "SELECT COALESCE(user_id, ''), COALESCE(updated_at, 0) FROM events WHERE id = ?1 AND workspace_id = ?2",
+                    crate::params![entity_id, workspace_id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .await
+                .ok();
+            res.map(|(u, t)| (u, t.unwrap_or(0))).unwrap_or_default()
+        }
+        "job_tickets" => {
+            let res: Option<(String, Option<i64>)> = conn
+                .query_row(
+                    "SELECT COALESCE(user_id, ''), COALESCE(updated_at, 0) FROM job_tickets WHERE id = ?1 AND workspace_id = ?2",
+                    crate::params![entity_id, workspace_id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .await
+                .ok();
+            res.map(|(u, t)| (u, t.unwrap_or(0))).unwrap_or_default()
+        }
+        "timetable_slots" => {
+            let res: Option<(String, Option<i64>)> = conn
+                .query_row(
+                    "SELECT COALESCE(created_by, ''), COALESCE(updated_at, 0) FROM timetable_slots WHERE id = ?1 AND workspace_id = ?2",
+                    crate::params![entity_id, workspace_id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .await
+                .ok();
+            res.map(|(u, t)| (u, t.unwrap_or(0))).unwrap_or_default()
+        }
+        _ => (String::new(), 0),
+    }
+}
+
+async fn get_user_role(
+    conn: &database::DbConnection,
+    workspace_id: &str,
+    user_id: &str,
+) -> String {
+    if user_id.is_empty() {
+        return "member".to_string();
+    }
+    let role: Option<String> = conn
+        .query_row(
+            "SELECT role FROM users WHERE id = ?1 AND (workspace_id = ?2 OR workspace_id IS NULL)",
+            crate::params![user_id, workspace_id],
+            |r| r.get(0),
+        )
+        .await
+        .ok();
+    role.unwrap_or_else(|| "member".to_string())
+}
+
 #[uniffi::export]
 pub async fn auto_resolve_semantic_conflicts(
     requester_user_id: String,
@@ -1106,25 +1184,80 @@ pub async fn auto_resolve_semantic_conflicts(
         return Err(YntraError::AuthError("Admin privileges required for auto-resolution".to_string()));
     }
 
-    let policy_strategy = strategy.unwrap_or_else(|| "earliest_timestamp_wins".to_string());
+    let policy_strategy = strategy.unwrap_or_else(|| "manual_review".to_string());
     let conflicts = get_semantic_conflicts(requester_user_id.clone(), workspace_id.clone(), Some("flagged_for_review".to_string())).await?;
 
     let mut auto_resolved = 0u32;
 
     for conflict in conflicts {
-        if policy_strategy == "earliest_timestamp_wins" || policy_strategy == "higher_role_wins" {
-            // Keep original entity_id, cancel colliding_entity_id
+        let colliding_id = match &conflict.colliding_entity_id {
+            Some(cid) if !cid.is_empty() => cid.clone(),
+            _ => {
+                if policy_strategy == "dismiss_all" {
+                    dismiss_semantic_conflict(requester_user_id.clone(), workspace_id.clone(), conflict.id.clone()).await?;
+                    auto_resolved += 1;
+                }
+                continue;
+            }
+        };
+
+        let (e1_user, e1_time) = get_entity_author_and_timestamp(&conn, &workspace_id, &conflict.entity_table, &conflict.entity_id).await;
+        let (e2_user, e2_time) = get_entity_author_and_timestamp(&conn, &workspace_id, &conflict.entity_table, &colliding_id).await;
+
+        let chosen_id = match policy_strategy.as_str() {
+            "higher_role_wins" => {
+                let e1_role = get_user_role(&conn, &workspace_id, &e1_user).await;
+                let e2_role = get_user_role(&conn, &workspace_id, &e2_user).await;
+                let w1 = get_role_hierarchy_weight(&e1_role);
+                let w2 = get_role_hierarchy_weight(&e2_role);
+
+                if w1 > w2 {
+                    Some(conflict.entity_id.clone())
+                } else if w2 > w1 {
+                    Some(colliding_id)
+                } else {
+                    // Tie-breaker: latest timestamp wins
+                    if e1_time >= e2_time {
+                        Some(conflict.entity_id.clone())
+                    } else {
+                        Some(colliding_id)
+                    }
+                }
+            }
+            "earliest_timestamp_wins" => {
+                if e1_time <= e2_time {
+                    Some(conflict.entity_id.clone())
+                } else {
+                    Some(colliding_id)
+                }
+            }
+            "latest_timestamp_wins" => {
+                if e1_time >= e2_time {
+                    Some(conflict.entity_id.clone())
+                } else {
+                    Some(colliding_id)
+                }
+            }
+            "dismiss_all" => {
+                dismiss_semantic_conflict(requester_user_id.clone(), workspace_id.clone(), conflict.id.clone()).await?;
+                auto_resolved += 1;
+                None
+            }
+            "manual_review" | _ => {
+                // Safely retain for manual human inspection
+                None
+            }
+        };
+
+        if let Some(keep_id) = chosen_id {
             resolve_semantic_conflict(
                 requester_user_id.clone(),
                 workspace_id.clone(),
                 conflict.id,
                 "keep_chosen".to_string(),
-                Some(conflict.entity_id),
+                Some(keep_id),
             )
             .await?;
-            auto_resolved += 1;
-        } else if policy_strategy == "dismiss_all" {
-            dismiss_semantic_conflict(requester_user_id.clone(), workspace_id.clone(), conflict.id).await?;
             auto_resolved += 1;
         }
     }
@@ -1519,6 +1652,88 @@ mod tests {
             .unwrap_or_default();
         assert_eq!(conflicts.len(), 1);
         assert_eq!(conflicts[0].conflict_type, "OVERLAPPING_SCHEDULE");
+    }
+
+    #[tokio::test]
+    async fn test_higher_role_wins_resolution() {
+        let _lock = crate::database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+
+        let ws_id = format!("ws-hrw-{}", crate::infra::time::get_current_time_ms());
+        conn.execute(
+            "INSERT INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'HRW WS', '[]', '{}')",
+            crate::params![&ws_id],
+        )
+        .await
+        .unwrap();
+
+        conn.execute(
+            "INSERT INTO users (id, workspace_id, email, role) VALUES ('u-admin-hrw', ?1, 'admin@hrw.se', 'platform_admin')",
+            crate::params![&ws_id],
+        )
+        .await
+        .unwrap();
+
+        conn.execute(
+            "INSERT INTO users (id, workspace_id, email, role) VALUES ('u-doctor', ?1, 'doctor@hrw.se', 'doctor')",
+            crate::params![&ws_id],
+        )
+        .await
+        .unwrap();
+
+        conn.execute(
+            "INSERT INTO users (id, workspace_id, email, role) VALUES ('u-nurse', ?1, 'nurse@hrw.se', 'nurse')",
+            crate::params![&ws_id],
+        )
+        .await
+        .unwrap();
+
+        conn.execute(
+            "INSERT INTO users (id, workspace_id, email, role) VALUES ('patient-1', ?1, 'patient1@hrw.se', 'patient')",
+            crate::params![&ws_id],
+        )
+        .await
+        .unwrap();
+
+        conn.execute(
+            "INSERT INTO events (id, workspace_id, user_id, assignee_id, title, start_time, end_time, updated_at) VALUES ('evt-nurse-1', ?1, 'u-nurse', 'patient-1', 'Nurse Note', '2026-08-05T10:00:00Z', '2026-08-05T11:00:00Z', 1000)",
+            crate::params![&ws_id],
+        )
+        .await
+        .unwrap();
+
+        conn.execute(
+            "INSERT INTO events (id, workspace_id, user_id, assignee_id, title, start_time, end_time, updated_at) VALUES ('evt-doctor-1', ?1, 'u-doctor', 'patient-1', 'Doctor Order', '2026-08-05T10:30:00Z', '2026-08-05T11:30:00Z', 1005)",
+            crate::params![&ws_id],
+        )
+        .await
+        .unwrap();
+
+        let flagged = execute_guardrail_scan(&conn, &ws_id).await.unwrap();
+        assert_eq!(flagged, 1);
+
+        let resolved = auto_resolve_semantic_conflicts(
+            "u-admin-hrw".to_string(),
+            ws_id.clone(),
+            Some("higher_role_wins".to_string()),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(resolved, 1);
+
+        // Verify doctor's event (evt-doctor-1) was kept and nurse's event (evt-nurse-1) was deleted
+        let doctor_evt: Option<String> = conn
+            .query_row("SELECT id FROM events WHERE id = ?1", crate::params!["evt-doctor-1"], |r| r.get(0))
+            .await
+            .ok();
+        let nurse_evt: Option<String> = conn
+            .query_row("SELECT id FROM events WHERE id = ?1", crate::params!["evt-nurse-1"], |r| r.get(0))
+            .await
+            .ok();
+
+        assert_eq!(doctor_evt, Some("evt-doctor-1".to_string()));
+        assert_eq!(nurse_evt, None);
     }
 }
 

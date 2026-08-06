@@ -689,22 +689,25 @@ mod tests {
         let conn = database::acquire_connection().await.unwrap();
 
         let _ = conn
-            .execute("DELETE FROM users WHERE id IN ('admin-1', 'target-1')", ())
+            .execute("DELETE FROM audit_logs WHERE workspace_id = 'ws-usr-rolesig'", ())
             .await;
         let _ = conn
-            .execute("DELETE FROM workspaces WHERE id = 'ws-sig-test'", ())
+            .execute("DELETE FROM users WHERE workspace_id = 'ws-usr-rolesig'", ())
             .await;
-        let _ = crate::infra::crypto::set_local_secret("creator_private_key_ws-sig-test", "").await;
+        let _ = conn
+            .execute("DELETE FROM workspaces WHERE id = 'ws-usr-rolesig'", ())
+            .await;
+        let _ = crate::infra::crypto::set_local_secret("creator_private_key_ws-usr-rolesig", "").await;
         let _ =
-            crate::infra::crypto::set_local_secret("workspace_public_key_ws-sig-test", "").await;
+            crate::infra::crypto::set_local_secret("workspace_public_key_ws-usr-rolesig", "").await;
 
         let keys = crate::infra::crypto::generate_workspace_keypair().unwrap();
         let pub_hex = keys.public_key();
         let priv_hex = keys.private_key();
 
-        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, creator_public_key, modules_active, settings) VALUES ('ws-sig-test', 'Sig Test WS', ?1, '[]', '{}')", crate::params![pub_hex]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO workspaces (id, name, creator_public_key, modules_active, settings) VALUES ('ws-usr-rolesig', 'Sig Test WS', ?1, '[]', '{}')", crate::params![pub_hex]).await.unwrap();
 
-        crate::infra::crypto::set_local_secret("creator_private_key_ws-sig-test", &priv_hex)
+        crate::infra::crypto::set_local_secret("creator_private_key_ws-usr-rolesig", &priv_hex)
             .await
             .unwrap();
 
@@ -712,12 +715,12 @@ mod tests {
             &priv_hex,
             "admin-1",
             "platform_admin",
-            "ws-sig-test",
+            "ws-usr-rolesig",
         )
         .unwrap();
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, role_signature) VALUES ('admin-1', 'ws-sig-test', 'admin@sig.io', 'platform_admin', ?1)", crate::params![&admin_sig]).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role, role_signature) VALUES ('admin-1', 'ws-usr-rolesig', 'admin@sig.io', 'platform_admin', ?1)", crate::params![&admin_sig]).await.unwrap();
 
-        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('target-1', 'ws-sig-test', 'target@sig.io', 'user')", ()).await.unwrap();
+        conn.execute("INSERT OR REPLACE INTO users (id, workspace_id, email, role) VALUES ('target-1', 'ws-usr-rolesig', 'target@sig.io', 'user')", ()).await.unwrap();
 
         let res = update_user_role(
             "admin-1".to_string(),
@@ -729,7 +732,7 @@ mod tests {
 
         let pk: String = conn
             .query_row(
-                "SELECT creator_public_key FROM workspaces WHERE id = 'ws-sig-test'",
+                "SELECT creator_public_key FROM workspaces WHERE id = 'ws-usr-rolesig'",
                 (),
                 |r| r.get(0),
             )
@@ -751,7 +754,7 @@ mod tests {
             &pk,
             "target-1",
             "assistant",
-            "ws-sig-test",
+            "ws-usr-rolesig",
             &sig,
         );
         assert!(is_valid);
@@ -779,7 +782,7 @@ mod tests {
             &pk,
             "target-1",
             "user",
-            "ws-sig-test",
+            "ws-usr-rolesig",
             &sig_after_val
         ));
 
@@ -801,15 +804,18 @@ mod tests {
             .unwrap();
         assert!(sig_deleted.is_none());
 
-        conn.execute("DELETE FROM users WHERE id IN ('admin-1', 'target-1')", ())
+        conn.execute("DELETE FROM audit_logs WHERE workspace_id = 'ws-usr-rolesig'", ())
             .await
             .unwrap();
-        conn.execute("DELETE FROM workspaces WHERE id = 'ws-sig-test'", ())
+        conn.execute("DELETE FROM users WHERE workspace_id = 'ws-usr-rolesig'", ())
             .await
             .unwrap();
-        let _ = crate::infra::crypto::set_local_secret("creator_private_key_ws-sig-test", "").await;
+        conn.execute("DELETE FROM workspaces WHERE id = 'ws-usr-rolesig'", ())
+            .await
+            .unwrap();
+        let _ = crate::infra::crypto::set_local_secret("creator_private_key_ws-usr-rolesig", "").await;
         let _ =
-            crate::infra::crypto::set_local_secret("workspace_public_key_ws-sig-test", "").await;
+            crate::infra::crypto::set_local_secret("workspace_public_key_ws-usr-rolesig", "").await;
     }
 
     #[cfg(not(target_arch = "wasm32"))]

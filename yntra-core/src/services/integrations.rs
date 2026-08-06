@@ -4,6 +4,15 @@ use crate::infra::time::get_current_time_ms;
 use crate::models::integrations::*;
 use uuid::Uuid;
 
+pub mod fhir_engine;
+pub use fhir_engine::*;
+pub mod mllp_listener;
+pub use mllp_listener::*;
+pub mod ncpdp_engine;
+pub use ncpdp_engine::*;
+pub mod fda_part11_engine;
+pub use fda_part11_engine::*;
+
 // ============================================================================
 // SOTA Helpers: RFC 4180 CSV Parser & Fuzzy Header Auto-Mapping
 // ============================================================================

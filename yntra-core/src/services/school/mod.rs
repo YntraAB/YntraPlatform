@@ -1,3 +1,5 @@
+pub mod lti;
+pub mod oneroster;
 mod academics;
 mod attendance;
 mod auth;
@@ -21,6 +23,8 @@ pub use conflicts::get_school_conflicts;
 pub use conflicts::resolve_school_conflict;
 pub use health::*;
 pub use library::*;
+pub use lti::*;
+pub use oneroster::*;
 pub use profiles::*;
 pub use timetable::*;
 

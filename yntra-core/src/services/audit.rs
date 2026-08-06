@@ -335,6 +335,23 @@ pub async fn log_action(
 }
 
 #[uniffi::export]
+pub async fn log_zero_copy_read_access(
+    requester_user_id: String,
+    resource_id: String,
+    record_type: String,
+    access_purpose: String,
+) -> Result<AuditLogEntry, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    let action_type = format!("{}_READ:{}", record_type.to_uppercase(), access_purpose);
+    let result = log_action_with_conn(&conn, requester_user_id, Some(resource_id), action_type).await;
+    if result.is_ok() {
+        crate::infra::observer::notify_observers();
+    }
+    result
+}
+
+#[uniffi::export]
 pub async fn get_audit_logs(requester_user_id: String) -> Result<Vec<AuditLogEntry>, YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;

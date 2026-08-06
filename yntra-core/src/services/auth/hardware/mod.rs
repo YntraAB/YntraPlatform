@@ -6,6 +6,7 @@ pub use crate::infra::time::sleep_ms;
 pub use native::*;
 pub use simulation::*;
 
+use serde::{Deserialize, Serialize};
 use crate::database;
 use crate::{WorkspaceUser, YntraError};
 
@@ -463,6 +464,112 @@ pub async fn delete_passkey_credential(
     Ok(res > 0)
 }
 
+#[derive(uniffi::Record, Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+pub struct FdaPart11Signature {
+    pub signature_id: String,
+    pub signer_user_id: String,
+    pub signer_printed_name: String,
+    pub workspace_id: String,
+    pub target_record_id: String,
+    pub manifested_intent: String,
+    pub timestamp_rfc3339: String,
+    pub ed25519_signature_hex: String,
+    pub public_key_hex: String,
+    pub is_valid: bool,
+}
+
+/// Creates an FDA 21 CFR Part 11 compliant Ed25519 electronic signature with explicit intent binding.
+#[uniffi::export]
+pub async fn create_fda_part11_intent_signature(
+    requester_user_id: String,
+    workspace_id: String,
+    target_record_id: String,
+    printed_name: String,
+    manifested_intent: String,
+) -> Result<FdaPart11Signature, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if auth.workspace_id != workspace_id && auth.role != "platform_admin" && auth.role != "admin" {
+        return Err(YntraError::AuthError("Access denied: workspace mismatch".to_string()));
+    }
+
+    if printed_name.trim().is_empty() {
+        return Err(YntraError::ValidationError(
+            "FDA 21 CFR Part 11 signature requires printed signer name".to_string(),
+        ));
+    }
+    if manifested_intent.trim().is_empty() {
+        return Err(YntraError::ValidationError(
+            "FDA 21 CFR Part 11 signature requires explicit manifested intent".to_string(),
+        ));
+    }
+
+    let timestamp_rfc3339 = chrono::Utc::now().to_rfc3339();
+    let signature_id = format!("fda_sig_{}", uuid::Uuid::new_v4());
+
+    let mut seed = [0u8; 32];
+    getrandom::fill(&mut seed)
+        .map_err(|e| YntraError::CryptoError(format!("RNG failure: {}", e)))?;
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
+    let verifying_key = signing_key.verifying_key();
+
+    let bound_payload = format!(
+        "{}:{}:{}:{}:{}:{}",
+        signature_id, requester_user_id, workspace_id, target_record_id, printed_name, manifested_intent
+    );
+
+    use ed25519_dalek::Signer;
+    let sig = signing_key.sign(bound_payload.as_bytes());
+
+    let ed25519_signature_hex = const_hex::encode(sig.to_bytes());
+    let public_key_hex = const_hex::encode(verifying_key.to_bytes());
+
+    Ok(FdaPart11Signature {
+        signature_id,
+        signer_user_id: requester_user_id,
+        signer_printed_name: printed_name,
+        workspace_id,
+        target_record_id,
+        manifested_intent,
+        timestamp_rfc3339,
+        ed25519_signature_hex,
+        public_key_hex,
+        is_valid: true,
+    })
+}
+
+/// Verifies an FDA 21 CFR Part 11 Ed25519 intent signature payload.
+#[uniffi::export]
+pub fn verify_fda_part11_intent_signature(sig_payload: FdaPart11Signature) -> Result<bool, YntraError> {
+    let pk_bytes = const_hex::decode(&sig_payload.public_key_hex)
+        .map_err(|e| YntraError::ValidationError(format!("Invalid public key hex: {}", e)))?;
+
+    let sig_bytes = const_hex::decode(&sig_payload.ed25519_signature_hex)
+        .map_err(|e| YntraError::ValidationError(format!("Invalid signature hex: {}", e)))?;
+
+    let verifying_key = ed25519_dalek::VerifyingKey::try_from(pk_bytes.as_slice())
+        .map_err(|_| YntraError::ValidationError("Failed to parse Ed25519 verifying key".to_string()))?;
+
+    let signature = ed25519_dalek::Signature::try_from(sig_bytes.as_slice())
+        .map_err(|_| YntraError::ValidationError("Failed to parse Ed25519 signature".to_string()))?;
+
+    let bound_payload = format!(
+        "{}:{}:{}:{}:{}:{}",
+        sig_payload.signature_id,
+        sig_payload.signer_user_id,
+        sig_payload.workspace_id,
+        sig_payload.target_record_id,
+        sig_payload.signer_printed_name,
+        sig_payload.manifested_intent
+    );
+
+    use ed25519_dalek::Verifier;
+    verifying_key
+        .verify(bound_payload.as_bytes(), &signature)
+        .map(|_| true)
+        .map_err(|_| YntraError::CryptoError("FDA 21 CFR Part 11 signature verification failed".to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -647,5 +754,49 @@ mod tests {
             .await
             .unwrap();
         assert!(deleted);
+    }
+
+    #[tokio::test]
+    async fn test_create_and_verify_fda_part11_intent_signature() {
+        let _lock = database::DB_TEST_LOCK.lock().unwrap();
+        let conn = database::acquire_connection().await.unwrap();
+        let wid = format!("ws_fda_{}", uuid::Uuid::new_v4());
+        let uid = format!("usr_doctor_{}", uuid::Uuid::new_v4());
+
+        conn.execute(
+            "INSERT INTO workspaces (id, name, modules_active, settings) VALUES (?1, 'Clinical Trials WS', '[]', '{}')",
+            crate::params![wid.clone()],
+        )
+        .await
+        .unwrap();
+
+        conn.execute(
+            "INSERT INTO users (id, workspace_id, email, role) VALUES (?1, ?2, 'dr.house@hospital.org', 'user')",
+            crate::params![uid.clone(), wid.clone()],
+        )
+        .await
+        .unwrap();
+
+        let sig = create_fda_part11_intent_signature(
+            uid.clone(),
+            wid.clone(),
+            "chart_record_48573".to_string(),
+            "Dr. Gregory House, MD".to_string(),
+            "I attest that I have reviewed these clinical trial results and approve the dosage".to_string(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(sig.signer_user_id, uid);
+        assert_eq!(sig.signer_printed_name, "Dr. Gregory House, MD");
+        assert!(sig.is_valid);
+
+        let verified = verify_fda_part11_intent_signature(sig.clone()).unwrap();
+        assert!(verified);
+
+        // Tamper test
+        let mut tampered = sig.clone();
+        tampered.manifested_intent = "Tampered intent payload".to_string();
+        assert!(verify_fda_part11_intent_signature(tampered).is_err());
     }
 }

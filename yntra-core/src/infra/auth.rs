@@ -111,35 +111,42 @@ pub(crate) fn is_production() -> bool {
 }
 
 fn compute_insecure_dev_bypass() -> bool {
-    if is_production() {
+    #[cfg(not(any(debug_assertions, test)))]
+    {
         return false;
     }
-    if cfg!(debug_assertions) && !cfg!(test) {
-        return true;
-    }
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(any(debug_assertions, test))]
     {
-        if let Ok(val) = std::env::var("YNTRA_INSECURE_DEV_BYPASS_SIGNATURES") {
-            return val == "1" || val.to_lowercase() == "true";
+        if is_production() {
+            return false;
         }
-        for path in &[".env", "../.env"] {
-            if let Ok(content) = std::fs::read_to_string(path) {
-                for line in content.lines() {
-                    if let Some(stripped) =
-                        line.strip_prefix("YNTRA_INSECURE_DEV_BYPASS_SIGNATURES=")
-                    {
-                        let val = stripped
-                            .trim()
-                            .trim_matches('"')
-                            .trim_matches('\'')
-                            .to_lowercase();
-                        return val == "1" || val == "true";
+        if cfg!(debug_assertions) && !cfg!(test) {
+            return true;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Ok(val) = std::env::var("YNTRA_INSECURE_DEV_BYPASS_SIGNATURES") {
+                return val == "1" || val.to_lowercase() == "true";
+            }
+            for path in &[".env", "../.env"] {
+                if let Ok(content) = std::fs::read_to_string(path) {
+                    for line in content.lines() {
+                        if let Some(stripped) =
+                            line.strip_prefix("YNTRA_INSECURE_DEV_BYPASS_SIGNATURES=")
+                        {
+                            let val = stripped
+                                .trim()
+                                .trim_matches('"')
+                                .trim_matches('\'')
+                                .to_lowercase();
+                            return val == "1" || val == "true";
+                        }
                     }
                 }
             }
         }
+        false
     }
-    false
 }
 
 fn check_insecure_dev_bypass() -> bool {
