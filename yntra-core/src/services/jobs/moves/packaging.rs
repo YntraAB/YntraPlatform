@@ -33,7 +33,7 @@ pub async fn get_job_packaging_items(
     }
 
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, job_ticket_id, item_name, quantity_delivered, quantity_returned, is_rented, unit_price_sek, total_cost_sek, created_at, updated_at FROM job_packaging_items WHERE job_ticket_id = ?1",
+        "SELECT id, workspace_id, job_ticket_id, item_name, quantity, returned_quantity, is_leased, price_per_unit, (quantity * price_per_unit), created_at, updated_at FROM job_packaging_items WHERE job_ticket_id = ?1",
     ).await?;
 
     let list = stmt
@@ -86,10 +86,9 @@ pub async fn add_job_packaging_item(
 
     let id = uuid::Uuid::new_v4().to_string();
     let now_ms = chrono::Utc::now().timestamp_millis();
-    let total_cost = (quantity_delivered as f64) * unit_price_sek;
 
     conn.execute(
-        "INSERT INTO job_packaging_items (id, workspace_id, job_ticket_id, item_name, quantity_delivered, quantity_returned, is_rented, unit_price_sek, total_cost_sek, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7, ?8, ?9, ?9)",
+        "INSERT INTO job_packaging_items (id, workspace_id, job_ticket_id, item_name, quantity, returned_quantity, is_leased, price_per_unit, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7, ?8, ?8)",
         crate::params![
             id,
             job_ws,
@@ -98,10 +97,15 @@ pub async fn add_job_packaging_item(
             quantity_delivered as i64,
             if is_rented { 1i64 } else { 0i64 },
             unit_price_sek,
-            total_cost,
             now_ms,
         ],
     ).await?;
+
+    let _ = super::pricing::calculate_and_save_move_quote(
+        requester_user_id.clone(),
+        job_ticket_id.clone(),
+    )
+    .await;
 
     notify_observers();
     Ok(())
@@ -133,7 +137,7 @@ pub async fn update_job_packaging_item_returned(
 
     let now_ms = chrono::Utc::now().timestamp_millis();
     conn.execute(
-        "UPDATE job_packaging_items SET quantity_returned = ?1, updated_at = ?2 WHERE id = ?3",
+        "UPDATE job_packaging_items SET returned_quantity = ?1, updated_at = ?2 WHERE id = ?3",
         crate::params![quantity_returned as i64, now_ms, item_id],
     )
     .await?;
@@ -150,11 +154,11 @@ pub async fn remove_job_packaging_item(
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
-    let (item_ws,): (String,) = conn
+    let (item_ws, job_ticket_id): (String, String) = conn
         .query_row(
-            "SELECT workspace_id FROM job_packaging_items WHERE id = ?1",
+            "SELECT workspace_id, job_ticket_id FROM job_packaging_items WHERE id = ?1",
             crate::params![&item_id],
-            |r| Ok((r.get(0)?,)),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .await
         .map_err(|_| YntraError::NotFoundError("Packaging item not found".to_string()))?;
@@ -170,6 +174,12 @@ pub async fn remove_job_packaging_item(
         crate::params![item_id],
     )
     .await?;
+
+    let _ = super::pricing::calculate_and_save_move_quote(
+        requester_user_id.clone(),
+        job_ticket_id.clone(),
+    )
+    .await;
 
     notify_observers();
     Ok(())

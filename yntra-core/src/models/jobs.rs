@@ -213,6 +213,9 @@ pub struct MoveQuote {
     pub sync_status: String,
     pub manual_price_override: Option<f64>,
     pub price_discount: Option<f64>,
+    pub use_rut: Option<bool>,
+    pub rut_deduction_amount: Option<f64>,
+    pub deposit_amount: Option<f64>,
 }
 
 #[derive(

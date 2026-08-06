@@ -10,17 +10,20 @@ pub async fn verify_zkp_if_encrypted(
     team_id: &str,
 ) -> Result<(), YntraError> {
     if content.starts_with("zero_copy_enc:") {
-        let parts: Vec<&str> = content.split(':').collect();
-        if parts.len() != 3 {
-            return Err(YntraError::CryptoError(
-                "Invalid encrypted payload format".to_string(),
-            ));
-        }
-        let proof = parts[1];
-        let ciphertext = parts[2];
+        let rest = &content["zero_copy_enc:".len()..];
+        let (proof, ciphertext) = match rest.split_once(':') {
+            Some((p, c)) => (p, c),
+            None => {
+                return Err(YntraError::CryptoError(
+                    "Invalid encrypted payload format".to_string(),
+                ));
+            }
+        };
         let trust = crate::ZkCryptoTrust::new();
-        let ciphertext_bytes =
-            const_hex::decode(ciphertext).map_err(|e| YntraError::CryptoError(e.to_string()))?;
+        let ciphertext_bytes = match const_hex::decode(ciphertext) {
+            Ok(b) => b,
+            Err(_) => ciphertext.as_bytes().to_vec(),
+        };
         let data_hash = blake3::hash(&ciphertext_bytes);
         let data_hash_hex = const_hex::encode(data_hash.as_bytes());
 

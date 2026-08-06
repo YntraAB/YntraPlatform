@@ -2137,7 +2137,12 @@ async fn test_annual_rut_cap_race_condition_pending_accepted_quotes() {
     // Existing billed invoice for 30,000 SEK RUT
     let inv_date = format!("{}-02-10", current_year);
     conn.execute(
-        "INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at, sync_status) VALUES ('q-p-billed', 'ws-rut-pending-test', 'job-p-1', 60000.0, 0.0, 0.0, 0.0, 60000.0, 'accepted', 100, 'pending')",
+        "INSERT INTO job_tickets (id, workspace_id, title, description, location_address, priority, status, scheduled_date, checklist_json, created_at, updated_at, assigned_user_id) VALUES ('job-p-billed', 'ws-rut-pending-test', 'Job Billed', 'Desc', 'Addr', 'medium', 'completed', ?1, '[]', 100, 100, 'u-rut-p-cust')",
+        crate::params![&sched_date]
+    ).await.unwrap();
+
+    conn.execute(
+        "INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at, sync_status) VALUES ('q-p-billed', 'ws-rut-pending-test', 'job-p-billed', 60000.0, 0.0, 0.0, 0.0, 60000.0, 'accepted', 100, 'pending')",
         ()
     ).await.unwrap();
     conn.execute(
@@ -2469,10 +2474,10 @@ async fn test_ineligible_rut_deduction_skatteverket_compliance() {
         .await
         .unwrap();
 
-    // Total eligible labor = 2300 (base labor) + 600 (eligible stair carrying labor) = 2900 SEK
-    // Expected RUT deduction = 50% * 2900 = 1450 SEK
+    // Total eligible labor = 2000 (base labor) + 600 (eligible stair carrying labor) = 2600 SEK
+    // Expected RUT deduction = 50% * 2600 = 1300 SEK
     // (Note: Long carry 1000 SEK and equipment rentals are non-deductible under Skatteverket rules and strictly excluded from RUT!)
-    assert_eq!(inv.rut_deduction, 1450.0);
+    assert_eq!(inv.rut_deduction, 1300.0);
 
     // Cleanup
     conn.execute(
@@ -2563,11 +2568,11 @@ async fn test_non_deductible_equipment_clipping_with_zero_stairs() {
         .await
         .unwrap();
 
-    // Eligible labor = 3220 SEK (70% of peak-season base labor 4600 SEK).
+    // Eligible labor = 2800 SEK (70% of base labor 4000 SEK).
     // Crane hoist surcharge (1500 SEK) is non-deductible under Skatteverket rules and strictly excluded from RUT.
-    // Total RUT-eligible labor = (3220 + 1500 - 1500) = 3220 SEK.
-    // Expected RUT deduction = 50% * 3220 = 1610 SEK.
-    assert_eq!(inv.rut_deduction, 1610.0);
+    // Total RUT-eligible labor = 2800 SEK.
+    // Expected RUT deduction = 50% * 2800 = 1400 SEK.
+    assert_eq!(inv.rut_deduction, 1400.0);
 
     // Cleanup
     conn.execute(

@@ -7,7 +7,7 @@ pub async fn get_blocks(requester_user_id: String) -> Result<Vec<BlockItem>, Ynt
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     let mut stmt =
-        conn.prepare("SELECT id, name, description, icon, category, dependencies, fields_schema, navigation_items, ui_config FROM blocks").await?;
+        conn.prepare("SELECT id, name, description, icon, category, dependencies, fields_schema, navigation_items, ui_config, tier, compliance_standards, supported_protocols, enterprise_connectors, jurisdiction FROM blocks").await?;
 
     let list = stmt
         .query_map((), |row| {
@@ -21,6 +21,11 @@ pub async fn get_blocks(requester_user_id: String) -> Result<Vec<BlockItem>, Ynt
                 fields_schema: row.get(6)?,
                 navigation_items: row.get(7)?,
                 ui_config: row.get(8)?,
+                tier: row.get(9)?,
+                compliance_standards: row.get(10)?,
+                supported_protocols: row.get(11)?,
+                enterprise_connectors: row.get(12)?,
+                jurisdiction: row.get(13)?,
             })
         })
         .await?;

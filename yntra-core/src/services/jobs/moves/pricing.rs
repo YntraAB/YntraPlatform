@@ -412,7 +412,155 @@ pub async fn calculate_and_save_move_quote(
         .map(|i| i.estimated_volume_m3 * (i.quantity as f64))
         .sum();
 
-    let base_price = total_vol * 450.0;
+    let settings_str: String = conn
+        .query_row(
+            "SELECT settings FROM workspaces WHERE id = ?1",
+            crate::params![&job_ws],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or_else(|_| "{}".to_string());
+    let ws_settings: serde_json::Value = serde_json::from_str(&settings_str).unwrap_or_default();
+
+    let pricing_model = ws_settings
+        .get("moving_pricing_model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("volume");
+
+    let m3_rate = ws_settings
+        .get("moving_base_rate_per_m3")
+        .or_else(|| ws_settings.get("base_price_per_m3"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(500.0);
+
+    let stair_floor_rate = ws_settings
+        .get("moving_stairs_surcharge_per_floor")
+        .or_else(|| ws_settings.get("stair_surcharge_per_floor"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(300.0);
+
+    let base_distance_fee = ws_settings
+        .get("moving_distance_fee_flat")
+        .or_else(|| ws_settings.get("base_distance_fee"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(800.0);
+
+    let supplies_m3_rate = ws_settings
+        .get("moving_packing_supplies_fee_per_m3")
+        .or_else(|| ws_settings.get("packing_supplies_per_m3"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(100.0);
+
+    let long_carry_rate = ws_settings
+        .get("surcharge_long_carry_per_meter")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(15.0);
+
+    let crane_hoist_rate = ws_settings
+        .get("surcharge_crane_hoist")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(1200.0);
+
+    let base_price = if pricing_model == "hourly" {
+        let crew_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM job_crew WHERE job_ticket_id = ?1",
+                crate::params![&job_ticket_id],
+                |r| r.get(0),
+            )
+            .await
+            .unwrap_or(0);
+
+        let default_crew = ws_settings
+            .get("moving_default_crew_size")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(2.0);
+
+        let active_crew = if crew_count > 0 { crew_count as f64 } else { default_crew };
+
+        let rate_per_mover = ws_settings
+            .get("moving_hourly_rate_per_mover")
+            .and_then(|v| v.as_f64());
+        let rate_vehicle = ws_settings
+            .get("moving_hourly_rate_vehicle")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+
+        let hourly_rate = if let Some(rpm) = rate_per_mover {
+            (active_crew * rpm) + rate_vehicle
+        } else {
+            ws_settings
+                .get("moving_hourly_rate")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(1200.0)
+        };
+
+        let hours_per_m3 = ws_settings
+            .get("moving_hours_per_m3")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.15);
+        let min_hours = ws_settings
+            .get("moving_minimum_hours")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(2.0);
+        let est_hours = (total_vol * hours_per_m3).max(min_hours);
+        est_hours * hourly_rate
+    } else {
+        total_vol * m3_rate
+    };
+
+    let mut specialty_surcharge = 0.0;
+    for item in &inventory {
+        let sur = calculate_item_specialty_surcharge_extended(
+            item.item_category.clone(),
+            item.item_name.clone(),
+            item.handling_notes.clone(),
+            1500.0,
+            1200.0,
+            1800.0,
+            150.0,
+            2000.0,
+            1000.0,
+            800.0,
+        );
+        specialty_surcharge += sur * (item.quantity as f64);
+    }
+
+    let base_price = base_price + specialty_surcharge;
+
+    let sched_date_str: String = conn
+        .query_row(
+            "SELECT scheduled_date FROM job_tickets WHERE id = ?1",
+            crate::params![&job_ticket_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or_default();
+
+    let mut date_multiplier = 1.0;
+    if let Ok(date) = chrono::NaiveDate::parse_from_str(&sched_date_str, "%Y-%m-%d") {
+        use chrono::Datelike;
+        let weekday = date.weekday();
+        if weekday == chrono::Weekday::Sat || weekday == chrono::Weekday::Sun {
+            let weekend_mult = ws_settings
+                .get("moving_weekend_multiplier")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(1.0);
+            date_multiplier *= weekend_mult;
+        }
+
+        let day = date.day();
+        if day >= 25 || day <= 5 {
+            let peak_mult = ws_settings
+                .get("moving_peak_season_multiplier")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(1.0);
+            date_multiplier *= peak_mult;
+        }
+    }
+
+    let base_price = base_price * date_multiplier;
+
     let stairs_surcharge = calculate_access_and_stair_surcharge(
         origin_floor,
         destination_floor,
@@ -424,21 +572,118 @@ pub async fn calculate_and_save_move_quote(
         None,
         long_carry_meters,
         false,
-        250.0,
-        15.0,
-        1200.0,
+        stair_floor_rate,
+        long_carry_rate,
+        crane_hoist_rate,
         150.0,
     );
 
-    let distance_fee = toll_fees + 500.0;
-    let packing_supplies_fee = total_vol * 80.0;
-    let total_price = base_price + stairs_surcharge + distance_fee + packing_supplies_fee;
+    let route_json_str: Option<String> = conn
+        .query_row(
+            "SELECT route_stops_json FROM job_tickets WHERE id = ?1",
+            crate::params![&job_ticket_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or(None);
+
+    let mut job_dist_km = ws_settings
+        .get("estimated_distance_km")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let mut depot_dist_km = ws_settings
+        .get("moving_depot_distance_km")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+
+    if let Some(ref rjson) = route_json_str {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(rjson) {
+            let est_dist = v
+                .get("estimated_distance_km")
+                .and_then(|d| d.as_f64())
+                .unwrap_or(job_dist_km);
+            let roundtrip = v
+                .get("include_roundtrip")
+                .and_then(|b| b.as_bool())
+                .unwrap_or(false);
+            let d_to_o = v
+                .get("depot_to_origin_km")
+                .and_then(|d| d.as_f64())
+                .unwrap_or(0.0);
+            let d_from_d = v
+                .get("destination_to_depot_km")
+                .and_then(|d| d.as_f64())
+                .unwrap_or(0.0);
+
+            if est_dist > 0.0 || d_to_o > 0.0 || d_from_d > 0.0 {
+                let base_m = if roundtrip { est_dist * 2.0 } else { est_dist };
+                job_dist_km = base_m + d_to_o + d_from_d;
+                depot_dist_km = 0.0;
+            }
+        }
+    }
+
+    let per_km_rate = ws_settings
+        .get("moving_per_km_rate")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+
+    let local_radius = ws_settings
+        .get("moving_local_radius_km")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+
+    let billable_dist = (job_dist_km - local_radius).max(0.0);
+    let distance_charge = (billable_dist + (depot_dist_km * 2.0)) * per_km_rate;
+    let distance_fee = toll_fees + base_distance_fee + distance_charge;
+
+    let custom_pkg_cost: Option<f64> = conn
+        .query_row(
+            "SELECT SUM(quantity * price_per_unit) FROM job_packaging_items WHERE job_ticket_id = ?1",
+            crate::params![&job_ticket_id],
+            |r| r.get(0),
+        )
+        .await
+        .unwrap_or(None);
+
+    let packing_supplies_fee = match custom_pkg_cost {
+        Some(c) if c > 0.0 => c,
+        _ => total_vol * supplies_m3_rate,
+    };
+
+    let (prev_total, prev_status, manual_override, discount): (f64, String, Option<f64>, Option<f64>) = conn
+        .query_row(
+            "SELECT total_price, status, manual_price_override, price_discount FROM move_quotes WHERE job_ticket_id = ?1",
+            crate::params![&job_ticket_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .await
+        .unwrap_or((0.0, "draft".to_string(), None, None));
+
+    let effective_base_price = match manual_override {
+        Some(m_ovr) => m_ovr + specialty_surcharge - discount.unwrap_or(0.0),
+        None => base_price - discount.unwrap_or(0.0),
+    };
+    let total_price = effective_base_price + stairs_surcharge + distance_fee + packing_supplies_fee;
 
     let now_ms = chrono::Utc::now().timestamp_millis();
     let quote_id = format!("quote-{}", job_ticket_id);
 
+    let target_status = if prev_status == "accepted" || prev_status == "pending_deposit" {
+        "revised"
+    } else {
+        &prev_status
+    };
+
+    if target_status == "revised" {
+        conn.execute(
+            "UPDATE job_tickets SET status = 'pending', updated_at = ?1, sync_status = 'pending' WHERE id = ?2",
+            crate::params![now_ms, &job_ticket_id],
+        ).await?;
+    }
+
     conn.execute(
-        "INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'draft', ?9, 'pending') ON CONFLICT(job_ticket_id) DO UPDATE SET base_price = ?4, distance_fee = ?5, stairs_surcharge = ?6, packing_supplies_fee = ?7, total_price = ?8, updated_at = ?9, sync_status = 'pending'",
+        "INSERT INTO move_quotes (id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'pending') ON CONFLICT(job_ticket_id) DO UPDATE SET base_price = ?4, distance_fee = ?5, stairs_surcharge = ?6, packing_supplies_fee = ?7, total_price = ?8, status = ?9, updated_at = ?10, sync_status = 'pending'",
         crate::params![
             quote_id,
             job_ws,
@@ -448,9 +693,23 @@ pub async fn calculate_and_save_move_quote(
             stairs_surcharge,
             packing_supplies_fee,
             total_price,
+            target_status,
             now_ms,
         ],
     ).await?;
+
+    if prev_total > 0.0 {
+        let _ = super::quotes::record_quote_revision(
+            &conn,
+            &quote_id,
+            &job_ws,
+            &job_ticket_id,
+            &requester_user_id,
+            prev_total,
+            total_price,
+            "Move quote recalculated based on inventory or rate updates",
+        ).await;
+    }
 
     notify_observers();
     Ok(())

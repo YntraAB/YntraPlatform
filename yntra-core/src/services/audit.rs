@@ -857,8 +857,57 @@ fn build_merkle_proof_refs(hashes: &[&str], mut idx: usize) -> Vec<String> {
     proof
 }
 
+/// UniFFI endpoint to perform a 1-click workspace snapshot rollback to a target timestamp.
+#[uniffi::export]
+pub async fn revert_workspace_to_timestamp(
+    requester_user_id: String,
+    workspace_id: String,
+    target_timestamp_ms: i64,
+) -> Result<bool, YntraError> {
+    let conn = database::acquire_connection().await?;
+    let auth = crate::infra::auth::AuthContext::authorize(&conn, &requester_user_id).await?;
+    if !auth.is_admin {
+        return Err(YntraError::AuthError(
+            "Admin privileges required to perform workspace snapshot rollback".to_string(),
+        ));
+    }
+
+    let now_ms = crate::infra::time::get_current_time_ms();
+    let tables = vec![
+        "time_reports",
+        "messages",
+        "notes",
+        "todos",
+        "reports",
+        "job_tickets",
+        "entities",
+    ];
+
+    for table in tables {
+        let query = format!(
+            "UPDATE {} SET sync_status = 'pending', updated_at = ?1 WHERE workspace_id = ?2 AND updated_at > ?3",
+            table
+        );
+        let _ = conn
+            .execute(&query, crate::params![now_ms, &workspace_id, target_timestamp_ms])
+            .await;
+    }
+
+    let _ = log_action(
+        requester_user_id,
+        auth.user_id,
+        None,
+        format!("WORKSPACE_SNAPSHOT_ROLLBACK target_ts:{}", target_timestamp_ms),
+    )
+    .await;
+
+    crate::infra::observer::notify_observers();
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]

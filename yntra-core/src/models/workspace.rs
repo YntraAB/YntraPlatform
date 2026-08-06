@@ -83,6 +83,29 @@ pub struct OpfsStorageQuota {
     serde::Serialize,
     serde::Deserialize,
     Clone,
+    Debug,
+    PartialEq,
+    Default,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct KioskSessionSyncSummary {
+    pub workspace_id: String,
+    pub user_id: Option<String>,
+    pub unsynced_changes_count: u32,
+    pub is_daemon_connected: bool,
+    pub is_p2p_mesh_active: bool,
+    pub risk_level: String,
+    pub last_sync_timestamp_ms: i64,
+}
+
+#[derive(
+    uniffi::Record,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
     PartialEq,
 )]
 #[rkyv(compare(PartialEq), derive(Debug))]

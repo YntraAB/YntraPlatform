@@ -446,3 +446,117 @@ pub async fn ensure_storage_quota(required_bytes: u64) -> Result<(), YntraError>
     }
     Ok(())
 }
+
+#[uniffi::export]
+pub fn check_kiosk_session_sync_state(
+    workspace_id: String,
+    user_id: Option<String>,
+    unsynced_count: u32,
+    is_daemon_connected: bool,
+    is_p2p_mesh_active: bool,
+) -> crate::models::KioskSessionSyncSummary {
+    let now_ms = crate::infra::time::now_ts();
+    let risk_level = if unsynced_count == 0 {
+        "safe".to_string()
+    } else if is_daemon_connected || is_p2p_mesh_active {
+        "warning_mirrored_offline".to_string()
+    } else {
+        "critical_unsynced_offline".to_string()
+    };
+
+    crate::models::KioskSessionSyncSummary {
+        workspace_id,
+        user_id,
+        unsynced_changes_count: unsynced_count,
+        is_daemon_connected,
+        is_p2p_mesh_active,
+        risk_level,
+        last_sync_timestamp_ms: now_ms,
+    }
+}
+
+#[uniffi::export]
+pub fn generate_kiosk_emergency_beacon_payload(
+    workspace_id: String,
+    user_id: String,
+    pending_json: String,
+) -> Result<String, YntraError> {
+    let envelope = serde_json::json!({
+        "type": "kiosk_emergency_beacon",
+        "workspace_id": workspace_id,
+        "user_id": user_id,
+        "payload": pending_json,
+        "timestamp": crate::infra::time::now_ts()
+    });
+
+    serde_json::to_string(&envelope)
+        .map_err(|e| YntraError::DbError(format!("Failed to serialize emergency beacon payload: {}", e)))
+}
+
+#[uniffi::export]
+pub fn rehydrate_kiosk_daemon_journal(
+    active_user_id: String,
+    journal_payload_json: String,
+) -> Result<u32, YntraError> {
+    let parsed: serde_json::Value = serde_json::from_str(&journal_payload_json)
+        .map_err(|e| YntraError::DbError(format!("Invalid daemon journal payload JSON: {}", e)))?;
+
+    if let Some(payload_user_id) = parsed.get("user_id").and_then(|v| v.as_str()) {
+        if payload_user_id != active_user_id {
+            tracing::warn!(
+                "SECURITY GUARD: Quarantining journal replay frame! Active session user '{}' does not match payload user '{}'.",
+                active_user_id,
+                payload_user_id
+            );
+            return Ok(0);
+        }
+    }
+
+    if let Some(frames) = parsed.get("frames").and_then(|v| v.as_array()) {
+        Ok(frames.len() as u32)
+    } else {
+        Ok(1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_check_kiosk_session_sync_state() {
+        let summary_safe = check_kiosk_session_sync_state("ws_test".to_string(), Some("usr_alice".to_string()), 0, false, false);
+        assert_eq!(summary_safe.risk_level, "safe");
+        assert_eq!(summary_safe.user_id.as_deref(), Some("usr_alice"));
+        assert_eq!(summary_safe.unsynced_changes_count, 0);
+
+        let summary_warn = check_kiosk_session_sync_state("ws_test".to_string(), Some("usr_alice".to_string()), 5, true, false);
+        assert_eq!(summary_warn.risk_level, "warning_mirrored_offline");
+
+        let summary_crit = check_kiosk_session_sync_state("ws_test".to_string(), None, 3, false, false);
+        assert_eq!(summary_crit.risk_level, "critical_unsynced_offline");
+    }
+
+    #[test]
+    fn test_generate_kiosk_emergency_beacon_payload() {
+        let beacon = generate_kiosk_emergency_beacon_payload("ws_1".to_string(), "usr_alice".to_string(), "[]".to_string()).unwrap();
+        assert!(beacon.contains("kiosk_emergency_beacon"));
+        assert!(beacon.contains("usr_alice"));
+    }
+
+    #[test]
+    fn test_rehydrate_journal_user_mismatch_quarantine() {
+        let payload_alice = serde_json::json!({
+            "user_id": "usr_alice",
+            "frames": [{"page": 1}, {"page": 2}]
+        }).to_string();
+
+        let applied_alice = rehydrate_kiosk_daemon_journal("usr_alice".to_string(), payload_alice.clone()).unwrap();
+        assert_eq!(applied_alice, 2);
+
+        let applied_bob = rehydrate_kiosk_daemon_journal("usr_bob".to_string(), payload_alice).unwrap();
+        assert_eq!(applied_bob, 0);
+    }
+}
+
+

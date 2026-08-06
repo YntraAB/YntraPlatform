@@ -1753,7 +1753,7 @@ mod tests {
 
         // Test event dispatch to Zapier/Make webhook bridge
         let payload = serde_json::json!({ "name": "ACME Corp", "status": "active" }).to_string();
-        let count = dispatch_workspace_event_webhooks(
+        let _count = dispatch_workspace_event_webhooks(
             "u-1".to_string(),
             "ws-1".to_string(),
             "client.created".to_string(),

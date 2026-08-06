@@ -47,6 +47,11 @@ pub struct BlockItem {
     pub fields_schema: Option<String>,
     pub navigation_items: Option<String>,
     pub ui_config: Option<String>,
+    pub tier: Option<String>,
+    pub compliance_standards: Option<String>, // JSON array of strings
+    pub supported_protocols: Option<String>,   // JSON array of strings
+    pub enterprise_connectors: Option<String>, // JSON array of strings
+    pub jurisdiction: Option<String>,
 }
 
 #[derive(

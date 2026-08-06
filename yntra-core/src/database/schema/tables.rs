@@ -222,7 +222,12 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             created_at TEXT NOT NULL,
             fields_schema TEXT,
             navigation_items TEXT,
-            ui_config TEXT
+            ui_config TEXT,
+            tier TEXT,
+            compliance_standards TEXT,
+            supported_protocols TEXT,
+            enterprise_connectors TEXT,
+            jurisdiction TEXT
         );
 
         CREATE TABLE IF NOT EXISTS reports (
@@ -508,7 +513,7 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
         CREATE TABLE IF NOT EXISTS move_quotes (
             id TEXT PRIMARY KEY,
             workspace_id TEXT NOT NULL DEFAULT 'workspace-1',
-            job_ticket_id TEXT NOT NULL,
+            job_ticket_id TEXT NOT NULL UNIQUE,
             base_price REAL NOT NULL,
             distance_fee REAL NOT NULL,
             stairs_surcharge REAL NOT NULL,
@@ -520,6 +525,9 @@ pub async fn create_initial_tables(conn: &DbConnection) -> Result<(), YntraError
             sync_status TEXT DEFAULT 'pending' CHECK(sync_status IN ('pending', 'synced')),
             manual_price_override REAL,
             price_discount REAL DEFAULT 0.0,
+            use_rut INTEGER DEFAULT 0,
+            rut_deduction_amount REAL DEFAULT 0.0,
+            deposit_amount REAL DEFAULT 0.0,
             FOREIGN KEY(job_ticket_id) REFERENCES job_tickets(id)
         );
 

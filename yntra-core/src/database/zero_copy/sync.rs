@@ -131,6 +131,27 @@ async fn process_incoming_updates<F>(
                 continue;
             }
             if let Ok(update_bytes) = const_hex::decode(data_hex) {
+                // DLP content inspection for incoming P2P/relay updates
+                let default_policy = DlpPolicy::default();
+                let dlp_res = inspect_payload_dlp_bytes(&update_bytes, &default_policy);
+                if dlp_res.is_violation {
+                    tracing::warn!(
+                        "Incoming P2P update from peer {} failed DLP inspection: classification={}",
+                        from_peer,
+                        dlp_res.classification
+                    );
+                    log_sync_audit_event(
+                        "workspace-1",
+                        from_peer,
+                        Some(local_peer),
+                        &format!("INCOMING_P2P_DLP_VIOLATION:{}", dlp_res.classification),
+                        &update_bytes,
+                        None,
+                        true,
+                    );
+                    continue;
+                }
+
                 let signature_hex = u.get("signature_hex").and_then(|v| v.as_str());
                 let timestamp = u.get("timestamp").and_then(|v| v.as_i64());
 
@@ -179,6 +200,280 @@ unsafe impl Sync for WsConnection {}
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone)]
 pub struct WsConnection;
+
+// --- Enterprise Governance & Compliance Infrastructure (HIPAA / FERPA) ---
+
+#[derive(
+    uniffi::Enum,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub enum ComplianceMode {
+    StrictServerOnly,
+    AuditedProxyRelay,
+    AuditedLocalP2P,
+    UnrestrictedLocalP2P,
+}
+
+impl Default for ComplianceMode {
+    fn default() -> Self {
+        Self::AuditedProxyRelay
+    }
+}
+
+#[derive(
+    uniffi::Record,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct DlpPolicy {
+    pub enable_phi_inspection: bool,
+    pub enable_ferpa_inspection: bool,
+    pub block_on_match: bool,
+    pub custom_keywords: Vec<String>,
+}
+
+impl Default for DlpPolicy {
+    fn default() -> Self {
+        Self {
+            enable_phi_inspection: true,
+            enable_ferpa_inspection: true,
+            block_on_match: true,
+            custom_keywords: Vec::new(),
+        }
+    }
+}
+
+#[derive(
+    uniffi::Record,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+)]
+#[rkyv(compare(PartialEq), derive(Debug))]
+pub struct DlpInspectionResult {
+    pub is_violation: bool,
+    pub classification: String,
+    pub matched_patterns: Vec<String>,
+    pub timestamp: i64,
+}
+
+pub fn extract_strings_from_loro_bytes(data: &[u8]) -> String {
+    let mut extracted = String::new();
+    let doc = loro::LoroDoc::new();
+    if doc.import(data).is_ok() {
+        let db_map = doc.get_map("db");
+        db_map.for_each(|k, val| {
+            extracted.push_str(k);
+            extracted.push(' ');
+            if let loro::ValueOrContainer::Container(loro::Container::Map(m)) = val {
+                m.for_each(|mk, mval| {
+                    extracted.push_str(mk);
+                    extracted.push(' ');
+                    match mval {
+                        loro::ValueOrContainer::Value(loro::LoroValue::String(s)) => {
+                            extracted.push_str(&s);
+                            extracted.push(' ');
+                        }
+                        loro::ValueOrContainer::Container(loro::Container::Text(t)) => {
+                            let text_content = t.to_string();
+                            extracted.push_str(&text_content);
+                            extracted.push(' ');
+                        }
+                        _ => {}
+                    }
+                });
+            }
+        });
+    }
+    extracted
+}
+
+pub fn inspect_payload_dlp_bytes(data: &[u8], policy: &DlpPolicy) -> DlpInspectionResult {
+    let now = chrono::Utc::now().timestamp_millis();
+    let raw_text = String::from_utf8_lossy(data);
+    let loro_text = extract_strings_from_loro_bytes(data);
+    let full_text = format!("{} {}", raw_text, loro_text);
+    let text_lower = full_text.to_lowercase();
+    let mut matched_patterns = Vec::new();
+
+    if policy.enable_phi_inspection {
+        // SSN check (formatted or 9-digit context)
+        let has_ssn = text_lower.contains("ssn") || text_lower.contains("social security") || {
+            let bytes = full_text.as_bytes();
+            let mut found = false;
+            if bytes.len() >= 11 {
+                for window in bytes.windows(11) {
+                    if window[3] == b'-' && window[6] == b'-'
+                        && window[0..3].iter().all(|b| b.is_ascii_digit())
+                        && window[4..6].iter().all(|b| b.is_ascii_digit())
+                        && window[7..11].iter().all(|b| b.is_ascii_digit())
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            found
+        };
+        if has_ssn {
+            matched_patterns.push("PHI_SSN_PATTERN".to_string());
+        }
+
+        // Medical Record Number (MRN), ICD-10/11 diagnosis, or clinical keywords
+        if text_lower.contains("mrn-")
+            || text_lower.contains("icd-10")
+            || text_lower.contains("icd-11")
+            || text_lower.contains("diagnosis:")
+            || text_lower.contains("protected health information")
+            || text_lower.contains("phi_record")
+            || text_lower.contains("patient id")
+            || text_lower.contains("medical record")
+            || text_lower.contains("prescription")
+            || text_lower.contains("clinical note")
+            || text_lower.contains("patient name")
+        {
+            matched_patterns.push("PHI_MEDICAL_RECORD_PATTERN".to_string());
+        }
+    }
+
+    if policy.enable_ferpa_inspection {
+        if text_lower.contains("sid-")
+            || text_lower.contains("ferpa_record")
+            || text_lower.contains("cumulative gpa:")
+            || text_lower.contains("student transcript")
+            || text_lower.contains("education_record")
+            || text_lower.contains("student id")
+            || text_lower.contains("ferpa")
+            || text_lower.contains("academic record")
+        {
+            matched_patterns.push("FERPA_STUDENT_RECORD_PATTERN".to_string());
+        }
+    }
+
+    for custom in &policy.custom_keywords {
+        if !custom.trim().is_empty() && text_lower.contains(&custom.trim().to_lowercase()) {
+            matched_patterns.push(format!("CUSTOM_KEYWORD:{}", custom));
+        }
+    }
+
+    let is_violation = !matched_patterns.is_empty();
+    let classification = if is_violation {
+        if matched_patterns.iter().any(|p| p.starts_with("PHI")) {
+            "PHI_DETECTED".to_string()
+        } else if matched_patterns.iter().any(|p| p.starts_with("FERPA")) {
+            "FERPA_DETECTED".to_string()
+        } else {
+            "CUSTOM_KEYWORD_MATCH".to_string()
+        }
+    } else {
+        "CLEAN".to_string()
+    };
+
+    DlpInspectionResult {
+        is_violation,
+        classification,
+        matched_patterns,
+        timestamp: now,
+    }
+}
+
+pub(crate) fn log_sync_audit_event(
+    workspace_id: &str,
+    actor_id: &str,
+    target_peer_id: Option<&str>,
+    action_type: &str,
+    data_bytes: &[u8],
+    signing_key: Option<&ed25519_dalek::SigningKey>,
+    is_violation: bool,
+) {
+    let store = crate::services::audit::get_audit_store(workspace_id);
+    let timestamp = chrono::Utc::now().timestamp_millis();
+    let id = uuid::Uuid::new_v4().to_string();
+
+    let all_entries = store.read_all_audit_logs().unwrap_or_default();
+    let mut prev_hash = "genesis".to_string();
+    let mut seq = 0;
+    let mut last_entry: Option<&crate::AuditLogEntry> = None;
+    for entry in all_entries.iter() {
+        if entry.workspace_id == workspace_id {
+            if last_entry.is_none() || entry.seq > last_entry.unwrap().seq {
+                last_entry = Some(entry);
+            }
+        }
+    }
+    if let Some(last) = last_entry {
+        prev_hash = last.curr_hash.clone();
+        seq = last.seq + 1;
+    }
+
+    let payload_hash = blake3::hash(data_bytes).to_hex().to_string();
+    let full_action = if is_violation {
+        format!("{}:VIOLATION:hash={}", action_type, payload_hash)
+    } else {
+        format!("{}:SUCCESS:hash={}", action_type, payload_hash)
+    };
+
+    let mut hasher = blake3::Hasher::new();
+    for field in &[
+        id.as_str(),
+        actor_id,
+        target_peer_id.unwrap_or(""),
+        full_action.as_str(),
+        prev_hash.as_str(),
+    ] {
+        hasher.update(&(field.len() as u64).to_be_bytes());
+        hasher.update(field.as_bytes());
+    }
+    hasher.update(&timestamp.to_be_bytes());
+    hasher.update(&seq.to_be_bytes());
+    let curr_hash = hasher.finalize().to_hex().to_string();
+
+    let signature = if let Some(key) = signing_key {
+        use ed25519_dalek::Signer;
+        let sig = key.sign(curr_hash.as_bytes());
+        Some(const_hex::encode(sig.to_bytes()))
+    } else {
+        None
+    };
+
+    let entry = crate::AuditLogEntry {
+        id,
+        workspace_id: workspace_id.to_string(),
+        actor_id: actor_id.to_string(),
+        target_client_id: target_peer_id.map(|s| s.to_string()),
+        action_type: full_action,
+        timestamp,
+        prev_hash,
+        curr_hash,
+        seq,
+        signature,
+    };
+
+    let _ = store.upsert_audit_log(entry);
+    crate::infra::observer::notify_observers();
+}
 
 // --- Pillar 2: Geo-Distributed Edge Replicas + P2P Mesh Sync & Adaptive Transport Mesh ---
 
@@ -408,6 +703,9 @@ pub struct P2PMeshSyncRouter {
     pub(crate) signing_key: Arc<Mutex<Option<ed25519_dalek::SigningKey>>>,
     #[allow(dead_code)]
     ws_conn: Arc<Mutex<Option<WsConnection>>>,
+    compliance_mode: Arc<Mutex<ComplianceMode>>,
+    dlp_policy: Arc<Mutex<DlpPolicy>>,
+    workspace_id: Arc<Mutex<String>>,
 }
 
 fn create_http_client() -> reqwest::Client {
@@ -435,6 +733,9 @@ impl P2PMeshSyncRouter {
             client: create_http_client(),
             signing_key: Arc::new(Mutex::new(None)),
             ws_conn: Arc::new(Mutex::new(None)),
+            compliance_mode: Arc::new(Mutex::new(ComplianceMode::AuditedProxyRelay)),
+            dlp_policy: Arc::new(Mutex::new(DlpPolicy::default())),
+            workspace_id: Arc::new(Mutex::new("workspace-1".to_string())),
         }
     }
 
@@ -447,7 +748,61 @@ impl P2PMeshSyncRouter {
             client: create_http_client(),
             signing_key: Arc::new(Mutex::new(None)),
             ws_conn: Arc::new(Mutex::new(None)),
+            compliance_mode: Arc::new(Mutex::new(ComplianceMode::AuditedProxyRelay)),
+            dlp_policy: Arc::new(Mutex::new(DlpPolicy::default())),
+            workspace_id: Arc::new(Mutex::new("workspace-1".to_string())),
         }
+    }
+
+    #[uniffi::constructor]
+    pub fn with_compliance(
+        relay_url: Option<String>,
+        compliance_mode: ComplianceMode,
+        dlp_policy: DlpPolicy,
+    ) -> Self {
+        Self {
+            peers: Arc::new(Mutex::new(Vec::new())),
+            failed_broadcasts: Arc::new(Mutex::new(Vec::new())),
+            relay_url: Arc::new(Mutex::new(relay_url)),
+            client: create_http_client(),
+            signing_key: Arc::new(Mutex::new(None)),
+            ws_conn: Arc::new(Mutex::new(None)),
+            compliance_mode: Arc::new(Mutex::new(compliance_mode)),
+            dlp_policy: Arc::new(Mutex::new(dlp_policy)),
+            workspace_id: Arc::new(Mutex::new("workspace-1".to_string())),
+        }
+    }
+
+    pub fn set_workspace_id(&self, workspace_id: String) {
+        let mut guard = self.workspace_id.lock_poison_safe();
+        *guard = workspace_id;
+    }
+
+    pub fn get_workspace_id(&self) -> String {
+        self.workspace_id.lock_poison_safe().clone()
+    }
+
+    pub fn set_compliance_mode(&self, mode: ComplianceMode) {
+        let mut guard = self.compliance_mode.lock_poison_safe();
+        *guard = mode;
+    }
+
+    pub fn get_compliance_mode(&self) -> ComplianceMode {
+        *self.compliance_mode.lock_poison_safe()
+    }
+
+    pub fn set_dlp_policy(&self, policy: DlpPolicy) {
+        let mut guard = self.dlp_policy.lock_poison_safe();
+        *guard = policy;
+    }
+
+    pub fn get_dlp_policy(&self) -> DlpPolicy {
+        self.dlp_policy.lock_poison_safe().clone()
+    }
+
+    pub fn inspect_payload_dlp(&self, data: Vec<u8>) -> DlpInspectionResult {
+        let policy = self.get_dlp_policy();
+        inspect_payload_dlp_bytes(&data, &policy)
     }
 
     pub fn register_local_peer_store(&self, peer_id: String, store: Arc<ZeroCopyStore>) {
@@ -768,35 +1123,122 @@ impl P2PMeshSyncRouter {
 #[uniffi::export]
 impl P2PMeshSyncRouter {
     pub fn broadcast_write_network(&self, from_peer: String, data: Vec<u8>) {
+        let mode = self.get_compliance_mode();
+        let policy = self.get_dlp_policy();
+        let dlp_res = inspect_payload_dlp_bytes(&data, &policy);
+        let ws_id = self.get_workspace_id();
+        let signing_key_guard = self.signing_key.lock_poison_safe();
+        let key_ref = signing_key_guard.as_ref();
+
+        if dlp_res.is_violation {
+            tracing::warn!(
+                "DLP Violation detected during P2P sync for peer {}: classification={}, patterns={:?}",
+                from_peer,
+                dlp_res.classification,
+                dlp_res.matched_patterns
+            );
+            log_sync_audit_event(
+                &ws_id,
+                &from_peer,
+                None,
+                &format!("P2P_SYNC_DLP_VIOLATION:{}", dlp_res.classification),
+                &data,
+                key_ref,
+                true,
+            );
+
+            if policy.block_on_match
+                || mode == ComplianceMode::StrictServerOnly
+                || mode == ComplianceMode::AuditedProxyRelay
+                || mode == ComplianceMode::AuditedLocalP2P
+            {
+                tracing::error!(
+                    "P2P Sync broadcast blocked due to DLP policy violation in mode {:?}",
+                    mode
+                );
+                return;
+            }
+        } else {
+            log_sync_audit_event(
+                &ws_id,
+                &from_peer,
+                None,
+                &format!("P2P_SYNC_BROADCAST:{:?}", mode),
+                &data,
+                key_ref,
+                false,
+            );
+        }
+
         let relay_opt = self.relay_url.lock_poison_safe().clone();
         let peers = self.peers.lock_poison_safe().clone();
 
-        // 1. Direct Peer-to-Peer local synchronization (WebRTC simulation)
-        #[cfg(debug_assertions)]
-        {
-            if relay_opt.is_none() {
-                let self_clone = self.clone();
-                let from_peer_clone = from_peer.clone();
-                let data_clone = data.clone();
+        // Under StrictServerOnly, direct P2P mesh sync channels are strictly disabled.
+        if mode == ComplianceMode::StrictServerOnly {
+            tracing::warn!(
+                "Direct P2P Mesh sync disabled for peer {} under StrictServerOnly compliance mode",
+                from_peer
+            );
+            if let Some(relay_url) = relay_opt {
+                let client = self.client.clone();
+                let key = self.signing_key.lock_poison_safe().clone();
+                let queue_clone = Some(self.failed_broadcasts.clone());
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    crate::database::native::get_runtime().spawn(async move {
-                        self_clone
-                            .apply_simulated_updates(from_peer_clone, data_clone)
-                            .await;
-                    });
+                    crate::database::native::get_runtime().spawn(do_broadcast_write(
+                        client,
+                        relay_url,
+                        from_peer,
+                        data,
+                        key,
+                        queue_clone,
+                    ));
                 }
                 #[cfg(target_arch = "wasm32")]
                 {
-                    wasm_bindgen_futures::spawn_local(async move {
-                        self_clone
-                            .apply_simulated_updates(from_peer_clone, data_clone)
-                            .await;
-                    });
+                    wasm_bindgen_futures::spawn_local(do_broadcast_write(
+                        client,
+                        relay_url,
+                        from_peer,
+                        data,
+                        key,
+                        queue_clone,
+                    ));
                 }
+            } else {
+                tracing::error!("P2P sync failed: StrictServerOnly mode requires an active compliance relay server URL");
+            }
+            return;
+        }
 
-                // Always store in-memory fallback
-                in_memory_broadcast(&from_peer, data.clone(), &peers);
+        // Direct Peer-to-Peer local synchronization (WebRTC simulation)
+        if mode == ComplianceMode::AuditedLocalP2P || mode == ComplianceMode::UnrestrictedLocalP2P {
+            #[cfg(debug_assertions)]
+            {
+                if relay_opt.is_none() {
+                    let self_clone = self.clone();
+                    let from_peer_clone = from_peer.clone();
+                    let data_clone = data.clone();
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        crate::database::native::get_runtime().spawn(async move {
+                            self_clone
+                                .apply_simulated_updates(from_peer_clone, data_clone)
+                                .await;
+                        });
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        wasm_bindgen_futures::spawn_local(async move {
+                            self_clone
+                                .apply_simulated_updates(from_peer_clone, data_clone)
+                                .await;
+                        });
+                    }
+
+                    // Always store in-memory fallback
+                    in_memory_broadcast(&from_peer, data.clone(), &peers);
+                }
             }
         }
 

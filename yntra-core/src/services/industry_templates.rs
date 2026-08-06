@@ -259,6 +259,11 @@ pub async fn install_industry_template(
         fields_schema: Some(tpl.fields_schema),
         navigation_items: Some("[]".to_string()),
         ui_config: Some(tpl.ui_config),
+        tier: None,
+        compliance_standards: None,
+        supported_protocols: None,
+        enterprise_connectors: None,
+        jurisdiction: None,
     })
 }
 

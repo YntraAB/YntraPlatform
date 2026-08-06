@@ -145,6 +145,11 @@ async fn seed_mock_data_impl(conn: &DbConnection) -> Result<(), YntraError> {
                 "fields_schema",
                 "navigation_items",
                 "ui_config",
+                "tier",
+                "compliance_standards",
+                "supported_protocols",
+                "enterprise_connectors",
+                "jurisdiction",
             ],
             blocks,
         )

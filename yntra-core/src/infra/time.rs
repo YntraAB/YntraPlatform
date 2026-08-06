@@ -139,6 +139,10 @@ pub fn get_current_time_ms() -> i64 {
     verified.timestamp_ms
 }
 
+pub fn now_ts() -> i64 {
+    get_current_time_ms()
+}
+
 pub fn get_current_datetime_str() -> String {
     Utc::now().format("%Y-%m-%d %H:%M:%S").to_string()
 }

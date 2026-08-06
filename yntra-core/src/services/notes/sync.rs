@@ -167,6 +167,19 @@ pub async fn apply_note_loro_update(
 
         // Ensure the dummy 'remote_<workspace_id>' user exists to satisfy the FOREIGN KEY constraint on note_updates
         let remote_client_id = format!("remote_{}", workspace_id);
+        let ws_exists: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM workspaces WHERE id = ?1",
+            crate::params![&workspace_id],
+            |r| r.get(0)
+        ).await.unwrap_or(0);
+        if ws_exists == 0 {
+            conn.execute(
+                "INSERT INTO workspaces (id, name, created_at, updated_at, sync_status)
+                 VALUES (?1, 'Remote Workspace', ?2, ?2, 'synced')",
+                crate::params![&workspace_id, &now_ms],
+            ).await?;
+        }
+
         let remote_email = format!("remote-{}@yntra.se", workspace_id);
         let user_exists: i64 = conn.query_row(
             "SELECT COUNT(*) FROM users WHERE id = ?1",
@@ -199,13 +212,23 @@ pub async fn apply_note_loro_update(
         // 3. Update the database projection cache
         let plain_text = doc.get_text("content").to_string();
 
-        if plain_text.starts_with("zero_copy_enc:") {
-            let parts: Vec<&str> = plain_text.split(':').collect();
-            if parts.len() != 3 {
-                return Err(YntraError::CryptoError("Invalid encrypted payload format".to_string()));
-            }
-            let proof = parts[1];
-            let ciphertext = parts[2];
+        if plain_text.starts_with("zero_copy_escrow_v1:") || plain_text.starts_with("zero_copy_v1:") || plain_text.starts_with("zero_copy_enc:") {
+            let (proof, ciphertext) = if plain_text.starts_with("zero_copy_enc:") {
+                let rest = &plain_text["zero_copy_enc:".len()..];
+                match rest.split_once(':') {
+                    Some((p, c)) => (p, c),
+                    None => return Err(YntraError::CryptoError("Invalid encrypted payload format".to_string())),
+                }
+            } else {
+                let parts: Vec<&str> = plain_text.split(':').collect();
+                if parts.len() == 5 {
+                    (parts[1], parts[4])
+                } else if parts.len() == 3 {
+                    (parts[1], parts[2])
+                } else {
+                    return Err(YntraError::CryptoError("Invalid encrypted payload format".to_string()));
+                }
+            };
             let trust = crate::ZkCryptoTrust::new();
 
             // Fetch candidate users authorized to edit/update this note
@@ -225,8 +248,10 @@ pub async fn apply_note_loro_update(
             }
 
             let mut validated = false;
-            let ciphertext_bytes = const_hex::decode(ciphertext)
-                .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+            let ciphertext_bytes = match const_hex::decode(ciphertext) {
+                Ok(b) => b,
+                Err(_) => ciphertext.as_bytes().to_vec(),
+            };
             let data_hash = blake3::hash(&ciphertext_bytes);
             let data_hash_hex = const_hex::encode(data_hash.as_bytes());
 

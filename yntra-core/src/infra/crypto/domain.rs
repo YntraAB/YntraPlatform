@@ -8,6 +8,8 @@ pub enum CryptoDomain {
     LocalStorageIntegrity,
     UserKeyDerivation,
     PasskeyEnvelopeEncryption,
+    InstitutionalEscrowKeyDerivation,
+    BreakGlassEnvelopeEncryption,
 }
 
 impl CryptoDomain {
@@ -25,9 +27,16 @@ impl CryptoDomain {
             (Self::PasskeyEnvelopeEncryption, 1) => {
                 Ok("Yntra Zero-Copy Passkey Envelope Encryption Key")
             }
+            (Self::InstitutionalEscrowKeyDerivation, 1) => {
+                Ok("Yntra Institutional Escrow Key Derivation Context v1")
+            }
+            (Self::BreakGlassEnvelopeEncryption, 1) => {
+                Ok("Yntra Break-Glass Emergency Envelope Encryption Key v1")
+            }
             _ => Err(YntraError::CryptoError(
                 "Unsupported cryptographic domain version".to_string(),
             )),
         }
     }
 }
+

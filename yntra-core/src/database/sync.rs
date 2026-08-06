@@ -106,6 +106,63 @@ pub async fn get_sync_queue_status(
 }
 
 #[uniffi::export]
+pub async fn get_kiosk_sync_queue_summary(
+    workspace_id: String,
+    user_id: Option<String>,
+    is_daemon_connected: bool,
+    is_p2p_mesh_active: bool,
+) -> Result<crate::models::KioskSessionSyncSummary, YntraError> {
+    let pending_count = get_mobile_sync_queue_summary(workspace_id.clone()).await?;
+    #[cfg(target_arch = "wasm32")]
+    {
+        return Ok(crate::database::wasm::check_kiosk_session_sync_state(
+            workspace_id,
+            user_id,
+            pending_count,
+            is_daemon_connected,
+            is_p2p_mesh_active,
+        ));
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let now_ms = crate::infra::time::get_current_time_ms();
+        #[cfg(feature = "domain-school")]
+        let has_health_incidents = if let Some(ref uid) = user_id {
+            crate::services::school::get_health_incidents(uid.clone(), workspace_id.clone())
+                .await
+                .map(|list| !list.is_empty())
+                .unwrap_or(false)
+        } else {
+            false
+        };
+        #[cfg(not(feature = "domain-school"))]
+        let has_health_incidents = false;
+
+        let risk_level = if pending_count > 0 && has_health_incidents {
+            "critical".to_string()
+        } else if pending_count > 0 && !is_daemon_connected && !is_p2p_mesh_active {
+            "high".to_string()
+        } else if pending_count > 5 {
+            "medium".to_string()
+        } else if pending_count > 0 {
+            "low".to_string()
+        } else {
+            "none".to_string()
+        };
+
+        Ok(crate::models::KioskSessionSyncSummary {
+            workspace_id,
+            user_id,
+            unsynced_changes_count: pending_count,
+            is_daemon_connected,
+            is_p2p_mesh_active,
+            risk_level,
+            last_sync_timestamp_ms: now_ms,
+        })
+    }
+}
+
+#[uniffi::export]
 pub async fn perform_os_background_sync(
     workspace_id: String,
 ) -> Result<MobileSyncResult, YntraError> {
@@ -756,6 +813,90 @@ pub struct PendingBlobUpload {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, uniffi::Record, PartialEq)]
+pub struct FieldDiffRecord {
+    pub field_name: String,
+    pub local_value: String,
+    pub remote_value: String,
+    pub is_conflicting: bool,
+    pub crdt_merged_value: Option<String>,
+}
+
+pub fn compute_field_diffs(local_json: &str, remote_json: &str) -> Vec<FieldDiffRecord> {
+    let mut diffs = Vec::new();
+    let local_val: Option<serde_json::Value> = serde_json::from_str(local_json).ok();
+    let remote_val: Option<serde_json::Value> = serde_json::from_str(remote_json).ok();
+
+    if let (Some(serde_json::Value::Object(loc_obj)), Some(serde_json::Value::Object(rem_obj))) =
+        (local_val.as_ref(), remote_val.as_ref())
+    {
+        let mut keys: std::collections::BTreeSet<String> = loc_obj.keys().cloned().collect();
+        keys.extend(rem_obj.keys().cloned());
+
+        for key in keys {
+            if key == "sync_status" || key == "workspace_id" {
+                continue;
+            }
+            let loc_str = loc_obj
+                .get(&key)
+                .map(|v| {
+                    if let Some(s) = v.as_str() {
+                        s.to_string()
+                    } else {
+                        v.to_string()
+                    }
+                })
+                .unwrap_or_else(|| "<empty>".to_string());
+            let rem_str = rem_obj
+                .get(&key)
+                .map(|v| {
+                    if let Some(s) = v.as_str() {
+                        s.to_string()
+                    } else {
+                        v.to_string()
+                    }
+                })
+                .unwrap_or_else(|| "<empty>".to_string());
+            let is_conflicting = loc_str != rem_str;
+            let merged = if !is_conflicting {
+                Some(loc_str.clone())
+            } else if loc_str.is_empty() || loc_str == "<empty>" {
+                Some(rem_str.clone())
+            } else if rem_str.is_empty() || rem_str == "<empty>" {
+                Some(loc_str.clone())
+            } else {
+                Some(format!("{}\n--- CRDT Cloud Delta ---\n{}", loc_str, rem_str))
+            };
+
+            diffs.push(FieldDiffRecord {
+                field_name: key,
+                local_value: loc_str,
+                remote_value: rem_str,
+                is_conflicting,
+                crdt_merged_value: merged,
+            });
+        }
+    } else {
+        let is_conflicting = local_json != remote_json;
+        diffs.push(FieldDiffRecord {
+            field_name: "payload".to_string(),
+            local_value: local_json.to_string(),
+            remote_value: remote_json.to_string(),
+            is_conflicting,
+            crdt_merged_value: if is_conflicting {
+                Some(format!(
+                    "{}\n--- CRDT Merge ---\n{}",
+                    local_json, remote_json
+                ))
+            } else {
+                Some(local_json.to_string())
+            },
+        });
+    }
+
+    diffs
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, uniffi::Record, PartialEq)]
 pub struct SyncConflictRecord {
     pub table_name: String,
     pub record_id: String,
@@ -765,7 +906,9 @@ pub struct SyncConflictRecord {
     pub conflict_type: String,
     pub severity: String,
     pub conflict_id: Option<String>,
+    pub field_diffs: Vec<FieldDiffRecord>,
 }
+
 
 #[uniffi::export]
 pub async fn get_sync_queue_breakdown(
@@ -868,6 +1011,8 @@ pub async fn get_sync_conflicts(
             }
         }
 
+        let field_diffs = compute_field_diffs(&local_json, &remote_json);
+
         list.push(SyncConflictRecord {
             table_name,
             record_id,
@@ -877,6 +1022,7 @@ pub async fn get_sync_conflicts(
             conflict_type,
             severity,
             conflict_id: Some(cid),
+            field_diffs,
         });
     }
 
@@ -900,6 +1046,7 @@ pub async fn get_sync_conflicts(
         let remote_json =
             serde_json::json!({ "subject": subj, "content": "Server Loro Delta State" })
                 .to_string();
+        let field_diffs = compute_field_diffs(&local_json, &remote_json);
 
         list.push(SyncConflictRecord {
             table_name: "notes".to_string(),
@@ -910,11 +1057,32 @@ pub async fn get_sync_conflicts(
             conflict_type: "crdt_loro_divergence".to_string(),
             severity: "high".to_string(),
             conflict_id: None,
+            field_diffs,
         });
     }
 
     Ok(list)
 }
+
+#[uniffi::export]
+pub async fn resolve_field_conflict(
+    requester_user_id: String,
+    workspace_id: String,
+    table_name: String,
+    record_id: String,
+    field_resolutions_json: String,
+) -> Result<bool, YntraError> {
+    resolve_sync_conflict(
+        requester_user_id,
+        workspace_id,
+        table_name,
+        record_id,
+        "custom_field_merge".to_string(),
+        Some(field_resolutions_json),
+    )
+    .await
+}
+
 
 #[uniffi::export]
 pub async fn resolve_sync_conflict(

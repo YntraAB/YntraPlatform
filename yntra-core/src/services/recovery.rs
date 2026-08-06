@@ -144,6 +144,30 @@ pub async fn reconstruct_passkey_from_threshold_shares(
     Ok(const_hex::encode(reconstructed_bytes))
 }
 
+#[derive(uniffi::Record, Debug, Clone, PartialEq)]
+pub struct ThresholdNodeKeyPairRecord {
+    pub public_key_hex: String,
+    pub private_key_hex: String,
+}
+
+#[uniffi::export]
+pub fn generate_passkey_threshold_key_pair() -> Result<ThresholdNodeKeyPairRecord, YntraError> {
+    let mut seed = [0u8; 32];
+    getrandom::fill(&mut seed)
+        .map_err(|e| YntraError::CryptoError(format!("RNG error: {}", e)))?;
+    let scalar = crypto::ed25519_seed_to_scalar(&seed);
+    let pub_point = &curve25519_dalek::constants::ED25519_BASEPOINT_POINT * &scalar;
+    let pub_hex = const_hex::encode(pub_point.compress().to_bytes());
+    let priv_hex = const_hex::encode(seed);
+
+    Ok(ThresholdNodeKeyPairRecord {
+        public_key_hex: pub_hex,
+        private_key_hex: priv_hex,
+    })
+}
+
+
+
 #[uniffi::export]
 pub async fn split_workspace_key(
     requester_user_id: String,

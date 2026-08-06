@@ -277,7 +277,7 @@ pub async fn run_schema_migrations(
             CREATE TABLE IF NOT EXISTS move_quotes (
                 id TEXT PRIMARY KEY,
                 workspace_id TEXT NOT NULL DEFAULT 'workspace-1',
-                job_ticket_id TEXT NOT NULL,
+                job_ticket_id TEXT NOT NULL UNIQUE,
                 base_price REAL NOT NULL,
                 distance_fee REAL NOT NULL,
                 stairs_surcharge REAL NOT NULL,
@@ -294,10 +294,15 @@ pub async fn run_schema_migrations(
         )
         .await?;
 
-        execute_migration_sql(conn, "ALTER TABLE move_inventory ADD COLUMN room_name TEXT").await?;
+        execute_migration_sql(conn, "ALTER TABLE move_quotes ADD COLUMN use_rut INTEGER DEFAULT 0").await?;
         execute_migration_sql(
             conn,
-            "ALTER TABLE move_inventory ADD COLUMN estimated_weight_kg REAL DEFAULT 0.0",
+            "ALTER TABLE move_quotes ADD COLUMN rut_deduction_amount REAL DEFAULT 0.0",
+        )
+        .await?;
+        execute_migration_sql(
+            conn,
+            "ALTER TABLE move_quotes ADD COLUMN deposit_amount REAL DEFAULT 0.0",
         )
         .await?;
         execute_migration_sql(conn, "ALTER TABLE move_inventory ADD COLUMN preset_id TEXT").await?;

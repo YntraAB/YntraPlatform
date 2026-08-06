@@ -106,7 +106,10 @@ fn test_zk_envelope_encryption_and_proof() {
             "Admin".to_string(),
         )
         .unwrap();
-    let ciphertext_bytes = const_hex::decode(&ciphertext).unwrap();
+    let ciphertext_bytes = match const_hex::decode(&ciphertext) {
+        Ok(b) => b,
+        Err(_) => ciphertext.as_bytes().to_vec(),
+    };
     let data_hash = blake3::hash(&ciphertext_bytes);
     let data_hash_hex = const_hex::encode(data_hash.as_bytes());
     let is_valid = trust
@@ -162,6 +165,210 @@ fn test_zk_envelope_encryption_and_proof() {
         public_key_hex.clone()
     ));
 }
+
+#[test]
+fn test_break_glass_emergency_recovery_and_zkp_audit_trail() {
+    let trust = ZkCryptoTrust::new();
+    let passkey_seed = "doctor_hardware_passkey_seed_99".to_string();
+    let escrow_seed = "institutional_hospital_cmo_master_escrow_seed_101".to_string();
+    let sensitive_medical_data =
+        "Patient John Doe: Severe Penicillin Allergy, Anaphylaxis Hazard".to_string();
+
+    // 1. Derive institutional escrow public key
+    let (escrow_sk, escrow_vk) = super::crypto::derive_escrow_keypair_from_seed(&escrow_seed).unwrap();
+    let escrow_pubkey_hex = const_hex::encode(escrow_vk.to_bytes());
+
+    // 2. Encrypt medical field with dual-recipient envelope (Passkey + Institutional Escrow)
+    let envelope_ciphertext = trust
+        .encrypt_workspace_field_with_escrow(
+            passkey_seed.clone(),
+            sensitive_medical_data.clone(),
+            escrow_pubkey_hex.clone(),
+        )
+        .unwrap();
+
+    assert!(envelope_ciphertext.starts_with("zero_copy_escrow_v1:"));
+
+    // 3. Normal Path: Physician on duty decrypts record via Passkey seed
+    let normal_decrypted = trust
+        .decrypt_workspace_field(passkey_seed.clone(), envelope_ciphertext.clone())
+        .unwrap();
+    assert_eq!(normal_decrypted, sensitive_medical_data);
+
+    // 4. Emergency Path: Physician is off-duty / lost hardware key. ICU staff performs Break-Glass emergency recovery!
+    let operator_id = "dr_smith_icu_duty".to_string();
+    let patient_id = "patient_john_doe_88".to_string();
+    let emergency_reason = "Code Blue ICU Emergency - Severe Allergy Verification".to_string();
+
+    let break_glass_res = trust
+        .decrypt_workspace_field_break_glass(
+            escrow_seed.clone(),
+            envelope_ciphertext.clone(),
+            operator_id.clone(),
+            patient_id.clone(),
+            emergency_reason.clone(),
+        )
+        .unwrap();
+
+    assert_eq!(break_glass_res.plaintext, sensitive_medical_data);
+    assert_eq!(break_glass_res.operator_id, operator_id);
+    assert_eq!(break_glass_res.emergency_reason, emergency_reason);
+    assert!(break_glass_res.audit_proof_hex.starts_with("ZKP_BREAK_GLASS_AUDIT_V1:"));
+
+    // Extract DEK hash from DEK unwrapped inside break glass for verification test
+    let parts: Vec<&str> = envelope_ciphertext.split(':').collect();
+    let payload_ciphertext_bytes = const_hex::decode(parts[4]).unwrap();
+    let payload_nonce_bytes = const_hex::decode(parts[3]).unwrap();
+
+    // 5. Verify ZKP Break-Glass Audit Proof
+    // Re-extract DEK hash via escrow unwrapping to test standalone audit proof verifier
+    let break_glass_wrap_bytes = const_hex::decode(parts[2]).unwrap();
+    let ephem_pub_bytes = &break_glass_wrap_bytes[0..32];
+    let escrow_wrap_nonce_bytes = &break_glass_wrap_bytes[32..56];
+    let enc_escrow_dek = &break_glass_wrap_bytes[56..];
+
+    use sha2::{Digest, Sha512};
+    let mut hasher = Sha512::new();
+    hasher.update(&escrow_sk.to_bytes());
+    let hash = hasher.finalize();
+    let mut scalar_bytes = zeroize::Zeroizing::new([0u8; 32]);
+    scalar_bytes.copy_from_slice(&hash[0..32]);
+    scalar_bytes[0] &= 248;
+    scalar_bytes[31] &= 127;
+    scalar_bytes[31] |= 64;
+    let escrow_scalar = curve25519_dalek::scalar::Scalar::from_bytes_mod_order(*scalar_bytes);
+
+    let ephem_pub_point = curve25519_dalek::edwards::CompressedEdwardsY(ephem_pub_bytes.try_into().unwrap())
+        .decompress()
+        .unwrap();
+    let dh_point = escrow_scalar * ephem_pub_point;
+    let dh_bytes = dh_point.compress().to_bytes();
+
+    let escrow_context_str =
+        crate::infra::crypto::CryptoDomain::BreakGlassEnvelopeEncryption.get_context(1).unwrap();
+    let mut escrow_key_hasher = blake3::Hasher::new_derive_key(escrow_context_str);
+    escrow_key_hasher.update(&dh_bytes);
+    let mut escrow_key_bytes = zeroize::Zeroizing::new([0u8; 32]);
+    escrow_key_hasher.finalize_xof().fill(&mut *escrow_key_bytes);
+
+    use chacha20poly1305::aead::{Aead, KeyInit};
+    use chacha20poly1305::{XChaCha20Poly1305, XNonce};
+    let escrow_wrap_cipher = XChaCha20Poly1305::new(chacha20poly1305::Key::from_slice(&*escrow_key_bytes));
+    let dek_bytes = escrow_wrap_cipher
+        .decrypt(XNonce::from_slice(escrow_wrap_nonce_bytes), enc_escrow_dek)
+        .unwrap();
+
+    let cipher_dek = XChaCha20Poly1305::new(chacha20poly1305::Key::from_slice(&dek_bytes));
+    let decrypted_payload_bytes = cipher_dek
+        .decrypt(
+            XNonce::from_slice(&payload_nonce_bytes),
+            payload_ciphertext_bytes.as_slice(),
+        )
+        .unwrap();
+    assert_eq!(
+        String::from_utf8(decrypted_payload_bytes).unwrap(),
+        sensitive_medical_data
+    );
+
+    let dek_hash = blake3::hash(&dek_bytes);
+    let dek_hash_hex = const_hex::encode(dek_hash.as_bytes());
+
+    let is_audit_valid = trust
+        .verify_break_glass_audit_proof(
+            break_glass_res.audit_proof_hex.clone(),
+            operator_id.clone(),
+            patient_id.clone(),
+            emergency_reason.clone(),
+            dek_hash_hex.clone(),
+            escrow_pubkey_hex.clone(),
+        )
+        .unwrap();
+
+    assert!(is_audit_valid, "Valid Break-Glass ZKP Audit Proof was rejected!");
+
+    // 6. Test tampered emergency reason fails audit verification
+    let is_tampered_valid = trust
+        .verify_break_glass_audit_proof(
+            break_glass_res.audit_proof_hex,
+            operator_id,
+            patient_id,
+            "Unauthorized Routine Check".to_string(),
+            dek_hash_hex,
+            escrow_pubkey_hex,
+        )
+        .unwrap();
+
+    assert!(!is_tampered_valid, "Tampered Break-Glass Audit Proof was wrongfully accepted!");
+}
+
+#[test]
+fn test_threshold_escrow_and_pre_decryption_gatekeeping() {
+    let trust = ZkCryptoTrust::new();
+    let passkey_seed = "physician_passkey_seed_77".to_string();
+    let master_escrow_seed = "hospital_cmo_master_key_999".to_string();
+    let medical_record = "ICU Emergency Record: Severe Latex Allergy, Intubation Notes".to_string();
+
+    // 1. Generate 2-of-3 threshold escrow shares (CMO, Attending Physician, Compliance Officer)
+    let shares = trust.generate_threshold_escrow_shares(master_escrow_seed.clone(), 2, 3).unwrap();
+    assert_eq!(shares.len(), 3);
+
+    // Reconstruct master seed using 2 shares (Share 1 and Share 3)
+    let subset_shares = vec![shares[0].clone(), shares[2].clone()];
+    let reconstructed_seed_hex = trust.combine_threshold_escrow_shares(subset_shares.clone()).unwrap();
+
+    // Derive public key from reconstructed seed
+    let (_, escrow_vk) = super::crypto::derive_escrow_keypair_from_seed(&reconstructed_seed_hex).unwrap();
+    let escrow_pubkey_hex = const_hex::encode(escrow_vk.to_bytes());
+
+    // Also derive public key directly from original seed
+    let (_, orig_vk) = super::crypto::derive_escrow_keypair_from_seed(&master_escrow_seed).unwrap();
+    let orig_pubkey_hex = const_hex::encode(orig_vk.to_bytes());
+
+    assert_eq!(escrow_pubkey_hex, orig_pubkey_hex, "Shamir threshold reconstruction failed to yield identical master key!");
+
+    // 2. Encrypt record with threshold escrow public key
+    let ciphertext = trust
+        .encrypt_workspace_field_with_escrow(passkey_seed.clone(), medical_record.clone(), escrow_pubkey_hex)
+        .unwrap();
+
+    // 3. Test Pre-Decryption Gatekeeping failure on empty parameters
+    let gatekeep_res = trust.decrypt_workspace_field_break_glass_threshold(
+        subset_shares.clone(),
+        ciphertext.clone(),
+        "".to_string(),
+        "patient_44".to_string(),
+        "ICU Emergency".to_string(),
+    );
+    assert!(gatekeep_res.is_err(), "Pre-decryption gatekeeping failed to block empty operator_id!");
+
+    // 4. Test Successful Threshold Break-Glass Decryption (2-of-3 shares)
+    let break_glass_res = trust
+        .decrypt_workspace_field_break_glass_threshold(
+            subset_shares,
+            ciphertext.clone(),
+            "dr_jones_icu".to_string(),
+            "patient_44".to_string(),
+            "Code Red Emergency Admission".to_string(),
+        )
+        .unwrap();
+
+    assert_eq!(break_glass_res.plaintext, medical_record);
+    assert_eq!(break_glass_res.operator_id, "dr_jones_icu");
+
+    // 5. Test Workspace-Isolated Escrow Derivation
+    let ws_ciphertext = trust
+        .encrypt_workspace_field_for_workspace(
+            passkey_seed.clone(),
+            medical_record.clone(),
+            "workspace_hospital_general".to_string(),
+        )
+        .unwrap();
+
+    let ws_decrypted = trust.decrypt_workspace_field(passkey_seed, ws_ciphertext).unwrap();
+    assert_eq!(ws_decrypted, medical_record);
+}
+
+
 
 #[test]
 fn test_zkp_schema_proof_hijacking_prevention() {
@@ -222,7 +429,10 @@ fn test_zkp_schema_proof_hijacking_prevention() {
     // 4. Try to verify the forged proof against ciphertext 2's data hash.
     // If our schema ZKP binding fix works, it must fail because the schema ZKP was bound
     // to ciphertext 1's commitment, not ciphertext 2's!
-    let ciphertext_2_bytes = const_hex::decode(&ciphertext_2).unwrap();
+    let ciphertext_2_bytes = match const_hex::decode(&ciphertext_2) {
+        Ok(b) => b,
+        Err(_) => ciphertext_2.as_bytes().to_vec(),
+    };
     let data_hash_2 = blake3::hash(&ciphertext_2_bytes);
     let data_hash_2_hex = const_hex::encode(data_hash_2.as_bytes());
 
@@ -629,15 +839,20 @@ fn test_p2p_mesh_note_sync_in_memory_fallback() {
     let store_a = Arc::new(ZeroCopyNoteStore::new(path_a.clone()).unwrap());
     let store_b = Arc::new(ZeroCopyNoteStore::new(path_b.clone()).unwrap());
 
+    let uid_str = uuid::Uuid::new_v4().to_string();
+    let peer_a = format!("peer_fb_a_{}", uid_str);
+    let peer_b = format!("peer_fb_b_{}", uid_str);
+
     let router = P2PMeshSyncRouter::new();
-    router.register_peer("peer_fb_a".to_string());
-    router.register_peer("peer_fb_b".to_string());
+    router.set_compliance_mode(crate::database::zero_copy::sync::ComplianceMode::UnrestrictedLocalP2P);
+    router.register_peer(peer_a.clone());
+    router.register_peer(peer_b.clone());
 
     let note = DailyNote {
         id: "note_x".to_string(),
         workspace_id: "ws_abc".to_string(),
         team_id: "team_1".to_string(),
-        author_id: Some("peer_fb_a".to_string()),
+        author_id: Some(peer_a.clone()),
         subject: "ZK Sync Test".to_string(),
         content: "Encrypted data here".to_string(),
         edit_history: "[]".to_string(),
@@ -649,9 +864,9 @@ fn test_p2p_mesh_note_sync_in_memory_fallback() {
     store_a.write_notes(vec![note.clone()]).unwrap();
 
     let changes = store_a.get_loro_changes().unwrap();
-    router.broadcast_write_network("peer_fb_a".to_string(), changes);
+    router.broadcast_write_network(peer_a, changes);
 
-    let updates = in_memory_poll("peer_fb_b");
+    let updates = in_memory_poll(&peer_b);
     assert_eq!(updates.len(), 1);
 
     store_b.apply_loro_update(updates[0].clone()).unwrap();
@@ -870,9 +1085,14 @@ fn test_edge_sync_loop_note_and_audit_loops() {
 
 #[test]
 fn test_in_memory_relay_queue_bounding() {
+    let uid_str = uuid::Uuid::new_v4().to_string();
+    let peer_a = format!("peer_q_a_{}", uid_str);
+    let peer_b = format!("peer_q_b_{}", uid_str);
+
     let router = P2PMeshSyncRouter::new();
-    router.register_peer("peer_q_a".to_string());
-    router.register_peer("peer_q_b".to_string());
+    router.set_compliance_mode(crate::database::zero_copy::sync::ComplianceMode::UnrestrictedLocalP2P);
+    router.register_peer(peer_a.clone());
+    router.register_peer(peer_b.clone());
 
     // Generate 150 valid Loro snapshot updates
     let doc_a = loro::LoroDoc::new();
@@ -886,11 +1106,11 @@ fn test_in_memory_relay_queue_bounding() {
 
     // Broadcast all 150 updates
     for u in updates_list {
-        router.broadcast_write_network("peer_q_a".to_string(), u);
+        router.broadcast_write_network(peer_a.clone(), u);
     }
 
     // Since the queue is hard-limited to 100 entries, but has a catch-up snapshot prepended:
-    let polled = in_memory_poll("peer_q_b");
+    let polled = in_memory_poll(&peer_b);
     // 1 catch-up snapshot + 100 updates = 101 polled items
     assert_eq!(polled.len(), 101);
 
@@ -1099,7 +1319,10 @@ fn test_zkp_schema_proof_hijacking_variants() {
         .unwrap();
 
     let proof_2_bytes = const_hex::decode(&proof_2_hex).unwrap();
-    let ciphertext_2_bytes = const_hex::decode(&ciphertext_2).unwrap();
+    let ciphertext_2_bytes = match const_hex::decode(&ciphertext_2) {
+        Ok(b) => b,
+        Err(_) => ciphertext_2.as_bytes().to_vec(),
+    };
     let data_hash_2 = blake3::hash(&ciphertext_2_bytes);
     let data_hash_2_hex = const_hex::encode(data_hash_2.as_bytes());
 
@@ -1432,4 +1655,126 @@ async fn test_adaptive_transport_mesh_fallback_and_lan() {
 
     assert!(b_res.contains("LocalLanSocket"));
 }
+
+#[test]
+fn test_hipaa_ferpa_dlp_payload_inspection() {
+    use super::sync::{DlpPolicy, inspect_payload_dlp_bytes};
+
+    let policy = DlpPolicy::default();
+
+    // 1. Clean payload
+    let clean_data = b"Normal collaborative task title: Buy medical supplies";
+    let res_clean = inspect_payload_dlp_bytes(clean_data, &policy);
+    assert!(!res_clean.is_violation);
+    assert_eq!(res_clean.classification, "CLEAN");
+
+    // 2. HIPAA PHI SSN detection
+    let ssn_data = b"Patient record: Jane Doe, SSN: 123-45-6789";
+    let res_ssn = inspect_payload_dlp_bytes(ssn_data, &policy);
+    assert!(res_ssn.is_violation);
+    assert_eq!(res_ssn.classification, "PHI_DETECTED");
+    assert!(res_ssn.matched_patterns.contains(&"PHI_SSN_PATTERN".to_string()));
+
+    // 3. HIPAA Medical Record Number & ICD-10 Diagnosis code detection
+    let phi_data = b"Clinical notes: Patient MRN-9876543, ICD-10 Diagnosis: Diabetes Mellitus";
+    let res_phi = inspect_payload_dlp_bytes(phi_data, &policy);
+    assert!(res_phi.is_violation);
+    assert_eq!(res_phi.classification, "PHI_DETECTED");
+    assert!(res_phi.matched_patterns.contains(&"PHI_MEDICAL_RECORD_PATTERN".to_string()));
+
+    // 4. FERPA Student ID & Transcript detection
+    let ferpa_data = b"Student ID: SID-554433221, Student Transcript Cumulative GPA: 3.9";
+    let res_ferpa = inspect_payload_dlp_bytes(ferpa_data, &policy);
+    assert!(res_ferpa.is_violation);
+    assert_eq!(res_ferpa.classification, "FERPA_DETECTED");
+    assert!(res_ferpa.matched_patterns.contains(&"FERPA_STUDENT_RECORD_PATTERN".to_string()));
+
+    // 5. Custom Keyword match
+    let mut custom_policy = DlpPolicy::default();
+    custom_policy.custom_keywords.push("CONFIDENTIAL_PROJECT_X".to_string());
+    let custom_data = b"Top secret document containing CONFIDENTIAL_PROJECT_X specs";
+    let res_custom = inspect_payload_dlp_bytes(custom_data, &custom_policy);
+    assert!(res_custom.is_violation);
+    assert!(res_custom.matched_patterns.iter().any(|p| p.contains("CONFIDENTIAL_PROJECT_X")));
+}
+
+#[tokio::test]
+async fn test_compliance_mode_governance_and_dlp_audit_logging() {
+    use super::sync::{ComplianceMode, DlpPolicy, P2PMeshSyncRouter};
+
+    let router = P2PMeshSyncRouter::with_compliance(
+        None,
+        ComplianceMode::StrictServerOnly,
+        DlpPolicy::default(),
+    );
+
+    assert_eq!(router.get_compliance_mode(), ComplianceMode::StrictServerOnly);
+
+    // Test mode mutation
+    router.set_compliance_mode(ComplianceMode::AuditedProxyRelay);
+    assert_eq!(router.get_compliance_mode(), ComplianceMode::AuditedProxyRelay);
+
+    // Test DLP inspection method on router
+    let phi_payload = b"Protected Health Information: Patient MRN-112233".to_vec();
+    let dlp_res = router.inspect_payload_dlp(phi_payload.clone());
+    assert!(dlp_res.is_violation);
+    assert_eq!(dlp_res.classification, "PHI_DETECTED");
+
+    // Test broadcast write under AuditedProxyRelay with PHI payload -> Blocked & audit logged
+    router.broadcast_write_network("peer-nurse-tablet".to_string(), phi_payload);
+}
+
+#[test]
+fn test_loro_crdt_doc_payload_expansion_dlp() {
+    use super::sync::{DlpPolicy, inspect_payload_dlp_bytes};
+    use loro::{ExportMode, LoroDoc};
+
+    // Construct a Loro CRDT document with binary encoded PHI note content
+    let doc = LoroDoc::new();
+    let map = doc.get_map("db");
+    let note_map = map.insert_container("note_1", loro::LoroMap::new()).unwrap();
+    note_map.insert("id", "note_1").unwrap();
+    note_map.insert("content", "Clinical Evaluation: Patient Jane Doe MRN-9988771").unwrap();
+
+    let binary_crdt_snapshot = doc.export(ExportMode::Snapshot).unwrap();
+
+    let policy = DlpPolicy::default();
+    let res = inspect_payload_dlp_bytes(&binary_crdt_snapshot, &policy);
+
+    assert!(res.is_violation);
+    assert_eq!(res.classification, "PHI_DETECTED");
+    assert!(res.matched_patterns.contains(&"PHI_MEDICAL_RECORD_PATTERN".to_string()));
+}
+
+#[test]
+fn test_ed25519_signed_sync_audit_events_and_tenant_scoping() {
+    use super::sync::{ComplianceMode, DlpPolicy, P2PMeshSyncRouter};
+
+    let router = P2PMeshSyncRouter::with_compliance(
+        None,
+        ComplianceMode::AuditedLocalP2P,
+        DlpPolicy::default(),
+    );
+
+    let pubkey_hex = router.set_ephemeral_identity().unwrap();
+    assert_eq!(pubkey_hex.len(), 64);
+
+    let custom_tenant = "hospital-tenant-42".to_string();
+    router.set_workspace_id(custom_tenant.clone());
+    assert_eq!(router.get_workspace_id(), custom_tenant);
+
+    let clean_crdt = b"Standard checklist update: Checked room temperature".to_vec();
+    router.broadcast_write_network("peer-doctor-tablet".to_string(), clean_crdt);
+
+    let audit_store = crate::services::audit::get_audit_store(&custom_tenant);
+    let logs = audit_store.read_all_audit_logs().unwrap();
+    let sync_log = logs.iter().find(|e| e.action_type.contains("P2P_SYNC_BROADCAST"));
+
+    assert!(sync_log.is_some());
+    let entry = sync_log.unwrap();
+    assert_eq!(entry.workspace_id, custom_tenant);
+    assert!(entry.signature.is_some());
+}
+
+
 

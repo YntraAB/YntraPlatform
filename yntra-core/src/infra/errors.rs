@@ -22,6 +22,10 @@ pub enum YntraError {
     CryptoError(String),
     #[error("Module disabled error: {0}")]
     ModuleDisabledError(String),
+    #[error("Compliance error: {0}")]
+    ComplianceError(String),
+    #[error("DLP policy violation: {0}")]
+    DlpViolation(String),
     #[error("No rows returned from query")]
     NoRowsReturned,
 }

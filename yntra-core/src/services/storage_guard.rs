@@ -107,13 +107,49 @@ pub async fn generate_emergency_storage_backup_payload(
     let _auth = AuthContext::authorize(&conn, &requester_user_id).await?;
 
     let unsynced_count = StorageGuardEngine::calculate_unsynced_edits(&conn, &workspace_id).await?;
-
     let now_ms = crate::infra::time::get_current_time_ms();
+
+    let mut table_dumps = serde_json::Map::new();
+    let tables = vec![
+        "time_reports",
+        "messages",
+        "notes",
+        "todos",
+        "reports",
+        "job_tickets",
+        "entities",
+    ];
+
+    for table in tables {
+        let query = format!(
+            "SELECT id, sync_status, updated_at FROM {} WHERE workspace_id = ?1 AND sync_status = 'pending' LIMIT 50",
+            table
+        );
+        let mut rows_out = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(&query).await {
+            if let Ok(mut rows) = stmt.query(crate::params![&workspace_id]).await {
+                while let Ok(Some(row)) = rows.next().await {
+                    let id: String = row.get(0).unwrap_or_default();
+                    let status: String = row.get(1).unwrap_or_default();
+                    let updated: i64 = row.get(2).unwrap_or(0);
+                    rows_out.push(serde_json::json!({
+                        "id": id,
+                        "sync_status": status,
+                        "updated_at": updated
+                    }));
+                }
+            }
+        }
+        table_dumps.insert(table.to_string(), serde_json::Value::Array(rows_out));
+    }
+
     let archive_obj = serde_json::json!({
+        "vault_format": "yntra_vault_v1",
         "backup_type": "emergency_opfs_eviction_guard",
         "workspace_id": workspace_id,
         "timestamp_ms": now_ms,
         "unsynced_count": unsynced_count,
+        "tables": table_dumps,
     });
 
     Ok(EmergencyBackupPayload {
@@ -123,6 +159,7 @@ pub async fn generate_emergency_storage_backup_payload(
         archive_json: archive_obj.to_string(),
     })
 }
+
 
 #[cfg(test)]
 mod tests {

@@ -8,8 +8,9 @@ pub use database::proxy::RemoteSyncCoordinator;
 pub use database::sync::*;
 pub use database::thin_sync::*;
 pub use database::zero_copy::{
-    EdgeSyncLoop, P2PMeshSyncRouter, ZeroCopyAuditStore, ZeroCopyMessageStore, ZeroCopyNoteStore,
-    ZeroCopyStore, ZkCryptoTrust, create_peer_note_store, create_peer_store,
+    BreakGlassResult, ComplianceMode, DlpInspectionResult, DlpPolicy, EdgeSyncLoop,
+    P2PMeshSyncRouter, ZeroCopyAuditStore, ZeroCopyMessageStore, ZeroCopyNoteStore, ZeroCopyStore,
+    ZkCryptoTrust, create_peer_note_store, create_peer_store, inspect_payload_dlp_bytes,
 };
 pub use infra::auth::AuthContext;
 pub use infra::errors::*;

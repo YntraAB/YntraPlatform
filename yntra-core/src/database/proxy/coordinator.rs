@@ -1115,9 +1115,9 @@ impl RemoteSyncCoordinator {
             }
             "move_inventory" => {
                 let mut stmt = if auth.role == "platform_admin" {
-                    conn.prepare("SELECT id, workspace_id, job_ticket_id, item_name, room_tag, condition_notes, photo_urls_json, crate_barcode, updated_at FROM move_inventory").await?
+                    conn.prepare("SELECT id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, COALESCE(handling_notes, ''), COALESCE(room_name, ''), updated_at FROM move_inventory").await?
                 } else {
-                    conn.prepare("SELECT id, workspace_id, job_ticket_id, item_name, room_tag, condition_notes, photo_urls_json, crate_barcode, updated_at FROM move_inventory WHERE workspace_id = ?1").await?
+                    conn.prepare("SELECT id, workspace_id, job_ticket_id, item_category, item_name, quantity, estimated_volume_m3, COALESCE(handling_notes, ''), COALESCE(room_name, ''), updated_at FROM move_inventory WHERE workspace_id = ?1").await?
                 };
 
                 let mut rows = if auth.role == "platform_admin" {
@@ -1128,17 +1128,17 @@ impl RemoteSyncCoordinator {
 
                 let mut list = Vec::new();
                 while let Some(row) = rows.next().await? {
-                    let crate_barcode: Option<String> = row.get(7)?;
                     let item = serde_json::json!({
                         "id": row.get::<String>(0)?,
                         "workspace_id": row.get::<String>(1)?,
                         "job_ticket_id": row.get::<String>(2)?,
-                        "item_name": row.get::<String>(3)?,
-                        "room_tag": row.get::<String>(4)?,
-                        "condition_notes": row.get::<String>(5)?,
-                        "photo_urls_json": row.get::<String>(6)?,
-                        "crate_barcode": crate_barcode,
-                        "updated_at": row.get::<i64>(8)?,
+                        "item_category": row.get::<String>(3)?,
+                        "item_name": row.get::<String>(4)?,
+                        "quantity": row.get::<i64>(5)?,
+                        "estimated_volume_m3": row.get::<f64>(6)?,
+                        "handling_notes": row.get::<String>(7)?,
+                        "room_name": row.get::<String>(8)?,
+                        "updated_at": row.get::<i64>(9)?,
                     });
                     list.push(item);
                 }
@@ -1146,9 +1146,9 @@ impl RemoteSyncCoordinator {
             }
             "move_quotes" => {
                 let mut stmt = if auth.role == "platform_admin" {
-                    conn.prepare("SELECT id, workspace_id, customer_name, customer_email, estimated_volume_m3, distance_km, price_breakdown_json, status, created_at, updated_at FROM move_quotes").await?
+                    conn.prepare("SELECT id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at FROM move_quotes").await?
                 } else {
-                    conn.prepare("SELECT id, workspace_id, customer_name, customer_email, estimated_volume_m3, distance_km, price_breakdown_json, status, created_at, updated_at FROM move_quotes WHERE workspace_id = ?1").await?
+                    conn.prepare("SELECT id, workspace_id, job_ticket_id, base_price, distance_fee, stairs_surcharge, packing_supplies_fee, total_price, status, updated_at FROM move_quotes WHERE workspace_id = ?1").await?
                 };
 
                 let mut rows = if auth.role == "platform_admin" {
@@ -1162,13 +1162,13 @@ impl RemoteSyncCoordinator {
                     let item = serde_json::json!({
                         "id": row.get::<String>(0)?,
                         "workspace_id": row.get::<String>(1)?,
-                        "customer_name": row.get::<String>(2)?,
-                        "customer_email": row.get::<String>(3)?,
-                        "estimated_volume_m3": row.get::<f64>(4)?,
-                        "distance_km": row.get::<f64>(5)?,
-                        "price_breakdown_json": row.get::<String>(6)?,
-                        "status": row.get::<String>(7)?,
-                        "created_at": row.get::<String>(8)?,
+                        "job_ticket_id": row.get::<String>(2)?,
+                        "base_price": row.get::<f64>(3)?,
+                        "distance_fee": row.get::<f64>(4)?,
+                        "stairs_surcharge": row.get::<f64>(5)?,
+                        "packing_supplies_fee": row.get::<f64>(6)?,
+                        "total_price": row.get::<f64>(7)?,
+                        "status": row.get::<String>(8)?,
                         "updated_at": row.get::<i64>(9)?,
                     });
                     list.push(item);
@@ -1177,9 +1177,9 @@ impl RemoteSyncCoordinator {
             }
             "move_invoices" => {
                 let mut stmt = if auth.role == "platform_admin" {
-                    conn.prepare("SELECT id, workspace_id, quote_id, rut_deduction_amount, final_amount, status, created_at, updated_at FROM move_invoices").await?
+                    conn.prepare("SELECT id, workspace_id, quote_id, customer_id, invoice_date, due_date, subtotal, rut_deduction, customer_amount, tax_authority_amount, status, updated_at FROM move_invoices").await?
                 } else {
-                    conn.prepare("SELECT id, workspace_id, quote_id, rut_deduction_amount, final_amount, status, created_at, updated_at FROM move_invoices WHERE workspace_id = ?1").await?
+                    conn.prepare("SELECT id, workspace_id, quote_id, customer_id, invoice_date, due_date, subtotal, rut_deduction, customer_amount, tax_authority_amount, status, updated_at FROM move_invoices WHERE workspace_id = ?1").await?
                 };
 
                 let mut rows = if auth.role == "platform_admin" {
@@ -1194,11 +1194,15 @@ impl RemoteSyncCoordinator {
                         "id": row.get::<String>(0)?,
                         "workspace_id": row.get::<String>(1)?,
                         "quote_id": row.get::<String>(2)?,
-                        "rut_deduction_amount": row.get::<f64>(3)?,
-                        "final_amount": row.get::<f64>(4)?,
-                        "status": row.get::<String>(5)?,
-                        "created_at": row.get::<String>(6)?,
-                        "updated_at": row.get::<i64>(7)?,
+                        "customer_id": row.get::<String>(3)?,
+                        "invoice_date": row.get::<String>(4)?,
+                        "due_date": row.get::<String>(5)?,
+                        "subtotal": row.get::<f64>(6)?,
+                        "rut_deduction": row.get::<f64>(7)?,
+                        "customer_amount": row.get::<f64>(8)?,
+                        "tax_authority_amount": row.get::<f64>(9)?,
+                        "status": row.get::<String>(10)?,
+                        "updated_at": row.get::<i64>(11)?,
                     });
                     list.push(item);
                 }

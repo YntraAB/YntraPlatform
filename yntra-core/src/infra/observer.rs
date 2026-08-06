@@ -1,4 +1,7 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
+
+static TRANSACTION_SEQUENCE_NUMBER: AtomicU64 = AtomicU64::new(1);
 
 // Reactive Database Observer callback trait
 #[uniffi::export(callback_interface)]
@@ -11,7 +14,36 @@ pub trait DatabaseObserver: Send + Sync {
         self.on_table_changed(_table);
     }
     fn on_sync_status_changed(&self, _pending_count: u32) {}
+    fn on_state_sequence_changed(&self, _seq: u64) {}
 }
+
+#[derive(uniffi::Record, Debug, Clone, PartialEq)]
+pub struct StateReconciliationReport {
+    pub current_sequence: u64,
+    pub last_acknowledged_sequence: u64,
+    pub has_missed_events: bool,
+    pub missed_events_count: u64,
+}
+
+#[uniffi::export]
+pub fn get_current_state_sequence_number() -> u64 {
+    TRANSACTION_SEQUENCE_NUMBER.load(Ordering::Relaxed)
+}
+
+#[uniffi::export]
+pub fn reconcile_foreground_state(last_acknowledged_seq: u64) -> StateReconciliationReport {
+    let current_seq = TRANSACTION_SEQUENCE_NUMBER.load(Ordering::Relaxed);
+    let has_missed = current_seq > last_acknowledged_seq;
+    let missed_count = current_seq.saturating_sub(last_acknowledged_seq);
+
+    StateReconciliationReport {
+        current_sequence: current_seq,
+        last_acknowledged_sequence: last_acknowledged_seq,
+        has_missed_events: has_missed,
+        missed_events_count: missed_count,
+    }
+}
+
 
 static MODIFIED_TABLES: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
 static MODIFIED_RECORDS: OnceLock<Mutex<Vec<(String, String)>>> = OnceLock::new();
@@ -115,7 +147,9 @@ pub fn notify_observers() {
                 .collect();
 
             // 4. Dispatch notifications to observers
+            let seq = TRANSACTION_SEQUENCE_NUMBER.fetch_add(1, Ordering::SeqCst) + 1;
             for observer in &observers {
+                observer.on_state_sequence_changed(seq);
                 for (table, id) in &filtered_records {
                     observer.on_record_changed(table.clone(), id.clone());
                 }
@@ -124,10 +158,13 @@ pub fn notify_observers() {
                 }
             }
         } else {
+            let seq = TRANSACTION_SEQUENCE_NUMBER.fetch_add(1, Ordering::SeqCst) + 1;
             for observer in observers {
+                observer.on_state_sequence_changed(seq);
                 observer.on_database_changed();
             }
         }
+
     };
 
     #[cfg(test)]

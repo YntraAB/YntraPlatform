@@ -73,30 +73,21 @@ pub async fn create_support_ticket(
     initial_message: String,
 ) -> Result<SupportTicket, YntraError> {
     let conn = database::acquire_connection().await?;
-    let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
+    let _auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
 
     let ticket_id = format!("ticket-{}", uuid::Uuid::new_v4());
     let now_ms = crate::infra::time::get_current_time_ms();
     let cat_norm = category.to_lowercase();
     let prio_norm = priority.to_lowercase();
 
-    let ws_settings_val: serde_json::Value = auth
-        .workspace_settings
-        .as_deref()
-        .and_then(|s| serde_json::from_str(s).ok())
-        .unwrap_or_default();
-
-    let user_name = ws_settings_val
-        .get("full_name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("Workspace Member")
-        .to_string();
-
-    let user_email = ws_settings_val
-        .get("email")
-        .and_then(|v| v.as_str())
-        .unwrap_or("user@workspace.io")
-        .to_string();
+    let (user_name, user_email): (String, String) = conn
+        .query_row(
+            "SELECT COALESCE(full_name, 'Workspace Member'), COALESCE(email, 'user@workspace.io') FROM users WHERE id = ?1",
+            crate::params![&requester_user_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .await
+        .unwrap_or(("Workspace Member".to_string(), "user@workspace.io".to_string()));
 
     let first_msg = SupportTicketMessage {
         sender_id: requester_user_id.clone(),

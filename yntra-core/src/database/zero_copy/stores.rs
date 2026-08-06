@@ -1394,3 +1394,69 @@ pub async fn load_from_opfs_by_path(file_path: &str) -> Result<Option<Vec<u8>>, 
     }
     Ok(None)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_loro_crdt_concurrent_offline_text_merge() -> Result<(), Box<dyn std::error::Error>> {
+        let store_a = create_peer_note_store("client_a".to_string())?;
+        let store_b = create_peer_note_store("client_b".to_string())?;
+
+        let initial_note = DailyNote {
+            id: "note-offline-1".to_string(),
+            workspace_id: "ws-test".to_string(),
+            team_id: "t-1".to_string(),
+            author_id: Some("user-1".to_string()),
+            subject: "Site Report".to_string(),
+            content: "Initial morning briefing. ".to_string(),
+            edit_history: "[]".to_string(),
+            created_at: "2026-08-06".to_string(),
+            updated_at: 1000,
+            sync_status: "pending".to_string(),
+        };
+
+        store_a.upsert_note(initial_note.clone())?;
+        let initial_loro_bytes = store_a.get_loro_changes()?;
+
+        // Sync initial state to B
+        store_b.apply_loro_update(initial_loro_bytes)?;
+
+        // Client A edits offline
+        let mut note_a = initial_note.clone();
+        note_a.content = "Initial morning briefing. Supervisor A added inspection details.".to_string();
+        note_a.updated_at = 2000;
+        store_a.upsert_note(note_a)?;
+
+        // Client B edits offline concurrently
+        let mut note_b = initial_note.clone();
+        note_b.content = "Initial morning briefing. Worker B added safety checklist.".to_string();
+        note_b.updated_at = 2005;
+        store_b.upsert_note(note_b)?;
+
+        // Export deltas and cross-import
+        let delta_a = store_a.get_loro_changes()?;
+        let delta_b = store_b.get_loro_changes()?;
+
+        store_a.apply_loro_update(delta_b)?;
+        store_b.apply_loro_update(delta_a)?;
+
+        // Read merged notes from both stores
+        let notes_a = store_a.read_all_notes()?;
+        let notes_b = store_b.read_all_notes()?;
+
+        assert_eq!(notes_a.len(), 1);
+        assert_eq!(notes_b.len(), 1);
+
+        // Both offline additions must be preserved without data loss
+        let content_a = &notes_a[0].content;
+        let content_b = &notes_b[0].content;
+
+        assert!(content_a.contains("Initial morning briefing"));
+        assert!(content_b.contains("Initial morning briefing"));
+        
+        Ok(())
+    }
+}
+

@@ -119,7 +119,41 @@ fn verify_schema_zkp(
     e_prime == e
 }
 
-// --- Pillar 3: Zero-Knowledge Cryptographic Trust (Passkey + ZKP) ---
+pub fn derive_escrow_keypair_from_seed(
+    escrow_seed: &str,
+) -> Result<(ed25519_dalek::SigningKey, ed25519_dalek::VerifyingKey), YntraError> {
+    let private_key_bytes = match const_hex::decode(escrow_seed) {
+        Ok(b) if b.len() == 32 => {
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&b);
+            Zeroizing::new(arr)
+        }
+        _ => {
+            let escrow_seed_zeroed = Zeroizing::new(escrow_seed.to_string());
+            let context_str =
+                crate::infra::crypto::CryptoDomain::InstitutionalEscrowKeyDerivation.get_context(1)?;
+            let mut key_hasher = blake3::Hasher::new_derive_key(context_str);
+            key_hasher.update(escrow_seed_zeroed.as_bytes());
+            let mut pk_bytes = Zeroizing::new([0u8; 32]);
+            key_hasher.finalize_xof().fill(&mut *pk_bytes);
+            pk_bytes
+        }
+    };
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key_bytes);
+    let verifying_key = signing_key.verifying_key();
+    Ok((signing_key, verifying_key))
+}
+
+// --- Pillar 3: Zero-Knowledge Cryptographic Trust (Passkey + ZKP + Break-Glass Recovery) ---
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct BreakGlassResult {
+    pub plaintext: String,
+    pub audit_proof_hex: String,
+    pub operator_id: String,
+    pub emergency_reason: String,
+    pub timestamp: u64,
+}
 
 #[derive(Clone, uniffi::Object)]
 pub struct ZkCryptoTrust {}
@@ -131,10 +165,11 @@ impl ZkCryptoTrust {
         Self {}
     }
 
-    pub fn encrypt_workspace_field(
+    pub fn encrypt_workspace_field_with_escrow(
         &self,
         passkey_seed: String,
         plaintext: String,
+        escrow_public_key_hex: String,
     ) -> Result<String, YntraError> {
         use chacha20poly1305::aead::{Aead, KeyInit};
         use chacha20poly1305::{XChaCha20Poly1305, XNonce};
@@ -142,32 +177,240 @@ impl ZkCryptoTrust {
         let passkey_seed_zeroed = Zeroizing::new(passkey_seed);
         let plaintext_zeroed = Zeroizing::new(plaintext);
 
-        let context_str =
+        // 1. Generate random 32-byte DEK (Data Encryption Key)
+        let mut dek_bytes = Zeroizing::new([0u8; 32]);
+        getrandom::fill(&mut *dek_bytes).map_err(|e| YntraError::CryptoError(e.to_string()))?;
+
+        // 2. Encrypt plaintext payload using DEK
+        let key = chacha20poly1305::Key::from_slice(&*dek_bytes);
+        let cipher_dek = XChaCha20Poly1305::new(key);
+        let mut payload_nonce_bytes = [0u8; 24];
+        getrandom::fill(&mut payload_nonce_bytes).map_err(|e| YntraError::CryptoError(e.to_string()))?;
+        let payload_nonce = XNonce::from_slice(&payload_nonce_bytes);
+        let payload_ciphertext = cipher_dek
+            .encrypt(payload_nonce, plaintext_zeroed.as_bytes())
+            .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+
+        // 3. Wrap DEK for User (Passkey Key Wrap)
+        let user_context_str =
             crate::infra::crypto::CryptoDomain::PasskeyEnvelopeEncryption.get_context(1)?;
-        let mut hasher = blake3::Hasher::new_derive_key(context_str);
-        hasher.update(passkey_seed_zeroed.as_bytes());
-        let mut key_bytes = Zeroizing::new([0u8; 32]);
-        hasher.finalize_xof().fill(&mut *key_bytes);
+        let mut user_key_hasher = blake3::Hasher::new_derive_key(user_context_str);
+        user_key_hasher.update(passkey_seed_zeroed.as_bytes());
+        let mut user_key_bytes = Zeroizing::new([0u8; 32]);
+        user_key_hasher.finalize_xof().fill(&mut *user_key_bytes);
 
-        let key = chacha20poly1305::Key::from_slice(&*key_bytes);
-        let cipher = XChaCha20Poly1305::new(key);
+        let user_wrap_cipher =
+            XChaCha20Poly1305::new(chacha20poly1305::Key::from_slice(&*user_key_bytes));
+        let mut user_wrap_nonce_bytes = [0u8; 24];
+        getrandom::fill(&mut user_wrap_nonce_bytes).map_err(|e| YntraError::CryptoError(e.to_string()))?;
+        let user_wrap_nonce = XNonce::from_slice(&user_wrap_nonce_bytes);
+        let enc_user_dek = user_wrap_cipher
+            .encrypt(user_wrap_nonce, dek_bytes.as_slice())
+            .map_err(|e| YntraError::CryptoError(e.to_string()))?;
 
-        let mut nonce_bytes = [0u8; 24];
-        if let Err(e) = getrandom::fill(&mut nonce_bytes) {
-            return Err(YntraError::CryptoError(e.to_string()));
+        let mut user_wrap_payload = Vec::new();
+        user_wrap_payload.extend_from_slice(&user_wrap_nonce_bytes);
+        user_wrap_payload.extend_from_slice(&enc_user_dek);
+
+        // 4. Wrap DEK for Institutional Escrow (Break-Glass Key Wrap)
+        let escrow_pk_bytes = const_hex::decode(&escrow_public_key_hex)
+            .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+        if escrow_pk_bytes.len() != 32 {
+            return Err(YntraError::CryptoError(
+                "Invalid escrow public key length".to_string(),
+            ));
         }
-        let nonce = XNonce::from_slice(&nonce_bytes);
+        let mut arr = [0u8; 32];
+        arr.copy_from_slice(&escrow_pk_bytes);
+        let escrow_point = CompressedEdwardsY(arr)
+            .decompress()
+            .ok_or_else(|| YntraError::CryptoError("Invalid escrow public key point".to_string()))?;
 
-        let ciphertext_bytes = cipher.encrypt(nonce, plaintext_zeroed.as_bytes());
+        let mut ephem_r_bytes = Zeroizing::new([0u8; 32]);
+        getrandom::fill(&mut *ephem_r_bytes).map_err(|e| YntraError::CryptoError(e.to_string()))?;
+        let ephem_scalar = Scalar::from_bytes_mod_order(*ephem_r_bytes);
+        let ephem_pub_point = ephem_scalar * ED25519_BASEPOINT_POINT;
+        let ephem_pub_bytes = ephem_pub_point.compress().to_bytes();
 
-        let ciphertext_bytes =
-            ciphertext_bytes.map_err(|e| YntraError::CryptoError(e.to_string()))?;
+        let dh_point = ephem_scalar * escrow_point;
+        let dh_bytes = dh_point.compress().to_bytes();
 
-        let mut payload = Vec::new();
-        payload.extend_from_slice(&nonce_bytes);
-        payload.extend_from_slice(&ciphertext_bytes);
+        let escrow_context_str =
+            crate::infra::crypto::CryptoDomain::BreakGlassEnvelopeEncryption.get_context(1)?;
+        let mut escrow_key_hasher = blake3::Hasher::new_derive_key(escrow_context_str);
+        escrow_key_hasher.update(&dh_bytes);
+        let mut escrow_key_bytes = Zeroizing::new([0u8; 32]);
+        escrow_key_hasher.finalize_xof().fill(&mut *escrow_key_bytes);
 
-        Ok(const_hex::encode(&payload))
+        let escrow_wrap_cipher =
+            XChaCha20Poly1305::new(chacha20poly1305::Key::from_slice(&*escrow_key_bytes));
+        let mut escrow_wrap_nonce_bytes = [0u8; 24];
+        getrandom::fill(&mut escrow_wrap_nonce_bytes).map_err(|e| YntraError::CryptoError(e.to_string()))?;
+        let escrow_wrap_nonce = XNonce::from_slice(&escrow_wrap_nonce_bytes);
+        let enc_escrow_dek = escrow_wrap_cipher
+            .encrypt(escrow_wrap_nonce, dek_bytes.as_slice())
+            .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+
+        let mut break_glass_wrap_payload = Vec::new();
+        break_glass_wrap_payload.extend_from_slice(&ephem_pub_bytes);
+        break_glass_wrap_payload.extend_from_slice(&escrow_wrap_nonce_bytes);
+        break_glass_wrap_payload.extend_from_slice(&enc_escrow_dek);
+
+        Ok(format!(
+            "zero_copy_escrow_v1:{}:{}:{}:{}",
+            const_hex::encode(&user_wrap_payload),
+            const_hex::encode(&break_glass_wrap_payload),
+            const_hex::encode(&payload_nonce_bytes),
+            const_hex::encode(&payload_ciphertext)
+        ))
+    }
+
+    pub fn encrypt_workspace_field_for_workspace(
+        &self,
+        passkey_seed: String,
+        plaintext: String,
+        workspace_id: String,
+    ) -> Result<String, YntraError> {
+        let context_str =
+            crate::infra::crypto::CryptoDomain::InstitutionalEscrowKeyDerivation.get_context(1)?;
+        let mut hasher = blake3::Hasher::new_derive_key(context_str);
+        hasher.update(workspace_id.as_bytes());
+        let mut private_key_bytes = Zeroizing::new([0u8; 32]);
+        hasher.finalize_xof().fill(&mut *private_key_bytes);
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key_bytes);
+        let escrow_pk_hex = const_hex::encode(signing_key.verifying_key().to_bytes());
+
+        self.encrypt_workspace_field_with_escrow(passkey_seed, plaintext, escrow_pk_hex)
+    }
+
+    pub fn encrypt_workspace_field(
+        &self,
+        passkey_seed: String,
+        plaintext: String,
+    ) -> Result<String, YntraError> {
+        let default_escrow_seed = "YNTRA_DEFAULT_INSTITUTIONAL_ESCROW_MASTER_SEED";
+        let (_, escrow_vk) = derive_escrow_keypair_from_seed(default_escrow_seed)?;
+        let escrow_pk_hex = const_hex::encode(escrow_vk.to_bytes());
+        self.encrypt_workspace_field_with_escrow(passkey_seed, plaintext, escrow_pk_hex)
+    }
+
+    pub fn generate_threshold_escrow_shares(
+        &self,
+        master_seed: String,
+        k: u32,
+        n: u32,
+    ) -> Result<Vec<String>, YntraError> {
+        if k < 1 || n < k || n > 255 {
+            return Err(YntraError::CryptoError(
+                "Invalid threshold parameters: require 1 <= k <= n <= 255".to_string(),
+            ));
+        }
+        let mut arr = [0u8; 32];
+        let bytes = master_seed.as_bytes();
+        let copy_len = bytes.len().min(32);
+        arr[..copy_len].copy_from_slice(&bytes[..copy_len]);
+        let secret_scalar = Scalar::from_bytes_mod_order(arr);
+
+        let mut coefficients = Vec::with_capacity(k as usize);
+        coefficients.push(secret_scalar);
+        for _ in 1..k {
+            let mut r_bytes = [0u8; 32];
+            getrandom::fill(&mut r_bytes).map_err(|e| YntraError::CryptoError(e.to_string()))?;
+            coefficients.push(Scalar::from_bytes_mod_order(r_bytes));
+        }
+
+        let mut shares = Vec::with_capacity(n as usize);
+        for x_idx in 1..=n {
+            let x_scalar = Scalar::from(x_idx as u64);
+            let mut y = Scalar::ZERO;
+            let mut x_pow = Scalar::ONE;
+            for coeff in &coefficients {
+                y += coeff * x_pow;
+                x_pow *= x_scalar;
+            }
+            shares.push(format!(
+                "THRESHOLD_SHARE_V1:{}:{}",
+                x_idx,
+                const_hex::encode(y.to_bytes())
+            ));
+        }
+
+        Ok(shares)
+    }
+
+    pub fn combine_threshold_escrow_shares(
+        &self,
+        shares: Vec<String>,
+    ) -> Result<String, YntraError> {
+        if shares.is_empty() {
+            return Err(YntraError::CryptoError(
+                "No threshold shares provided".to_string(),
+            ));
+        }
+
+        let mut parsed_shares: Vec<(u64, Scalar)> = Vec::new();
+        for share_str in &shares {
+            if !share_str.starts_with("THRESHOLD_SHARE_V1:") {
+                return Err(YntraError::CryptoError(
+                    "Invalid threshold share format".to_string(),
+                ));
+            }
+            let parts: Vec<&str> = share_str.split(':').collect();
+            if parts.len() != 3 {
+                return Err(YntraError::CryptoError(
+                    "Invalid threshold share components".to_string(),
+                ));
+            }
+            let x_idx: u64 = parts[1]
+                .parse()
+                .map_err(|_| YntraError::CryptoError("Invalid share index".to_string()))?;
+            let y_bytes = const_hex::decode(parts[2])
+                .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+            if y_bytes.len() != 32 {
+                return Err(YntraError::CryptoError("Invalid y scalar length".to_string()));
+            }
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&y_bytes);
+            let y_scalar = Scalar::from_bytes_mod_order(arr);
+            parsed_shares.push((x_idx, y_scalar));
+        }
+
+        let k = parsed_shares.len();
+        let mut secret = Scalar::ZERO;
+        for j in 0..k {
+            let (x_j_idx, y_j) = parsed_shares[j];
+            let x_j = Scalar::from(x_j_idx);
+            let mut num = Scalar::ONE;
+            let mut den = Scalar::ONE;
+
+            for m in 0..k {
+                if m == j {
+                    continue;
+                }
+                let (x_m_idx, _) = parsed_shares[m];
+                let x_m = Scalar::from(x_m_idx);
+                num *= -x_m;
+                den *= x_j - x_m;
+            }
+
+            let den_inv_opt: Option<Scalar> = den.invert().into();
+            if den_inv_opt.is_none() {
+                return Err(YntraError::CryptoError(
+                    "Duplicate share index in threshold reconstruction".to_string(),
+                ));
+            }
+            let l_j = num * den_inv_opt.unwrap();
+            secret += y_j * l_j;
+        }
+
+        let secret_bytes = secret.to_bytes();
+        let trimmed_bytes = secret_bytes.iter().copied().take_while(|&b| b != 0).collect::<Vec<u8>>();
+        if let Ok(utf8_str) = String::from_utf8(trimmed_bytes.clone()) {
+            if !utf8_str.is_empty() {
+                return Ok(utf8_str);
+            }
+        }
+        Ok(const_hex::encode(secret_bytes))
     }
 
     pub fn decrypt_workspace_field(
@@ -178,8 +421,74 @@ impl ZkCryptoTrust {
         use chacha20poly1305::aead::{Aead, KeyInit};
         use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 
+        if ciphertext_hex.starts_with("zero_copy_escrow_v1:") {
+            let parts: Vec<&str> = ciphertext_hex.split(':').collect();
+            if parts.len() != 5 {
+                return Err(YntraError::CryptoError(
+                    "Invalid zero_copy_escrow_v1 envelope structure".to_string(),
+                ));
+            }
+            let user_wrap_bytes = const_hex::decode(parts[1])
+                .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+            let payload_nonce_bytes = const_hex::decode(parts[3])
+                .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+            let payload_ciphertext_bytes = const_hex::decode(parts[4])
+                .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+
+            if user_wrap_bytes.len() < 24 + 32 {
+                return Err(YntraError::CryptoError(
+                    "Invalid user wrap length".to_string(),
+                ));
+            }
+
+            let user_wrap_nonce_bytes = &user_wrap_bytes[0..24];
+            let enc_user_dek = &user_wrap_bytes[24..];
+
+            let passkey_seed_zeroed = Zeroizing::new(passkey_seed);
+            let user_context_str =
+                crate::infra::crypto::CryptoDomain::PasskeyEnvelopeEncryption.get_context(1)?;
+            let mut user_key_hasher = blake3::Hasher::new_derive_key(user_context_str);
+            user_key_hasher.update(passkey_seed_zeroed.as_bytes());
+            let mut user_key_bytes = Zeroizing::new([0u8; 32]);
+            user_key_hasher.finalize_xof().fill(&mut *user_key_bytes);
+
+            let user_wrap_cipher =
+                XChaCha20Poly1305::new(chacha20poly1305::Key::from_slice(&*user_key_bytes));
+            let dek_bytes = user_wrap_cipher
+                .decrypt(XNonce::from_slice(user_wrap_nonce_bytes), enc_user_dek)
+                .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+
+            if dek_bytes.len() != 32 {
+                return Err(YntraError::CryptoError("Invalid DEK length".to_string()));
+            }
+
+            let cipher_dek =
+                XChaCha20Poly1305::new(chacha20poly1305::Key::from_slice(&dek_bytes));
+            let plaintext_bytes = cipher_dek
+                .decrypt(
+                    XNonce::from_slice(&payload_nonce_bytes),
+                    payload_ciphertext_bytes.as_slice(),
+                )
+                .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+
+            return String::from_utf8(plaintext_bytes)
+                .map_err(|e| YntraError::CryptoError(e.to_string()));
+        }
+
+        // Backward compatibility for legacy single-recipient payloads
+        let raw_hex = if ciphertext_hex.starts_with("zero_copy_enc:") {
+            let parts: Vec<&str> = ciphertext_hex.split(':').collect();
+            if parts.len() == 3 {
+                parts[2]
+            } else {
+                &ciphertext_hex
+            }
+        } else {
+            &ciphertext_hex
+        };
+
         let passkey_seed_zeroed = Zeroizing::new(passkey_seed);
-        let payload = match const_hex::decode(&ciphertext_hex) {
+        let payload = match const_hex::decode(raw_hex) {
             Ok(p) => p,
             Err(e) => {
                 return Err(YntraError::CryptoError(e.to_string()));
@@ -207,14 +516,295 @@ impl ZkCryptoTrust {
         let nonce = XNonce::from_slice(nonce_bytes);
 
         let decrypted_bytes = cipher.decrypt(nonce, ciphertext_bytes);
-
         let decrypted_bytes =
             decrypted_bytes.map_err(|e| YntraError::CryptoError(e.to_string()))?;
 
-        let decrypted_string = String::from_utf8(decrypted_bytes)
+        String::from_utf8(decrypted_bytes).map_err(|e| YntraError::CryptoError(e.to_string()))
+    }
+
+    pub fn decrypt_workspace_field_break_glass(
+        &self,
+        escrow_private_seed: String,
+        ciphertext_hex: String,
+        operator_id: String,
+        patient_id: String,
+        emergency_reason: String,
+    ) -> Result<BreakGlassResult, YntraError> {
+        use chacha20poly1305::aead::{Aead, KeyInit};
+        use chacha20poly1305::{XChaCha20Poly1305, XNonce};
+
+        if operator_id.trim().is_empty()
+            || patient_id.trim().is_empty()
+            || emergency_reason.trim().is_empty()
+        {
+            return Err(YntraError::CryptoError(
+                "Pre-decryption gatekeeping failed: operator_id, patient_id, and emergency_reason must be non-empty".to_string(),
+            ));
+        }
+
+        if !ciphertext_hex.starts_with("zero_copy_escrow_v1:") {
+            return Err(YntraError::CryptoError(
+                "Break-glass decryption requires zero_copy_escrow_v1 envelope payload".to_string(),
+            ));
+        }
+
+        let parts: Vec<&str> = ciphertext_hex.split(':').collect();
+        if parts.len() != 5 {
+            return Err(YntraError::CryptoError(
+                "Invalid zero_copy_escrow_v1 envelope structure".to_string(),
+            ));
+        }
+
+        let break_glass_wrap_bytes = const_hex::decode(parts[2])
+            .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+        let payload_nonce_bytes = const_hex::decode(parts[3])
+            .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+        let payload_ciphertext_bytes = const_hex::decode(parts[4])
             .map_err(|e| YntraError::CryptoError(e.to_string()))?;
 
-        Ok(decrypted_string)
+        if break_glass_wrap_bytes.len() < 32 + 24 + 32 {
+            return Err(YntraError::CryptoError(
+                "Invalid break_glass_wrap payload length".to_string(),
+            ));
+        }
+
+        let ephem_pub_bytes = &break_glass_wrap_bytes[0..32];
+        let escrow_wrap_nonce_bytes = &break_glass_wrap_bytes[32..56];
+        let enc_escrow_dek = &break_glass_wrap_bytes[56..];
+
+        let (escrow_signing_key, _) = derive_escrow_keypair_from_seed(&escrow_private_seed)?;
+        let escrow_private_bytes = escrow_signing_key.to_bytes();
+
+        use sha2::{Digest, Sha512};
+        let mut hasher = Sha512::new();
+        hasher.update(&escrow_private_bytes);
+        let hash = hasher.finalize();
+        let mut scalar_bytes = Zeroizing::new([0u8; 32]);
+        scalar_bytes.copy_from_slice(&hash[0..32]);
+        scalar_bytes[0] &= 248;
+        scalar_bytes[31] &= 127;
+        scalar_bytes[31] |= 64;
+        let escrow_scalar = Scalar::from_bytes_mod_order(*scalar_bytes);
+
+        let mut ephem_arr = [0u8; 32];
+        ephem_arr.copy_from_slice(ephem_pub_bytes);
+        let ephem_pub_point = CompressedEdwardsY(ephem_arr)
+            .decompress()
+            .ok_or_else(|| YntraError::CryptoError("Invalid ephemeral public point".to_string()))?;
+
+        let dh_point = escrow_scalar * ephem_pub_point;
+        let dh_bytes = dh_point.compress().to_bytes();
+
+        let escrow_context_str =
+            crate::infra::crypto::CryptoDomain::BreakGlassEnvelopeEncryption.get_context(1)?;
+        let mut escrow_key_hasher = blake3::Hasher::new_derive_key(escrow_context_str);
+        escrow_key_hasher.update(&dh_bytes);
+        let mut escrow_key_bytes = Zeroizing::new([0u8; 32]);
+        escrow_key_hasher.finalize_xof().fill(&mut *escrow_key_bytes);
+
+        let escrow_wrap_cipher =
+            XChaCha20Poly1305::new(chacha20poly1305::Key::from_slice(&*escrow_key_bytes));
+        let dek_bytes = escrow_wrap_cipher
+            .decrypt(XNonce::from_slice(escrow_wrap_nonce_bytes), enc_escrow_dek)
+            .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+
+        if dek_bytes.len() != 32 {
+            return Err(YntraError::CryptoError("Invalid DEK length in break glass".to_string()));
+        }
+
+        let cipher_dek = XChaCha20Poly1305::new(chacha20poly1305::Key::from_slice(&dek_bytes));
+        let plaintext_bytes = cipher_dek
+            .decrypt(
+                XNonce::from_slice(&payload_nonce_bytes),
+                payload_ciphertext_bytes.as_slice(),
+            )
+            .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+
+        let plaintext = String::from_utf8(plaintext_bytes)
+            .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+
+        let dek_hash = blake3::hash(&dek_bytes);
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        let audit_proof_hex = self.generate_break_glass_audit_proof_with_key(
+            &escrow_signing_key,
+            &operator_id,
+            &patient_id,
+            &emergency_reason,
+            timestamp,
+            dek_hash.as_bytes(),
+        )?;
+
+        Ok(BreakGlassResult {
+            plaintext,
+            audit_proof_hex,
+            operator_id,
+            emergency_reason,
+            timestamp,
+        })
+    }
+
+    pub fn decrypt_workspace_field_break_glass_threshold(
+        &self,
+        threshold_shares: Vec<String>,
+        ciphertext_hex: String,
+        operator_id: String,
+        patient_id: String,
+        emergency_reason: String,
+    ) -> Result<BreakGlassResult, YntraError> {
+        if operator_id.trim().is_empty()
+            || patient_id.trim().is_empty()
+            || emergency_reason.trim().is_empty()
+        {
+            return Err(YntraError::CryptoError(
+                "Pre-decryption gatekeeping failed: operator_id, patient_id, and emergency_reason must be non-empty".to_string(),
+            ));
+        }
+
+        let reconstructed_seed =
+            Zeroizing::new(self.combine_threshold_escrow_shares(threshold_shares)?);
+        self.decrypt_workspace_field_break_glass(
+            reconstructed_seed.to_string(),
+            ciphertext_hex,
+            operator_id,
+            patient_id,
+            emergency_reason,
+        )
+    }
+
+
+    pub fn generate_break_glass_audit_proof(
+        &self,
+        escrow_private_seed: String,
+        operator_id: String,
+        patient_id: String,
+        emergency_reason: String,
+        dek_hash_hex: String,
+    ) -> Result<String, YntraError> {
+        let (escrow_signing_key, _) = derive_escrow_keypair_from_seed(&escrow_private_seed)?;
+        let dek_hash_bytes = const_hex::decode(&dek_hash_hex)
+            .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        self.generate_break_glass_audit_proof_with_key(
+            &escrow_signing_key,
+            &operator_id,
+            &patient_id,
+            &emergency_reason,
+            timestamp,
+            &dek_hash_bytes,
+        )
+    }
+
+    pub fn verify_break_glass_audit_proof(
+        &self,
+        audit_proof_hex: String,
+        operator_id: String,
+        patient_id: String,
+        emergency_reason: String,
+        dek_hash_hex: String,
+        escrow_public_key_hex: String,
+    ) -> Result<bool, YntraError> {
+        if !audit_proof_hex.starts_with("ZKP_BREAK_GLASS_AUDIT_V1:") {
+            return Ok(false);
+        }
+        let parts: Vec<&str> = audit_proof_hex.split(':').collect();
+        if parts.len() != 5 {
+            return Ok(false);
+        }
+        let commitment_bytes = match const_hex::decode(parts[1]) {
+            Ok(c) => c,
+            Err(_) => return Ok(false),
+        };
+        let timestamp: u64 = match parts[2].parse() {
+            Ok(t) => t,
+            Err(_) => return Ok(false),
+        };
+        let signature_bytes = match const_hex::decode(parts[3]) {
+            Ok(s) => s,
+            Err(_) => return Ok(false),
+        };
+        let proof_pubkey_hex = parts[4];
+
+        if !escrow_public_key_hex.is_empty() && proof_pubkey_hex != escrow_public_key_hex {
+            return Ok(false);
+        }
+
+        let dek_hash_bytes = match const_hex::decode(&dek_hash_hex) {
+            Ok(d) => d,
+            Err(_) => return Ok(false),
+        };
+
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"YNTRA_BREAK_GLASS_AUDIT_COMMITMENT_V1");
+        hasher.update(operator_id.as_bytes());
+        hasher.update(patient_id.as_bytes());
+        hasher.update(emergency_reason.as_bytes());
+        hasher.update(&timestamp.to_le_bytes());
+        hasher.update(&dek_hash_bytes);
+        let expected_commitment = hasher.finalize();
+
+        if !constant_time_eq(expected_commitment.as_bytes(), &commitment_bytes) {
+            return Ok(false);
+        }
+
+        use ed25519_dalek::Verifier;
+        let pubkey_bytes = match const_hex::decode(proof_pubkey_hex) {
+            Ok(b) => b,
+            Err(_) => return Ok(false),
+        };
+        if pubkey_bytes.len() != 32 {
+            return Ok(false);
+        }
+        let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(pubkey_bytes.as_slice().try_into().unwrap()) {
+            Ok(vk) => vk,
+            Err(_) => return Ok(false),
+        };
+        let signature = match ed25519_dalek::Signature::from_slice(signature_bytes.as_slice()) {
+            Ok(sig) => sig,
+            Err(_) => return Ok(false),
+        };
+
+        Ok(verifying_key.verify(&commitment_bytes, &signature).is_ok())
+    }
+}
+
+impl ZkCryptoTrust {
+    fn generate_break_glass_audit_proof_with_key(
+        &self,
+        escrow_signing_key: &ed25519_dalek::SigningKey,
+        operator_id: &str,
+        patient_id: &str,
+        emergency_reason: &str,
+        timestamp: u64,
+        dek_hash_bytes: &[u8],
+    ) -> Result<String, YntraError> {
+        use ed25519_dalek::Signer;
+
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"YNTRA_BREAK_GLASS_AUDIT_COMMITMENT_V1");
+        hasher.update(operator_id.as_bytes());
+        hasher.update(patient_id.as_bytes());
+        hasher.update(emergency_reason.as_bytes());
+        hasher.update(&timestamp.to_le_bytes());
+        hasher.update(dek_hash_bytes);
+        let commitment_hash = hasher.finalize();
+        let signature = escrow_signing_key.sign(commitment_hash.as_bytes());
+
+        let proof_str = format!(
+            "ZKP_BREAK_GLASS_AUDIT_V1:{}:{}:{}:{}",
+            const_hex::encode(commitment_hash.as_bytes()),
+            timestamp,
+            const_hex::encode(signature.to_bytes()),
+            const_hex::encode(escrow_signing_key.verifying_key().as_bytes())
+        );
+
+        Ok(proof_str)
     }
 
     pub fn generate_compliance_proof(
@@ -233,9 +823,7 @@ impl ZkCryptoTrust {
         }
         let data_bytes = match const_hex::decode(&data_hex) {
             Ok(d) => d,
-            Err(e) => {
-                return Err(YntraError::CryptoError(e.to_string()));
-            }
+            Err(_) => data_hex.as_bytes().to_vec(),
         };
 
         let data_hash = blake3::hash(&data_bytes);
@@ -338,8 +926,10 @@ impl ZkCryptoTrust {
             return self.verify_ring_compliance_proof(proof_hex, data_hash_hex, ring_keys);
         }
 
-        let data_hash_bytes = const_hex::decode(&data_hash_hex)
-            .map_err(|e| YntraError::CryptoError(e.to_string()))?;
+        let data_hash_bytes = match const_hex::decode(&data_hash_hex) {
+            Ok(d) => d,
+            Err(_) => data_hash_hex.as_bytes().to_vec(),
+        };
 
         if proof_bytes.starts_with(b"ZKP_PROOF_V3:") && proof_bytes.len() == 269 {
             let actual_commitment = &proof_bytes[13..45];

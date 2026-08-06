@@ -421,31 +421,44 @@ pub async fn get_customer_live_tracking_portal(
     let mut vehicle_plate: Option<String> = None;
     let mut current_lat = 59.3293;
     let mut current_lon = 18.0686;
-    let speed_kmh = 42.0;
+    let speed_kmh = 0.0;
+    let heading_deg = 0.0;
+    let mut vehicle_updated_at: i64 = 0;
 
     if let Some(ref vid) = assigned_vehicle_id {
-        if let Ok((plate, lat, lon)) = conn.query_row(
-            "SELECT license_plate, COALESCE(latitude, 59.3293), COALESCE(longitude, 18.0686) FROM vehicles WHERE id = ?1",
+        if let Ok((plate, lat, lon, up_at)) = conn.query_row(
+            "SELECT license_plate, COALESCE(latitude, 59.3293), COALESCE(longitude, 18.0686), COALESCE(updated_at, 0) FROM vehicles WHERE id = ?1",
             crate::params![vid],
-            |r| Ok((r.get::<String>(0)?, r.get::<f64>(1)?, r.get::<f64>(2)?)),
+            |r| Ok((r.get::<String>(0)?, r.get::<f64>(1)?, r.get::<f64>(2)?, r.get::<Option<i64>>(3)?.unwrap_or(0))),
         ).await {
             vehicle_plate = Some(plate);
             current_lat = lat;
             current_lon = lon;
+            vehicle_updated_at = up_at;
         }
     }
 
-    let origin_lat = current_lat - 0.02;
-    let origin_lon = current_lon - 0.03;
-    let destination_lat = current_lat + 0.04;
-    let destination_lon = current_lon + 0.05;
+    let origin_lat = 59.3293;
+    let origin_lon = 18.0686;
+    let destination_lat = 59.3400;
+    let destination_lon = 18.0800;
 
-    let heading_deg = 45.0;
+    let road_circuity_factor = 1.25;
+    let dist_km = {
+        let r = 6371.0;
+        let d_lat = (destination_lat - current_lat).to_radians();
+        let d_lon = (destination_lon - current_lon).to_radians();
+        let a = (d_lat / 2.0).sin().powi(2)
+            + current_lat.to_radians().cos() * destination_lat.to_radians().cos() * (d_lon / 2.0).sin().powi(2);
+        let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
+        (r * c) * road_circuity_factor
+    };
 
     let estimated_mins = if status == "completed" {
         0
     } else {
-        ((15.0 / (f64::max(speed_kmh, 20.0) / 60.0)) as i32).clamp(5, 45)
+        let effective_speed = if speed_kmh > 5.0 { speed_kmh } else { 35.0 };
+        ((dist_km / effective_speed) * 60.0).round() as i32
     };
 
     let now_ms = chrono::Utc::now().timestamp_millis();
@@ -460,10 +473,10 @@ pub async fn get_customer_live_tracking_portal(
         current_lon,
         heading_deg,
         speed_kmh,
-        estimated_arrival_mins: estimated_mins,
+        estimated_arrival_mins: estimated_mins.max(0),
         route_status: status,
         live_tracking_url: tracking_url,
-        last_updated_at: now_ms,
+        last_updated_at: if vehicle_updated_at > 0 { vehicle_updated_at } else { now_ms },
         origin_address: if from_addr.is_empty() {
             "Ursprungsadress".to_string()
         } else {
