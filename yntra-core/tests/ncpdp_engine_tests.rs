@@ -52,6 +52,9 @@ async fn test_ncpdp_script_eprescribing_full_lifecycle() {
         10,
         2,
         "Take 1 capsule by mouth three times daily for 10 days".to_string(),
+        Some("XY1234567".to_string()),
+        Some("General Medical Clinic".to_string()),
+        None,
     )
     .await
     .unwrap();
@@ -62,6 +65,7 @@ async fn test_ncpdp_script_eprescribing_full_lifecycle() {
     assert!(create_res.xml_payload.contains("Amoxicillin 500mg Oral Capsule"));
     assert!(create_res.xml_payload.contains(prescriber_npi));
     assert!(create_res.xml_payload.contains(pharmacy_npi));
+    assert!(create_res.xml_payload.contains("XY1234567"));
 
     let rx_id = create_res.prescription_id.clone();
 

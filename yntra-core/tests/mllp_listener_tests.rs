@@ -15,6 +15,7 @@ async fn test_mllp_listener_full_lifecycle_and_socket_stream() {
 
     let conn = yntra_core::database::acquire_connection().await.unwrap();
     yntra_core::database::setup_schema(&conn).await.unwrap();
+    conn.execute("UPDATE users SET role = 'platform_admin' WHERE id = 'user-1'", ()).await.unwrap();
 
     let admin_id = "user-1";
     let ws_id = "workspace-1";

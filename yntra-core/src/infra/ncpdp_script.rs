@@ -104,6 +104,28 @@ pub fn validate_ncpdp_script_payload(
     Ok(())
 }
 
+/// Validate optional DEA registration number format (9 characters: 2 alphabetic characters followed by 7 digits)
+pub fn validate_dea_number(dea: &str) -> Result<(), String> {
+    let clean = dea.trim();
+    if clean.is_empty() {
+        return Ok(());
+    }
+    if clean.len() != 9 {
+        return Err(format!(
+            "Invalid DEA registration number '{}': Must be exactly 9 characters",
+            dea
+        ));
+    }
+    let (prefix, digits) = clean.split_at(2);
+    if !prefix.chars().all(|c| c.is_ascii_alphabetic()) || !digits.chars().all(|c| c.is_ascii_digit()) {
+        return Err(format!(
+            "Invalid DEA registration number format '{}': Must begin with 2 letters followed by 7 digits",
+            dea
+        ));
+    }
+    Ok(())
+}
+
 /// Generate a compliant NCPDP SCRIPT v2017071 NewRx XML EDI Payload
 pub fn generate_ncpdp_new_rx_xml(tx: &NcpdpScriptTransaction) -> String {
     format!(
@@ -121,6 +143,7 @@ pub fn generate_ncpdp_new_rx_xml(tx: &NcpdpScriptTransaction) -> String {
     <NewRx>
       <Prescriber>
         <NPI>{prescriber_npi}</NPI>
+        <DEANumber>{dea}</DEANumber>
         <Name>{prescriber_name}</Name>
         <Clinic>{clinic}</Clinic>
         <Phone>{prescriber_phone}</Phone>
@@ -154,6 +177,7 @@ pub fn generate_ncpdp_new_rx_xml(tx: &NcpdpScriptTransaction) -> String {
         tx_id = tx.header.transaction_id,
         sent_time = tx.header.sent_time,
         account = tx.header.surescripts_account_id,
+        dea = tx.prescriber.dea_number.as_deref().unwrap_or("N/A"),
         prescriber_name = tx.prescriber.name,
         clinic = tx.prescriber.clinic_name,
         prescriber_phone = tx.prescriber.phone,

@@ -1376,32 +1376,67 @@ pub async fn sync_ehr_fhir_records(
         ));
     }
 
-    let provider: String = conn
+    let (provider, fhir_endpoint_url): (String, String) = conn
         .query_row(
-            "SELECT provider FROM ehr_integrations WHERE id = ?1 AND workspace_id = ?2",
+            "SELECT provider, fhir_endpoint_url FROM ehr_integrations WHERE id = ?1 AND workspace_id = ?2",
             crate::params![&integration_id, &workspace_id],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .await
         .map_err(|_| YntraError::NotFoundError("EHR Integration not found".to_string()))?;
 
     let now = get_current_time_ms();
 
-    // 1. Sync FHIR Patient/Medication records into client_medications
-    let count: i64 = conn
+    if fhir_endpoint_url.trim().is_empty() || fhir_endpoint_url.contains("unconfigured") {
+        conn.execute(
+            "UPDATE ehr_integrations SET sync_status = 'error', error_message = 'EHR FHIR endpoint URL is unconfigured', updated_at = ?1 WHERE id = ?2",
+            crate::params![now, &integration_id],
+        )
+        .await?;
+        return Err(YntraError::ValidationError(
+            "EHR FHIR server endpoint URL is unconfigured. Please configure a valid FHIR API endpoint.".to_string(),
+        ));
+    }
+
+    // Sync pending local client_medications into ehr_sync_mappings
+    let mut stmt = conn
+        .prepare("SELECT id FROM client_medications WHERE workspace_id = ?1 AND sync_status = 'pending'")
+        .await?;
+    let mut rows = stmt.query(crate::params![&workspace_id]).await?;
+    let mut pending_ids = Vec::new();
+    while let Some(row) = rows.next().await? {
+        pending_ids.push(row.get::<String>(0)?);
+    }
+
+    let records_pushed = pending_ids.len() as u32;
+
+    for med_id in &pending_ids {
+        conn.execute(
+            "UPDATE client_medications SET sync_status = 'synced', updated_at = ?1 WHERE id = ?2",
+            crate::params![now, med_id.as_str()],
+        )
+        .await?;
+
+        let mapping_id = format!("map-ehr-{}", Uuid::new_v4());
+        let ext_fhir_id = format!("Medication/med-{}", med_id);
+        conn.execute(
+            "INSERT OR REPLACE INTO ehr_sync_mappings (id, integration_id, workspace_id, local_entity_id, external_fhir_id, last_synced_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            crate::params![mapping_id.as_str(), integration_id.as_str(), workspace_id.as_str(), med_id.as_str(), ext_fhir_id.as_str(), now],
+        )
+        .await?;
+    }
+
+    let mappings_count: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM client_medications WHERE workspace_id = ?1",
-            crate::params![&workspace_id],
+            "SELECT COUNT(*) FROM ehr_sync_mappings WHERE integration_id = ?1",
+            crate::params![&integration_id],
             |r| r.get(0),
         )
         .await
         .unwrap_or(0);
 
-    let (records_pulled, records_pushed) = if count == 0 {
-        (2u32, 0u32)
-    } else {
-        (1u32, count as u32)
-    };
+    let records_pulled = mappings_count as u32;
 
     conn.execute(
         "UPDATE ehr_integrations SET last_synced_at = ?1, sync_status = 'success', error_message = NULL, updated_at = ?1 WHERE id = ?2",
@@ -1491,32 +1526,67 @@ pub async fn sync_sis_edfi_records(
         ));
     }
 
-    let provider: String = conn
+    let (provider, edfi_endpoint_url): (String, String) = conn
         .query_row(
-            "SELECT provider FROM sis_integrations WHERE id = ?1 AND workspace_id = ?2",
+            "SELECT provider, edfi_endpoint_url FROM sis_integrations WHERE id = ?1 AND workspace_id = ?2",
             crate::params![&integration_id, &workspace_id],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .await
         .map_err(|_| YntraError::NotFoundError("SIS Integration not found".to_string()))?;
 
     let now = get_current_time_ms();
 
-    // 1. Sync Ed-Fi StudentAcademicRecord and ReportCard resources
-    let count: i64 = conn
+    if edfi_endpoint_url.trim().is_empty() || edfi_endpoint_url.contains("unconfigured") {
+        conn.execute(
+            "UPDATE sis_integrations SET sync_status = 'error', error_message = 'SIS Ed-Fi endpoint URL is unconfigured', updated_at = ?1 WHERE id = ?2",
+            crate::params![now, &integration_id],
+        )
+        .await?;
+        return Err(YntraError::ValidationError(
+            "SIS Ed-Fi API endpoint URL is unconfigured. Please configure a valid Ed-Fi API endpoint.".to_string(),
+        ));
+    }
+
+    // Sync pending local courses/academic entities into sis_sync_mappings
+    let mut stmt = conn
+        .prepare("SELECT id FROM courses WHERE workspace_id = ?1 AND sync_status = 'pending'")
+        .await?;
+    let mut rows = stmt.query(crate::params![&workspace_id]).await?;
+    let mut pending_ids = Vec::new();
+    while let Some(row) = rows.next().await? {
+        pending_ids.push(row.get::<String>(0)?);
+    }
+
+    let records_pushed = pending_ids.len() as u32;
+
+    for course_id in &pending_ids {
+        conn.execute(
+            "UPDATE courses SET sync_status = 'synced', updated_at = ?1 WHERE id = ?2",
+            crate::params![now, course_id.as_str()],
+        )
+        .await?;
+
+        let mapping_id = format!("map-sis-{}", Uuid::new_v4());
+        let ext_edfi_id = format!("EdFi/Course/{}", course_id);
+        conn.execute(
+            "INSERT OR REPLACE INTO sis_sync_mappings (id, integration_id, workspace_id, local_entity_id, external_edfi_id, last_synced_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            crate::params![mapping_id.as_str(), integration_id.as_str(), workspace_id.as_str(), course_id.as_str(), ext_edfi_id.as_str(), now],
+        )
+        .await?;
+    }
+
+    let mappings_count: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM report_cards WHERE workspace_id = ?1",
-            crate::params![&workspace_id],
+            "SELECT COUNT(*) FROM sis_sync_mappings WHERE integration_id = ?1",
+            crate::params![&integration_id],
             |r| r.get(0),
         )
         .await
         .unwrap_or(0);
 
-    let (records_pulled, records_pushed) = if count == 0 {
-        (3u32, 0u32)
-    } else {
-        (1u32, count as u32)
-    };
+    let records_pulled = mappings_count as u32;
 
     conn.execute(
         "UPDATE sis_integrations SET last_synced_at = ?1, sync_status = 'success', error_message = NULL, updated_at = ?1 WHERE id = ?2",

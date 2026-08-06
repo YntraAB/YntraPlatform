@@ -20,8 +20,8 @@ async fn test_fhir_r4_engine_full_export_import_and_bundle_lifecycle() {
     let client_id = "cli-test-101";
 
     conn.execute(
-        "INSERT INTO clients (id, workspace_id, first_name, last_name, personal_number, created_at, updated_at, sync_status) \
-         VALUES (?1, ?2, 'EMMA', 'WATSON', 'MRN-998877', '2026-08-06', 0, 'synced')",
+        "INSERT INTO clients (id, workspace_id, first_name, last_name, personal_number, care_level, message_settings, created_at, updated_at, sync_status) \
+         VALUES (?1, ?2, 'EMMA', 'WATSON', 'MRN-998877', 'High Support Needed', '{\"gender\": \"female\"}', '2026-08-06', 0, 'synced')",
         yntra_core::params![client_id, ws_id],
     )
     .await
@@ -56,6 +56,8 @@ async fn test_fhir_r4_engine_full_export_import_and_bundle_lifecycle() {
     assert!(patient_res.validation_passed);
     assert!(patient_res.json_payload.contains("\"resourceType\": \"Patient\""));
     assert!(patient_res.json_payload.contains("MRN-998877"));
+    assert!(patient_res.json_payload.contains("\"gender\": \"female\""));
+    assert!(!patient_res.json_payload.contains("high support needed"));
 
     // 2. Test Export Encounter to FHIR R4
     let enc_res = export_encounter_to_fhir_r4(admin_id.to_string(), ws_id.to_string(), ticket_id.to_string())
@@ -64,6 +66,8 @@ async fn test_fhir_r4_engine_full_export_import_and_bundle_lifecycle() {
     assert_eq!(enc_res.resource_type, "Encounter");
     assert_eq!(enc_res.fhir_id, format!("enc-{}", ticket_id));
     assert!(enc_res.json_payload.contains("finished"));
+    assert!(enc_res.json_payload.contains("Patient/p-cli-test-101"));
+    assert!(!enc_res.json_payload.contains("Patient/p-user-1"));
 
     // 3. Test Export Observation to FHIR R4
     let obs_res = export_observation_to_fhir_r4(admin_id.to_string(), ws_id.to_string(), note_id.to_string())
@@ -107,4 +111,55 @@ async fn test_fhir_r4_engine_full_export_import_and_bundle_lifecycle() {
         .await
         .unwrap();
     assert_eq!(mappings.len(), 5);
+
+    // 8. Test EHR FHIR Endpoint Validation & Pending Sync Engine
+    let unconfigured_ehr = yntra_core::EhrIntegrationConfig {
+        id: "ehr-test-unconfigured".to_string(),
+        workspace_id: ws_id.to_string(),
+        provider: "Epic".to_string(),
+        fhir_endpoint_url: "unconfigured".to_string(),
+        account_id: None,
+        api_token: None,
+        refresh_token: None,
+        token_expires_at: 0,
+        mtls_client_cert_pem: None,
+        mtls_client_key_pem: None,
+        sync_direction: "two_way".to_string(),
+        auto_sync_enabled: true,
+        last_synced_at: 0,
+        sync_status: "idle".to_string(),
+        error_message: None,
+        sync_token: None,
+        created_at: 0,
+        updated_at: 0,
+    };
+    yntra_core::save_ehr_integration(admin_id.to_string(), unconfigured_ehr).await.unwrap();
+
+    let err_res = yntra_core::sync_ehr_fhir_records(admin_id.to_string(), ws_id.to_string(), "ehr-test-unconfigured".to_string()).await;
+    assert!(err_res.is_err());
+
+    let configured_ehr = yntra_core::EhrIntegrationConfig {
+        id: "ehr-test-active".to_string(),
+        workspace_id: ws_id.to_string(),
+        provider: "Epic CareEverywhere".to_string(),
+        fhir_endpoint_url: "https://fhir.epic.com/interconnect-fhir-oauth2/api/FHIR/R4".to_string(),
+        account_id: None,
+        api_token: Some("test-token".to_string()),
+        refresh_token: None,
+        token_expires_at: 0,
+        mtls_client_cert_pem: None,
+        mtls_client_key_pem: None,
+        sync_direction: "two_way".to_string(),
+        auto_sync_enabled: true,
+        last_synced_at: 0,
+        sync_status: "idle".to_string(),
+        error_message: None,
+        sync_token: None,
+        created_at: 0,
+        updated_at: 0,
+    };
+    yntra_core::save_ehr_integration(admin_id.to_string(), configured_ehr).await.unwrap();
+
+    let sync_res = yntra_core::sync_ehr_fhir_records(admin_id.to_string(), ws_id.to_string(), "ehr-test-active".to_string()).await.unwrap();
+    assert_eq!(sync_res.status, "success");
 }

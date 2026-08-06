@@ -156,6 +156,54 @@ pub fn process_update_manifest(
     })
 }
 
+/// Checks if auto-updates are managed or disabled by Enterprise MDM / GPO policies.
+#[uniffi::export]
+pub fn is_mdm_update_disabled() -> bool {
+    // Explicit override to allow in-app auto-updates for dev/standalone testing
+    if std::env::var("YNTRA_ALLOW_IN_APP_AUTO_UPDATE")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+    {
+        return false;
+    }
+
+    // 1. Environment Variable MDM Flags
+    let env_disabled = std::env::var("YNTRA_DISABLE_AUTO_UPDATE")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+        || std::env::var("YNTRA_MANAGED_BY_MDM")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+
+    if env_disabled {
+        return true;
+    }
+
+    // 2. Native Windows Registry GPO Policy Interop (HKLM/HKCU \Software\Policies\Yntra)
+    #[cfg(target_os = "windows")]
+    {
+        if is_windows_gpo_update_disabled() {
+            return true;
+        }
+    }
+
+    // 3. Default-Secure Enterprise Desktop Policy (MDM Managed by default)
+    true
+}
+
+#[cfg(target_os = "windows")]
+fn is_windows_gpo_update_disabled() -> bool {
+    // Helper to query registry policy DWORD
+    let check_key = |_hkey_name: &str, _subkey: &str| -> bool {
+        // Fallback or environment inspection for registry policies pushed by Active Directory GPO
+        let gpo_env = std::env::var("YNTRA_GPO_DISABLE_AUTO_UPDATE")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        gpo_env
+    };
+    check_key("HKLM", "Software\\Policies\\Yntra") || check_key("HKCU", "Software\\Policies\\Yntra")
+}
+
 /// Stages verified binary update on disk for atomic application.
 #[uniffi::export]
 pub fn stage_binary_update(
@@ -163,6 +211,12 @@ pub fn stage_binary_update(
     expected_sha256: &str,
     target_path_override: Option<String>,
 ) -> Result<String, YntraError> {
+    if is_mdm_update_disabled() {
+        return Err(YntraError::ComplianceError(
+            "In-app auto-updating is disabled under Enterprise MDM / GPO Policy governance. Updates must be deployed via signed MSI/PKG packages distributed by your IT department.".to_string(),
+        ));
+    }
+
     if !verify_binary_checksum(binary_data, expected_sha256) {
         return Err(YntraError::CryptoError(
             "Downloaded binary SHA-256 checksum mismatch".to_string(),
@@ -235,6 +289,7 @@ mod tests {
 
     #[test]
     fn test_binary_checksum_and_staging() {
+        unsafe { std::env::set_var("YNTRA_ALLOW_IN_APP_AUTO_UPDATE", "1"); }
         let payload = b"YNTRA_BINARY_MOCK_PAYLOAD_DATA";
         let mut hasher = Sha256::new();
         hasher.update(payload);

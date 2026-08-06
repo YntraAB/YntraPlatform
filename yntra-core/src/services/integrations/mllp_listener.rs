@@ -145,6 +145,12 @@ pub async fn get_mllp_listeners(
     Ok(results)
 }
 
+/// Returns true if MLLP server gateway TCP socket binding is compiled into this binary build target.
+#[uniffi::export]
+pub fn is_server_gateway_compiled() -> bool {
+    cfg!(any(feature = "server-gateway", test, debug_assertions))
+}
+
 /// Start an MLLP TCP Listener
 #[uniffi::export]
 pub async fn start_mllp_listener(
@@ -182,6 +188,31 @@ pub async fn start_mllp_listener(
         created_at: row.get(8)?,
         updated_at: row.get(9)?,
     };
+
+    // Cryptographic & Role-Based Authorization Boundary Guard
+    let is_localhost = config.bind_address == "127.0.0.1" || config.bind_address == "localhost";
+    let is_authorized_role = auth.is_admin || auth.role == "platform_admin" || auth.role == "admin" || auth.role == "server_gateway_service";
+
+    if !is_authorized_role {
+        return Err(YntraError::AuthError(
+            "Access denied: MLLP TCP socket binding requires platform_admin, admin, or server_gateway_service role credentials.".to_string(),
+        ));
+    }
+
+    if !is_localhost && !config.tls_enabled {
+        return Err(YntraError::ComplianceError(
+            "HIPAA Compliance Violation: Non-localhost MLLP TCP socket feeds must enable TLS 1.3 encryption (tls_enabled = true).".to_string(),
+        ));
+    }
+
+    // Compile-Time Binary Isolation Guard
+    #[cfg(not(any(feature = "server-gateway", test, debug_assertions)))]
+    {
+        let _ = (is_localhost, is_authorized_role, config);
+        return Err(YntraError::ComplianceError(
+            "HL7 v2 MLLP TCP socket binding is compiled out of desktop client binaries. Enterprise deployments must run dedicated yntra-gateway server builds compiled with the 'server-gateway' Cargo feature.".to_string(),
+        ));
+    }
 
     let now = get_current_time_ms();
     config.status = "running".to_string();

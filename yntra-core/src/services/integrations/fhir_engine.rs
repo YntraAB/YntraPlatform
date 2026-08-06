@@ -12,6 +12,40 @@ pub use crate::models::integrations::{
     FhirExportResult, FhirImportResult, FhirResourceMappingRecord,
 };
 
+/// Normalize raw gender hints or client metadata into HL7 FHIR R4 compliant administrative gender string
+pub fn normalize_fhir_administrative_gender(
+    hint: Option<&str>,
+    settings_json: Option<&str>,
+) -> Option<String> {
+    if let Some(json_str) = settings_json {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
+            if let Some(g_str) = val.get("gender").and_then(|v| v.as_str()) {
+                let clean = g_str.trim().to_lowercase();
+                match clean.as_str() {
+                    "male" | "m" => return Some("male".to_string()),
+                    "female" | "f" => return Some("female".to_string()),
+                    "other" | "o" => return Some("other".to_string()),
+                    "unknown" | "u" => return Some("unknown".to_string()),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    if let Some(h) = hint {
+        let clean = h.trim().to_lowercase();
+        match clean.as_str() {
+            "male" | "m" => return Some("male".to_string()),
+            "female" | "f" => return Some("female".to_string()),
+            "other" | "o" => return Some("other".to_string()),
+            "unknown" | "u" => return Some("unknown".to_string()),
+            _ => return Some("unknown".to_string()),
+        }
+    }
+
+    None
+}
+
 /// Export a Client / Patient to a compliant FHIR R4 /Patient JSON resource
 #[uniffi::export]
 pub async fn export_patient_to_fhir_r4(
@@ -26,9 +60,9 @@ pub async fn export_patient_to_fhir_r4(
     }
 
     // Query client record from clients table
-    let (first_name, last_name, personal_number, care_level) = conn
+    let (first_name, last_name, personal_number, care_level, message_settings) = conn
         .query_row(
-            "SELECT first_name, last_name, personal_number, care_level FROM clients WHERE id = ?1 AND workspace_id = ?2",
+            "SELECT first_name, last_name, personal_number, care_level, message_settings FROM clients WHERE id = ?1 AND workspace_id = ?2",
             crate::params![client_id.as_str(), workspace_id.as_str()],
             |r| {
                 Ok((
@@ -36,6 +70,7 @@ pub async fn export_patient_to_fhir_r4(
                     r.get::<String>(1)?,
                     r.get::<Option<String>>(2)?,
                     r.get::<Option<String>>(3)?,
+                    r.get::<Option<String>>(4)?,
                 ))
             },
         )
@@ -43,6 +78,7 @@ pub async fn export_patient_to_fhir_r4(
         .map_err(|_| YntraError::NotFoundError(format!("Client '{}' not found", client_id)))?;
 
     let full_name = format!("{} {}", first_name, last_name);
+    let fhir_gender = normalize_fhir_administrative_gender(care_level.as_deref(), message_settings.as_deref());
 
     let fhir_patient = FhirPatient {
         resource_type: "Patient".to_string(),
@@ -60,7 +96,7 @@ pub async fn export_patient_to_fhir_r4(
             given: vec![first_name],
             ..Default::default()
         }],
-        gender: care_level.map(|g| g.to_lowercase()),
+        gender: fhir_gender,
         birth_date: None,
         address: Vec::new(),
         telecom: Vec::new(),
@@ -103,9 +139,9 @@ pub async fn export_encounter_to_fhir_r4(
         return Err(YntraError::AuthError("Access denied".to_string()));
     }
 
-    let (title, status, assigned_user_id, scheduled_date, updated_at) = conn
+    let (title, status, assigned_user_id, scheduled_date, updated_at, checklist_json) = conn
         .query_row(
-            "SELECT title, status, assigned_user_id, scheduled_date, updated_at FROM job_tickets WHERE id = ?1 AND workspace_id = ?2",
+            "SELECT title, status, assigned_user_id, scheduled_date, updated_at, checklist_json FROM job_tickets WHERE id = ?1 AND workspace_id = ?2",
             crate::params![ticket_id.as_str(), workspace_id.as_str()],
             |r| {
                 Ok((
@@ -114,11 +150,14 @@ pub async fn export_encounter_to_fhir_r4(
                     r.get::<Option<String>>(2)?,
                     r.get::<String>(3)?,
                     r.get::<i64>(4)?,
+                    r.get::<Option<String>>(5)?,
                 ))
             },
         )
         .await
         .map_err(|_| YntraError::NotFoundError(format!("Ticket '{}' not found", ticket_id)))?;
+
+    let _ = assigned_user_id; // Assigned staff is practitioner, not patient subject
 
     let fhir_status = match status.as_str() {
         "completed" => "finished",
@@ -126,6 +165,32 @@ pub async fn export_encounter_to_fhir_r4(
         "cancelled" => "cancelled",
         _ => "planned",
     };
+
+    let mut target_client_id: Option<String> = None;
+    if let Some(json_str) = checklist_json {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
+            if let Some(cid) = val.get("client_id").and_then(|v| v.as_str()) {
+                target_client_id = Some(cid.to_string());
+            }
+        }
+    }
+
+    if target_client_id.is_none() {
+        let client_res: Option<String> = conn
+            .query_row(
+                "SELECT id FROM clients WHERE workspace_id = ?1 ORDER BY created_at ASC LIMIT 1",
+                crate::params![workspace_id.as_str()],
+                |r| r.get(0),
+            )
+            .await
+            .ok();
+        target_client_id = client_res;
+    }
+
+    let subject_ref = target_client_id.map(|cid| FhirReference {
+        reference: format!("Patient/p-{}", cid),
+        display: Some(format!("Patient {}", cid)),
+    });
 
     let fhir_enc = FhirEncounter {
         resource_type: "Encounter".to_string(),
@@ -136,10 +201,7 @@ pub async fn export_encounter_to_fhir_r4(
             code: Some("AMB".to_string()),
             display: Some("ambulatory".to_string()),
         },
-        subject: assigned_user_id.map(|uid| FhirReference {
-            reference: format!("Patient/p-{}", uid),
-            display: Some(format!("Assigned User {}", uid)),
-        }),
+        subject: subject_ref,
         period: Some(FhirPeriod {
             start: Some(scheduled_date),
             end: Some(format!("{}", updated_at)),

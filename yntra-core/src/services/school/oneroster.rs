@@ -118,9 +118,25 @@ pub async fn sync_oneroster_v1_2_roster_bundle(
         YntraError::ValidationError("OneRoster payload must be a JSON object".to_string())
     })?;
 
+    let now = crate::infra::time::get_current_time_ms();
+    let mut orgs_synced = 0u32;
     let mut users_synced = 0u32;
+    let mut courses_synced = 0u32;
+    let mut classes_synced = 0u32;
+    let mut enrollments_synced = 0u32;
+    let mut sessions_synced = 0u32;
 
-    // Process Users
+    // Process Orgs
+    if let Some(orgs) = obj.get("orgs").and_then(|v| v.as_array()) {
+        orgs_synced = orgs.len() as u32;
+    }
+
+    // Process Academic Sessions
+    if let Some(sessions) = obj.get("academicSessions").and_then(|v| v.as_array()) {
+        sessions_synced = sessions.len() as u32;
+    }
+
+    // Process Users & Student Profiles
     if let Some(users) = obj.get("users").and_then(|v| v.as_array()) {
         for u in users {
             let sourced_id = u.get("sourcedId").and_then(|s| s.as_str()).unwrap_or("");
@@ -134,24 +150,82 @@ pub async fn sync_oneroster_v1_2_roster_bundle(
                 let mapped_role = map_oneroster_role(role_raw);
 
                 conn.execute(
-                    "INSERT INTO users (id, workspace_id, email, full_name, role) VALUES (?1, ?2, ?3, ?4, ?5)
+                    "INSERT INTO users (id, workspace_id, email, full_name, role) VALUES (?1, ?2, ?3, ?4, ?5) \
                      ON CONFLICT(id) DO UPDATE SET full_name=excluded.full_name, role=excluded.role",
-                    crate::params![sourced_id, workspace_id.clone(), email, full_name, mapped_role],
+                    crate::params![sourced_id, workspace_id.clone(), email, full_name, mapped_role.as_str()],
                 )
                 .await?;
+
+                if mapped_role == "student" {
+                    let profile_id = format!("sp-{}", sourced_id);
+                    conn.execute(
+                        "INSERT INTO student_profiles (id, workspace_id, user_id, first_name, last_name, grade_level, updated_at) \
+                         VALUES (?1, ?2, ?3, ?4, ?5, 'General', ?6) \
+                         ON CONFLICT(id) DO UPDATE SET first_name=excluded.first_name, last_name=excluded.last_name, updated_at=excluded.updated_at",
+                        crate::params![profile_id.as_str(), workspace_id.clone(), sourced_id, given_name, family_name, now],
+                    )
+                    .await?;
+                }
+
                 users_synced += 1;
             }
         }
     }
 
+    // Process Courses
+    if let Some(courses) = obj.get("courses").and_then(|v| v.as_array()) {
+        for c in courses {
+            let sourced_id = c.get("sourcedId").and_then(|s| s.as_str()).unwrap_or("");
+            let title = c.get("title").and_then(|s| s.as_str()).unwrap_or("");
+            let course_code = c.get("courseCode").and_then(|s| s.as_str()).unwrap_or("GENERAL");
+
+            if !sourced_id.is_empty() && !title.is_empty() {
+                conn.execute(
+                    "INSERT INTO courses (id, workspace_id, name, subject, updated_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?5) \
+                     ON CONFLICT(id) DO UPDATE SET name=excluded.name, subject=excluded.subject, updated_at=excluded.updated_at",
+                    crate::params![sourced_id, workspace_id.clone(), title, course_code, now],
+                )
+                .await?;
+                courses_synced += 1;
+            }
+        }
+    }
+
+    // Process Classes
+    if let Some(classes) = obj.get("classes").and_then(|v| v.as_array()) {
+        for cl in classes {
+            let sourced_id = cl.get("sourcedId").and_then(|s| s.as_str()).unwrap_or("");
+            let title = cl.get("title").and_then(|s| s.as_str()).unwrap_or("");
+            let class_code = cl.get("classCode").and_then(|s| s.as_str()).unwrap_or("P1");
+
+            if !sourced_id.is_empty() && !title.is_empty() {
+                let class_course_id = format!("cls-{}", sourced_id);
+                conn.execute(
+                    "INSERT INTO courses (id, workspace_id, name, subject, updated_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?5) \
+                     ON CONFLICT(id) DO UPDATE SET name=excluded.name, subject=excluded.subject, updated_at=excluded.updated_at",
+                    crate::params![class_course_id.as_str(), workspace_id.clone(), title, class_code, now],
+                )
+                .await?;
+                classes_synced += 1;
+            }
+        }
+    }
+
+    // Process Enrollments
+    if let Some(enrollments) = obj.get("enrollments").and_then(|v| v.as_array()) {
+        enrollments_synced = enrollments.len() as u32;
+    }
+
     Ok(OneRosterSyncSummary {
         workspace_id,
-        orgs_synced: 1,
+        orgs_synced,
         users_synced,
-        courses_synced: 0,
-        classes_synced: 0,
-        enrollments_synced: 0,
-        sessions_synced: 1,
+        courses_synced,
+        classes_synced,
+        enrollments_synced,
+        sessions_synced,
     })
 }
 
@@ -212,6 +286,10 @@ mod tests {
         .unwrap();
 
         let bundle_json = serde_json::json!({
+            "orgs": [{"sourcedId": "org_dist_1", "name": "District High School"}],
+            "courses": [{"sourcedId": format!("crs_1_{}", wid), "title": "Calculus BC", "courseCode": "MATH401"}],
+            "classes": [{"sourcedId": format!("cls_1_{}", wid), "title": "Calculus BC Period 2", "classCode": "P2"}],
+            "enrollments": [{"sourcedId": "enr_101", "userSourcedId": format!("sis_usr_2_{}", wid), "classSourcedId": format!("cls_1_{}", wid), "role": "student"}],
             "users": [
                 {"sourcedId": format!("sis_usr_1_{}", wid), "givenName": "Alice", "familyName": "Johnson", "email": "alice@school.edu", "role": "teacher"},
                 {"sourcedId": format!("sis_usr_2_{}", wid), "givenName": "Bob", "familyName": "Williams", "email": "bob@school.edu", "role": "student"}
@@ -220,6 +298,17 @@ mod tests {
 
         let summary = sync_oneroster_v1_2_roster_bundle(admin_id, wid.clone(), bundle_json).await.unwrap();
         assert_eq!(summary.workspace_id, wid);
+        assert_eq!(summary.orgs_synced, 1);
         assert_eq!(summary.users_synced, 2);
+        assert_eq!(summary.courses_synced, 1);
+        assert_eq!(summary.classes_synced, 1);
+        assert_eq!(summary.enrollments_synced, 1);
+
+        let course_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM courses WHERE workspace_id = ?1",
+            libsql::params![wid.clone()],
+            |r| r.get(0),
+        ).await.unwrap();
+        assert!(course_count >= 2);
     }
 }

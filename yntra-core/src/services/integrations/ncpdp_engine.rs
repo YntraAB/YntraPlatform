@@ -26,6 +26,9 @@ pub async fn create_ncpdp_new_rx_prescription(
     days_supply: u32,
     refills: u32,
     sig_instructions: String,
+    prescriber_dea: Option<String>,
+    clinic_name: Option<String>,
+    clinic_phone: Option<String>,
 ) -> Result<NcpdpTransmitResult, YntraError> {
     let conn = database::acquire_connection().await?;
     let auth = crate::AuthContext::authorize(&conn, &requester_user_id).await?;
@@ -35,6 +38,49 @@ pub async fn create_ncpdp_new_rx_prescription(
 
     validate_ncpdp_script_payload(&prescriber_npi, &pharmacy_npi, &drug_name, quantity, days_supply)
         .map_err(|e| YntraError::ValidationError(e))?;
+
+    // Query prescriber user details from users table
+    let (user_full_name, user_phone, user_metadata_str) = conn
+        .query_row(
+            "SELECT full_name, phone, metadata FROM users WHERE id = ?1",
+            crate::params![requester_user_id.as_str()],
+            |r| {
+                Ok((
+                    r.get::<Option<String>>(0)?,
+                    r.get::<Option<String>>(1)?,
+                    r.get::<Option<String>>(2)?,
+                ))
+            },
+        )
+        .await
+        .unwrap_or((None, None, None));
+
+    let prescriber_name = user_full_name.unwrap_or_else(|| format!("Dr. Prescriber ({})", auth.user_id));
+
+    // Resolve DEA, clinic name, and clinic phone from parameters or metadata
+    let mut resolved_dea = prescriber_dea.filter(|d| !d.trim().is_empty());
+    let mut resolved_clinic = clinic_name.filter(|c| !c.trim().is_empty());
+    let resolved_phone = clinic_phone.or(user_phone).filter(|p| !p.trim().is_empty());
+
+    if let Some(meta_str) = user_metadata_str {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&meta_str) {
+            if resolved_dea.is_none() {
+                if let Some(dea) = val.get("dea_number").and_then(|v| v.as_str()) {
+                    resolved_dea = Some(dea.to_string());
+                }
+            }
+            if resolved_clinic.is_none() {
+                if let Some(clinic) = val.get("clinic_name").and_then(|v| v.as_str()) {
+                    resolved_clinic = Some(clinic.to_string());
+                }
+            }
+        }
+    }
+
+    if let Some(ref dea) = resolved_dea {
+        crate::infra::ncpdp_script::validate_dea_number(dea)
+            .map_err(|e| YntraError::ValidationError(e))?;
+    }
 
     // Query client / patient record
     let (first_name, last_name, personal_number) = conn
@@ -70,10 +116,10 @@ pub async fn create_ncpdp_new_rx_prescription(
         },
         prescriber: NcpdpPrescriber {
             npi: prescriber_npi.clone(),
-            dea_number: Some("AB9876543".to_string()),
-            name: format!("Dr. Prescriber ({})", auth.user_id),
-            clinic_name: "Yntra Medical Care Center".to_string(),
-            phone: "555-0199".to_string(),
+            dea_number: resolved_dea,
+            name: prescriber_name,
+            clinic_name: resolved_clinic.unwrap_or_else(|| "Yntra Medical Care Center".to_string()),
+            phone: resolved_phone.unwrap_or_else(|| "555-0199".to_string()),
         },
         pharmacy: NcpdpPharmacy {
             npi: pharmacy_npi.clone(),

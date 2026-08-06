@@ -59,12 +59,100 @@ wasm-bindgen-futures = { workspace = true }
 tracing-wasm = "0.2.1"
 serde-wasm-bindgen = "0.6"
 
+[dev-dependencies]
+criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
+
+[[bench]]
+name = "crypto_benchmarks"
+harness = false
+
+[[bench]]
+name = "zk_crypto_benchmarks"
+harness = false
+
+[[bench]]
+name = "dlp_and_p2p_benchmarks"
+harness = false
+
+[[bench]]
+name = "serialization_benchmarks"
+harness = false
+
+[[bench]]
+name = "database_benchmarks"
+harness = false
+
+[[bench]]
+name = "sync_crdt_benchmarks"
+harness = false
+
+[[bench]]
+name = "guardrails_benchmarks"
+harness = false
+
+[[bench]]
+name = "auth_benchmarks"
+harness = false
+
+[[bench]]
+name = "ai_automation_benchmarks"
+harness = false
+
+[[bench]]
+name = "services_benchmarks"
+harness = false
+
+[[bench]]
+name = "healthcare_standards_benchmarks"
+harness = false
+
+[[bench]]
+name = "sql_parser_benchmarks"
+harness = false
+
+[[bench]]
+name = "ssss_and_session_benchmarks"
+harness = false
+
+[[bench]]
+name = "dynamic_entities_and_roles_benchmarks"
+harness = false
+
+[[bench]]
+name = "siem_and_integrity_benchmarks"
+harness = false
+
+[[bench]]
+name = "event_bus_benchmarks"
+harness = false
+
+[[bench]]
+name = "csv_import_benchmarks"
+harness = false
+
+[[bench]]
+name = "pre_sync_projection_benchmarks"
+harness = false
+
+[[bench]]
+name = "time_integrity_benchmarks"
+harness = false
+
+[[bench]]
+name = "billing_benchmarks"
+harness = false
+
+[[bench]]
+name = "recovery_benchmarks"
+harness = false
+
 [features]
 default = ["domain-care", "domain-school", "domain-jobs", "domain-vehicles"]
 domain-care = []
 domain-school = []
 domain-jobs = []
 domain-vehicles = []
+server-gateway = []
 test-utils = []
 
 

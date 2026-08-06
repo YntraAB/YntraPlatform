@@ -798,6 +798,18 @@ fn create_http_client() -> reqwest::Client {
     }
 }
 
+#[derive(serde::Deserialize, Default, Debug)]
+struct WorkspaceSettingsSchema {
+    #[serde(default)]
+    regulated_mode: Option<bool>,
+    #[serde(default)]
+    compliance_mode: Option<String>,
+    #[serde(default)]
+    p2p_policy: Option<String>,
+    #[serde(default)]
+    compliance_standards: Vec<String>,
+}
+
 #[uniffi::export]
 impl P2PMeshSyncRouter {
     #[uniffi::constructor]
@@ -900,19 +912,57 @@ impl P2PMeshSyncRouter {
         }
     }
 
-    pub fn configure_for_workspace_category(&self, category: &str) {
+    pub fn configure_for_workspace_metadata(&self, category: &str, settings_json: &str) {
         let cat_lower = category.to_lowercase();
-        if cat_lower.contains("health") || cat_lower.contains("academic") || cat_lower.contains("medical") || cat_lower.contains("education") {
+
+        let matches_category = cat_lower.contains("health")
+            || cat_lower.contains("academic")
+            || cat_lower.contains("medical")
+            || cat_lower.contains("education")
+            || cat_lower.contains("hospital")
+            || cat_lower.contains("school")
+            || cat_lower.contains("university")
+            || cat_lower.contains("clinic")
+            || cat_lower.contains("ward")
+            || cat_lower.contains("oncology")
+            || cat_lower.contains("icu")
+            || cat_lower.contains("pediatric")
+            || cat_lower.contains("care")
+            || cat_lower.contains("lab")
+            || cat_lower.contains("classroom")
+            || cat_lower.contains("unit")
+            || cat_lower.contains("enterprise")
+            || cat_lower.contains("org")
+            || cat_lower.contains("firm")
+            || cat_lower.contains("gov")
+            || cat_lower.contains("legal")
+            || cat_lower.contains("finance");
+
+        let schema: WorkspaceSettingsSchema = serde_json::from_str(settings_json).unwrap_or_default();
+        let stds_upper: Vec<String> = schema.compliance_standards.iter().map(|s| s.to_uppercase()).collect();
+
+        let matches_settings = schema.regulated_mode == Some(true)
+            || schema.p2p_policy.as_deref() == Some("disabled")
+            || schema.compliance_mode.as_deref() == Some("strict")
+            || stds_upper.iter().any(|s| s == "HIPAA" || s == "FERPA" || s == "FDA" || s == "GDPR")
+            || std::env::var("YNTRA_ENFORCE_STRICT_SYNC").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
+
+        if matches_category || matches_settings {
             let mut mode_guard = self.compliance_mode.lock_poison_safe();
             *mode_guard = ComplianceMode::StrictServerOnlyWithLocalLanFallback;
             let mut dlp_guard = self.dlp_policy.lock_poison_safe();
             dlp_guard.enable_phi_inspection = true;
             dlp_guard.enable_ferpa_inspection = true;
+            dlp_guard.block_on_match = true;
             tracing::info!(
-                "Regulated workspace category '{}' configured with StrictServerOnlyWithLocalLanFallback compliance mode.",
+                "Regulated workspace ('{}') configured with StrictServerOnlyWithLocalLanFallback compliance mode & mandatory DLP.",
                 category
             );
         }
+    }
+
+    pub fn configure_for_workspace_category(&self, category: &str) {
+        self.configure_for_workspace_metadata(category, "{}");
     }
 
     pub fn is_p2p_mesh_disabled(&self) -> bool {

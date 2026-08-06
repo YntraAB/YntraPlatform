@@ -1813,11 +1813,23 @@ fn test_configure_for_workspace_category_regulated_fallback() {
     assert_eq!(router.get_compliance_mode(), ComplianceMode::StrictServerOnlyWithLocalLanFallback);
     assert!(router.is_p2p_mesh_disabled());
 
-    let school_router = P2PMeshSyncRouter::new();
-    school_router.configure_for_workspace_category("Academic Enterprise");
+    let oncology_router = P2PMeshSyncRouter::new();
+    oncology_router.configure_for_workspace_category("Pediatric Oncology Ward");
 
-    assert_eq!(school_router.get_compliance_mode(), ComplianceMode::StrictServerOnlyWithLocalLanFallback);
-    assert!(school_router.is_p2p_mesh_disabled());
+    assert_eq!(oncology_router.get_compliance_mode(), ComplianceMode::StrictServerOnlyWithLocalLanFallback);
+    assert!(oncology_router.is_p2p_mesh_disabled());
+
+    let json_router = P2PMeshSyncRouter::new();
+    json_router.configure_for_workspace_metadata("Custom Ward Unit B", r#"{"regulated_mode": true, "compliance_standards": ["HIPAA"]}"#);
+
+    assert_eq!(json_router.get_compliance_mode(), ComplianceMode::StrictServerOnlyWithLocalLanFallback);
+    assert!(json_router.is_p2p_mesh_disabled());
+
+    // Verify false-positive resistance: text notes mentioning HIPAA do NOT force compliance mode on standard workspace
+    let note_router = P2PMeshSyncRouter::new();
+    note_router.configure_for_workspace_metadata("Design Agency", r#"{"notes": "Discussed HIPAA guidelines with client", "compliance_standards": []}"#);
+
+    assert_ne!(note_router.get_compliance_mode(), ComplianceMode::StrictServerOnlyWithLocalLanFallback);
 }
 
 #[tokio::test]
