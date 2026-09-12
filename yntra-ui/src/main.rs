@@ -52,11 +52,6 @@ fn App() -> Element {
 
     rsx! {
         Stylesheet {}
-        document::Link { rel: "manifest", href: asset!("/public/manifest.json") }
-        // Load SQLite Web Worker Bridge, PWA Service Worker, & Sentry Telemetry
-        script { src: asset!("/public/db-bridge.js") }
-        script { src: asset!("/public/sw-register.js") }
-        script { src: asset!("/public/sentry-init.js") }
 
         components::ToastProvider {
             BackgroundErrorListener {}

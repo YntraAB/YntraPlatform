@@ -468,6 +468,7 @@ pub fn PublicBookingPreview(workspace_id: String, locale: Option<String>) -> Ele
     let loc = locale.clone();
     let loc_str = loc.clone().unwrap_or_else(|| "sv".to_string());
     let mut view_tab = use_signal(|| "preview".to_string()); // "preview" or "embed"
+    let toast = dioxus_primitives::toast::use_toast();
 
     // Simple raw HTML embed snippet
     let iframe_code = format!(
@@ -574,16 +575,9 @@ pub fn PublicBookingPreview(workspace_id: String, locale: Option<String>) -> Ele
                         button {
                             class: "px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 text-xs font-extrabold border-0 cursor-pointer transition-all shadow flex items-center gap-1.5",
                             onclick: move |_| {
-                                #[cfg(target_arch = "wasm32")]
-                                {
-                                    if let Some(window) = web_sys::window() {
-                                        if let Some(navigator) = window.navigator().clipboard() {
-                                            let _ = navigator.write_text(&iframe_code);
-                                        }
-                                    }
-                                }
+                                crate::utils::browser::copy_to_clipboard(iframe_code.clone(), Some(toast));
                             },
-                            components::LucideIcon { name: "save", size: "14" }
+                            components::LucideIcon { name: "copy", size: "14" }
                             "{t(\"booking-widget-copy-code-btn\", &loc_str)}"
                         }
                     }

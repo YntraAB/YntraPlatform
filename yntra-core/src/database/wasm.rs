@@ -52,7 +52,7 @@ pub async fn yield_to_browser_event_loop() {
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_name = yntra_execute_sql, catch)]
-    async fn js_execute_sql_internal(
+    fn js_execute_sql_internal(
         query_type: &str,
         sql: &str,
         params: JsValue,
@@ -64,20 +64,45 @@ pub(crate) async fn js_execute_sql(
     sql: &str,
     params: JsValue,
 ) -> Result<JsValue, YntraError> {
-    let fut = js_execute_sql_internal(query_type, sql, params);
-    let send_fut = SendFuture::new(fut);
-    match send_fut.await {
-        Ok(js_val) => Ok(js_val),
-        Err(js_err) => {
-            let err_msg = if let Some(s) = js_err.as_string() {
-                s
-            } else {
-                let err_obj = js_sys::Error::from(js_err);
-                String::from(err_obj.to_string())
-            };
-            Err(YntraError::DbError(err_msg))
-        }
-    }
+    use wasm_bindgen::JsCast;
+
+    let fut = async move {
+        let mut attempts = 0;
+        let promise_val = loop {
+            match js_execute_sql_internal(query_type, sql, params.clone()) {
+                Ok(val) if !val.is_undefined() && !val.is_null() => break val,
+                Ok(_) | Err(_) => {
+                    if attempts >= 100 {
+                        return Err(YntraError::DbError(
+                            "Database bridge (yntra_execute_sql) not available or failed to load within 5s".to_string(),
+                        ));
+                    }
+                    attempts += 1;
+                    crate::infra::time::sleep_ms(50).await;
+                }
+            }
+        };
+
+        let promise = promise_val
+            .dyn_into::<js_sys::Promise>()
+            .map_err(|_| YntraError::DbError("yntra_execute_sql did not return a Promise".to_string()))?;
+
+        let res = wasm_bindgen_futures::JsFuture::from(promise)
+            .await
+            .map_err(|js_err| {
+                let err_msg = if let Some(s) = js_err.as_string() {
+                    s
+                } else {
+                    let err_obj = js_sys::Error::from(js_err);
+                    String::from(err_obj.to_string())
+                };
+                YntraError::DbError(err_msg)
+            })?;
+
+        Ok(res)
+    };
+
+    SendFuture::new(fut).await
 }
 
 #[derive(serde::Deserialize)]

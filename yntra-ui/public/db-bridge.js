@@ -13,27 +13,41 @@ if (navigator.storage && navigator.storage.persist) {
 // Sub-200ms Cold-Start Optimization: Pre-fetch & Pre-compile WASM Module with Robust MIME Fallback
 const precompileWasm = async (url) => {
   try {
-    if ('WebAssembly' in window && WebAssembly.compileStreaming) {
-      const response = fetch(url, { cache: 'force-cache' });
-      return await WebAssembly.compileStreaming(response);
+    const res = await fetch(url, { cache: 'force-cache' });
+    if (!res.ok) return null;
+    const contentType = (res.headers.get('content-type') || '').toLowerCase();
+    if (contentType.includes('text/html')) {
+      return null;
     }
+    if ('WebAssembly' in window && WebAssembly.compileStreaming && contentType.includes('application/wasm')) {
+      try {
+        return await WebAssembly.compileStreaming(res);
+      } catch (_) {}
+    }
+    const buffer = await res.arrayBuffer();
+    return await WebAssembly.compile(buffer);
   } catch (e) {
-    console.warn(`[WASM Pre-compile] compileStreaming failed for ${url}, trying arrayBuffer fallback:`, e);
-    try {
-      const res = await fetch(url, { cache: 'force-cache' });
-      const buffer = await res.arrayBuffer();
-      return await WebAssembly.compile(buffer);
-    } catch (fallbackErr) {
-      console.warn(`[WASM Pre-compile] ArrayBuffer fallback failed for ${url}:`, fallbackErr);
-    }
+    const errMsg = (e && e.message) ? String(e.message) : String(e);
+    console.warn(`[WASM Pre-compile] Fallback note for ${url}: ${errMsg}`);
   }
   return null;
 };
 
 // Trigger parallel WASM streaming compilation immediately on script evaluation
-const wasmPreloadPromise = precompileWasm('/public/sqlite3.wasm');
+const wasmPreloadPromise = (async () => {
+  let mod = await precompileWasm('/sqlite3.wasm');
+  if (!mod) {
+    mod = await precompileWasm('/public/sqlite3.wasm');
+  }
+  return mod;
+})();
 
-const worker = new Worker('/public/db-worker.js');
+const worker = new Worker('/db-worker.js');
+worker.onerror = function(err) {
+  const errMsg = (err && err.message) ? String(err.message) : String(err);
+  console.error(`[Yntra DB] Worker runtime error: ${errMsg}`);
+};
+
 const pendingRequests = new Map();
 let messageId = 0;
 let isDbReady = false;
@@ -44,41 +58,6 @@ wasmPreloadPromise.then((compiledModule) => {
     console.log('[Yntra Cold-Start] SQLite WASM module pre-compiled in parallel.');
   }
 });
-
-worker.onmessage = function(e) {
-  const { id, type, status, success, rows, rowsAffected, error, hasChanges } = e.data;
-  
-  if (type === "status") {
-    if (status === "ready") {
-      isDbReady = true;
-      console.log("Database Worker is ready.");
-      while (readyCallbacks.length > 0) {
-        readyCallbacks.shift()();
-      }
-    } else if (status === "error") {
-      console.error("Database Worker error:", error);
-    }
-    return;
-  }
-  
-  const callbacks = pendingRequests.get(id);
-  if (callbacks) {
-    pendingRequests.delete(id);
-    if (success) {
-      if (rows !== undefined) {
-        callbacks.resolve(rows);
-      } else if (rowsAffected !== undefined) {
-        callbacks.resolve({ rowsAffected });
-      } else if (hasChanges !== undefined) {
-        callbacks.resolve({ hasChanges });
-      } else {
-        callbacks.resolve(null);
-      }
-    } else {
-      callbacks.reject(new Error(error));
-    }
-  }
-};
 
 window.yntra_execute_sql = function(type, sql, params) {
   return new Promise((resolve, reject) => {
@@ -105,7 +84,8 @@ window.yntra_save_store_bin = async function(fileName, uint8Array) {
     await writable.write(uint8Array);
     await writable.close();
   } catch (e) {
-    console.error("OPFS binary write error:", e);
+    const errMsg = (e && e.message) ? String(e.message) : String(e);
+    console.error(`OPFS binary write error: ${errMsg}`);
   }
 };
 
@@ -119,7 +99,8 @@ window.yntra_load_store_bin = async function(fileName) {
       return new Uint8Array(buffer);
     }
   } catch (e) {
-    console.error("OPFS binary read error:", e);
+    const errMsg = (e && e.message) ? String(e.message) : String(e);
+    console.error(`OPFS binary read error: ${errMsg}`);
   }
   return null;
 };
@@ -160,7 +141,8 @@ const SharedKioskPersistenceBridge = {
       navigator.serviceWorker.ready.then((reg) => {
         return reg.sync.register('yntra-kiosk-sync');
       }).catch((err) => {
-        console.warn('[Kiosk Persistence] ServiceWorker BackgroundSync registration fallback:', err);
+        const errMsg = (err && err.message) ? String(err.message) : String(err);
+        console.warn(`[Kiosk Persistence] ServiceWorker BackgroundSync registration fallback: ${errMsg}`);
       });
     }
   },
@@ -202,7 +184,8 @@ const SharedKioskPersistenceBridge = {
           timestamp: Date.now()
         }));
       } catch (err) {
-        console.warn("[Kiosk Persistence] Daemon socket stream error:", err);
+        const errMsg = (err && err.message) ? String(err.message) : String(err);
+        console.warn(`[Kiosk Persistence] Daemon socket stream error: ${errMsg}`);
       }
     }
   },
@@ -256,7 +239,8 @@ const SharedKioskPersistenceBridge = {
             console.log(`[Kiosk Persistence] Dispatched seq #${seqId} (${payload.length} items) in ordered 48KB micro-chunks.`);
           }
         } catch (err) {
-          console.warn("[Kiosk Persistence] Emergency beacon dispatch error:", err);
+          const errMsg = (err && err.message) ? String(err.message) : String(err);
+          console.warn(`[Kiosk Persistence] Emergency beacon dispatch error: ${errMsg}`);
         }
       }
     };
@@ -329,7 +313,8 @@ worker.onmessage = function(e) {
         readyCallbacks.shift()();
       }
     } else if (status === "error") {
-      console.error("Database Worker error:", error);
+      const errMsg = (error && error.message) ? String(error.message) : String(error);
+      console.error(`Database Worker error: ${errMsg}`);
     }
     return;
   }

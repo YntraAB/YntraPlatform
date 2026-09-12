@@ -1,39 +1,51 @@
 // Service Worker for Yntra Platform PWA
 // Handles offline caching of WASM modules, JS bridges, stylesheets, and fallback assets.
 
-const CACHE_NAME = 'yntra-pwa-v1';
-const IMMUTABLE_WASM_CACHE = 'yntra-wasm-v1';
+const CACHE_NAME = 'yntra-pwa-v2';
+const IMMUTABLE_WASM_CACHE = 'yntra-wasm-v2';
 
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
-  '/public/manifest.json',
-  '/public/db-bridge.js',
-  '/public/db-worker.js',
-  '/public/sqlite3.js',
-  '/public/dx-components-theme.css',
-  '/public/tailwind.css',
-  '/public/global.css',
-  '/public/sw-register.js',
+  '/manifest.json',
   '/db-bridge.js',
   '/db-worker.js',
   '/sqlite3.js',
+  '/dx-components-theme.css',
+  '/tailwind.css',
+  '/global.css',
   '/sw-register.js'
 ];
 
 const WASM_ASSETS = [
-  '/public/sqlite3.wasm',
-  '/sqlite3.wasm',
-  '/yntra-ui.wasm'
+  '/sqlite3.wasm'
 ];
 
-// Install Event - Pre-cache core assets
+// Install Event - Pre-cache core assets safely
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    Promise.all([
-      caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS_TO_CACHE)),
-      caches.open(IMMUTABLE_WASM_CACHE).then((cache) => cache.addAll(WASM_ASSETS.filter(a => fetch(a, { method: 'HEAD' }).then(r => r.ok).catch(() => false))))
-    ]).then(() => self.skipWaiting())
+    (async () => {
+      try {
+        const cache = await caches.open(CACHE_NAME);
+        for (const url of ASSETS_TO_CACHE) {
+          try {
+            const res = await fetch(url);
+            if (res.ok) await cache.put(url, res);
+          } catch (_) {}
+        }
+        const wasmCache = await caches.open(IMMUTABLE_WASM_CACHE);
+        for (const url of WASM_ASSETS) {
+          try {
+            const res = await fetch(url);
+            const ct = res.headers.get('content-type') || '';
+            if (res.ok && ct.includes('application/wasm')) {
+              await wasmCache.put(url, res);
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
+      await self.skipWaiting();
+    })()
   );
 });
 
@@ -57,14 +69,17 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // 1. WASM Binary Modules - Cache First
+  // 1. WASM Binary Modules - Cache First (with MIME validation)
   if (url.pathname.endsWith('.wasm')) {
     event.respondWith(
       caches.open(IMMUTABLE_WASM_CACHE).then((cache) => {
         return cache.match(event.request).then((cachedResponse) => {
           if (cachedResponse) return cachedResponse;
           return fetch(event.request).then((networkResponse) => {
-            cache.put(event.request, networkResponse.clone());
+            const ct = networkResponse.headers.get('content-type') || '';
+            if (networkResponse.ok && ct.includes('application/wasm')) {
+              cache.put(event.request, networkResponse.clone());
+            }
             return networkResponse;
           });
         });
