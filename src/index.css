@@ -1,0 +1,261 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Yntra Design System
+ *
+ * Principles:
+ * - Restrained, editorial palette: warm neutral surfaces, deep ink text,
+ *   a single accent used only for primary actions and focus.
+ * - Sharp geometry: 4px base radius, hairline borders, no decorative
+ *   gradients, glows or glass effects.
+ * - Every color derives from the theme tokens below — never hardcode.
+ */
+
+@layer base {
+  :root {
+    /* Light Theme — crisp, high-contrast software palette with deep ink typography */
+    --background: 240 5% 96%;
+    --foreground: 240 6% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 6% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 6% 10%;
+    --primary: 240 6% 10%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 5% 91%;
+    --secondary-foreground: 240 6% 10%;
+    --muted: 240 5% 91%;
+    --muted-foreground: 240 4% 42%;
+    --accent: 240 5% 89%;
+    --accent-foreground: 240 6% 10%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 5% 82%;
+    --input: 240 5% 82%;
+    --ring: 240 6% 20%;
+    --radius: 0.25rem;
+
+    /* Sidebar — distinct navigation panel */
+    --sidebar-background: 240 5% 98%;
+    --sidebar-foreground: 240 6% 10%;
+    --sidebar-primary: 240 6% 10%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 5% 92%;
+    --sidebar-accent-foreground: 240 6% 10%;
+    --sidebar-border: 240 5% 86%;
+    --sidebar-ring: 240 6% 20%;
+  }
+
+  .dark {
+    /* Dark Theme — deep charcoal obsidian with clear surface elevation and crisp contrast */
+    --background: 240 5% 6%;
+    --foreground: 0 0% 98%;
+    --card: 240 4% 11.5%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 4% 11.5%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 240 5% 8%;
+    --secondary: 240 4% 16%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 4% 16%;
+    --muted-foreground: 240 5% 68%;
+    --accent: 240 4% 19%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 5% 22%;
+    --input: 240 5% 22%;
+    --ring: 240 5% 65%;
+    --radius: 0.25rem;
+
+    /* Sidebar — slightly deeper tone for distinct layout separation */
+    --sidebar-background: 240 5% 4.5%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 0 0% 98%;
+    --sidebar-primary-foreground: 240 5% 8%;
+    --sidebar-accent: 240 4% 11%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 240 5% 15%;
+    --sidebar-ring: 240 5% 65%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family:
+      'Inter',
+      -apple-system,
+      BlinkMacSystemFont,
+      'Segoe UI',
+      Roboto,
+      sans-serif;
+    font-feature-settings:
+      'cv11',
+      'ss01';
+  }
+
+  ::selection {
+    background: hsl(var(--foreground) / 0.15);
+    color: hsl(var(--foreground));
+  }
+}
+
+@layer utilities {
+  /* Brand text — solid ink, no gradient */
+  .text-gradient-yntra {
+    color: hsl(var(--foreground));
+  }
+
+  /* Thin, theme-aware scrollbars */
+  .scrollbar-dark {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+  }
+
+  .scrollbar-dark::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scrollbar-dark::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-dark::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 4px;
+  }
+
+  .scrollbar-dark::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+
+  /* Flat overlay for dialogs — no blur, no glass */
+  .glass {
+    background: hsl(var(--background) / 0.85);
+  }
+
+  /* Input styling derived from tokens */
+  .input-yntra {
+    @apply rounded-md border border-input bg-background text-foreground transition-colors duration-150 placeholder:text-muted-foreground hover:border-input/80 focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring;
+  }
+
+  /* Quiet secondary button */
+  .btn-yntra-primary {
+    @apply flex items-center justify-center gap-2 rounded-md border border-border bg-secondary font-medium text-secondary-foreground transition-colors duration-150 hover:bg-accent;
+  }
+
+  /* Sidebar item */
+  .sidebar-item {
+    @apply flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground;
+  }
+
+  .sidebar-item.active {
+    @apply bg-accent font-medium text-foreground;
+  }
+
+  /* Calendar grid lines */
+  .calendar-grid-line {
+    @apply border-b border-border;
+  }
+
+  /* Event chip */
+  .event-card {
+    @apply cursor-pointer rounded-sm px-3 py-2 text-sm transition-colors duration-150;
+  }
+}
+
+/**
+ * =============================================================================
+ * ANIMATION KEYFRAMES
+ * =============================================================================
+ */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.25s ease-out forwards;
+}
+
+.animate-slide-in-left {
+  animation: slideInLeft 0.25s ease-out forwards;
+}
+
+@keyframes caret-blink {
+  0%,
+  70%,
+  100% {
+    opacity: 1;
+  }
+  20%,
+  50% {
+    opacity: 0;
+  }
+}
+
+.animate-caret-blink {
+  animation: caret-blink 1.2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes indeterminate-bar {
+  0% {
+    transform: translateX(-100%);
+    width: 30%;
+  }
+  50% {
+    width: 60%;
+  }
+  100% {
+    transform: translateX(350%);
+    width: 30%;
+  }
+}
+
+.animate-indeterminate-bar {
+  animation: indeterminate-bar 1.5s cubic-bezier(0.65, 0.815, 0.735, 0.395) infinite;
+}
