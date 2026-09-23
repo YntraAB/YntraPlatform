@@ -16,6 +16,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.0] - 2026-09-23
+
+### Added
+- **Time Reporting & Attestation Engine**:
+  - Restructured time management into dedicated operational tabs: "Att rapportera" (`to_report`), "Att attestera" (`to_attest`), "Historik" (`history`), and "Team & Medarbetare" (`teams`).
+  - Added real-time badge counters indicating unsubmitted and pending attest shift counts directly in tab navigation headers.
+  - Implemented `ToReportView`: An inbox-standard (`h-12`) shift reporting list for workers with single-click reporting, batch reporting ("Godkänn och rapportera alla"), month aggregation filters, and manual shift registration modal.
+  - Implemented `ToAttestView`: An inbox-standard attestation list for managers with single-click approval, batch attestation ("Godkänn & attestera alla"), month and employee filters, and sorting.
+  - Implemented `TimeHistoryView`: Historical log of reported shifts with monthly KPI summary cards (Total reported hours, Approved hours, Pending attest hours), date/hours sorting, and team/employee filters.
+  - Implemented `timeFormatters.ts`: Date utility for Swedish month-year formatting.
+  - Added unit and component integration test suite in `TimeReporting.test.tsx` verifying single/batch reporting, manager attest workflows, history rollups, and multi-month filtering.
+- **Demo Seed Expansions**:
+  - Populated `src/lib/demo.ts` with multi-employee shift schedules and completed time reports across distinct teams to support local development and end-to-end testing without external database dependencies.
+- **Swedish and English Translations**:
+  - Added translation keys for all time reporting tabs, batch actions, sort options, filter menus, and summary metrics in `sv.json` and `en.json`.
+
+### Changed
+- **Dashboard & Widgets Ergonomics**:
+  - Standardized `DashboardPage` topbar height to exact `h-12` (48px) with lighter typography (`text-xs font-medium`) and direct route navigation to time reporting.
+  - Redesigned `AgendaWidget`: Grouped scheduled events by date with sticky subheaders, pass count and total hours summary, and direct link to schedule.
+  - Enhanced `SalaryCalculatorWidget`: Added structured month header, shift count and worked hours summary, and scrolling containment.
+- **Calendar & Scheduler Refinements**:
+  - Standardized `AgendaView`, `MonthView`, `WeekView`, and `DayView` with restrained corner radii (`rounded-md`), subtle card backgrounds, and compact day indicator pills adhering to the obsidian design system.
+
+---
+
 ## [1.2.0] - 2026-09-21
 
 ### Added

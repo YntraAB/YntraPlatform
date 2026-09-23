@@ -6,6 +6,7 @@ import {
   Search,
   Trash2,
   FileCheck,
+  Check,
   Clock,
   Inbox,
 } from 'lucide-react'
@@ -48,10 +49,11 @@ interface ShiftSystemProps {
   setCurrentPage: (p: number | ((prev: number) => number)) => void
   setSelectedShifts: (s: string[] | ((prev: string[]) => string[])) => void
   setIsDeleteAlertOpen: (open: boolean) => void
-  handleApprove: () => void
-  handleReport: () => void
+  handleApprove: (shiftIds?: string[]) => void
+  handleReport: (shiftIds?: string[]) => void
   handleDelete: () => void
   onBack?: () => void
+  onOpenReportDialog?: () => void
 }
 
 export const ShiftSystem: React.FC<ShiftSystemProps> = ({
@@ -74,8 +76,11 @@ export const ShiftSystem: React.FC<ShiftSystemProps> = ({
   handleReport,
   handleDelete,
   onBack,
+  onOpenReportDialog,
 }) => {
   const { t } = useTranslation()
+  const [sortBy, setSortBy] = React.useState<'date_desc' | 'date_asc' | 'hours_desc' | 'hours_asc' | 'target'>('date_desc')
+  const [historyView, setHistoryView] = React.useState<'detailed' | 'months'>('detailed')
 
   let contextShifts = shifts
   if (selectedContext.type === 'employee') {
@@ -85,7 +90,7 @@ export const ShiftSystem: React.FC<ShiftSystemProps> = ({
   }
 
   const filteredShifts = useMemo(() => {
-    return contextShifts.filter((s) => {
+    const list = contextShifts.filter((s) => {
       const searchMatch =
         s.employee.toLowerCase().includes(searchQuery.toLowerCase()) ||
         s.team.toLowerCase().includes(searchQuery.toLowerCase())
@@ -97,7 +102,24 @@ export const ShiftSystem: React.FC<ShiftSystemProps> = ({
 
       return searchMatch && statusMatch
     })
-  }, [contextShifts, searchQuery, filterType])
+
+    return list.sort((a, b) => {
+      switch (sortBy) {
+        case 'date_asc':
+          return a.date.localeCompare(b.date)
+        case 'date_desc':
+          return b.date.localeCompare(a.date)
+        case 'hours_desc':
+          return b.duration - a.duration
+        case 'hours_asc':
+          return a.duration - b.duration
+        case 'target':
+          return (a.employee || a.team).localeCompare(b.employee || b.team)
+        default:
+          return b.date.localeCompare(a.date)
+      }
+    })
+  }, [contextShifts, searchQuery, filterType, sortBy])
 
   const itemsPerPage = 12
   const totalPages = Math.max(1, Math.ceil(filteredShifts.length / itemsPerPage))
@@ -124,97 +146,180 @@ export const ShiftSystem: React.FC<ShiftSystemProps> = ({
   }
 
   const renderHistory = () => {
-    let history = shifts
-      .filter((s) => s.status === 'approved')
-      .map((s) => {
-        const d = new Date(s.date)
-        const monthStr = d.toLocaleDateString('sv-SE', { month: 'long', year: 'numeric' })
-        return {
-          id: 'h' + s.id,
-          employeeId: s.employeeId,
-          teamId: s.team,
-          month: monthStr.charAt(0).toUpperCase() + monthStr.slice(1),
-          hours: s.duration,
-          ob: 0,
-          absence: 0,
-          salary: '-',
-        }
-      })
+    let historyShifts = shifts.filter((s) => s.status === 'approved' || s.status === 'pending_attest')
     if (selectedContext.type === 'employee') {
-      history = history.filter((h) => h.employeeId === selectedContext.id)
+      historyShifts = historyShifts.filter((h) => h.employeeId === selectedContext.id)
     } else if (selectedContext.type === 'team') {
-      history = history.filter((h) => h.teamId === selectedContext.id)
+      historyShifts = historyShifts.filter((h) => h.team === selectedContext.id)
     }
 
+    const totalHours = Math.round(historyShifts.reduce((a, b) => a + b.duration, 0) * 10) / 10
+    const approvedHours = Math.round(
+      historyShifts.filter((s) => s.status === 'approved').reduce((a, b) => a + b.duration, 0) * 10
+    ) / 10
+    const pendingHours = Math.round(
+      historyShifts.filter((s) => s.status === 'pending_attest').reduce((a, b) => a + b.duration, 0) * 10
+    ) / 10
+
+    // Monthly aggregation
+    const monthGroups: Record<string, { month: string; hours: number; count: number; approvedCount: number }> = {}
+    historyShifts.forEach((s) => {
+      const d = new Date(s.date)
+      const monthStr = d.toLocaleDateString('sv-SE', { month: 'long', year: 'numeric' })
+      const key = monthStr.charAt(0).toUpperCase() + monthStr.slice(1)
+      if (!monthGroups[key]) {
+        monthGroups[key] = { month: key, hours: 0, count: 0, approvedCount: 0 }
+      }
+      monthGroups[key].hours += s.duration
+      monthGroups[key].count += 1
+      if (s.status === 'approved') monthGroups[key].approvedCount += 1
+    })
+
+    const monthlySummary = Object.values(monthGroups)
+
     return (
-      <div className="scrollbar-dark w-full flex-1 overflow-y-auto scroll-smooth">
-        {history.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center text-muted-foreground duration-500 animate-in fade-in zoom-in-95">
-            <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full border border-border/50 bg-muted/30">
-              <Inbox className="h-10 w-10 opacity-20" />
+      <div className="flex flex-1 flex-col overflow-hidden min-h-0">
+        {/* Quick summary stats strip */}
+        <div className="flex h-12 shrink-0 items-center justify-between border-b border-border/50 bg-secondary/30 px-6 backdrop-blur-sm">
+          <div className="flex items-center gap-6 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">{t('timereports.total_reported_hours', 'Totalt rapporterat')}:</span>
+              <span className="font-mono font-medium text-foreground">{totalHours}h</span>
             </div>
-            <p className="text-sm font-medium">{t('timereports.no_history_title')}</p>
-            <p className="mt-1 max-w-[250px] text-center text-xs text-muted-foreground/70">
-              {t('timereports.no_history_desc')}
-            </p>
+            <div className="h-3 w-px bg-border/50" />
+            <div className="flex items-center gap-1.5">
+              <span className="size-1.5 rounded-full bg-emerald-500" />
+              <span className="text-muted-foreground">{t('timereports.approved_hours', 'Attesterat')}:</span>
+              <span className="font-mono font-medium text-foreground">{approvedHours}h</span>
+            </div>
+            <div className="h-3 w-px bg-border/50" />
+            <div className="flex items-center gap-1.5">
+              <span className="size-1.5 rounded-full bg-amber-500" />
+              <span className="text-muted-foreground">{t('timereports.pending_attest_hours', 'Väntar på attest')}:</span>
+              <span className="font-mono font-medium text-foreground">{pendingHours}h</span>
+            </div>
           </div>
-        ) : (
-          <div className="flex w-full flex-col text-sm">
-            {history.map((h, idx) => (
-              <div
-                key={h.id}
-                style={{ animationDelay: `${idx * 25}ms` }}
-                className="group flex h-12 cursor-pointer items-center border-b border-border/40 px-6 transition-all duration-300 hover:bg-secondary/40 animate-in fade-in slide-in-from-bottom-2 fill-mode-both"
-              >
-                {/* Leading Icon */}
-                <div className="mr-3 flex size-6 shrink-0 items-center justify-center text-muted-foreground/70 transition-colors group-hover:text-primary">
-                  <FileCheck className="h-4 w-4" />
-                </div>
 
-                {/* Month Name Column */}
-                <div className="w-36 sm:w-48 md:w-56 shrink-0 truncate pr-3 text-sm font-medium text-foreground transition-colors group-hover:text-primary">
-                  {h.month}
-                </div>
+          <div className="flex items-center gap-1 border border-border/50 bg-background/60 p-0.5 rounded-md">
+            <button
+              onClick={() => setHistoryView('detailed')}
+              className={`px-2.5 py-1 text-[11px] font-medium rounded transition-colors ${
+                historyView === 'detailed' ? 'bg-secondary text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Alla pass ({historyShifts.length})
+            </button>
+            <button
+              onClick={() => setHistoryView('months')}
+              className={`px-2.5 py-1 text-[11px] font-medium rounded transition-colors ${
+                historyView === 'months' ? 'bg-secondary text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Månadssammanställning
+            </button>
+          </div>
+        </div>
 
-                {/* Middle Column - Statistics */}
-                <div className="flex min-w-0 flex-1 items-center gap-x-6 truncate pr-6 text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1 font-mono">
-                    <span className="font-sans text-muted-foreground/60">{t('timereports.work_time')}:</span>{' '}
-                    <span className="text-foreground/80">{h.hours}h</span>
-                  </span>
-                  <span className="flex items-center gap-1 font-mono">
-                    <span className="font-sans text-muted-foreground/60">{t('timereports.ob_bonus')}:</span>{' '}
-                    <span className="text-foreground/80">{h.ob}h</span>
-                  </span>
-                  {h.absence > 0 && (
-                    <span className="flex items-center gap-1 font-mono text-rose-400/80">
-                      <span className="font-sans">{t('timereports.absence')}:</span> {h.absence}h
-                    </span>
-                  )}
-                </div>
-
-                {/* Status Micro-Dot & Salary Column */}
-                <div className="flex w-52 shrink-0 items-center justify-end gap-3">
-                  <span className="flex items-center gap-1.5 text-[11px] font-medium tracking-tight uppercase tabular-nums text-muted-foreground/60">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
-                    <span>{t('timereports.attested')}</span>
-                  </span>
-                  <span className="opacity-40 text-xs">·</span>
-                  <span className="font-mono text-xs font-medium tabular-nums text-foreground/80">
-                    {h.salary}
-                  </span>
-                </div>
+        {/* History Content */}
+        <div className="scrollbar-dark w-full flex-1 overflow-y-auto scroll-smooth">
+          {historyShifts.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center text-muted-foreground duration-500 animate-in fade-in zoom-in-95">
+              <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full border border-border/50 bg-muted/30">
+                <Inbox className="h-10 w-10 opacity-20" />
               </div>
-            ))}
-          </div>
-        )}
+              <p className="text-sm font-medium">{t('timereports.no_history_title')}</p>
+              <p className="mt-1 max-w-[250px] text-center text-xs text-muted-foreground/70">
+                {t('timereports.no_history_desc')}
+              </p>
+            </div>
+          ) : historyView === 'detailed' ? (
+            <div className="flex w-full flex-col text-sm">
+              {historyShifts.map((shift, idx) => (
+                <div
+                  key={shift.id}
+                  style={{ animationDelay: `${idx * 20}ms` }}
+                  className="group flex h-12 cursor-pointer items-center justify-between border-b border-border/40 px-6 transition-all duration-200 hover:bg-secondary/40 animate-in fade-in slide-in-from-bottom-2 fill-mode-both"
+                >
+                  <div className="flex items-center gap-3 min-w-0 flex-1 truncate pr-4">
+                    <div className="w-36 sm:w-48 md:w-56 shrink-0 truncate text-sm font-medium text-foreground">
+                      {selectedContext.type === 'team' ? shift.employee : shift.team}
+                    </div>
+
+                    <div className="flex min-w-0 flex-1 items-center gap-x-3 truncate text-xs text-muted-foreground">
+                      {shift.note && <span className="truncate italic text-muted-foreground/60">{shift.note}</span>}
+                      <span className="font-mono text-xs opacity-75">
+                        {shift.start} - {shift.end}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-5 shrink-0">
+                    <span className="font-mono text-xs font-medium tabular-nums text-foreground">
+                      {shift.duration}h
+                    </span>
+
+                    <div className="flex items-center gap-1.5 w-28 justify-end">
+                      <span
+                        className={`size-1.5 rounded-full ${
+                          shift.status === 'approved' ? 'bg-emerald-500' : 'bg-amber-500'
+                        }`}
+                      />
+                      <span className="text-[11px] font-medium text-muted-foreground">
+                        {shift.status === 'approved' ? t('timereports.status.approved') : t('timereports.status.pending_attest')}
+                      </span>
+                    </div>
+
+                    <span className="font-mono text-xs tabular-nums text-muted-foreground/60 w-24 text-right">
+                      {shift.date}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex w-full flex-col text-sm">
+              {monthlySummary.map((m, idx) => (
+                <div
+                  key={m.month}
+                  style={{ animationDelay: `${idx * 25}ms` }}
+                  className="group flex h-12 cursor-pointer items-center justify-between border-b border-border/40 px-6 transition-all duration-300 hover:bg-secondary/40 animate-in fade-in slide-in-from-bottom-2 fill-mode-both"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="flex size-6 shrink-0 items-center justify-center text-muted-foreground/70 transition-colors group-hover:text-primary">
+                      <FileCheck className="h-4 w-4" />
+                    </div>
+                    <span className="w-48 truncate text-sm font-medium text-foreground group-hover:text-primary">
+                      {m.month}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-6 text-xs text-muted-foreground">
+                    <span className="font-mono">
+                      <span className="text-muted-foreground/60">{t('timereports.work_time')}:</span>{' '}
+                      <span className="text-foreground font-medium">{Math.round(m.hours * 10) / 10}h</span>
+                    </span>
+                    <span className="text-muted-foreground/40">·</span>
+                    <span>{m.count} pass registrerade</span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-tight tabular-nums text-muted-foreground/80">
+                      <span className="size-1.5 rounded-full bg-emerald-500 shrink-0" />
+                      <span>{m.approvedCount} / {m.count} attesterade</span>
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     )
   }
 
   return (
     <div className="relative flex h-full flex-1 flex-col bg-background selection:bg-primary/20">
-      {/* Top Header - Tabs & Back Button */}
+      {/* Top Header - Tabs & Back Button & Rapportera tid Button */}
       <div className="sticky top-0 z-20 flex h-12 shrink-0 items-center justify-between border-b border-border/50 bg-background/50 px-6 backdrop-blur-md">
         <div className="flex items-center gap-3">
           {onBack && (
@@ -254,6 +359,17 @@ export const ShiftSystem: React.FC<ShiftSystemProps> = ({
             </button>
           </div>
         </div>
+
+        {onOpenReportDialog && (
+          <Button
+            size="sm"
+            onClick={onOpenReportDialog}
+            className="h-8 gap-1.5 rounded-md px-3 text-xs font-medium"
+          >
+            <Clock className="size-3.5" />
+            <span>{t('timereports.report_time_btn', 'Rapportera tid')}</span>
+          </Button>
+        )}
       </div>
 
       {listMode === 'history' ? (
@@ -262,7 +378,7 @@ export const ShiftSystem: React.FC<ShiftSystemProps> = ({
         <div className="flex min-h-0 flex-1 flex-col">
           {/* Subheader Controls - Filter, Actions, Search, Pagination */}
           <div className="flex h-12 shrink-0 items-center justify-between border-b border-border/50 bg-background/30 px-6 backdrop-blur-sm">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
               <div className="flex items-center justify-center">
                 <Checkbox
                   checked={isAllSelected}
@@ -272,9 +388,9 @@ export const ShiftSystem: React.FC<ShiftSystemProps> = ({
                 />
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 <Select value={filterType} onValueChange={setFilterType}>
-                  <SelectTrigger className="h-8 w-[150px] border-border/50 bg-muted/50 text-xs font-medium text-foreground">
+                  <SelectTrigger className="h-8 w-[140px] border-border/50 bg-muted/50 text-xs font-medium text-foreground">
                     <SelectValue placeholder={t('timereports.filter_status')} />
                   </SelectTrigger>
                   <SelectContent>
@@ -293,13 +409,26 @@ export const ShiftSystem: React.FC<ShiftSystemProps> = ({
                     </SelectItem>
                   </SelectContent>
                 </Select>
+
+                <Select value={sortBy} onValueChange={(val) => setSortBy(val as any)}>
+                  <SelectTrigger className="h-8 w-[140px] border-border/50 bg-muted/50 text-xs font-medium text-foreground">
+                    <SelectValue placeholder={t('timereports.sort_by', 'Sortering')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="date_desc">{t('timereports.sort_date_desc', 'Datum (Nyast)')}</SelectItem>
+                    <SelectItem value="date_asc">{t('timereports.sort_date_asc', 'Datum (Äldst)')}</SelectItem>
+                    <SelectItem value="hours_desc">{t('timereports.sort_hours_desc', 'Timmar (Flest)')}</SelectItem>
+                    <SelectItem value="hours_asc">{t('timereports.sort_hours_asc', 'Timmar (Minst)')}</SelectItem>
+                    <SelectItem value="target">{t('timereports.sort_team', 'Team / Brukare')}</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               {selectedShifts.length > 0 && (
                 <div className="ml-2 flex items-center gap-2 border-l border-border/50 pl-4 duration-200 animate-in fade-in slide-in-from-left-2">
                   {currentShifts.filter((s) => selectedShifts.includes(s.id)).some((s) => s.status === 'not_submitted') && (
                     <Button
-                      onClick={handleReport}
+                      onClick={() => handleReport()}
                       size="sm"
                       className="h-8 gap-1.5 px-3 text-xs font-medium"
                     >
@@ -307,15 +436,15 @@ export const ShiftSystem: React.FC<ShiftSystemProps> = ({
                       Rapportera valda ({currentShifts.filter((s) => selectedShifts.includes(s.id) && s.status === 'not_submitted').length})
                     </Button>
                   )}
-                  {hasApprovePermission && (
+                  {hasApprovePermission && currentShifts.filter((s) => selectedShifts.includes(s.id)).some((s) => s.status === 'pending_attest') && (
                     <Button
-                      onClick={handleApprove}
+                      onClick={() => handleApprove()}
                       variant="default"
                       size="sm"
-                      className="h-8 gap-1.5 px-3 text-xs font-medium"
+                      className="h-8 gap-1.5 px-3 text-xs font-medium bg-emerald-600 text-white hover:bg-emerald-700"
                     >
                       <FileCheck className="h-3.5 w-3.5" />
-                      {t('timereports.approve_count', { count: selectedShifts.length })}
+                      {t('timereports.approve_count', { count: currentShifts.filter((s) => selectedShifts.includes(s.id) && s.status === 'pending_attest').length })}
                     </Button>
                   )}
                   <Button
@@ -401,8 +530,8 @@ export const ShiftSystem: React.FC<ShiftSystemProps> = ({
                             setSelectedShifts((prev) =>
                               Array.isArray(prev)
                                 ? prev.includes(shift.id)
-                                  ? prev.filter((s) => s !== shift.id)
-                                  : [...prev, shift.id]
+                                ? prev.filter((s) => s !== shift.id)
+                                : [...prev, shift.id]
                                 : [shift.id],
                             )
                           }
@@ -430,10 +559,40 @@ export const ShiftSystem: React.FC<ShiftSystemProps> = ({
                         </div>
                       </div>
 
-                      {/* Status & Date - identical to Inbox */}
-                      <div className="flex w-52 shrink-0 items-center justify-end gap-4">
+                      {/* Status, Row Action & Date */}
+                      <div className="flex w-64 shrink-0 items-center justify-end gap-3">
+                        {shift.status === 'not_submitted' && (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleReport([shift.id])
+                            }}
+                            className="h-6 px-2 text-[11px] gap-1 hover:bg-primary hover:text-primary-foreground font-medium transition-colors"
+                          >
+                            <Check className="size-3" />
+                            <span>{t('timereports.report_direct', 'Rapportera')}</span>
+                          </Button>
+                        )}
+
+                        {shift.status === 'pending_attest' && hasApprovePermission && (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleApprove([shift.id])
+                            }}
+                            className="h-6 px-2 text-[11px] gap-1 hover:bg-emerald-600 hover:text-white font-medium transition-colors"
+                          >
+                            <FileCheck className="size-3" />
+                            <span>{t('timereports.approve_direct', 'Attestera')}</span>
+                          </Button>
+                        )}
+
                         <StatusBadge status={shift.status} />
-                        <span className="font-mono text-xs tabular-nums text-muted-foreground/60">
+                        <span className="font-mono text-xs tabular-nums text-muted-foreground/60 w-20 text-right">
                           {shift.date}
                         </span>
                       </div>

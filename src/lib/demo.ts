@@ -209,6 +209,54 @@ function seed() {
       metadata: { category: 'administrative_hours', description: 'Sista dag att lämna in sommaransökan.', location: '', isAllDay: true, attendees: [] },
       created_at: iso(now - 2 * day),
     },
+    {
+      id: 'e-7',
+      workspace_id: DEMO_WORKSPACE_ID,
+      user_id: DEMO_USER_ID,
+      team_id: 't-norr',
+      assignee_id: DEMO_USER_ID,
+      title: 'Förmiddagspass hos Greta Lindgren',
+      start_time: iso(at(-1, 8)),
+      end_time: iso(at(-1, 16)),
+      metadata: { category: 'schedule', description: 'Assistanstimmar och lunchstöd', location: 'Lindgren, Norr', isAllDay: false, attendees: [DEMO_USER_ID] },
+      created_at: iso(now - 2 * day),
+    },
+    {
+      id: 'e-8',
+      workspace_id: DEMO_WORKSPACE_ID,
+      user_id: DEMO_USER_ID,
+      team_id: 't-norr',
+      assignee_id: DEMO_USER_ID,
+      title: 'Kvällspass och medicinöverlämning',
+      start_time: iso(at(-2, 16)),
+      end_time: iso(at(-2, 21)),
+      metadata: { category: 'schedule', description: 'Kvällsrutin och dokumentation', location: 'Lindgren, Norr', isAllDay: false, attendees: [DEMO_USER_ID] },
+      created_at: iso(now - 3 * day),
+    },
+    {
+      id: 'e-9',
+      workspace_id: DEMO_WORKSPACE_ID,
+      user_id: DEMO_USER_ID,
+      team_id: 't-soder',
+      assignee_id: DEMO_USER_ID,
+      title: 'Helgpass hos Torsten Holm',
+      start_time: iso(at(-3, 9)),
+      end_time: iso(at(-3, 17)),
+      metadata: { category: 'schedule', description: 'Dagaktiviteter och promenad', location: 'Södermalm', isAllDay: false, attendees: [DEMO_USER_ID] },
+      created_at: iso(now - 4 * day),
+    },
+    {
+      id: 'e-10',
+      workspace_id: DEMO_WORKSPACE_ID,
+      user_id: 'u-sara',
+      team_id: 't-norr',
+      assignee_id: 'u-sara',
+      title: 'Extrapass Norr',
+      start_time: iso(at(-2, 8)),
+      end_time: iso(at(-2, 16)),
+      metadata: { category: 'schedule', description: 'Täckte upp för kollega', location: 'Norr', isAllDay: false, attendees: ['u-sara'] },
+      created_at: iso(now - 3 * day),
+    },
   ]
 
   const messages: DemoRow[] = [
@@ -331,10 +379,11 @@ function seed() {
   ]
 
   const time_reports: DemoRow[] = [
-    { id: 'tr-1', workspace_id: DEMO_WORKSPACE_ID, user_id: 'u-erik', shift_id: null, date: iso(at(-1, 8)), start_time: iso(at(-1, 8)), end_time: iso(at(-1, 16)), breaks: 30, status: 'approved', category: 'assistance', created_at: iso(at(-1, 16)) },
-    { id: 'tr-2', workspace_id: DEMO_WORKSPACE_ID, user_id: 'u-sara', shift_id: null, date: iso(at(-1, 9)), start_time: iso(at(-1, 9)), end_time: iso(at(-1, 15)), breaks: 45, status: 'approved', category: 'assistance', created_at: iso(at(-1, 15)) },
-    { id: 'tr-3', workspace_id: DEMO_WORKSPACE_ID, user_id: 'u-johan', shift_id: null, date: iso(at(0, 8)), start_time: iso(at(0, 8)), end_time: null, breaks: 0, status: 'pending', category: 'on_call', created_at: iso(at(0, 8)) },
-    { id: 'tr-4', workspace_id: DEMO_WORKSPACE_ID, user_id: 'u-maria', shift_id: null, date: iso(at(0, 7)), start_time: iso(at(0, 7)), end_time: iso(at(0, 15)), breaks: 30, status: 'pending', category: 'schedule', created_at: iso(at(0, 15)) },
+    { id: 'tr-1', workspace_id: DEMO_WORKSPACE_ID, user_id: 'u-erik', team_id: 't-norr', shift_id: null, date: iso(at(-4, 8)), start_time: '08:00', end_time: '16:00', hours: 8, breaks: 30, status: 'approved', note: 'Ordinarie dagpass', category: 'assistance', created_at: iso(at(-4, 16)) },
+    { id: 'tr-2', workspace_id: DEMO_WORKSPACE_ID, user_id: 'u-sara', team_id: 't-norr', shift_id: null, date: iso(at(-3, 9)), start_time: '09:00', end_time: '15:00', hours: 6, breaks: 45, status: 'approved', note: 'Assistanstimmar', category: 'assistance', created_at: iso(at(-3, 15)) },
+    { id: 'tr-3', workspace_id: DEMO_WORKSPACE_ID, user_id: 'u-johan', team_id: 't-soder', shift_id: null, date: iso(at(-1, 8)), start_time: '08:00', end_time: '16:00', hours: 8, breaks: 0, status: 'pending_attest', note: 'Beredskapspass', category: 'on_call', created_at: iso(at(-1, 16)) },
+    { id: 'tr-4', workspace_id: DEMO_WORKSPACE_ID, user_id: 'u-maria', team_id: 't-soder', shift_id: null, date: iso(at(-2, 7)), start_time: '07:00', end_time: '15:00', hours: 8, breaks: 30, status: 'pending_attest', note: 'Schemapass söder', category: 'schedule', created_at: iso(at(-2, 15)) },
+    { id: 'tr-5', workspace_id: DEMO_WORKSPACE_ID, user_id: DEMO_USER_ID, team_id: 't-norr', shift_id: null, date: iso(at(-5, 8)), start_time: '08:00', end_time: '16:00', hours: 8, breaks: 30, status: 'approved', note: 'Helgdagsassistans', category: 'schedule', created_at: iso(at(-5, 16)) },
   ]
 
   return {

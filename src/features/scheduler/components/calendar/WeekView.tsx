@@ -146,27 +146,29 @@ export const WeekView: React.FC<WeekViewProps> = React.memo(({
                   }}
                   title={locale.startsWith('sv') ? `Visa ${day.name} ${day.dayOfMonth}` : `View ${day.name} ${day.dayOfMonth}`}
                   className={cn(
-                    'group px-2 py-2.5 text-center transition-colors cursor-pointer hover:bg-muted/40 focus:outline-none focus-visible:ring-1 focus-visible:ring-primary',
+                    'group px-2 py-2.5 text-center transition-colors cursor-pointer hover:bg-muted/40 focus:outline-none',
                     day.isWeekend && 'bg-muted/15',
-                    isSelected && !day.isToday && 'bg-primary/[0.05]',
-                    day.isToday && 'bg-primary/[0.08]'
+                    isSelected && !day.isToday && 'bg-secondary/30',
+                    day.isToday && 'bg-primary/[0.04]'
                   )}
                 >
                   <div
                     className={cn(
                       'text-[11px] font-medium uppercase tracking-wider transition-colors',
-                      day.isToday || isSelected
+                      day.isToday
                         ? 'text-primary font-semibold'
-                        : 'text-muted-foreground group-hover:text-foreground'
+                        : isSelected
+                          ? 'text-foreground font-semibold'
+                          : 'text-muted-foreground group-hover:text-foreground'
                     )}
                   >
                     {day.name}
                   </div>
                   <div
                     className={cn(
-                      'mt-0.5 text-base font-medium transition-transform group-hover:scale-105',
+                      'mt-0.5 text-sm font-medium transition-transform group-hover:scale-105',
                       day.isToday || isSelected
-                        ? 'mx-auto flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-xs'
+                        ? 'mx-auto flex h-7 w-7 items-center justify-center rounded-md bg-secondary text-white font-semibold shadow-xs'
                         : 'text-foreground'
                     )}
                   >

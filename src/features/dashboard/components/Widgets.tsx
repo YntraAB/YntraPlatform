@@ -1,13 +1,14 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
-import { CalendarDays, Calculator } from 'lucide-react'
+import { CalendarDays, Calculator, MapPin, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { useWorkspace } from '@/contexts/WorkspaceContext'
 import { supabase } from '@/lib/supabase'
 import { useTranslation } from 'react-i18next'
-import { cn } from '@/lib/utils'
+import { cn, getCategoryConfig } from '@/lib/utils'
+import type { EventCategory } from '@/types'
 
 // ──────────────────────────────────────────────────────────
 // Types
@@ -19,6 +20,8 @@ interface DashboardEvent {
   end_time: string
   assignee_id?: string
   team_id?: string
+  category?: EventCategory
+  location?: string
 }
 
 interface MonthShift {
@@ -33,6 +36,8 @@ interface MonthShift {
   isReported: boolean
   isPast: boolean
   isToday?: boolean
+  category?: EventCategory
+  location?: string
 }
 
 // ──────────────────────────────────────────────────────────
@@ -131,41 +136,43 @@ function generateDemoShifts(): MonthShift[] {
       endH: number
       endM: number
       isNight?: boolean
+      category: EventCategory
+      location: string
     }
 
     if (dayOfWeek === 1) {
       // Måndag: Personlig assistans (10h) eller Dagpass (9h)
       shiftType = isEvenWeek
-        ? { title: 'Personlig assistans', startH: 7, startM: 30, endH: 17, endM: 30 }
-        : { title: 'Dagpass', startH: 7, startM: 0, endH: 16, endM: 0 }
+        ? { title: 'Personlig assistans', startH: 7, startM: 30, endH: 17, endM: 30, category: 'assistance_time', location: 'Lindgren, Norr' }
+        : { title: 'Dagpass', startH: 7, startM: 0, endH: 16, endM: 0, category: 'other_time', location: 'Södermalm' }
     } else if (dayOfWeek === 2) {
       // Tisdag: Långpass assistans (11.5h) eller Kvällspass (8h)
       shiftType = isEvenWeek
-        ? { title: 'Långpass assistans', startH: 8, startM: 0, endH: 19, endM: 30 }
-        : { title: 'Kvällspass', startH: 14, startM: 30, endH: 22, endM: 30 }
+        ? { title: 'Långpass assistans', startH: 8, startM: 0, endH: 19, endM: 30, category: 'assistance_time', location: 'Kungsgatan 12' }
+        : { title: 'Kvällspass', startH: 14, startM: 30, endH: 22, endM: 30, category: 'other_time', location: 'Lindgren, Norr' }
     } else if (dayOfWeek === 3) {
       // Onsdag: Boendestöd (9h) eller Dagpass (9.5h)
       shiftType = isEvenWeek
-        ? { title: 'Boendestöd', startH: 8, startM: 0, endH: 17, endM: 0 }
-        : { title: 'Dagpass', startH: 7, startM: 0, endH: 16, endM: 30 }
+        ? { title: 'Boendestöd', startH: 8, startM: 0, endH: 17, endM: 0, category: 'respite_care', location: 'Bergströms väg 4' }
+        : { title: 'Dagpass', startH: 7, startM: 0, endH: 16, endM: 30, category: 'other_time', location: 'Södermalm' }
     } else if (dayOfWeek === 4) {
       // Torsdag: Personlig assistans (10h) eller Dagpass (9h)
       shiftType = isEvenWeek
-        ? { title: 'Personlig assistans', startH: 8, startM: 0, endH: 18, endM: 0 }
-        : { title: 'Dagpass', startH: 7, startM: 0, endH: 16, endM: 0 }
+        ? { title: 'Personlig assistans', startH: 8, startM: 0, endH: 18, endM: 0, category: 'assistance_time', location: 'Lindgren, Norr' }
+        : { title: 'Dagpass', startH: 7, startM: 0, endH: 16, endM: 0, category: 'other_time', location: 'Södermalm' }
     } else if (dayOfWeek === 5) {
       // Fredag: Kvällspass (8h) eller Vaken natt (10.5h)
       shiftType = isEvenWeek
-        ? { title: 'Kvällspass', startH: 15, startM: 0, endH: 23, endM: 0 }
-        : { title: 'Vaken natt', startH: 21, startM: 0, endH: 7, endM: 30, isNight: true }
+        ? { title: 'Kvällspass', startH: 15, startM: 0, endH: 23, endM: 0, category: 'other_time', location: 'Lindgren, Norr' }
+        : { title: 'Vaken natt', startH: 21, startM: 0, endH: 7, endM: 30, isNight: true, category: 'on_call', location: 'Kungsgatan 12' }
     } else if (dayOfWeek === 6) {
       // Lördag: Helgpass lång (12h) eller Helgpass dag (9.5h)
       shiftType = isEvenWeek
-        ? { title: 'Helgpass lång', startH: 8, startM: 0, endH: 20, endM: 0 }
-        : { title: 'Helgpass dag', startH: 7, startM: 30, endH: 17, endM: 0 }
+        ? { title: 'Helgpass lång', startH: 8, startM: 0, endH: 20, endM: 0, category: 'assistance_time', location: 'Lindgren, Norr' }
+        : { title: 'Helgpass dag', startH: 7, startM: 30, endH: 17, endM: 0, category: 'other_time', location: 'Södermalm' }
     } else {
       // Söndag: Helgpass kväll (9h)
-      shiftType = { title: 'Helgpass kväll', startH: 13, startM: 0, endH: 22, endM: 0 }
+      shiftType = { title: 'Helgpass kväll', startH: 13, startM: 0, endH: 22, endM: 0, category: 'other_time', location: 'Lindgren, Norr' }
     }
 
     const start = new Date(year, month, d, shiftType.startH, shiftType.startM)
@@ -191,6 +198,8 @@ function generateDemoShifts(): MonthShift[] {
       isReported: isPast,
       isPast,
       isToday,
+      category: shiftType.category,
+      location: shiftType.location,
     })
   }
 
@@ -198,15 +207,25 @@ function generateDemoShifts(): MonthShift[] {
 }
 
 // ──────────────────────────────────────────────────────────
-// AgendaWidget — Today's events as h-12 timeline
+// AgendaWidget — Multi-day timeline with sticky day headers & scroll
 // ──────────────────────────────────────────────────────────
+interface DayGroup {
+  dateKey: string // YYYY-MM-DD
+  date: Date
+  label: string
+  dateFormatted: string
+  isToday: boolean
+  isTomorrow: boolean
+  totalHours: number
+  events: DashboardEvent[]
+}
+
 export const AgendaWidget: React.FC = () => {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { user } = useAuth()
   const { workspaceId } = useWorkspace()
-  const [todayEvents, setTodayEvents] = useState<DashboardEvent[]>([])
-  const [tomorrowEvents, setTomorrowEvents] = useState<DashboardEvent[]>([])
+  const [events, setEvents] = useState<DashboardEvent[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -215,56 +234,77 @@ export const AgendaWidget: React.FC = () => {
 
       const today = new Date()
       today.setHours(0, 0, 0, 0)
-      const tomorrow = new Date(today)
-      tomorrow.setDate(tomorrow.getDate() + 1)
-      const dayAfter = new Date(tomorrow)
-      dayAfter.setDate(dayAfter.getDate() + 1)
+      const futureLimit = new Date(today)
+      futureLimit.setDate(futureLimit.getDate() + 7)
+      futureLimit.setHours(23, 59, 59, 999)
 
       const { data } = await supabase
         .from('events')
-        .select('id, title, start_time, end_time, assignee_id, team_id')
+        .select('id, title, start_time, end_time, assignee_id, team_id, metadata')
         .eq('workspace_id', workspaceId)
         .gte('start_time', today.toISOString())
-        .lt('start_time', dayAfter.toISOString())
+        .lte('start_time', futureLimit.toISOString())
         .order('start_time', { ascending: true })
-        .limit(12)
+        .limit(30)
 
       if (data && data.length > 0) {
-        const todayEnd = tomorrow.toISOString()
-        setTodayEvents(data.filter((e) => e.start_time < todayEnd))
-        setTomorrowEvents(data.filter((e) => e.start_time >= todayEnd))
+        const mapped: DashboardEvent[] = data.map((e: any) => {
+          const meta = (e.metadata as any) || {}
+          return {
+            id: e.id,
+            title: e.title,
+            start_time: e.start_time,
+            end_time: e.end_time,
+            assignee_id: e.assignee_id,
+            team_id: e.team_id,
+            category: meta.category || 'assistance',
+            location: meta.location || '',
+          }
+        })
+        setEvents(mapped)
       } else {
-        // Provide demo events matching current date so the agenda is populated
+        // Generate realistic demo events spanning today and upcoming 7 days
         const demoShifts = generateDemoShifts()
-        const todayDate = today.getDate()
-        const tomorrowDate = tomorrow.getDate()
+        const mappedUpcoming: DashboardEvent[] = []
 
-        const todayShift = demoShifts.find((s) => s.isToday)
-        const tomorrowShift = demoShifts.find((s) => {
-          const parts = s.date.split(' ')
-          return parseInt(parts[1], 10) === tomorrowDate
+        for (let i = 0; i < 7; i++) {
+          const targetDate = new Date(today)
+          targetDate.setDate(today.getDate() + i)
+          const targetDayNum = targetDate.getDate()
+
+          const matchingShift = demoShifts.find((s) => {
+            const parts = s.date.split(' ')
+            return parseInt(parts[1], 10) === targetDayNum
+          })
+
+          if (matchingShift) {
+            const [startH, startM] = matchingShift.startTime.split(':').map(Number)
+            const [endH, endM] = matchingShift.endTime.split(':').map(Number)
+
+            mappedUpcoming.push({
+              id: `demo-${i}-${targetDayNum}`,
+              title: matchingShift.title,
+              start_time: new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), startH, startM).toISOString(),
+              end_time: new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), endH, endM).toISOString(),
+              category: matchingShift.category || 'assistance_time',
+              location: matchingShift.location || 'Lindgren, Norr',
+            })
+          }
+        }
+
+        // Add a secondary afternoon/evening shift today to demonstrate multiple passes in a day
+        mappedUpcoming.push({
+          id: 'demo-today-extra',
+          title: 'Avlösarservice',
+          start_time: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 17, 0).toISOString(),
+          end_time: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 21, 30).toISOString(),
+          category: 'respite_care',
+          location: 'Kungsgatan 12',
         })
 
-        const mappedToday: DashboardEvent[] = todayShift
-          ? [{
-              id: todayShift.id,
-              title: todayShift.title,
-              start_time: new Date(today.getFullYear(), today.getMonth(), todayDate, parseInt(todayShift.startTime.split(':')[0], 10), parseInt(todayShift.startTime.split(':')[1], 10)).toISOString(),
-              end_time: new Date(today.getFullYear(), today.getMonth(), todayDate, parseInt(todayShift.endTime.split(':')[0], 10), parseInt(todayShift.endTime.split(':')[1], 10)).toISOString(),
-            }]
-          : []
-
-        const mappedTomorrow: DashboardEvent[] = tomorrowShift
-          ? [{
-              id: tomorrowShift.id,
-              title: tomorrowShift.title,
-              start_time: new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrowDate, parseInt(tomorrowShift.startTime.split(':')[0], 10), parseInt(tomorrowShift.startTime.split(':')[1], 10)).toISOString(),
-              end_time: new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrowDate, parseInt(tomorrowShift.endTime.split(':')[0], 10), parseInt(tomorrowShift.endTime.split(':')[1], 10)).toISOString(),
-            }]
-          : []
-
-        setTodayEvents(mappedToday)
-        setTomorrowEvents(mappedTomorrow)
+        // Sort events chronologically
+        mappedUpcoming.sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
+        setEvents(mappedUpcoming)
       }
       setLoading(false)
     }
@@ -275,133 +315,226 @@ export const AgendaWidget: React.FC = () => {
   const formatTime = (iso: string) =>
     new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
+  // Group events by day with localized headers
+  const dayGroups: DayGroup[] = useMemo(() => {
+    const now = new Date()
+    const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    const tom = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+    const tomorrowKey = `${tom.getFullYear()}-${String(tom.getMonth() + 1).padStart(2, '0')}-${String(tom.getDate()).padStart(2, '0')}`
+
+    const groupsMap = new Map<string, DashboardEvent[]>()
+
+    for (const e of events) {
+      const d = new Date(e.start_time)
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      if (!groupsMap.has(key)) {
+        groupsMap.set(key, [])
+      }
+      groupsMap.get(key)!.push(e)
+    }
+
+    const weekdays = ['Söndag', 'Måndag', 'Tisdag', 'Onsdag', 'Torsdag', 'Fredag', 'Lördag']
+    const sortedKeys = Array.from(groupsMap.keys()).sort()
+
+    return sortedKeys.map((key) => {
+      const dayEvts = groupsMap.get(key)!
+      dayEvts.sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
+
+      const [y, m, d] = key.split('-').map(Number)
+      const dateObj = new Date(y, m - 1, d)
+      const isToday = key === todayKey
+      const isTomorrow = key === tomorrowKey
+
+      let label = ''
+      if (isToday) {
+        label = t('dashboard.today', 'Idag')
+      } else if (isTomorrow) {
+        label = t('dashboard.tomorrow', 'Imorgon')
+      } else {
+        label = weekdays[dateObj.getDay()]
+      }
+
+      const dateFormatted = dateObj.toLocaleDateString('sv-SE', {
+        day: 'numeric',
+        month: 'short',
+      }).replace('.', '')
+
+      const totalHours = Math.round(dayEvts.reduce((acc, e) => {
+        const diff = new Date(e.end_time).getTime() - new Date(e.start_time).getTime()
+        return acc + Math.max(0, diff) / (1000 * 60 * 60)
+      }, 0) * 10) / 10
+
+      return {
+        dateKey: key,
+        date: dateObj,
+        label,
+        dateFormatted,
+        isToday,
+        isTomorrow,
+        totalHours,
+        events: dayEvts,
+      }
+    })
+  }, [events, t])
+
+  const totalEventCount = events.length
+  const totalAllHours = Math.round(events.reduce((acc, e) => {
+    const diff = new Date(e.end_time).getTime() - new Date(e.start_time).getTime()
+    return acc + Math.max(0, diff) / (1000 * 60 * 60)
+  }, 0) * 10) / 10
+
   const renderEventRow = (event: DashboardEvent, idx: number) => {
     const now = new Date()
     const start = new Date(event.start_time)
     const end = new Date(event.end_time)
     const isActive = now >= start && now <= end
     const isPast = now > end
+    const categoryConfig = getCategoryConfig(event.category || 'other')
+
+    const diffMs = end.getTime() - start.getTime()
+    const hours = Math.round((Math.max(0, diffMs) / (1000 * 60 * 60)) * 10) / 10
 
     return (
       <div
         key={event.id}
         onClick={() => navigate('/schedule')}
-        style={{ animationDelay: `${idx * 25}ms` }}
-        className="group flex h-12 cursor-pointer items-center border-b border-border/70 px-4 transition-colors hover:bg-secondary/40 animate-in fade-in slide-in-from-bottom-1 fill-mode-both"
+        style={{ animationDelay: `${Math.min(idx * 20, 200)}ms` }}
+        className="group flex h-12 cursor-pointer items-center justify-between border-b border-border/40 px-4 transition-colors hover:bg-secondary/40 animate-in fade-in slide-in-from-bottom-1 fill-mode-both"
       >
-        <div className="mr-3.5 flex w-14 shrink-0 flex-col items-end">
-          <span className={cn(
-            'text-xs tabular-nums font-medium',
-            isActive ? 'text-foreground' : isPast ? 'text-muted-foreground/60' : 'text-foreground'
-          )}>
-            {formatTime(event.start_time)}
-          </span>
-          <span className={cn(
-            'text-[10px] tabular-nums',
-            isPast ? 'text-muted-foreground/40' : 'text-muted-foreground'
-          )}>
-            {formatTime(event.end_time)}
-          </span>
-        </div>
-
-        {/* Vertical timeline indicator line — 3.5px width for crisp visibility */}
-        <div
-          className={cn(
-            'mr-3.5 h-7 w-[3.5px] shrink-0 rounded-full transition-colors',
-            isActive
-              ? 'bg-emerald-500 shadow-xs'
-              : isPast
-                ? 'bg-muted-foreground/25'
-                : 'bg-muted-foreground/50 group-hover:bg-foreground'
-          )}
-        />
-
-        <div className={cn(
-          'min-w-0 flex-1 truncate text-xs transition-colors',
-          isPast ? 'font-normal text-muted-foreground/60' : 'font-medium text-foreground'
-        )}>
-          {event.title}
-        </div>
-
-        {isActive && (
-          <div className="flex shrink-0 items-center gap-1.5 text-xs text-emerald-500 dark:text-emerald-400">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
-            <span className="font-medium text-[11px]">Nu</span>
+        {/* Left: Time and slim vertical category accent bar */}
+        <div className="flex shrink-0 items-center gap-2.5">
+          <div className="w-12 text-right">
+            <div className={cn(
+              'font-mono text-xs tabular-nums leading-tight font-medium',
+              isActive ? 'text-primary font-semibold' : isPast ? 'text-muted-foreground/60' : 'text-foreground'
+            )}>
+              {formatTime(event.start_time)}
+            </div>
+            <div className="font-mono text-[10.5px] tabular-nums text-muted-foreground/60 leading-tight">
+              {formatTime(event.end_time)}
+            </div>
           </div>
-        )}
+
+          <div
+            className="h-6 w-0.5 shrink-0 rounded-full transition-transform group-hover:scale-y-110"
+            style={{ backgroundColor: categoryConfig.color || 'hsl(var(--border))' }}
+          />
+        </div>
+
+        {/* Center: Title & Location */}
+        <div className="min-w-0 flex-1 truncate px-2.5">
+          <div className={cn(
+            'truncate text-xs font-medium leading-snug transition-colors group-hover:text-primary',
+            isPast ? 'text-muted-foreground/70 font-normal' : 'text-foreground'
+          )}>
+            {event.title}
+          </div>
+          {event.location && (
+            <div className="flex items-center gap-1 text-[10.5px] text-muted-foreground/60 leading-tight mt-0.5 truncate">
+              <MapPin className="size-2.5 shrink-0 opacity-60" />
+              <span className="truncate">{event.location}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Right: Status (Pågår) + Hours + Category badge */}
+        <div className="flex shrink-0 items-center gap-2.5 text-xs">
+          {isActive && (
+            <div className="flex items-center gap-1 text-[10.5px] text-emerald-500 font-medium">
+              <span className="size-1.5 rounded-full bg-emerald-500 shrink-0" />
+              <span>Pågår</span>
+            </div>
+          )}
+
+          <span className="font-mono text-[11px] text-muted-foreground/60 tabular-nums">
+            {hours}h
+          </span>
+
+          <span
+            className="inline-flex shrink-0 items-center rounded px-2 py-0.5 text-[10px] font-medium"
+            style={{
+              backgroundColor: categoryConfig.bgColor,
+              color: categoryConfig.color,
+            }}
+          >
+            {t(categoryConfig.label)}
+          </span>
+        </div>
       </div>
     )
   }
 
   return (
-    <Card className="flex flex-col rounded-lg border border-border/70 bg-card shadow-xs overflow-hidden p-0 py-0 gap-0">
-      <div className="flex h-11 shrink-0 items-center justify-between border-b border-border/70 px-4 bg-muted/10">
+    <Card className="flex flex-col h-full max-h-[480px] rounded-lg border border-border/70 bg-card shadow-2xs overflow-hidden p-0 py-0 gap-0">
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border/70 px-4 bg-secondary/20">
         <div className="flex items-center gap-2">
-          <CalendarDays className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-medium tracking-tight text-foreground">
-            {t('dashboard.agenda', 'Dagens Agenda')}
+          <CalendarDays className="size-3.5 text-muted-foreground" />
+          <span className="text-xs font-medium tracking-tight text-foreground">
+            {t('dashboard.agenda', 'Dagens agenda')}
           </span>
+          {!loading && totalEventCount > 0 && (
+            <span className="text-[11px] font-mono text-muted-foreground/60 tabular-nums">
+              ({totalEventCount} {totalEventCount === 1 ? 'pass' : 'pass'} · {totalAllHours}h)
+            </span>
+          )}
         </div>
-        {!loading && (
-          <span className="rounded border border-border/70 bg-secondary/70 px-2 py-0.5 text-[10.5px] font-medium text-foreground/80 tabular-nums">
-            {todayEvents.length + tomorrowEvents.length} {todayEvents.length + tomorrowEvents.length === 1 ? 'pass' : 'pass'}
-          </span>
-        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => navigate('/schedule')}
+          className="h-7 gap-1 px-2 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <span>{t('dashboard.go_to_schedule', 'Öppna schema')}</span>
+          <ChevronRight className="size-3 text-muted-foreground/60" />
+        </Button>
       </div>
-      <CardContent className="flex flex-1 flex-col p-0 gap-0">
+
+      <CardContent className="flex flex-1 flex-col p-0 min-h-0 overflow-hidden">
         {loading ? (
           <div className="flex w-full flex-col">
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="flex h-12 w-full animate-pulse items-center border-b border-border/70 px-4">
-                <div className="mr-3.5 flex w-14 shrink-0 flex-col items-end gap-1">
-                  <div className="h-3 w-10 rounded bg-muted" />
-                  <div className="h-2 w-8 rounded bg-muted/60" />
+              <div key={i} className="flex h-12 w-full animate-pulse items-center border-b border-border/40 px-4">
+                <div className="mr-2.5 flex w-12 shrink-0 flex-col items-end gap-1">
+                  <div className="h-2.5 w-10 rounded bg-muted/60" />
+                  <div className="h-2 w-8 rounded bg-muted/40" />
                 </div>
-                <div className="mr-3.5 h-7 w-[3.5px] shrink-0 rounded-full bg-muted" />
-                <div className="h-3.5 w-32 rounded bg-muted" />
+                <div className="h-6 w-0.5 shrink-0 rounded-full bg-muted/40 mr-3" />
+                <div className="flex-1 space-y-1">
+                  <div className="h-3 w-32 rounded bg-muted/60" />
+                  <div className="h-2 w-20 rounded bg-muted/30" />
+                </div>
+                <div className="h-4 w-12 rounded bg-muted/40" />
               </div>
             ))}
           </div>
-        ) : todayEvents.length === 0 && tomorrowEvents.length === 0 ? (
+        ) : dayGroups.length === 0 ? (
           <div className="flex h-36 flex-col items-center justify-center text-muted-foreground py-6">
-            <CalendarDays className="mb-2 h-6 w-6 opacity-20" />
-            <p className="text-xs font-normal">{t('dashboard.no_agenda', 'Inga planerade pass')}</p>
+            <CalendarDays className="mb-2 size-6 opacity-20" />
+            <p className="text-xs font-medium text-foreground">{t('dashboard.no_agenda', 'Inga planerade pass')}</p>
+            <p className="text-[11px] text-muted-foreground/60 mt-0.5">{t('scheduler.no_events_help', 'Dina schemalagda pass visas här.')}</p>
           </div>
         ) : (
-          <div className="flex w-full flex-col text-sm">
-            {todayEvents.length > 0 && (
-              <>
-                <div className="flex h-7 items-center border-b border-border/70 bg-muted/25 px-4">
-                  <span className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    {t('dashboard.today', 'Idag')}
+          <div className="flex-1 min-h-0 overflow-y-auto scrollbar-dark">
+            {dayGroups.map((group) => (
+              <div key={group.dateKey} className="flex flex-col">
+                <div className="sticky top-0 z-10 flex h-7 shrink-0 items-center justify-between border-b border-border/40 bg-secondary/85 px-4 backdrop-blur-xs">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] font-medium text-foreground/90">
+                      {group.label}
+                    </span>
+                    <span className="text-[10.5px] font-mono text-muted-foreground/50">
+                      · {group.dateFormatted}
+                    </span>
+                  </div>
+                  <span className="text-[10.5px] font-mono text-muted-foreground/60 tabular-nums">
+                    {group.events.length} {group.events.length === 1 ? 'pass' : 'pass'} · {group.totalHours}h
                   </span>
                 </div>
-                {todayEvents.map((e, i) => renderEventRow(e, i))}
-              </>
-            )}
-
-            {tomorrowEvents.length > 0 && (
-              <>
-                <div className="flex h-7 items-center border-b border-border/70 bg-muted/25 px-4">
-                  <span className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    {t('dashboard.tomorrow', 'Imorgon')}
-                  </span>
-                </div>
-                {tomorrowEvents.map((e, i) => renderEventRow(e, todayEvents.length + i))}
-              </>
-            )}
+                {group.events.map((e, i) => renderEventRow(e, i))}
+              </div>
+            ))}
           </div>
         )}
-
-        <div className="p-3">
-          <Button
-            variant="outline"
-            className="h-9 w-full rounded-md border border-border/80 bg-background text-xs font-medium text-foreground hover:bg-secondary hover:text-foreground transition-colors shadow-none"
-            onClick={() => navigate('/schedule')}
-          >
-            {t('dashboard.go_to_schedule', 'Öppna schema')}
-          </Button>
-        </div>
       </CardContent>
     </Card>
   )
@@ -525,8 +658,8 @@ export const SalaryCalculatorWidget: React.FC = () => {
 
   if (loading) {
     return (
-      <Card className="flex flex-col rounded-lg border border-border/70 bg-card shadow-none overflow-hidden p-0 py-0 gap-0">
-        <div className="flex h-11 shrink-0 items-center justify-between border-b border-border/70 px-4 bg-muted/10">
+      <Card className="flex flex-col h-full max-h-[480px] rounded-lg border border-border/70 bg-card shadow-2xs overflow-hidden p-0 py-0 gap-0">
+        <div className="flex h-12 shrink-0 items-center justify-between border-b border-border/70 px-4 bg-secondary/20">
           <div className="h-3.5 w-24 rounded bg-muted/60" />
         </div>
         <CardContent className="p-4 pt-3.5">
@@ -545,11 +678,11 @@ export const SalaryCalculatorWidget: React.FC = () => {
   }
 
   return (
-    <Card className="flex flex-col rounded-lg border border-border/70 bg-card shadow-none overflow-hidden p-0 py-0 gap-0">
-      <div className="flex h-11 shrink-0 items-center justify-between border-b border-border/70 px-4 bg-muted/10">
+    <Card className="flex flex-col h-full max-h-[480px] rounded-lg border border-border/70 bg-card shadow-2xs overflow-hidden p-0 py-0 gap-0">
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border/70 px-4 bg-secondary/20">
         <div className="flex items-center gap-2">
-          <Calculator className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-medium tracking-tight text-foreground">
+          <Calculator className="size-3.5 text-muted-foreground" />
+          <span className="text-xs font-medium tracking-tight text-foreground">
             {t('dashboard.salary_prediction', 'Lönprognos')}
           </span>
         </div>
@@ -557,7 +690,7 @@ export const SalaryCalculatorWidget: React.FC = () => {
           {monthName}
         </span>
       </div>
-      <CardContent className="flex flex-col p-4 pt-3">
+      <CardContent className="flex flex-1 flex-col p-4 pt-3 min-h-0 overflow-y-auto scrollbar-dark">
         {/* Subheader with shift count and hours */}
         <div className="flex items-center justify-between pb-2 px-0.5 text-[11px]">
           <span className="font-medium text-foreground/80">

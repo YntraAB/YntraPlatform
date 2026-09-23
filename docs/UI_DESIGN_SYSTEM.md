@@ -463,3 +463,21 @@ Innan en vy eller modal godkänns:
 - [ ] Är felsidan dämpad och fri från röd neon?
 - [ ] Respekteras "gör inte för mycket" (inga popovers, tooltips eller pulsande prickar)?
 
+---
+
+## 15. Tidrapportering & Attestering Standard
+
+Tidshanteringen (`/timereports`) följer strikt Inkorg-standarden med specialanpassad ergonomi för personal och arbetsledare:
+
+### 15.1 Flikstruktur & Navigering
+- **Att rapportera (`to_report`)**: Primär vy för assistenter och medarbetare. Visar genomförda men ännu orapporterade pass med direktknapp för enskild rapportering samt flervalsmarkering för massrapportering.
+- **Att attestera (`to_attest`)**: Arbetsledarvy för granskning och godkännande av inskickade tidsrapporter. Visar medarbetare, passdetaljer, timmar och stödjer massattestering.
+- **Historik (`history`)**: Fullständig arkivvy med aggregerade KPI-kort (Totalt rapporterat, Attesterat, Väntar på attest), filter per period och sökfunktion.
+- **Team & Medarbetare (`teams`)**: Administrativ vy för organisationsträd och teamöversikt.
+
+### 15.2 Ergonomi för Batch-Åtgärder & Månadsväljare
+- **Månadsfiltrering med Timmarsummering**: Dropdowns aggregerar automatiskt arbetade timmar per period (t.ex. `September 2026 (42h)`), vilket ger direkt överblick utan separata rapportkörningar.
+- **Kompakta Snabbknappar**: Inline-knappar för "Rapportera" och "Attestera" använder `h-7 px-2.5 text-[11px]` med mikro-ikoner (`size-3`).
+- **Nedsänkta Formulärfält**: Manuell tidsregistrering nyttjar `ReportTimeDialog` med nedsänkta fält (`bg-background`), automatisk timberäkning och direkt validering.
+
+

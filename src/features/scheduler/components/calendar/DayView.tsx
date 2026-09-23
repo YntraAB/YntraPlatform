@@ -103,14 +103,14 @@ export const DayView: React.FC<DayViewProps> = React.memo(({
           <div className="flex-1 px-4 py-2.5 text-center">
             <div
               className={cn(
-                'text-[11px] font-semibold uppercase tracking-wider',
-                isToday(selectedDate) ? 'font-bold text-primary' : 'text-muted-foreground'
+                'text-[11px] font-medium uppercase tracking-wider transition-colors',
+                isToday(selectedDate) ? 'text-primary font-semibold' : 'text-muted-foreground'
               )}
             >
               {selectedDate.toLocaleDateString(locale, { weekday: 'long' })}
             </div>
             <div
-              className="mt-0.5 mx-auto flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground font-medium shadow-xs text-base"
+              className="mt-0.5 mx-auto flex h-7 w-7 items-center justify-center rounded-md bg-secondary text-sm font-semibold text-white shadow-xs"
             >
               {selectedDate.getDate()}
             </div>
